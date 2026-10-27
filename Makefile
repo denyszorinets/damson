@@ -1,9 +1,26 @@
 # Damson Makefile. M0 adds build, check, gen, test and dev targets (see CLAUDE.md).
 
 DOCS_DIR := docs
+VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS  := -X github.com/denyszorinets/damson/internal/version.Version=$(VERSION)
 SPHINX   := cd $(DOCS_DIR) && uv run --frozen
 
-.PHONY: docs docs-serve docs-check
+.PHONY: build test vet fmt-check check docs docs-serve docs-check
+
+build: ## Build the damson binary into bin/damson
+	go build -ldflags "$(LDFLAGS)" -o bin/damson ./cmd/damson
+
+test: ## Run Go tests (SQLite; Postgres suites arrive with the store)
+	go test ./...
+
+vet: ## go vet
+	go vet ./...
+
+fmt-check: ## Fail if any Go file is not gofmt-formatted
+	@out=$$(gofmt -l cmd internal pkg plugins 2>/dev/null); \
+	if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
+
+check: fmt-check vet test ## Go checks that exist so far (lint, Postgres and web join in later M0 issues)
 
 docs: ## Build the documentation site into docs/_build/html
 	$(SPHINX) sphinx-build -b html . _build/html
