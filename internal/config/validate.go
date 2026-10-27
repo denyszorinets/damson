@@ -64,7 +64,7 @@ func (c Config) validateAgent(add func(key, format string, args ...any)) {
 	case c.Agent.ControllerURL == "":
 		add("agent.controller_url", "is required, for example wss://damson.example.com")
 	case err != nil || (u.Scheme != "ws" && u.Scheme != "wss") || u.Host == "":
-		add("agent.controller_url", "must be a ws:// or wss:// URL with a host; got %q", c.Agent.ControllerURL)
+		add("agent.controller_url", "must be a ws:// or wss:// URL with a host")
 	}
 	if c.Agent.Token == "" {
 		add("agent.token", "is required (the pool token issued by the controller)")

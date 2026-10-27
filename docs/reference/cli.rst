@@ -24,7 +24,8 @@ Damson ships as one binary, ``damson``. The role is chosen by subcommand
 ``DAMSON_CONFIG`` environment variable) naming a TOML file; see
 :doc:`configuration`. They log JSON to stderr and stop on SIGINT or SIGTERM.
 Invalid configuration prints every problem and exits with status 1; usage
-errors exit with status 2.
+errors exit with status 2. Per-key flags (for example ``--listen``) are
+deferred; ``--config`` is the only flag today.
 
 .. note::
 

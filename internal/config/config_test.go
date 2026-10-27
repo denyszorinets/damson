@@ -166,3 +166,55 @@ func TestRedactedMasksSecrets(t *testing.T) {
 		t.Fatalf("secrets not masked: %+v", c)
 	}
 }
+
+func TestLoadIgnoresNonKeyEnv(t *testing.T) {
+	tests := []struct {
+		name string
+		env  []string
+		want string // expected log.level
+	}{
+		{"KEK ignored", []string{"DAMSON_KEK=x"}, "info"},
+		{"CONFIG ignored", []string{"DAMSON_CONFIG=/x.toml"}, "info"},
+		{"both ignored, key overrides", []string{"DAMSON_KEK=x", "DAMSON_CONFIG=/x.toml", "DAMSON_LOG__LEVEL=debug"}, "debug"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, err := Load(RoleController, "", tt.env)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Log.Level != tt.want {
+				t.Fatalf("log.level = %q, want %q", c.Log.Level, tt.want)
+			}
+		})
+	}
+}
+
+func TestUnknownFileKeyStillFails(t *testing.T) {
+	p := writeFile(t, "[log]\nbogus = 1\n")
+	if _, err := Load(RoleController, p, nil); err == nil {
+		t.Fatal("unknown file key must be an error")
+	}
+}
+
+func TestErrorsDoNotLeakSecrets(t *testing.T) {
+	env := []string{
+		"DAMSON_AGENT__CONTROLLER_URL=https://u:secret@host/?token=abc",
+		"DAMSON_AGENT__TOKEN=agent-tok-xyz",
+		"DAMSON_DATABASE__DRIVER=bogus",
+		"DAMSON_DATABASE__DSN=postgres://u:dsnpass@h/db",
+		"DAMSON_AGENT__SLOTS=0",
+	}
+	_, err := Load(RoleAgent, "", env)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	for _, leak := range []string{"secret", "token=abc", "agent-tok-xyz", "dsnpass"} {
+		if strings.Contains(err.Error(), leak) {
+			t.Errorf("error leaks %q: %v", leak, err)
+		}
+	}
+	if !strings.Contains(err.Error(), "agent.controller_url") {
+		t.Errorf("error should name the key: %v", err)
+	}
+}

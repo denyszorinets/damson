@@ -69,6 +69,7 @@ func FilePath(flagValue string, environ []string) string {
 }
 
 func envProvider(environ []string) *env.Env {
+	known := defaults()
 	return env.Provider(".", env.Opt{
 		Prefix:      EnvPrefix,
 		EnvironFunc: func() []string { return environ },
@@ -78,6 +79,9 @@ func envProvider(environ []string) *env.Env {
 			}
 			k = strings.TrimPrefix(k, EnvPrefix)
 			k = strings.ReplaceAll(strings.ToLower(k), "__", ".")
+			if _, ok := known[k]; !ok {
+				return "", nil // not a config key (for example DAMSON_KEK)
+			}
 			return k, v
 		},
 	})
