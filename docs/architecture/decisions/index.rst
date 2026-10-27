@@ -114,6 +114,9 @@ change nothing until accepted.
    * - 0032
      - :doc:`0032-runtime-loaded-plugins`
      - Proposed
+   * - 0033
+     - :doc:`0033-blueoak-licensed-dev-only-tooling-dependencies`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -150,3 +153,4 @@ change nothing until accepted.
    0030-helm-diff-preview
    0031-manual-approval-steps-and-notifications
    0032-runtime-loaded-plugins
+   0033-blueoak-licensed-dev-only-tooling-dependencies

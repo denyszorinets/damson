@@ -51,7 +51,7 @@ Run `make check` before declaring any task done, and `make docs-check` when docs
    - `pkg/pluginsdk` is a public API. Any change to it updates `plugintest`, its contract suite, and `examples/plugins/hello` in the same change. Keep its dependencies minimal (standard library plus the JSON Schema package).
    - v1 plugins are compiled in only. Do not add runtime plugin loading (Go `plugin` package or executables) without an ADR. Keep plugins compatible with it anyway: each plugin package exports `Plugins() []pluginsdk.Plugin`, uses no `init()` registration, and has no package-level mutable state (ARCHITECTURE §6).
 8. **Protocol changes.** Any change to `internal/protocol` message types updates ARCHITECTURE §7.2 in the same change and stays backward-compatible with protocol N-1.
-9. **No new dependency** without checking the license (MIT, BSD, Apache-2.0, MPL-2.0, ISC are OK; anything else needs an ADR) and noting why in the PR or commit message.
+9. **No new dependency** without checking the license (MIT, BSD, Apache-2.0, MPL-2.0, ISC are OK; anything else needs an ADR; BlueOak-1.0.0 is allowed for dev-only tooling never shipped, ADR-0033) and noting why in the PR or commit message.
 10. **Frontend.**
     - Use the generated API client only.
     - Use shadcn-svelte components from `web/src/lib/components/ui`.
