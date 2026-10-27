@@ -8,3 +8,4 @@ How to contribute to Damson.
 
    workflow
    documentation
+   store

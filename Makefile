@@ -5,13 +5,19 @@ VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev
 LDFLAGS  := -X github.com/denyszorinets/damson/internal/version.Version=$(VERSION)
 SPHINX   := cd $(DOCS_DIR) && uv run --frozen
 
-.PHONY: build test vet fmt-check check docs docs-serve docs-check
+.PHONY: build test test-pg gen vet fmt-check check docs docs-serve docs-check
 
 build: ## Build the damson binary into bin/damson
 	go build -ldflags "$(LDFLAGS)" -o bin/damson ./cmd/damson
 
 test: ## Run Go tests (SQLite; Postgres suites arrive with the store)
 	go test ./...
+
+test-pg: ## Store tests against Postgres (testcontainers; set DAMSON_TEST_POSTGRES_DSN to reuse a server)
+	go test -tags integration -count=1 ./internal/store/...
+
+gen: ## Regenerate sqlc output (version pinned by the go.mod tool directive)
+	go tool sqlc generate
 
 vet: ## go vet
 	go vet ./...
