@@ -37,7 +37,7 @@ const (
 var errUnavailable = errors.New("service unavailable")
 
 // problemFor is the one place that maps an error to a Problem. Detail text for
-// unrecognised errors is deliberately generic: internals (DSNs, SQL) must not
+// unrecognized errors is deliberately generic: internals (DSNs, SQL) must not
 // reach clients.
 func problemFor(err error) Problem {
 	switch {
