@@ -90,6 +90,9 @@ func TestHandlers(t *testing.T) {
 		{"readyz sqlite closed", closed, "GET", "/readyz", 503, api.ProblemContentType, "unavailable"},
 		{"readyz ping fails", fakeStore{pingErr: errors.New("secret-dsn")}, "GET", "/readyz", 503, api.ProblemContentType, "unavailable"},
 		{"readyz version fails", fakeStore{version: 1, versionErr: errors.New("x")}, "GET", "/readyz", 503, api.ProblemContentType, "unavailable"},
+		{"readyz zero version", fakeStore{version: 0}, "GET", "/readyz", 503, api.ProblemContentType, "unavailable"},
+		{"healthz head", fakeStore{}, "HEAD", "/healthz", 200, "application/json", ""},
+		{"readyz head", fakeStore{version: 1}, "HEAD", "/readyz", 200, "application/json", ""},
 		{"readyz ok fake", fakeStore{version: 3}, "GET", "/readyz", 200, "application/json", `"ready"`},
 		{"unknown api", fakeStore{}, "GET", "/api/v1/nope", 404, api.ProblemContentType, "not-found"},
 		{"api root", fakeStore{}, "POST", "/api/", 404, api.ProblemContentType, "not-found"},
@@ -148,7 +151,7 @@ func TestWriteError(t *testing.T) {
 		{"stale", fmt.Errorf("cas: %w", store.ErrStale), 409, "stale"},
 		{"joined", errors.Join(errors.New("a"), store.ErrNotFound), 404, "not-found"},
 		{"unknown", errors.New("pq: password=hunter2"), 500, "internal"},
-		{"nil-ish context", context.DeadlineExceeded, 500, "internal"},
+		{"context deadline is generic 500", context.DeadlineExceeded, 500, "internal"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -193,7 +196,9 @@ func TestStartStop(t *testing.T) {
 	if err := srv.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	resp, err := http.Get("http://" + srv.Addr() + "/readyz")
+	client := &http.Client{Transport: &http.Transport{}}
+	defer client.CloseIdleConnections()
+	resp, err := client.Get("http://" + srv.Addr() + "/readyz")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,8 +211,12 @@ func TestStartStop(t *testing.T) {
 	if err := srv.Stop(sctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := http.Get("http://" + srv.Addr() + "/healthz"); err == nil {
+	client.CloseIdleConnections()
+	if _, err := client.Get("http://" + srv.Addr() + "/healthz"); err == nil {
 		t.Error("server still accepting after Stop")
+	}
+	if got := newServer(t, fakeStore{}, &logs).Addr(); got != "" {
+		t.Errorf("Addr before Start = %q", got)
 	}
 	if err := newServer(t, fakeStore{}, &logs).Stop(ctx); err != nil {
 		t.Errorf("Stop without Start: %v", err)

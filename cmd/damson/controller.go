@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -42,10 +43,15 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 	if err := srv.Start(ctx); err != nil {
 		return err
 	}
-	<-ctx.Done()
-	log.Info("stopping")
+	var serveErr error
+	select {
+	case <-ctx.Done():
+		log.Info("stopping")
+	case serveErr = <-srv.Err():
+		log.Error("http server failed, stopping", "error", serveErr)
+	}
 
 	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
-	return srv.Stop(sctx)
+	return errors.Join(serveErr, srv.Stop(sctx))
 }

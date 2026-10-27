@@ -58,8 +58,11 @@ func problemFor(err error) Problem {
 // logged with the request id; the client only sees the generic problem.
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	p := problemFor(err)
-	if p.Status >= http.StatusInternalServerError {
+	switch {
+	case p.Status == http.StatusInternalServerError:
 		loggerFrom(r).Error("request failed", "status", p.Status, "error", err)
+	case p.Status >= http.StatusBadRequest:
+		loggerFrom(r).Warn("request failed", "status", p.Status, "error", err)
 	}
 	writeProblem(w, r, p)
 }

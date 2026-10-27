@@ -65,7 +65,9 @@ func listenAddr(t *testing.T, buf *syncBuf) string {
 
 func get(t *testing.T, url string) (int, string) {
 	t.Helper()
-	resp, err := http.Get(url)
+	client := &http.Client{Transport: &http.Transport{}}
+	defer client.CloseIdleConnections()
+	resp, err := client.Get(url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,5 +130,21 @@ func TestControllerBadStore(t *testing.T) {
 	env := []string{"DAMSON_DATABASE__DSN=/nonexistent-dir/x/d.db", "DAMSON_CONTROLLER__LISTEN=127.0.0.1:0"}
 	if code := run(context.Background(), []string{"controller"}, io.Discard, &errb, env); code != exitError {
 		t.Errorf("exit = %d, want %d; stderr %s", code, exitError, errb.String())
+	}
+}
+
+func TestControllerBadStoreDoesNotLogPassword(t *testing.T) {
+	var errb syncBuf
+	env := []string{
+		"DAMSON_DATABASE__DRIVER=postgres",
+		"DAMSON_DATABASE__DSN=postgres://u:s3cret@127.0.0.1:1/db?connect_timeout=1",
+		"DAMSON_CONTROLLER__LISTEN=127.0.0.1:0",
+	}
+	var out bytes.Buffer
+	if code := run(context.Background(), []string{"controller"}, &out, &errb, env); code != exitError {
+		t.Errorf("exit = %d, want %d; stderr %s", code, exitError, errb.String())
+	}
+	if strings.Contains(errb.String(), "s3cret") || strings.Contains(out.String(), "s3cret") {
+		t.Errorf("password leaked: %s", errb.String())
 	}
 }

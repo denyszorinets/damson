@@ -25,6 +25,7 @@ type Server struct {
 	http *http.Server
 	ln   net.Listener
 	done chan struct{}
+	errs chan error // buffered(1); receives a post-start Serve failure
 }
 
 // NewServer builds the server and its routes. Nothing listens until Start.
@@ -40,8 +41,10 @@ func NewServer(cfg Config) *Server {
 			ReadTimeout:       30 * time.Second,
 			// No WriteTimeout: SSE streams (later milestones) are long-lived.
 			IdleTimeout: 2 * time.Minute,
+			ErrorLog:    slog.NewLogLogger(cfg.Logger.Handler(), slog.LevelWarn),
 		},
 		done: make(chan struct{}),
+		errs: make(chan error, 1),
 	}
 }
 
@@ -75,13 +78,23 @@ func (s *Server) Start(ctx context.Context) error {
 		defer close(s.done)
 		if err := s.http.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			s.cfg.Logger.Error("http server failed", "error", err)
+			s.errs <- fmt.Errorf("serving http: %w", err)
 		}
 	}()
 	return nil
 }
 
-// Addr returns the bound address; valid after Start.
-func (s *Server) Addr() string { return s.ln.Addr().String() }
+// Err receives at most one value: a failure of the serve loop after Start. A
+// clean Stop sends nothing.
+func (s *Server) Err() <-chan error { return s.errs }
+
+// Addr returns the bound address, or "" before Start.
+func (s *Server) Addr() string {
+	if s.ln == nil {
+		return ""
+	}
+	return s.ln.Addr().String()
+}
 
 // Stop stops accepting connections and waits for in-flight requests until ctx
 // expires, then closes the rest. It is safe to call without Start.

@@ -8,6 +8,11 @@ HTTP server and errors
 endpoints (Huma, OpenAPI) arrive with later milestones; today the server
 provides the endpoints below.
 
+The health and readiness endpoints use plain stdlib ``net/http``. Huma arrives
+with the first typed ``/api/v1`` endpoint; at that point ``WriteError`` and
+``problemFor`` in ``internal/api`` become Huma's error transformer, so there
+remains one error-to-problem+json mapping.
+
 Endpoints
 ---------
 
