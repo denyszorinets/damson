@@ -3,15 +3,17 @@
 DOCS_DIR := docs
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS  := -X github.com/denyszorinets/damson/internal/version.Version=$(VERSION)
+# Go does not ignore node_modules; list packages explicitly.
+GOPKGS   := $(shell go list ./... | grep -v /web/node_modules/)
 SPHINX   := cd $(DOCS_DIR) && uv run --frozen
 
-.PHONY: plugin-contract build test test-pg gen vet fmt-check check docs docs-serve docs-check
+.PHONY: plugin-contract build test test-pg gen vet fmt-check check docs docs-serve docs-check web web-check
 
 build: ## Build the damson binary into bin/damson
 	go build -ldflags "$(LDFLAGS)" -o bin/damson ./cmd/damson
 
 test: ## Run Go tests (SQLite store; Postgres store tests are in test-pg)
-	go test ./...
+	go test $(GOPKGS)
 
 test-pg: ## Store tests against Postgres (testcontainers; DAMSON_TEST_POSTGRES_DSN reuses a server; fails without Docker unless DAMSON_SKIP_POSTGRES=1)
 	go test -tags integration -count=1 ./internal/store/...
@@ -20,13 +22,29 @@ gen: ## Regenerate sqlc output (version pinned by the go.mod tool directive)
 	go tool sqlc generate
 
 vet: ## go vet
-	go vet ./...
+	go vet $(GOPKGS)
 
 fmt-check: ## Fail if any Go file is not gofmt-formatted
 	@out=$$(gofmt -l cmd internal pkg plugins 2>/dev/null); \
 	if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 
-check: fmt-check vet test ## Go checks that exist so far (lint, Postgres and web join in later M0 issues)
+check: fmt-check vet test web-check-maybe ## Go checks, plus web lint and typecheck when web/node_modules exists (lint and Postgres join later)
+
+.PHONY: web-check-maybe
+web-check-maybe:
+ifneq ($(wildcard web/node_modules),)
+	@$(MAKE) --no-print-directory web-check
+else ifneq ($(CI),)
+	@echo "FAILED web-check: web/node_modules is missing and CI is set (run make web)"; exit 1
+else
+	@echo "SKIPPED web-check (run make web)"
+endif
+
+web: ## Build the SvelteKit SPA into web/build (embedded by the binary)
+	cd web && npm ci && npm run build
+
+web-check: ## Web lint (prettier + eslint) and typecheck (svelte-check)
+	cd web && npm run lint && npm run check
 
 docs: ## Build the documentation site into docs/_build/html
 	$(SPHINX) sphinx-build -b html . _build/html

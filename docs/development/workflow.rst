@@ -77,6 +77,15 @@ Make targets
      - Live-reloading documentation preview.
    * - ``make docs-check``
      - Strict documentation build and linkcheck.
+   * - ``make web``
+     - Build the SvelteKit SPA into ``web/build`` (see :doc:`web-ui`).
+   * - ``make web-check``
+     - Web lint (prettier, eslint) and typecheck (svelte-check).
+
+``make check`` runs ``make web-check`` only when ``web/node_modules`` exists;
+otherwise it prints ``SKIPPED web-check (run make web)``. When the ``CI``
+environment variable is non-empty, a missing ``web/node_modules`` makes
+``make check`` fail instead, so CI never skips the web checks silently.
 
 .. note::
 

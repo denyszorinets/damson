@@ -10,3 +10,4 @@ How to contribute to Damson.
    documentation
    store
    plugin-sdk
+   web-ui

@@ -11,7 +11,8 @@ coverage.*
 
 # Web
 node_modules/
-web/build/
+web/build/*
+!web/build/.gitkeep
 web/.svelte-kit/
 
 # Local data and configuration
