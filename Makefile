@@ -5,18 +5,20 @@ VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev
 LDFLAGS  := -X github.com/denyszorinets/damson/internal/version.Version=$(VERSION)
 # Go does not ignore node_modules; list packages explicitly.
 GOPKGS   := $(shell go list ./... | grep -v /web/node_modules/)
+# Extra `go test` flags, e.g. `make test GOTESTFLAGS=-race` (CI uses -race and -v).
+GOTESTFLAGS ?=
 SPHINX   := cd $(DOCS_DIR) && uv run --frozen
 
-.PHONY: plugin-contract build test test-pg gen vet fmt-check check docs docs-serve docs-check web web-check
+.PHONY: plugin-contract build test test-pg gen vet fmt-check lint check docs docs-serve docs-check web web-check
 
 build: ## Build the damson binary into bin/damson
 	go build -ldflags "$(LDFLAGS)" -o bin/damson ./cmd/damson
 
 test: ## Run Go tests (SQLite store; Postgres store tests are in test-pg)
-	go test $(GOPKGS)
+	go test $(GOTESTFLAGS) $(GOPKGS)
 
 test-pg: ## Store tests against Postgres (testcontainers; DAMSON_TEST_POSTGRES_DSN reuses a server; fails without Docker unless DAMSON_SKIP_POSTGRES=1)
-	go test -tags integration -count=1 ./internal/store/...
+	go test $(GOTESTFLAGS) -tags integration -count=1 ./internal/store/...
 
 gen: ## Regenerate sqlc output (version pinned by the go.mod tool directive)
 	go tool sqlc generate
@@ -28,7 +30,20 @@ fmt-check: ## Fail if any Go file is not gofmt-formatted
 	@out=$$(gofmt -l cmd internal pkg plugins 2>/dev/null); \
 	if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 
-check: fmt-check vet test web-check-maybe ## Go checks, plus web lint and typecheck when web/node_modules exists (lint and Postgres join later)
+lint: ## golangci-lint (config in .golangci.yml); fails if not installed
+	golangci-lint run ./...
+
+check: fmt-check vet lint-maybe test web-check-maybe ## gofmt, vet, golangci-lint and tests (SQLite), plus web lint and typecheck when web/node_modules exists; Postgres tests are in test-pg
+
+.PHONY: lint-maybe
+lint-maybe:
+ifneq ($(shell command -v golangci-lint 2>/dev/null),)
+	@$(MAKE) --no-print-directory lint
+else ifneq ($(CI),)
+	@echo "FAILED lint: golangci-lint is not installed and CI is set"; exit 1
+else
+	@echo "SKIPPED lint (install golangci-lint v2 to enable)"
+endif
 
 .PHONY: web-check-maybe
 web-check-maybe:

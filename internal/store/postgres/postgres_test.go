@@ -69,7 +69,7 @@ func newDatabase(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("connecting admin: %v", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 	name := fmt.Sprintf("t_%d_%d", os.Getpid(), dbSeq.Add(1))
 	if _, err := conn.Exec(ctx, "CREATE DATABASE "+name); err != nil {
 		t.Fatalf("creating database: %v", err)
@@ -80,7 +80,7 @@ func newDatabase(t *testing.T) string {
 			t.Logf("dropping %s: %v", name, err)
 			return
 		}
-		defer c.Close(ctx)
+		defer func() { _ = c.Close(ctx) }()
 		if _, err := c.Exec(ctx, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)"); err != nil {
 			t.Logf("dropping %s: %v", name, err)
 		}
@@ -108,7 +108,7 @@ func TestVersionFreshDBHasNoSideEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 	var n int
 	if err := conn.QueryRow(ctx, "SELECT count(*) FROM information_schema.tables WHERE table_name = 'schema_migrations'").Scan(&n); err != nil {
 		t.Fatal(err)
@@ -124,7 +124,7 @@ func TestNewDatabaseUsesOwnDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close(context.Background())
+	defer func() { _ = conn.Close(context.Background()) }()
 	var db string
 	if err := conn.QueryRow(context.Background(), "SELECT current_database()").Scan(&db); err != nil {
 		t.Fatal(err)

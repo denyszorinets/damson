@@ -7,6 +7,7 @@ How to contribute to Damson.
    :maxdepth: 1
 
    workflow
+   ci
    documentation
    store
    plugin-sdk
