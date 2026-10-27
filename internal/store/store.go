@@ -41,6 +41,10 @@ type Store interface {
 	// Close releases the connections.
 	Close() error
 
+	PoolStore
+	AgentStore
+	ControllerStore
+
 	// GetSetting returns ErrNotFound if the key is absent.
 	GetSetting(ctx context.Context, key string) (Setting, error)
 	// CreateSetting inserts at version 1 and returns ErrConflict if the key exists.

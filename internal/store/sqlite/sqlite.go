@@ -140,6 +140,11 @@ func toSetting(r gen.InstanceSetting) store.Setting {
 	return store.Setting{Key: r.SettingKey, Value: r.SettingValue, Version: r.Version}
 }
 
+func isForeignKey(err error) bool {
+	var e *sqlitedrv.Error
+	return errors.As(err, &e) && e.Code() == sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY
+}
+
 func isUnique(err error) bool {
 	var e *sqlitedrv.Error
 	if !errors.As(err, &e) {

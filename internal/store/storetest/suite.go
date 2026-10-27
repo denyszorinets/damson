@@ -28,6 +28,12 @@ func Run(t *testing.T, f Factory) {
 		{"MigrateConcurrent", testMigrateConcurrent},
 		{"Settings", testSettings},
 		{"CASSingleWinner", testCASSingleWinner},
+		{"Pools", testPools},
+		{"PoolTokens", testPoolTokens},
+		{"AgentLifecycle", testAgentLifecycle},
+		{"BatchTouchAgents", testBatchTouchAgents},
+		{"ListAgents", testListAgents},
+		{"ControllerInstances", testControllerInstances},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) { tt.fn(t, f(t)) })
