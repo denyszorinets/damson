@@ -1,0 +1,45 @@
+FROM fedora:latest
+
+ARG TARGETARCH
+ENV GO_VERSION 1.27.3
+
+RUN dnf update -y && \
+    dnf install -y \
+        zsh \
+        git \
+        curl \
+        wget \
+        neovim \
+        gh
+
+RUN curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh | bash
+RUN chsh -s $(which zsh)
+
+RUN cd /opt && \
+    curl -OL https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz && \
+    tar -C /opt -xzf go${GO_VERSION}.linux-${TARGETARCH}.tar.gz && \
+    rm go${GO_VERSION}.linux-${TARGETARCH}.tar.gz
+    
+ENV PATH="/opt/go/bin:${PATH}"
+
+RUN go install github.com/josharian/impl@v1.4.0 && \
+    go install github.com/haya14busa/goplay/cmd/goplay@v1.0.0 && \
+    go install github.com/go-delve/delve/cmd/dlv@latest && \
+    go install golang.org/x/tools/gopls@latest
+
+# Java for the development Keycloak (scripts/dev-keycloak.sh).
+RUN dnf install -y java-25-openjdk-headless && dnf clean all
+
+# Google Chrome for Playwright (web e2e tests and the Playwright MCP server).
+# Playwright's own installer supports only Debian/Ubuntu.
+RUN dnf install -y https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm && \
+    dnf clean all
+
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:${PATH}"
+
+# uv runs the Sphinx documentation build in docs/ (ADR-0001).
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH="/root/.local/bin:${PATH}"

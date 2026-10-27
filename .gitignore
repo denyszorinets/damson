@@ -1,0 +1,50 @@
+# Go build output
+/bin/*
+/core/core
+/gateway/gateway
+/knowledge/knowledge
+/agent/agent
+!/bin/graph
+*.test
+*.out
+coverage.*
+
+# Web
+node_modules/
+web/build/
+web/.svelte-kit/
+
+# Local data and configuration
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+.env
+.env.local
+*.local.toml
+
+# Documentation site (docs/ is a uv project, ADR-0001)
+docs/_build/
+docs/.venv/
+
+# Website build (make site)
+/_site/
+
+# Tooling scratch output
+.playwright-mcp/
+__pycache__/
+*.pyc
+
+# IDE and OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Embedded web UI (make bundle) and local run state (make run)
+/core/internal/transport/webui/dist/
+/.run/
+/.run-rehearsal/
