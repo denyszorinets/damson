@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/denyszorinets/damson/pkg/pluginsdk_test/golden-in",
+  "$defs": {
+    "goldenInner": {
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Target host"
+        },
+        "port": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "host"
+      ]
+    }
+  },
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "inner": {
+      "$ref": "#/$defs/goldenInner"
+    },
+    "ptr": {
+      "$ref": "#/$defs/goldenInner"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "env": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "nested": {
+      "items": {
+        "$ref": "#/$defs/goldenInner"
+      },
+      "type": "array"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "name",
+    "inner"
+  ]
+}

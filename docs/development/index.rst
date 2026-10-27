@@ -9,3 +9,4 @@ How to contribute to Damson.
    workflow
    documentation
    store
+   plugin-sdk

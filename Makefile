@@ -5,7 +5,7 @@ VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev
 LDFLAGS  := -X github.com/denyszorinets/damson/internal/version.Version=$(VERSION)
 SPHINX   := cd $(DOCS_DIR) && uv run --frozen
 
-.PHONY: build test test-pg gen vet fmt-check check docs docs-serve docs-check
+.PHONY: plugin-contract build test test-pg gen vet fmt-check check docs docs-serve docs-check
 
 build: ## Build the damson binary into bin/damson
 	go build -ldflags "$(LDFLAGS)" -o bin/damson ./cmd/damson
@@ -37,3 +37,7 @@ docs-serve: ## Live-reloading docs preview on http://127.0.0.1:8000
 docs-check: ## Strict docs build (warnings are errors) plus linkcheck
 	$(SPHINX) sphinx-build -W --keep-going -n -b html . _build/html
 	$(SPHINX) sphinx-build -W --keep-going -b linkcheck . _build/linkcheck
+
+plugin-contract: ## Plugin SDK contract suite over all built-in plugins, plus build examples/plugins/hello
+	go test ./pkg/pluginsdk/... ./plugins/... ./examples/plugins/hello/...
+	go build ./examples/plugins/hello/...
