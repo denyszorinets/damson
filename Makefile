@@ -31,7 +31,7 @@ fmt-check: ## Fail if any Go file is not gofmt-formatted
 	if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 
 lint: ## golangci-lint (config in .golangci.yml); fails if not installed
-	golangci-lint run ./...
+	golangci-lint run $(GOPKGS)
 
 check: fmt-check vet lint-maybe test web-check-maybe ## gofmt, vet, golangci-lint and tests (SQLite), plus web lint and typecheck when web/node_modules exists; Postgres tests are in test-pg
 
@@ -39,7 +39,7 @@ check: fmt-check vet lint-maybe test web-check-maybe ## gofmt, vet, golangci-lin
 lint-maybe:
 ifneq ($(shell command -v golangci-lint 2>/dev/null),)
 	@$(MAKE) --no-print-directory lint
-else ifneq ($(CI),)
+else ifneq ($(filter-out 0 false,$(CI)),)
 	@echo "FAILED lint: golangci-lint is not installed and CI is set"; exit 1
 else
 	@echo "SKIPPED lint (install golangci-lint v2 to enable)"
@@ -49,7 +49,7 @@ endif
 web-check-maybe:
 ifneq ($(wildcard web/node_modules),)
 	@$(MAKE) --no-print-directory web-check
-else ifneq ($(CI),)
+else ifneq ($(filter-out 0 false,$(CI)),)
 	@echo "FAILED web-check: web/node_modules is missing and CI is set (run make web)"; exit 1
 else
 	@echo "SKIPPED web-check (run make web)"

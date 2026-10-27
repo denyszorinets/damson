@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Makes make targets fail instead of printing SKIPPED (e.g. web-check, lint).
@@ -41,6 +41,8 @@ jobs:
           install-mode: goinstall
       - name: Tests (SQLite, race detector)
         run: make test GOTESTFLAGS=-race
+      - name: Build
+        run: make build
 
   postgres:
     name: Store tests on PostgreSQL
@@ -53,7 +55,18 @@ jobs:
           go-version-file: go.mod
       # testcontainers starts PostgreSQL through the runner's Docker daemon.
       - name: Store tests (PostgreSQL via testcontainers)
-        run: make test-pg GOTESTFLAGS=-v
+        run: |
+          set -o pipefail
+          if [ -n "${DAMSON_SKIP_POSTGRES:-}" ]; then
+            echo "DAMSON_SKIP_POSTGRES must not be set in CI"; exit 1
+          fi
+          make test-pg GOTESTFLAGS=-v 2>&1 | tee postgres-test.log
+          if grep -q -e '--- SKIP' postgres-test.log; then
+            echo "Postgres suite skipped tests"; exit 1
+          fi
+          if ! grep -q -e '--- PASS' postgres-test.log; then
+            echo "Postgres suite did not run (no PASS lines)"; exit 1
+          fi
 
   web:
     name: Web (build, lint, typecheck, e2e)

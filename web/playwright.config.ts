@@ -4,6 +4,7 @@ import { defineConfig } from '@playwright/test';
 // Playwright's own browser installer does not support Fedora.
 const chrome = '/opt/google/chrome/chrome';
 const asRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+const noSandbox = asRoot || Boolean(process.env.CI);
 
 export default defineConfig({
 	testDir: 'e2e',
@@ -12,7 +13,7 @@ export default defineConfig({
 		baseURL: 'http://localhost:4173',
 		launchOptions: {
 			executablePath: process.env.CHROME_PATH ?? chrome,
-			args: asRoot ? ['--no-sandbox'] : []
+			args: noSandbox ? ['--no-sandbox'] : []
 		}
 	}
 });
