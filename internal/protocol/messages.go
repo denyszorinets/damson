@@ -60,7 +60,11 @@ type ExecutionState struct {
 
 // HelloRequest is the params of agent.hello (A->C).
 type HelloRequest struct {
-	Protocol      int               `msgpack:"protocol" json:"protocol"`
+	Protocol int `msgpack:"protocol" json:"protocol"`
+	// SessionSeq is a per-agent-process connection counter, starting at 1 and
+	// incremented on every connection attempt. The controller orders competing
+	// hellos by it, not by wall clocks.
+	SessionSeq    uint64            `msgpack:"session_seq" json:"session_seq"`
 	AgentVersion  string            `msgpack:"agent_version" json:"agent_version"`
 	Pool          string            `msgpack:"pool" json:"pool"`
 	Labels        map[string]string `msgpack:"labels,omitempty" json:"labels,omitempty"`
@@ -145,7 +149,7 @@ type StepExecuteResult struct {
 // LogEntry is one log line. On the wire it is the array [ts, stream, line]
 // where ts is Unix nanoseconds.
 type LogEntry struct {
-	_msgpack struct{}         `msgpack:",as_array"`
+	_msgpack struct{}         `msgpack:",as_array"` //nolint:unused // msgpack as_array marker
 	TS       int64            `msgpack:"ts" json:"ts"`
 	Stream   pluginsdk.Stream `msgpack:"stream" json:"stream"`
 	Line     string           `msgpack:"line" json:"line"`

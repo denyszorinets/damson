@@ -666,7 +666,7 @@ Params and results are MessagePack maps with snake_case keys; unknown keys are i
 
 | Method | Fields |
 |---|---|
-| `agent.hello` params | `protocol`, `agent_version`, `pool`, `labels`, `max_concurrent`, `capabilities`, `manifests` (the §6 manifest as a map), `executions` (`[{attempt_id, state: running\|finished}]`) |
+| `agent.hello` params | `protocol`, `session_seq`, `agent_version`, `pool`, `labels`, `max_concurrent`, `capabilities`, `manifests` (the §6 manifest as a map), `executions` (`[{attempt_id, state: running\|finished}]`) |
 | `agent.hello` result | `protocol` (accepted), `heartbeat_interval_ms`, `limits` (`max_frame_bytes`, `log_batch_bytes`, `log_batch_interval_ms`), `reconciliation` (`[{attempt_id, action: continue\|cancel}]`) |
 | `agent.heartbeat` | `running_attempts`, `free_slots`, `cpu_percent`, `memory_bytes`, `load1`, `spool_bytes` |
 | `step.execute` params | `attempt_id`, `execution_id`, `step_path`, `plugin`, `plugin_version`, `input` (object), `secrets` (`{ref -> {field -> value}}`, §9.3), `nodes` (`{name -> NodeInfo}`, §11), `timeout_ms`, `trace` (`traceparent`, `tracestate`) |
@@ -692,6 +692,7 @@ The `secrets` member is the only place secret values cross the wire. The Go type
 - **Reconnect.** The agent reconnects with exponential backoff (1s → 30s, full jitter) and keeps executing during the gap.
   - On reconnect, `agent.hello` lists the running and finished-but-unacked attempts.
   - The controller takes ownership (`controller_id`), renews leases, and replies continue or cancel for each.
+  - Ownership is ordered by `session_seq` (a per-process connection counter sent in `agent.hello`), not wall clocks: only a hello with a strictly higher `session_seq` takes over the agent row.
 - **Log buffering.** The agent keeps unacked log batches in memory, bounded at 32 MiB, then spills to a bounded local spool file (256 MiB default).
   - If the spool overflows, the oldest unacked batches are dropped and a `System` log line records the gap.
   - The spool is best-effort: an agent crash loses unacked logs. That is an accepted trade-off of stateless agents.

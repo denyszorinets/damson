@@ -32,7 +32,7 @@ func TestMessageRoundTrip(t *testing.T) {
 		new  func() any
 	}{
 		{"hello request", &HelloRequest{
-			Protocol: 1, AgentVersion: "0.1.0", Pool: "default",
+			Protocol: 1, SessionSeq: 3, AgentVersion: "0.1.0", Pool: "default",
 			Labels: map[string]string{"zone": "a"}, MaxConcurrent: 8,
 			Capabilities: []string{"bin:git"}, Manifests: []WireManifest{sampleManifest()},
 			Executions: []ExecutionState{{AttemptID: "a1", State: ExecRunning}, {AttemptID: "a2", State: ExecFinished}},

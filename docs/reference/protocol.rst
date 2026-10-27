@@ -69,6 +69,15 @@ Versions
 version N (``ProtocolVersion``, 1) and N-1, and returns
 ``ErrUnsupportedVersion`` otherwise. With N = 1 only version 1 exists.
 
+Sessions
+--------
+
+``agent.hello`` carries ``session_seq``, a per-agent-process connection counter
+that starts at 1 and increases on every connection attempt. A new process has a
+new instance id, so the counter is never persisted. The controller orders
+competing hellos by ``session_seq`` (not wall clocks): only a strictly higher
+value takes ownership of the agent row.
+
 Secrets
 -------
 

@@ -326,7 +326,7 @@ func TestWebSocketRejectsOversizedAndText(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer c.CloseNow()
+			defer func() { _ = c.CloseNow() }()
 			_ = c.Write(ctx, tt.typ, make([]byte, tt.size))
 			select {
 			case err := <-srvDone:
