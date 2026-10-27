@@ -3,6 +3,7 @@ module github.com/denyszorinets/damson
 go 1.27.3
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/go-viper/mapstructure/v2 v2.4.0
 	github.com/invopop/jsonschema v0.14.0
 	github.com/jackc/pgx/v5 v5.11.0
@@ -15,6 +16,7 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
+	github.com/vmihailenco/msgpack/v5 v5.4.1
 	go.uber.org/goleak v1.3.0
 	modernc.org/sqlite v1.60.1
 )
@@ -97,6 +99,7 @@ require (
 	github.com/tetratelabs/wazero v1.9.0 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/wasilibs/go-pgquery v0.0.0-20250409022910-10ac41983c07 // indirect
 	github.com/wasilibs/wazero-helpers v0.0.0-20240620070341-3dff1577cd52 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect

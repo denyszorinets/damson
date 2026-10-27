@@ -660,6 +660,29 @@ Deploys charts to Kubernetes. It runs on the agent (`TargetMode = None`).
 | C→A | `agent.reconnect` | notification | The controller is shutting down; reconnect via the LB after jitter |
 | A→C | `node.hostkey_observed` | notification | TOFU host key report |
 
+#### Wire format (`internal/protocol`)
+
+Params and results are MessagePack maps with snake_case keys; unknown keys are ignored so a newer peer can add fields within protocol N and N-1. Standard JSON-RPC error codes are used (`-32700` parse, `-32600` invalid request, `-32601` method not found, `-32602` invalid params, `-32603` internal). Notification handlers run in arrival order; request handlers run concurrently.
+
+| Method | Fields |
+|---|---|
+| `agent.hello` params | `protocol`, `session_seq`, `agent_version`, `pool`, `labels`, `max_concurrent`, `capabilities`, `manifests` (the §6 manifest as a map), `executions` (`[{attempt_id, state: running\|finished}]`) |
+| `agent.hello` result | `protocol` (accepted), `heartbeat_interval_ms`, `limits` (`max_frame_bytes`, `log_batch_bytes`, `log_batch_interval_ms`), `reconciliation` (`[{attempt_id, action: continue\|cancel}]`) |
+| `agent.heartbeat` | `running_attempts`, `free_slots`, `cpu_percent`, `memory_bytes`, `load1`, `spool_bytes` |
+| `step.execute` params | `attempt_id`, `execution_id`, `step_path`, `plugin`, `plugin_version`, `input` (object), `secrets` (`{ref -> {field -> value}}`, §9.3), `nodes` (`{name -> NodeInfo}`, §11), `timeout_ms`, `trace` (`traceparent`, `tracestate`) |
+| `step.execute` result | `accepted`, `reason` (set when rejected) |
+| `log.append` | `attempt_id`, `seq_from`, `entries`: each entry is the array `[ts_unix_ns, stream, line]`; entry i has seq `seq_from + i` |
+| `log.ack` | `attempt_id`, `seq` |
+| `step.progress` | `attempt_id`, `percent` (0 to 100), `message` |
+| `step.complete` params | `attempt_id`, `status` (`succeeded`, `failed`, `canceled`, `timed_out`), `outputs`, `error` (`code`, `message`, `retryable`), `started_at_ns`, `finished_at_ns` |
+| `step.complete` result | `acknowledged`, `stale` (result discarded by fencing; the agent stops retrying either way) |
+| `step.cancel` params / result | `attempt_id`, `grace_ms` / `known` |
+| `agent.drain` | `reason` |
+| `agent.reconnect` | `jitter_ms`, `reason` |
+| `node.hostkey_observed` | `attempt_id`, `node`, `key_type`, `host_key`, `fingerprint` |
+
+The `secrets` member is the only place secret values cross the wire. The Go type redacts itself in `fmt`, `slog` and `encoding/json` output.
+
 ### 7.3 Reliability rules
 
 - **Fencing.** Every Execution has a unique `attempt_id` (UUIDv7). The controller applies `step.complete`, logs, and leases only if the `attempt_id` matches the Execution's current attempt and the execution is not terminal. Stale results are acknowledged and discarded.
@@ -669,6 +692,7 @@ Deploys charts to Kubernetes. It runs on the agent (`TargetMode = None`).
 - **Reconnect.** The agent reconnects with exponential backoff (1s → 30s, full jitter) and keeps executing during the gap.
   - On reconnect, `agent.hello` lists the running and finished-but-unacked attempts.
   - The controller takes ownership (`controller_id`), renews leases, and replies continue or cancel for each.
+  - Ownership is ordered by `session_seq` (a per-process connection counter sent in `agent.hello`), not wall clocks: only a hello with a strictly higher `session_seq` takes over the agent row.
 - **Log buffering.** The agent keeps unacked log batches in memory, bounded at 32 MiB, then spills to a bounded local spool file (256 MiB default).
   - If the spool overflows, the oldest unacked batches are dropped and a `System` log line records the gap.
   - The spool is best-effort: an agent crash loses unacked logs. That is an accepted trade-off of stateless agents.
