@@ -10,10 +10,10 @@ SPHINX   := cd $(DOCS_DIR) && uv run --frozen
 build: ## Build the damson binary into bin/damson
 	go build -ldflags "$(LDFLAGS)" -o bin/damson ./cmd/damson
 
-test: ## Run Go tests (SQLite; Postgres suites arrive with the store)
+test: ## Run Go tests (SQLite store; Postgres store tests are in test-pg)
 	go test ./...
 
-test-pg: ## Store tests against Postgres (testcontainers; set DAMSON_TEST_POSTGRES_DSN to reuse a server)
+test-pg: ## Store tests against Postgres (testcontainers; DAMSON_TEST_POSTGRES_DSN reuses a server; fails without Docker unless DAMSON_SKIP_POSTGRES=1)
 	go test -tags integration -count=1 ./internal/store/...
 
 gen: ## Regenerate sqlc output (version pinned by the go.mod tool directive)

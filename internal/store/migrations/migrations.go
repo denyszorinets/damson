@@ -62,8 +62,28 @@ func Up(ctx context.Context, db *sql.DB, d Dialect) error {
 	return nil
 }
 
-// Version returns the highest applied migration version, 0 if none.
+func tableExists(ctx context.Context, db *sql.DB, d Dialect) (bool, error) {
+	q := "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?"
+	if d == Postgres {
+		q = "SELECT count(*) FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1"
+	}
+	var n int
+	if err := db.QueryRowContext(ctx, q, Table).Scan(&n); err != nil {
+		return false, fmt.Errorf("checking %s migration table: %w", d, err)
+	}
+	return n > 0, nil
+}
+
+// Version returns the highest applied migration version, 0 if none. It never
+// creates the bookkeeping table: a database that was not migrated is version 0.
 func Version(ctx context.Context, db *sql.DB, d Dialect) (int64, error) {
+	ok, err := tableExists(ctx, db, d)
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return 0, nil
+	}
 	p, err := provider(db, d)
 	if err != nil {
 		return 0, err

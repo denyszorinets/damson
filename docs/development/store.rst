@@ -35,11 +35,17 @@ Migrations
 ----------
 
 Migrations are plain SQL files run by goose, tracked in the
-``schema_migrations`` table. Postgres and SQLite have separate directories
+``schema_migrations`` table (a custom goose table name, chosen so the
+bookkeeping table is self-describing and not goose-specific). Postgres and SQLite have separate directories
 because DDL differs; keep the two in step. ``Store.Migrate`` applies pending
 migrations. On Postgres it holds a session advisory lock, so several
 controllers can call it at start without racing. ``Store.MigrationVersion``
-reports the applied version, for the readiness check.
+reports the applied version, for the readiness check; it never creates the
+table, so an unmigrated database reports version 0 and stays untouched.
+
+The ``instance_settings`` table is scaffolding that exercises the store
+contract; it will be replaced by the real tables. The single-controller lock
+row described in ARCHITECTURE section 8.1 is not implemented yet.
 
 Add a migration by creating the next ``NNNNN_name.sql`` in **both** directories
 with ``-- +goose Up`` and ``-- +goose Down`` sections, then run ``make gen``.
@@ -59,7 +65,11 @@ Configuration
 
 ``database.driver`` is ``sqlite`` or ``postgres``; ``database.dsn`` is a file
 path (SQLite, opened in WAL mode with foreign keys on) or a ``postgres://`` URL.
-Open errors never include the DSN.
+Open errors never include the DSN. Open errors are wrapped as
+``opening <driver> store``. In-memory SQLite DSNs are rejected, because each
+pooled connection would get its own empty database. If ``SQLITE_BUSY`` persists
+past the 5 second busy timeout it surfaces as a wrapped driver error, not as a
+store sentinel.
 
 Testing
 -------
@@ -68,6 +78,8 @@ Testing
 tested on both. SQLite runs in ``make test``. Postgres tests carry the
 ``integration`` build tag and run with ``make test-pg``, which starts
 ``postgres:17-alpine`` with testcontainers. To reuse a server instead, set
-``DAMSON_TEST_POSTGRES_DSN``; each test gets its own database. When neither a
-container runtime nor the variable is available the Postgres tests print a
-``SKIP`` line and pass, so check the output before trusting a green result.
+``DAMSON_TEST_POSTGRES_DSN``; each test gets its own database, dropped on
+cleanup. Without a container runtime or that variable the Postgres tests
+**fail**; set ``DAMSON_SKIP_POSTGRES=1`` to skip them explicitly (the run is
+then not a Postgres verification). ``make check`` does not run ``test-pg``; CI
+does, with Docker.

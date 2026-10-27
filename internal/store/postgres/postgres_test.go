@@ -5,6 +5,7 @@ package postgres_test
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -43,8 +44,12 @@ func run(m *testing.M) int {
 			WithOccurrence(2).WithStartupTimeout(90*time.Second)),
 	)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "SKIP: postgres store tests: no container runtime or DAMSON_TEST_POSTGRES_DSN:", err)
-		return 0 // skip cleanly; the report must say Postgres was not verified
+		if os.Getenv("DAMSON_SKIP_POSTGRES") == "1" {
+			fmt.Fprintln(os.Stderr, "SKIP: postgres store tests (DAMSON_SKIP_POSTGRES=1):", err)
+			return 0 // explicit opt-out; Postgres is NOT verified
+		}
+		fmt.Fprintln(os.Stderr, "postgres store tests need Docker or DAMSON_TEST_POSTGRES_DSN (set DAMSON_SKIP_POSTGRES=1 to skip):", err)
+		return 1
 	}
 	defer func() { _ = testcontainers.TerminateContainer(c) }()
 	if adminDSN, err = c.ConnectionString(ctx, "sslmode=disable"); err != nil {
@@ -56,7 +61,7 @@ func run(m *testing.M) int {
 
 var dbSeq atomic.Int64
 
-// newDatabase creates an empty database and returns its DSN.
+// newDatabase creates an empty database, dropped on cleanup, and returns its DSN.
 func newDatabase(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
@@ -69,9 +74,64 @@ func newDatabase(t *testing.T) string {
 	if _, err := conn.Exec(ctx, "CREATE DATABASE "+name); err != nil {
 		t.Fatalf("creating database: %v", err)
 	}
-	cfg := conn.Config().Copy()
-	cfg.Database = name
-	return cfg.ConnString()
+	t.Cleanup(func() {
+		c, err := pgx.Connect(ctx, adminDSN)
+		if err != nil {
+			t.Logf("dropping %s: %v", name, err)
+			return
+		}
+		defer c.Close(ctx)
+		if _, err := c.Exec(ctx, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)"); err != nil {
+			t.Logf("dropping %s: %v", name, err)
+		}
+	})
+	u, err := url.Parse(adminDSN)
+	if err != nil {
+		t.Fatalf("parsing admin DSN: %v", err)
+	}
+	u.Path = "/" + name
+	return u.String()
+}
+
+func TestVersionFreshDBHasNoSideEffects(t *testing.T) {
+	ctx := context.Background()
+	dsn := newDatabase(t)
+	s, err := postgres.Open(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if v, err := s.MigrationVersion(ctx); err != nil || v != 0 {
+		t.Fatalf("MigrationVersion = %d, %v; want 0, nil", v, err)
+	}
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	var n int
+	if err := conn.QueryRow(ctx, "SELECT count(*) FROM information_schema.tables WHERE table_name = 'schema_migrations'").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatal("MigrationVersion created schema_migrations")
+	}
+}
+
+func TestNewDatabaseUsesOwnDatabase(t *testing.T) {
+	dsn := newDatabase(t)
+	conn, err := pgx.Connect(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(context.Background())
+	var db string
+	if err := conn.QueryRow(context.Background(), "SELECT current_database()").Scan(&db); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(db, "t_") {
+		t.Fatalf("connected to %q, want per-test database", db)
+	}
 }
 
 func TestSuite(t *testing.T) {

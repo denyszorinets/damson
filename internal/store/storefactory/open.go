@@ -17,9 +17,17 @@ import (
 func Open(ctx context.Context, cfg config.Database) (store.Store, error) {
 	switch cfg.Driver {
 	case config.DriverSQLite:
-		return sqlite.Open(ctx, cfg.DSN)
+		s, err := sqlite.Open(ctx, cfg.DSN)
+		if err != nil {
+			return nil, fmt.Errorf("opening %s store: %w", cfg.Driver, err)
+		}
+		return s, nil
 	case config.DriverPostgres:
-		return postgres.Open(ctx, cfg.DSN)
+		s, err := postgres.Open(ctx, cfg.DSN)
+		if err != nil {
+			return nil, fmt.Errorf("opening %s store: %w", cfg.Driver, err)
+		}
+		return s, nil
 	default:
 		return nil, fmt.Errorf("unknown database driver %q", cfg.Driver)
 	}

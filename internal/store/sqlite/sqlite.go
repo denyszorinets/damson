@@ -27,9 +27,15 @@ var _ store.Store = (*Store)(nil)
 
 // Open connects to the database at dsn: a file path or a file: URI. Foreign
 // keys, WAL, a busy timeout and immediate write transactions are enabled.
+// In-memory databases are rejected: each pooled connection would see its own
+// empty database. If SQLITE_BUSY persists past the busy timeout it surfaces as
+// a wrapped driver error, not as a store sentinel.
 func Open(ctx context.Context, dsn string) (*Store, error) {
 	if dsn == "" {
 		return nil, errors.New("opening sqlite: empty dsn")
+	}
+	if isMemoryDSN(dsn) {
+		return nil, errors.New("opening sqlite: in-memory databases are not supported; use a file path")
 	}
 	db, err := sql.Open("sqlite", withPragmas(dsn))
 	if err != nil {
@@ -41,6 +47,10 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+func isMemoryDSN(dsn string) bool {
+	return strings.Contains(dsn, ":memory:") || strings.Contains(dsn, "mode=memory")
 }
 
 func withPragmas(dsn string) string {
