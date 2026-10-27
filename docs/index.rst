@@ -32,6 +32,12 @@ available controller tier. PostgreSQL is the only required infrastructure.
 
       Architecture decision records: what was chosen and why.
 
+   .. grid-item-card:: Reference
+      :link: reference/index
+      :link-type: doc
+
+      Configuration keys and the command line.
+
    .. grid-item-card:: Development
       :link: development/index
       :link-type: doc
@@ -44,4 +50,5 @@ available controller tier. PostgreSQL is the only required infrastructure.
 
    concepts/index
    architecture/index
+   reference/index
    development/index
