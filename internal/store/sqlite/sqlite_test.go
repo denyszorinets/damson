@@ -3,7 +3,9 @@ package sqlite_test
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/denyszorinets/damson/internal/store"
@@ -59,5 +61,56 @@ func TestVersionFreshDBHasNoSideEffects(t *testing.T) {
 	}
 	if n != 0 {
 		t.Fatal("MigrationVersion created schema_migrations")
+	}
+}
+
+func TestConcurrentMigrateAcrossSpellings(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "damson.db")
+	link := filepath.Join(dir, "link.db")
+	if err := os.Symlink(path, link); err != nil {
+		t.Fatal(err)
+	}
+	// The file must exist for the symlink to resolve.
+	seed, err := sqlite.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = seed.Close()
+	spellings := []string{path, "file:" + path + "?cache=shared", link}
+
+	const n = 8
+	stores := make([]store.Store, n)
+	for i := range stores {
+		s, err := sqlite.Open(ctx, spellings[i%len(spellings)])
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = s.Close() })
+		stores[i] = s
+	}
+	start := make(chan struct{})
+	errs := make(chan error, n)
+	var wg sync.WaitGroup
+	for _, s := range stores {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs <- s.Migrate(ctx)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Errorf("Migrate: %v", err)
+		}
+	}
+	v, err := stores[0].MigrationVersion(ctx)
+	if err != nil || v < 1 {
+		t.Fatalf("MigrationVersion = %d, %v; want >= 1", v, err)
 	}
 }

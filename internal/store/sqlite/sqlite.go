@@ -19,8 +19,9 @@ import (
 
 // Store implements store.Store on SQLite.
 type Store struct {
-	db *sql.DB
-	q  *gen.Queries
+	db      *sql.DB
+	q       *gen.Queries
+	lockKey string
 }
 
 var _ store.Store = (*Store)(nil)
@@ -46,6 +47,9 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	// Computed after Ping on purpose: the file exists by now, so symlinks
+	// resolve to the real path.
+	s.lockKey = canonicalPath(dsn)
 	return s, nil
 }
 
@@ -73,7 +77,13 @@ func (s *Store) Ping(ctx context.Context) error {
 }
 
 // Migrate implements store.Store.
+//
+// SQLite has no advisory lock, so calls are serialized in-process per database
+// file. Concurrent migration from several processes is not supported (SQLite
+// is single-controller).
 func (s *Store) Migrate(ctx context.Context) error {
+	unlock := lockMigrations(s.lockKey)
+	defer unlock()
 	return migrations.Up(ctx, s.db, migrations.SQLite)
 }
 
