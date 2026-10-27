@@ -15,6 +15,7 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
+	go.uber.org/goleak v1.3.0
 	modernc.org/sqlite v1.60.1
 )
 

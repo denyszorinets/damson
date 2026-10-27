@@ -19,11 +19,13 @@ func runVersion(stdout io.Writer) int {
 }
 
 // runRole loads config for the role, logs startup, and blocks until ctx is
-// cancelled. The real controller and agent land in later issues.
+// cancelled. Controller and dev serve the HTTP API; the agent only waits until
+// its transport lands in a later issue.
 func runRole(ctx context.Context, name string, args []string, stderr io.Writer, environ []string) int {
 	fs := flag.NewFlagSet("damson "+name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", "", "path to a TOML config file (or set "+config.EnvConfigFile+")")
+	autoMigrate := fs.Bool("auto-migrate", false, "apply pending database migrations at start (always on for dev; ignored by agent)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
@@ -39,7 +41,16 @@ func runRole(ctx context.Context, name string, args []string, stderr io.Writer, 
 
 	log := logging.New(stderr, cfg.SlogLevel(), name)
 	log.Info("starting", "version", version.Version, "config", slog.AnyValue(cfg.Redacted()))
-	<-ctx.Done()
-	log.Info("stopping")
+	if name == string(config.RoleAgent) {
+		<-ctx.Done()
+		log.Info("stopping")
+		return exitOK
+	}
+	migrate := *autoMigrate || name == string(config.RoleDev)
+	if err := runController(ctx, cfg, log, migrate); err != nil {
+		fmt.Fprintf(stderr, "damson %s: %v\n", name, err)
+		return exitError
+	}
+	log.Info("stopped")
 	return exitOK
 }

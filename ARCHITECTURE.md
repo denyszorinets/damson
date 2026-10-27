@@ -73,6 +73,8 @@ Damson is an open-source job orchestrator in the spirit of Rundeck and a modern,
 | API client | `openapi-typescript` + `openapi-fetch` | Generated from the controller's OpenAPI |
 | Tests | Go `testing`, `testcontainers-go` (Postgres, sshd, FTP, S3-compatible), Playwright (UI smoke) | |
 
+Health and readiness endpoints (`/healthz`, `/readyz`) use plain stdlib `net/http`; Huma arrives with the first typed `/api/v1` endpoint. At that point `internal/api` `WriteError`/`problemFor` becomes Huma's error transformer, so there remains one error-to-problem+json mapping.
+
 **License compatibility:** all dependencies are MIT, BSD, Apache-2.0, or MPL-2.0. These are compatible with GPL-3.0; note that Apache-2.0 is compatible with GPLv3 but not GPLv2. Any new dependency must be checked against this list.
 
 ---
