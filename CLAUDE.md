@@ -14,7 +14,7 @@ Documentation is a Sphinx site in reStructuredText under `docs/` (ADR-0001); ADR
 
 See `ARCHITECTURE.md` §21. Work in **vertical slices**. A slice is done only when it works end to end with tests, not when one layer is complete. Update this line when a milestone closes:
 
-`CURRENT: M0 — Skeleton`
+`CURRENT: M1 — Agent link`
 
 ## Commands
 
