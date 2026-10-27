@@ -18,6 +18,7 @@ type Agent struct {
 	Capacity       int64
 	Telemetry      string
 	ControllerID   sql.NullString
+	SessionSeq     int64
 	ConnectedAt    string
 	LastSeen       string
 	DisconnectedAt sql.NullString

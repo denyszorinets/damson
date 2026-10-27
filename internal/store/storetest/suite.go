@@ -32,6 +32,10 @@ func Run(t *testing.T, f Factory) {
 		{"PoolTokens", testPoolTokens},
 		{"AgentLifecycle", testAgentLifecycle},
 		{"BatchTouchAgents", testBatchTouchAgents},
+		{"AgentSessionOrdering", testAgentSessionOrdering},
+		{"TouchLastSeenMonotonic", testTouchLastSeenMonotonic},
+		{"HelloValidation", testHelloValidation},
+		{"TimestampOrdering", testTimestampOrdering},
 		{"ListAgents", testListAgents},
 		{"ControllerInstances", testControllerInstances},
 	}

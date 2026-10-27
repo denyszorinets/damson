@@ -127,7 +127,7 @@ func hello(id, poolID, ctrl string) store.AgentHello {
 		ID: id, PoolID: poolID, Version: "1.0.0", Protocol: 1,
 		Labels:       map[string]string{"zone": "a"},
 		Capabilities: map[string]string{"shell": "1.0.0"},
-		Capacity:     4, Telemetry: json.RawMessage(`{"cpu":1.5}`), ControllerID: ctrl,
+		Capacity:     4, Telemetry: json.RawMessage(`{"cpu":1.5}`), ControllerID: ctrl, SessionSeq: 1,
 	}
 }
 
@@ -181,20 +181,20 @@ func testAgentLifecycle(t *testing.T, s store.Store) {
 
 	// Disconnect: CAS on controller_id.
 	t1 := t0.Add(time.Minute)
-	if err := s.MarkAgentDisconnected(ctx, "a1", "c2", t1); !errors.Is(err, store.ErrStale) {
+	if err := s.MarkAgentDisconnected(ctx, "a1", "c2", 1, t1); !errors.Is(err, store.ErrStale) {
 		t.Fatalf("disconnect by non-owner: %v; want ErrStale", err)
 	}
-	if err := s.MarkAgentDisconnected(ctx, "missing", "c1", t1); !errors.Is(err, store.ErrNotFound) {
+	if err := s.MarkAgentDisconnected(ctx, "missing", "c1", 1, t1); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("disconnect missing: %v; want ErrNotFound", err)
 	}
-	if err := s.MarkAgentDisconnected(ctx, "a1", "c1", t1); err != nil {
+	if err := s.MarkAgentDisconnected(ctx, "a1", "c1", 1, t1); err != nil {
 		t.Fatalf("disconnect: %v", err)
 	}
 	a, _ = s.GetAgent(ctx, "a1")
 	if a.DisconnectedAt == nil || !a.DisconnectedAt.Equal(t1) || a.ControllerID != "" {
 		t.Fatalf("after disconnect = %+v", a)
 	}
-	if err := s.MarkAgentDisconnected(ctx, "a1", "c1", t1); !errors.Is(err, store.ErrStale) {
+	if err := s.MarkAgentDisconnected(ctx, "a1", "c1", 1, t1); !errors.Is(err, store.ErrStale) {
 		t.Fatalf("disconnect twice: %v; want ErrStale", err)
 	}
 
@@ -202,6 +202,7 @@ func testAgentLifecycle(t *testing.T, s store.Store) {
 	// overwrite the new owner.
 	t2 := t0.Add(2 * time.Minute)
 	h := hello("a1", pool.ID, "c2")
+	h.SessionSeq = 2
 	h.Capacity = 8
 	if err := s.UpsertAgentOnHello(ctx, h, t2); err != nil {
 		t.Fatal(err)
@@ -210,7 +211,7 @@ func testAgentLifecycle(t *testing.T, s store.Store) {
 	if a.ControllerID != "c2" || a.Capacity != 8 || a.DisconnectedAt != nil || !a.ConnectedAt.Equal(t2) {
 		t.Fatalf("after reconnect = %+v", a)
 	}
-	if err := s.MarkAgentDisconnected(ctx, "a1", "c1", t2.Add(time.Second)); !errors.Is(err, store.ErrStale) {
+	if err := s.MarkAgentDisconnected(ctx, "a1", "c1", 1, t2.Add(time.Second)); !errors.Is(err, store.ErrStale) {
 		t.Fatalf("stale controller disconnect: %v; want ErrStale", err)
 	}
 	if a, _ = s.GetAgent(ctx, "a1"); a.ControllerID != "c2" || a.DisconnectedAt != nil {
@@ -232,10 +233,10 @@ func testBatchTouchAgents(t *testing.T, s store.Store) {
 	}
 	t1 := t0.Add(10 * time.Second)
 	n, err := s.BatchTouchAgents(ctx, "c1", []store.AgentTouch{
-		{ID: "a1", LastSeen: t1, Telemetry: json.RawMessage(`{"cpu":9}`)},
-		{ID: "a2", LastSeen: t1},
-		{ID: "a3", LastSeen: t1, Telemetry: json.RawMessage(`{"cpu":99}`)}, // owned by c2: skipped
-		{ID: "ghost", LastSeen: t1},
+		{ID: "a1", SessionSeq: 1, LastSeen: t1, Telemetry: json.RawMessage(`{"cpu":9}`)},
+		{ID: "a2", SessionSeq: 1, LastSeen: t1},
+		{ID: "a3", SessionSeq: 1, LastSeen: t1, Telemetry: json.RawMessage(`{"cpu":99}`)}, // owned by c2: skipped
+		{ID: "ghost", SessionSeq: 1, LastSeen: t1},
 	})
 	if err != nil || n != 2 {
 		t.Fatalf("BatchTouchAgents = %d, %v; want 2", n, err)
@@ -252,10 +253,10 @@ func testBatchTouchAgents(t *testing.T, s store.Store) {
 	jsonEq(t, a3.Telemetry, `{"cpu":1.5}`)
 
 	// After disconnect no controller owns the agent, so touches do not apply.
-	if err := s.MarkAgentDisconnected(ctx, "a1", "c1", t1); err != nil {
+	if err := s.MarkAgentDisconnected(ctx, "a1", "c1", 1, t1); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := s.BatchTouchAgents(ctx, "c1", []store.AgentTouch{{ID: "a1", LastSeen: t1.Add(time.Second)}}); err != nil || n != 0 {
+	if n, err := s.BatchTouchAgents(ctx, "c1", []store.AgentTouch{{ID: "a1", SessionSeq: 1, LastSeen: t1.Add(time.Second)}}); err != nil || n != 0 {
 		t.Fatalf("touch after disconnect = %d, %v; want 0", n, err)
 	}
 }
@@ -345,5 +346,151 @@ func testControllerInstances(t *testing.T, s store.Store) {
 	}
 	if list, _ = s.ListControllerInstances(ctx); len(list) != 1 || list[0].ID != "c2" {
 		t.Fatalf("after delete = %+v", list)
+	}
+}
+
+func ownerIs(t *testing.T, s store.Store, id, ctrl string, seq uint64) {
+	t.Helper()
+	a, err := s.GetAgent(context.Background(), id)
+	if err != nil || a.ControllerID != ctrl || a.SessionSeq != seq {
+		t.Fatalf("agent %s = %+v, %v; want owner %s seq %d", id, a, err, ctrl, seq)
+	}
+}
+
+func testAgentSessionOrdering(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	pool := mustPool(t, s, "p")
+	other := mustPool(t, s, "q")
+
+	// B (seq 2) wins; a delayed hello from A (seq 1) arriving later, even
+	// with a later wall clock, is stale and changes nothing.
+	hb := hello("a1", pool.ID, "B")
+	hb.SessionSeq = 2
+	if err := s.UpsertAgentOnHello(ctx, hb, t0); err != nil {
+		t.Fatal(err)
+	}
+	ha := hello("a1", pool.ID, "A")
+	ha.SessionSeq = 1
+	if err := s.UpsertAgentOnHello(ctx, ha, t0.Add(time.Hour)); !errors.Is(err, store.ErrStale) {
+		t.Fatalf("delayed hello: %v; want ErrStale", err)
+	}
+	ownerIs(t, s, "a1", "B", 2)
+	if err := s.UpsertAgentOnHello(ctx, hb, t0.Add(time.Hour)); !errors.Is(err, store.ErrStale) {
+		t.Fatalf("same-seq hello: %v; want ErrStale", err)
+	}
+	// A's disconnect for its stale session changes nothing.
+	if err := s.MarkAgentDisconnected(ctx, "a1", "A", 1, t0.Add(time.Minute)); !errors.Is(err, store.ErrStale) {
+		t.Fatalf("stale disconnect: %v; want ErrStale", err)
+	}
+	// Right controller, wrong session is also stale.
+	if err := s.MarkAgentDisconnected(ctx, "a1", "B", 1, t0.Add(time.Minute)); !errors.Is(err, store.ErrStale) {
+		t.Fatalf("wrong-session disconnect: %v; want ErrStale", err)
+	}
+	if a, _ := s.GetAgent(ctx, "a1"); a.DisconnectedAt != nil {
+		t.Fatalf("stale disconnect changed the row: %+v", a)
+	}
+
+	// B takes over from A; A's touch is then skipped.
+	if err := s.UpsertAgentOnHello(ctx, hello("a2", pool.ID, "A"), t0); err != nil {
+		t.Fatal(err)
+	}
+	h2 := hello("a2", pool.ID, "B")
+	h2.SessionSeq = 2
+	if err := s.UpsertAgentOnHello(ctx, h2, t0.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	t1 := t0.Add(time.Minute)
+	n, err := s.BatchTouchAgents(ctx, "A", []store.AgentTouch{{ID: "a2", SessionSeq: 1, LastSeen: t1}})
+	if err != nil || n != 0 {
+		t.Fatalf("touch by previous owner = %d, %v; want 0", n, err)
+	}
+	if n, err = s.BatchTouchAgents(ctx, "B", []store.AgentTouch{{ID: "a2", SessionSeq: 1, LastSeen: t1}}); err != nil || n != 0 {
+		t.Fatalf("touch with old session = %d, %v; want 0", n, err)
+	}
+	if n, err = s.BatchTouchAgents(ctx, "B", []store.AgentTouch{{ID: "a2", SessionSeq: 2, LastSeen: t1}}); err != nil || n != 1 {
+		t.Fatalf("touch by owner = %d, %v; want 1", n, err)
+	}
+
+	// Pool mismatch is a conflict, not a takeover.
+	hp := hello("a1", other.ID, "C")
+	hp.SessionSeq = 9
+	if err := s.UpsertAgentOnHello(ctx, hp, t0); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("pool mismatch: %v; want ErrConflict", err)
+	}
+	ownerIs(t, s, "a1", "B", 2)
+}
+
+func testTouchLastSeenMonotonic(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	pool := mustPool(t, s, "p")
+	if err := s.UpsertAgentOnHello(ctx, hello("a1", pool.ID, "c1"), t0); err != nil {
+		t.Fatal(err)
+	}
+	t1, t2 := t0.Add(20*time.Second), t0.Add(10*time.Second)
+	if n, err := s.BatchTouchAgents(ctx, "c1", []store.AgentTouch{{ID: "a1", SessionSeq: 1, LastSeen: t1, Telemetry: json.RawMessage(`{"cpu":2}`)}}); err != nil || n != 1 {
+		t.Fatalf("touch = %d, %v", n, err)
+	}
+	// A late batch (older last_seen) is skipped, not an error, and keeps the newer telemetry.
+	n, err := s.BatchTouchAgents(ctx, "c1", []store.AgentTouch{{ID: "a1", SessionSeq: 1, LastSeen: t2, Telemetry: json.RawMessage(`{"cpu":1}`)}})
+	if err != nil || n != 0 {
+		t.Fatalf("late touch = %d, %v; want 0, nil", n, err)
+	}
+	a, _ := s.GetAgent(ctx, "a1")
+	if !a.LastSeen.Equal(t1) {
+		t.Fatalf("LastSeen = %v; want %v", a.LastSeen, t1)
+	}
+	jsonEq(t, a.Telemetry, `{"cpu":2}`)
+	// An equal last_seen still applies.
+	if n, err = s.BatchTouchAgents(ctx, "c1", []store.AgentTouch{{ID: "a1", SessionSeq: 1, LastSeen: t1}}); err != nil || n != 1 {
+		t.Fatalf("equal touch = %d, %v; want 1", n, err)
+	}
+}
+
+func testHelloValidation(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	pool := mustPool(t, s, "p")
+	tests := []struct{ name, pool, ctrl string }{
+		{"empty controller", pool.ID, ""},
+		{"empty pool", "", "c1"},
+	}
+	for _, tt := range tests {
+		err := s.UpsertAgentOnHello(ctx, hello("a1", tt.pool, tt.ctrl), t0)
+		if !errors.Is(err, store.ErrInvalid) || errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("%s: %v; want ErrInvalid", tt.name, err)
+		}
+	}
+	if _, err := s.GetAgent(ctx, "a1"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("invalid hello created a row: %v", err)
+	}
+}
+
+func testTimestampOrdering(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	pool := mustPool(t, s, "p")
+	base := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
+	// Created out of order, with sub-second gaps and sub-microsecond noise.
+	times := []time.Time{base.Add(time.Second), base, base.Add(500*time.Millisecond + 123*time.Nanosecond)}
+	ids := make([]string, len(times))
+	for i, ts := range times {
+		tok, err := s.CreatePoolToken(ctx, pool.ID, fmt.Sprintf("t%d", i), tokens.Hash(fmt.Sprint(i)), ts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[i] = tok.ID
+		if !tok.CreatedAt.Equal(store.NormalizeTime(ts)) {
+			t.Fatalf("CreatedAt = %v; want %v", tok.CreatedAt, store.NormalizeTime(ts))
+		}
+	}
+	list, err := s.ListPoolTokens(ctx, pool.ID)
+	if err != nil || len(list) != 3 || list[0].ID != ids[1] || list[1].ID != ids[2] || list[2].ID != ids[0] {
+		t.Fatalf("ListPoolTokens order = %+v, %v; want t, t+500ms, t+1s", list, err)
+	}
+	// Returned and re-read values agree exactly.
+	if !list[1].CreatedAt.Equal(store.NormalizeTime(times[2])) {
+		t.Fatalf("round trip = %v; want %v", list[1].CreatedAt, store.NormalizeTime(times[2]))
 	}
 }

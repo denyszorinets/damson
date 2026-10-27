@@ -13,11 +13,14 @@ import (
 
 var _ store.PoolStore = (*Store)(nil)
 
-// Timestamps are stored as RFC3339 UTC text.
-func fmtTime(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
+// timeLayout is the fixed-width UTC layout of stored timestamps. Fixed width
+// keeps text order equal to time order; microseconds match Postgres.
+const timeLayout = "2006-01-02T15:04:05.000000Z"
+
+func fmtTime(t time.Time) string { return store.NormalizeTime(t).Format(timeLayout) }
 
 func parseTime(s string) (time.Time, error) {
-	t, err := time.Parse(time.RFC3339Nano, s)
+	t, err := time.Parse(timeLayout, s)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("parsing stored timestamp %q: %w", s, err)
 	}
@@ -56,7 +59,7 @@ func (s *Store) CreatePool(ctx context.Context, name, description string, now ti
 	if err != nil {
 		return store.Pool{}, fmt.Errorf("creating pool %q: %w", name, err)
 	}
-	return store.Pool{ID: id, Name: name, Description: description, CreatedAt: now.UTC()}, nil
+	return store.Pool{ID: id, Name: name, Description: description, CreatedAt: store.NormalizeTime(now)}, nil
 }
 
 // GetPoolByName implements store.PoolStore.
@@ -106,7 +109,7 @@ func (s *Store) CreatePoolToken(ctx context.Context, poolID, name, hash string, 
 	if err != nil {
 		return store.PoolToken{}, fmt.Errorf("creating pool token: %w", err)
 	}
-	return store.PoolToken{ID: id, PoolID: poolID, Name: name, CreatedAt: now.UTC()}, nil
+	return store.PoolToken{ID: id, PoolID: poolID, Name: name, CreatedAt: store.NormalizeTime(now)}, nil
 }
 
 // LookupPoolToken implements store.PoolStore.

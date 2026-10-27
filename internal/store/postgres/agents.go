@@ -22,6 +22,9 @@ func text(s string) pgtype.Text { return pgtype.Text{String: s, Valid: s != ""} 
 
 // UpsertAgentOnHello implements store.AgentStore.
 func (s *Store) UpsertAgentOnHello(ctx context.Context, h store.AgentHello, now time.Time) error {
+	if err := store.ValidateHello(h); err != nil {
+		return err
+	}
 	labels, err := store.EncodeStringMap(h.Labels)
 	if err != nil {
 		return err
@@ -30,11 +33,11 @@ func (s *Store) UpsertAgentOnHello(ctx context.Context, h store.AgentHello, now 
 	if err != nil {
 		return err
 	}
-	err = s.q.UpsertAgent(ctx, gen.UpsertAgentParams{
+	n, err := s.q.UpsertAgent(ctx, gen.UpsertAgentParams{
 		ID: h.ID, PoolID: h.PoolID, Version: h.Version, Protocol: int32(h.Protocol),
 		Labels: labels, Capabilities: caps, Capacity: int32(h.Capacity),
 		Telemetry: store.ObjectOrEmpty(h.Telemetry), ControllerID: text(h.ControllerID),
-		ConnectedAt: ts(now), LastSeen: ts(now),
+		SessionSeq: int64(h.SessionSeq), ConnectedAt: ts(now), LastSeen: ts(now),
 	})
 	if hasCode(err, foreignKeyViolation) {
 		return fmt.Errorf("pool %q: %w", h.PoolID, store.ErrNotFound)
@@ -42,7 +45,22 @@ func (s *Store) UpsertAgentOnHello(ctx context.Context, h store.AgentHello, now 
 	if err != nil {
 		return fmt.Errorf("upserting agent %q: %w", h.ID, err)
 	}
-	return nil
+	if n > 0 {
+		return nil
+	}
+	return s.explainRejectedHello(ctx, h)
+}
+
+// explainRejectedHello classifies a hello that changed no row.
+func (s *Store) explainRejectedHello(ctx context.Context, h store.AgentHello) error {
+	cur, err := s.GetAgent(ctx, h.ID)
+	if err != nil {
+		return err
+	}
+	if cur.PoolID != h.PoolID {
+		return fmt.Errorf("agent %q belongs to another pool: %w", h.ID, store.ErrConflict)
+	}
+	return fmt.Errorf("agent %q hello session %d not newer than %d: %w", h.ID, h.SessionSeq, cur.SessionSeq, store.ErrStale)
 }
 
 // BatchTouchAgents implements store.AgentStore.
@@ -60,7 +78,7 @@ func (s *Store) BatchTouchAgents(ctx context.Context, controllerID string, touch
 	for _, t := range touches {
 		n, err := q.TouchAgentCAS(ctx, gen.TouchAgentCASParams{
 			LastSeen: ts(t.LastSeen), Telemetry: store.ObjectOrEmpty(t.Telemetry),
-			ID: t.ID, ControllerID: text(controllerID),
+			ID: t.ID, ControllerID: text(controllerID), SessionSeq: int64(t.SessionSeq),
 		})
 		if err != nil {
 			return 0, fmt.Errorf("touching agent %q: %w", t.ID, err)
@@ -74,9 +92,9 @@ func (s *Store) BatchTouchAgents(ctx context.Context, controllerID string, touch
 }
 
 // MarkAgentDisconnected implements store.AgentStore.
-func (s *Store) MarkAgentDisconnected(ctx context.Context, agentID, controllerID string, now time.Time) error {
+func (s *Store) MarkAgentDisconnected(ctx context.Context, agentID, controllerID string, sessionSeq uint64, now time.Time) error {
 	n, err := s.q.DisconnectAgentCAS(ctx, gen.DisconnectAgentCASParams{
-		DisconnectedAt: ts(now), ID: agentID, ControllerID: text(controllerID),
+		DisconnectedAt: ts(now), ID: agentID, ControllerID: text(controllerID), SessionSeq: int64(sessionSeq),
 	})
 	if err != nil {
 		return fmt.Errorf("disconnecting agent %q: %w", agentID, err)
@@ -130,7 +148,7 @@ func (s *Store) ListAgents(ctx context.Context, cursor string, limit int) (store
 func toAgent(r gen.Agent) (store.Agent, error) {
 	a := store.Agent{
 		ID: r.ID, PoolID: r.PoolID, Version: r.Version, Protocol: int(r.Protocol),
-		Capacity: int(r.Capacity), Telemetry: r.Telemetry, ControllerID: r.ControllerID.String,
+		Capacity: int(r.Capacity), Telemetry: r.Telemetry, ControllerID: r.ControllerID.String, SessionSeq: uint64(r.SessionSeq),
 		ConnectedAt: r.ConnectedAt.Time.UTC(), LastSeen: r.LastSeen.Time.UTC(),
 		DisconnectedAt: tsPtr(r.DisconnectedAt),
 	}

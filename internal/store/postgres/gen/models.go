@@ -18,6 +18,7 @@ type Agent struct {
 	Capacity       int32
 	Telemetry      []byte
 	ControllerID   pgtype.Text
+	SessionSeq     int64
 	ConnectedAt    pgtype.Timestamptz
 	LastSeen       pgtype.Timestamptz
 	DisconnectedAt pgtype.Timestamptz

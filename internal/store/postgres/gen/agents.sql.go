@@ -13,17 +13,23 @@ import (
 
 const disconnectAgentCAS = `-- name: DisconnectAgentCAS :execrows
 UPDATE agents SET disconnected_at = $1, controller_id = NULL
-WHERE id = $2 AND controller_id = $3
+WHERE id = $2 AND controller_id = $3 AND session_seq = $4
 `
 
 type DisconnectAgentCASParams struct {
 	DisconnectedAt pgtype.Timestamptz
 	ID             string
 	ControllerID   pgtype.Text
+	SessionSeq     int64
 }
 
 func (q *Queries) DisconnectAgentCAS(ctx context.Context, arg DisconnectAgentCASParams) (int64, error) {
-	result, err := q.db.Exec(ctx, disconnectAgentCAS, arg.DisconnectedAt, arg.ID, arg.ControllerID)
+	result, err := q.db.Exec(ctx, disconnectAgentCAS,
+		arg.DisconnectedAt,
+		arg.ID,
+		arg.ControllerID,
+		arg.SessionSeq,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -32,7 +38,7 @@ func (q *Queries) DisconnectAgentCAS(ctx context.Context, arg DisconnectAgentCAS
 
 const getAgent = `-- name: GetAgent :one
 SELECT id, pool_id, version, protocol, labels, capabilities, capacity, telemetry,
-       controller_id, connected_at, last_seen, disconnected_at
+       controller_id, session_seq, connected_at, last_seen, disconnected_at
 FROM agents
 WHERE id = $1
 `
@@ -50,6 +56,7 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
 		&i.Capacity,
 		&i.Telemetry,
 		&i.ControllerID,
+		&i.SessionSeq,
 		&i.ConnectedAt,
 		&i.LastSeen,
 		&i.DisconnectedAt,
@@ -59,7 +66,7 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
 
 const listAgentsAfter = `-- name: ListAgentsAfter :many
 SELECT id, pool_id, version, protocol, labels, capabilities, capacity, telemetry,
-       controller_id, connected_at, last_seen, disconnected_at
+       controller_id, session_seq, connected_at, last_seen, disconnected_at
 FROM agents
 WHERE id > $1
 ORDER BY id
@@ -90,6 +97,7 @@ func (q *Queries) ListAgentsAfter(ctx context.Context, arg ListAgentsAfterParams
 			&i.Capacity,
 			&i.Telemetry,
 			&i.ControllerID,
+			&i.SessionSeq,
 			&i.ConnectedAt,
 			&i.LastSeen,
 			&i.DisconnectedAt,
@@ -107,6 +115,7 @@ func (q *Queries) ListAgentsAfter(ctx context.Context, arg ListAgentsAfterParams
 const touchAgentCAS = `-- name: TouchAgentCAS :execrows
 UPDATE agents SET last_seen = $1, telemetry = $2
 WHERE id = $3 AND controller_id = $4
+  AND session_seq = $5 AND last_seen <= $1
 `
 
 type TouchAgentCASParams struct {
@@ -114,6 +123,7 @@ type TouchAgentCASParams struct {
 	Telemetry    []byte
 	ID           string
 	ControllerID pgtype.Text
+	SessionSeq   int64
 }
 
 func (q *Queries) TouchAgentCAS(ctx context.Context, arg TouchAgentCASParams) (int64, error) {
@@ -122,6 +132,7 @@ func (q *Queries) TouchAgentCAS(ctx context.Context, arg TouchAgentCASParams) (i
 		arg.Telemetry,
 		arg.ID,
 		arg.ControllerID,
+		arg.SessionSeq,
 	)
 	if err != nil {
 		return 0, err
@@ -129,12 +140,12 @@ func (q *Queries) TouchAgentCAS(ctx context.Context, arg TouchAgentCASParams) (i
 	return result.RowsAffected(), nil
 }
 
-const upsertAgent = `-- name: UpsertAgent :exec
+const upsertAgent = `-- name: UpsertAgent :execrows
 INSERT INTO agents (id, pool_id, version, protocol, labels, capabilities, capacity, telemetry,
-                    controller_id, connected_at, last_seen, disconnected_at)
+                    controller_id, session_seq, connected_at, last_seen, disconnected_at)
 VALUES ($1, $2, $3, $4, $5,
         $6, $7, $8,
-        $9, $10, $11, NULL)
+        $9, $10, $11, $12, NULL)
 ON CONFLICT (id) DO UPDATE SET
     pool_id = excluded.pool_id,
     version = excluded.version,
@@ -144,9 +155,11 @@ ON CONFLICT (id) DO UPDATE SET
     capacity = excluded.capacity,
     telemetry = excluded.telemetry,
     controller_id = excluded.controller_id,
+    session_seq = excluded.session_seq,
     connected_at = excluded.connected_at,
     last_seen = excluded.last_seen,
     disconnected_at = NULL
+WHERE agents.pool_id = excluded.pool_id AND excluded.session_seq > agents.session_seq
 `
 
 type UpsertAgentParams struct {
@@ -159,12 +172,16 @@ type UpsertAgentParams struct {
 	Capacity     int32
 	Telemetry    []byte
 	ControllerID pgtype.Text
+	SessionSeq   int64
 	ConnectedAt  pgtype.Timestamptz
 	LastSeen     pgtype.Timestamptz
 }
 
-func (q *Queries) UpsertAgent(ctx context.Context, arg UpsertAgentParams) error {
-	_, err := q.db.Exec(ctx, upsertAgent,
+// Ownership is ordered by session_seq, never by wall clock: the update applies
+// only when the hello is a newer session of the same pool. Zero rows affected
+// means the caller must tell a pool mismatch from a stale session.
+func (q *Queries) UpsertAgent(ctx context.Context, arg UpsertAgentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, upsertAgent,
 		arg.ID,
 		arg.PoolID,
 		arg.Version,
@@ -174,8 +191,12 @@ func (q *Queries) UpsertAgent(ctx context.Context, arg UpsertAgentParams) error 
 		arg.Capacity,
 		arg.Telemetry,
 		arg.ControllerID,
+		arg.SessionSeq,
 		arg.ConnectedAt,
 		arg.LastSeen,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

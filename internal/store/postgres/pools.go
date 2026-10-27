@@ -24,7 +24,9 @@ func hasCode(err error, code string) bool {
 	return errors.As(err, &pe) && pe.Code == code
 }
 
-func ts(t time.Time) pgtype.Timestamptz { return pgtype.Timestamptz{Time: t.UTC(), Valid: true} }
+func ts(t time.Time) pgtype.Timestamptz {
+	return pgtype.Timestamptz{Time: store.NormalizeTime(t), Valid: true}
+}
 
 func tsPtr(t pgtype.Timestamptz) *time.Time {
 	if !t.Valid {
@@ -51,7 +53,7 @@ func (s *Store) CreatePool(ctx context.Context, name, description string, now ti
 	if err != nil {
 		return store.Pool{}, fmt.Errorf("creating pool %q: %w", name, err)
 	}
-	return store.Pool{ID: id, Name: name, Description: description, CreatedAt: now.UTC()}, nil
+	return store.Pool{ID: id, Name: name, Description: description, CreatedAt: store.NormalizeTime(now)}, nil
 }
 
 // GetPoolByName implements store.PoolStore.
@@ -97,7 +99,7 @@ func (s *Store) CreatePoolToken(ctx context.Context, poolID, name, hash string, 
 	if err != nil {
 		return store.PoolToken{}, fmt.Errorf("creating pool token: %w", err)
 	}
-	return store.PoolToken{ID: id, PoolID: poolID, Name: name, CreatedAt: now.UTC()}, nil
+	return store.PoolToken{ID: id, PoolID: poolID, Name: name, CreatedAt: store.NormalizeTime(now)}, nil
 }
 
 // LookupPoolToken implements store.PoolStore.

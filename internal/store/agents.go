@@ -3,72 +3,8 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
-
-	"github.com/google/uuid"
 )
-
-// NewID returns a new UUIDv7 string, the id format of every store-generated
-// row. Ids are generated in Go, never by the database.
-func NewID() (string, error) {
-	id, err := uuid.NewV7()
-	if err != nil {
-		return "", fmt.Errorf("generating id: %w", err)
-	}
-	return id.String(), nil
-}
-
-// EncodeJSON marshals v for a JSON column. JSON handling stays in Go, never
-// in SQL.
-func EncodeJSON(v any) ([]byte, error) {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return nil, fmt.Errorf("encoding json column: %w", err)
-	}
-	return b, nil
-}
-
-// EncodeStringMap marshals a string map, encoding nil as {}.
-func EncodeStringMap(m map[string]string) ([]byte, error) {
-	if m == nil {
-		m = map[string]string{}
-	}
-	return EncodeJSON(m)
-}
-
-// ObjectOrEmpty returns raw, or {} when raw is empty.
-func ObjectOrEmpty(raw json.RawMessage) []byte {
-	if len(raw) == 0 {
-		return []byte("{}")
-	}
-	return raw
-}
-
-// Page size bounds for ListAgents.
-const (
-	DefaultPageLimit = 50
-	MaxPageLimit     = 500
-)
-
-// ClampLimit maps a requested page size into [1, MaxPageLimit]; <= 0 means the default.
-func ClampLimit(n int) int {
-	switch {
-	case n <= 0:
-		return DefaultPageLimit
-	case n > MaxPageLimit:
-		return MaxPageLimit
-	}
-	return n
-}
-
-// DecodeJSON unmarshals a JSON column into v.
-func DecodeJSON(b []byte, v any) error {
-	if err := json.Unmarshal(b, v); err != nil {
-		return fmt.Errorf("decoding json column: %w", err)
-	}
-	return nil
-}
 
 // Pool is an agent pool.
 type Pool struct {
@@ -123,6 +59,7 @@ type Agent struct {
 	Capacity       int
 	Telemetry      json.RawMessage // last snapshot, opaque to the store
 	ControllerID   string          // empty when disconnected
+	SessionSeq     uint64          // agent connection counter of the owning session
 	ConnectedAt    time.Time
 	LastSeen       time.Time
 	DisconnectedAt *time.Time
@@ -139,13 +76,15 @@ type AgentHello struct {
 	Capacity     int
 	Telemetry    json.RawMessage // may be empty
 	ControllerID string          // the controller accepting the socket
+	SessionSeq   uint64          // per-agent-process connection counter from agent.hello
 }
 
 // AgentTouch is one batched heartbeat write.
 type AgentTouch struct {
-	ID        string
-	LastSeen  time.Time
-	Telemetry json.RawMessage
+	ID         string
+	SessionSeq uint64
+	LastSeen   time.Time
+	Telemetry  json.RawMessage
 }
 
 // AgentPage is one page of ListAgents. NextCursor is empty on the last page.
@@ -156,17 +95,23 @@ type AgentPage struct {
 
 // AgentStore persists agents.
 type AgentStore interface {
-	// UpsertAgentOnHello inserts or replaces the agent row and makes
-	// h.ControllerID its owner. The latest hello wins (a reconnect to another
-	// controller takes ownership). It returns ErrNotFound if the pool is absent.
+	// UpsertAgentOnHello inserts the agent row, or takes ownership of an
+	// existing one. Ownership is ordered by h.SessionSeq, never by wall
+	// clock: the takeover applies only if h.SessionSeq is higher than the
+	// stored one. It returns ErrInvalid for an empty ControllerID or PoolID,
+	// ErrNotFound if the pool is absent, ErrConflict if the agent exists in
+	// a different pool, and ErrStale if the stored session is as new or newer.
 	UpsertAgentOnHello(ctx context.Context, h AgentHello, now time.Time) error
 	// BatchTouchAgents updates last_seen and telemetry in one transaction,
-	// only for agents still owned by controllerID. It returns how many rows
-	// were applied; agents owned elsewhere are skipped, not errors.
+	// only for agents still owned by controllerID at the touch's SessionSeq
+	// and whose stored last_seen is not newer than the touch (late batches
+	// never move it backwards). It returns how many rows were applied; rows
+	// that did not match are skipped, not errors.
 	BatchTouchAgents(ctx context.Context, controllerID string, touches []AgentTouch) (int, error)
-	// MarkAgentDisconnected is a CAS on controller_id. It returns ErrNotFound
-	// if the agent is absent and ErrStale if controllerID no longer owns it.
-	MarkAgentDisconnected(ctx context.Context, agentID, controllerID string, now time.Time) error
+	// MarkAgentDisconnected is a CAS on (controller_id, session_seq). It
+	// returns ErrNotFound if the agent is absent and ErrStale if the
+	// controller/session no longer owns it.
+	MarkAgentDisconnected(ctx context.Context, agentID, controllerID string, sessionSeq uint64, now time.Time) error
 	// GetAgent returns ErrNotFound if absent.
 	GetAgent(ctx context.Context, id string) (Agent, error)
 	// ListAgents is keyset-paginated by id. cursor is "" for the first page.
