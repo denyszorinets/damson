@@ -44,7 +44,8 @@ reports the applied version, for the readiness check; it never creates the
 table, so an unmigrated database reports version 0 and stays untouched.
 
 SQLite has no advisory lock, so ``Migrate`` is serialized in-process by a mutex
-keyed on the canonical database file path (absolute, symlinks resolved). This
+keyed on the canonical database file path (absolute, symlinks resolved, ``file:`` URIs parsed and query stripped;
+case-insensitive filesystems are not normalized). This
 covers several ``Store`` values opened on one file in the same process; a later
 caller finds the schema up to date and does nothing. SQLite is
 single-controller (ARCHITECTURE section 8.1), so concurrent migration from

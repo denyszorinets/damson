@@ -47,7 +47,8 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	// After Ping the file exists, so symlinks resolve.
+	// Computed after Ping on purpose: the file exists by now, so symlinks
+	// resolve to the real path.
 	s.lockKey = canonicalPath(dsn)
 	return s, nil
 }
