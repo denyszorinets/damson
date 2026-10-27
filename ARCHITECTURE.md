@@ -146,7 +146,7 @@ AuditEvent
 | **Execution** | One attempt of a step instance on one agent. It carries the lease, the fencing `attempt_id`, and the agent and controller ownership. |
 | **LogChunk** | A manifest row pointing to a stored log chunk object (sequence range, byte count, timestamps). |
 | **Node** | An inventory record: name, address, transport, tags, attributes, pool, credential ref, host key, source, external_id. |
-| **Agent** | A connected worker: pool, labels, capabilities (plugins, versions, ansible), capacity, telemetry snapshot. |
+| **Agent** | A connected worker: pool, labels, capabilities (plugins, versions, ansible), capacity, telemetry snapshot, protocol version, owning controller and session. |
 
 ---
 

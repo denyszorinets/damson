@@ -4,8 +4,52 @@
 
 package gen
 
+import (
+	"database/sql"
+)
+
+type Agent struct {
+	ID             string
+	PoolID         string
+	Version        string
+	Protocol       int64
+	Labels         string
+	Capabilities   string
+	Capacity       int64
+	Telemetry      string
+	ControllerID   sql.NullString
+	SessionSeq     int64
+	ConnectedAt    string
+	LastSeen       string
+	DisconnectedAt sql.NullString
+}
+
+type AgentPool struct {
+	ID          string
+	Name        string
+	Description string
+	CreatedAt   string
+}
+
+type ControllerInstance struct {
+	ID          string
+	InternalUrl string
+	StartedAt   string
+	LastSeen    string
+}
+
 type InstanceSetting struct {
 	SettingKey   string
 	SettingValue string
 	Version      int64
+}
+
+type PoolToken struct {
+	ID         string
+	PoolID     string
+	Name       string
+	TokenHash  string
+	CreatedAt  string
+	LastUsedAt sql.NullString
+	RevokedAt  sql.NullString
 }

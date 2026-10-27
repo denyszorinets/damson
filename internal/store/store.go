@@ -18,6 +18,9 @@ var (
 	// ErrStale means a compare-and-swap lost: the row exists but its
 	// expected state or version no longer matches.
 	ErrStale = errors.New("store: stale")
+	// ErrInvalid means the caller passed an argument the store rejects
+	// before touching the database.
+	ErrInvalid = errors.New("store: invalid argument")
 )
 
 // Setting is an instance-wide key/value pair guarded by an optimistic
@@ -40,6 +43,10 @@ type Store interface {
 	MigrationVersion(ctx context.Context) (int64, error)
 	// Close releases the connections.
 	Close() error
+
+	PoolStore
+	AgentStore
+	ControllerStore
 
 	// GetSetting returns ErrNotFound if the key is absent.
 	GetSetting(ctx context.Context, key string) (Setting, error)

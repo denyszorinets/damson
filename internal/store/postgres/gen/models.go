@@ -4,8 +4,52 @@
 
 package gen
 
+import (
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
+type Agent struct {
+	ID             string
+	PoolID         string
+	Version        string
+	Protocol       int32
+	Labels         []byte
+	Capabilities   []byte
+	Capacity       int32
+	Telemetry      []byte
+	ControllerID   pgtype.Text
+	SessionSeq     int64
+	ConnectedAt    pgtype.Timestamptz
+	LastSeen       pgtype.Timestamptz
+	DisconnectedAt pgtype.Timestamptz
+}
+
+type AgentPool struct {
+	ID          string
+	Name        string
+	Description string
+	CreatedAt   pgtype.Timestamptz
+}
+
+type ControllerInstance struct {
+	ID          string
+	InternalUrl string
+	StartedAt   pgtype.Timestamptz
+	LastSeen    pgtype.Timestamptz
+}
+
 type InstanceSetting struct {
 	SettingKey   string
 	SettingValue string
 	Version      int64
+}
+
+type PoolToken struct {
+	ID         string
+	PoolID     string
+	Name       string
+	TokenHash  string
+	CreatedAt  pgtype.Timestamptz
+	LastUsedAt pgtype.Timestamptz
+	RevokedAt  pgtype.Timestamptz
 }
