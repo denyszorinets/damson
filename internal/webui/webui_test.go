@@ -14,6 +14,7 @@ import (
 func built() fstest.MapFS {
 	return fstest.MapFS{
 		"index.html":                  {Data: []byte("<html>shell</html>")},
+		".gitkeep":                    {},
 		"robots.txt":                  {Data: []byte("User-agent: *")},
 		"_app/immutable/entry/app.js": {Data: []byte("console.log(1)")},
 	}
@@ -40,6 +41,13 @@ func TestHandler(t *testing.T) {
 		{"missing asset", "GET", "/_app/immutable/missing.js", 404, "", ""},
 		{"missing file with extension", "GET", "/nope.png", 404, "", ""},
 		{"head", "HEAD", "/jobs", 200, "", "no-cache"},
+		{"index.html direct", "GET", "/index.html", 200, "shell", "no-cache"},
+		{"double slash", "GET", "//x", 200, "shell", "no-cache"},
+		{"dot segments", "GET", "/a/../b", 200, "shell", "no-cache"},
+		{"encoded traversal", "GET", "/%2e%2e/x", 200, "shell", "no-cache"},
+		{"dotfile", "GET", "/.gitkeep", 404, "", ""},
+		{"bare _app", "GET", "/_app", 404, "", ""},
+		{"head file", "HEAD", "/robots.txt", 200, "", ""},
 		{"post rejected", "POST", "/", 405, "", ""},
 	}
 	for _, tc := range tests {
@@ -59,7 +67,11 @@ func TestHandler(t *testing.T) {
 }
 
 func TestHandlerNotBuilt(t *testing.T) {
-	rec := do(webui.Handler(fstest.MapFS{".gitkeep": {}}), "GET", "/")
+	h := webui.Handler(fstest.MapFS{".gitkeep": {}})
+	if rec := do(h, "HEAD", "/x"); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("HEAD status = %d, want 503", rec.Code)
+	}
+	rec := do(h, "GET", "/")
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", rec.Code)
 	}

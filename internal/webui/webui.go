@@ -37,18 +37,26 @@ func Handler(root fs.FS) http.Handler {
 		}
 
 		name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
-		if name == "" {
+		if name == "" || name == indexFile {
 			serveIndex(w, r, root)
 			return
 		}
-		if info, err := fs.Stat(root, name); err == nil && !info.IsDir() {
-			if strings.HasPrefix(name, "_app/immutable/") {
-				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-			}
-			files.ServeHTTP(w, r)
+		if hasDotElement(name) {
+			http.NotFound(w, r)
 			return
 		}
-		if strings.HasPrefix(name, "_app/") || path.Ext(name) != "" {
+		if info, err := fs.Stat(root, name); err == nil && !info.IsDir() {
+			// Serve from a clone whose path is already clean so the file
+			// server never answers with a redirect.
+			r2 := r.Clone(r.Context())
+			r2.URL.Path = "/" + name
+			if strings.HasPrefix(name, "_app/immutable/") {
+				w = &cacheOn200{ResponseWriter: w, value: "public, max-age=31536000, immutable"}
+			}
+			files.ServeHTTP(w, r2)
+			return
+		}
+		if name == "_app" || strings.HasPrefix(name, "_app/") || path.Ext(name) != "" {
 			http.NotFound(w, r)
 			return
 		}
@@ -66,4 +74,39 @@ func serveIndex(w http.ResponseWriter, r *http.Request, root fs.FS) {
 	}
 	w.Header().Set("Cache-Control", "no-cache")
 	http.ServeContent(w, r, indexFile, time.Time{}, bytes.NewReader(data))
+}
+
+// hasDotElement reports whether any element of name starts with a dot, which
+// covers dotfiles such as .gitkeep.
+func hasDotElement(name string) bool {
+	for _, el := range strings.Split(name, "/") {
+		if strings.HasPrefix(el, ".") {
+			return true
+		}
+	}
+	return false
+}
+
+// cacheOn200 sets Cache-Control only when the response status is 200.
+type cacheOn200 struct {
+	http.ResponseWriter
+	value string
+	wrote bool
+}
+
+func (c *cacheOn200) WriteHeader(code int) {
+	if !c.wrote {
+		c.wrote = true
+		if code == http.StatusOK {
+			c.Header().Set("Cache-Control", c.value)
+		}
+	}
+	c.ResponseWriter.WriteHeader(code)
+}
+
+func (c *cacheOn200) Write(b []byte) (int, error) {
+	if !c.wrote {
+		c.WriteHeader(http.StatusOK)
+	}
+	return c.ResponseWriter.Write(b)
 }

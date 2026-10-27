@@ -51,11 +51,19 @@ Components and conventions
 --------------------------
 
 * Use shadcn-svelte components from ``web/src/lib/components/ui``; add more
-  with ``npx shadcn-svelte@latest add <name>``. These files are vendored and
+  with ``npx shadcn-svelte@1.7.1 add <name>`` (the CLI version used to
+  generate the current components; bump it deliberately). These files are vendored and
   excluded from prettier and eslint.
 * shadcn-svelte imports from ``$lib``. SvelteKit 3 deprecates the ``$lib``
   alias in favour of subpath imports, so ``vite.config.ts`` declares it
   explicitly; the build prints a deprecation notice until the upstream
   components move to subpath imports.
+* ``components.json`` and the ``nova`` style were chosen by hand, because
+  ``shadcn-svelte init`` is not scriptable here.
+* There is no ``svelte.config.js``: the SvelteKit config is inlined in
+  ``vite.config.ts``. Drop the explicit ``$lib`` alias workaround there once
+  the upstream components use subpath imports.
+* ``web/package.json`` sets ``engines.node`` to ``>=22``, enforced by
+  ``engine-strict`` in ``web/.npmrc``.
 * Call the API only through the generated client, and render schema-driven
   forms only through ``SchemaForm.svelte`` (CLAUDE.md, rule 10).

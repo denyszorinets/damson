@@ -26,7 +26,17 @@ fmt-check: ## Fail if any Go file is not gofmt-formatted
 	@out=$$(gofmt -l cmd internal pkg plugins 2>/dev/null); \
 	if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 
-check: fmt-check vet test $(if $(wildcard web/node_modules),web-check) ## Go checks, plus web lint and typecheck when web/node_modules exists (lint and Postgres join later)
+check: fmt-check vet test web-check-maybe ## Go checks, plus web lint and typecheck when web/node_modules exists (lint and Postgres join later)
+
+.PHONY: web-check-maybe
+web-check-maybe:
+ifneq ($(wildcard web/node_modules),)
+	@$(MAKE) --no-print-directory web-check
+else ifneq ($(CI),)
+	@echo "FAILED web-check: web/node_modules is missing and CI is set (run make web)"; exit 1
+else
+	@echo "SKIPPED web-check (run make web)"
+endif
 
 web: ## Build the SvelteKit SPA into web/build (embedded by the binary)
 	cd web && npm ci && npm run build
