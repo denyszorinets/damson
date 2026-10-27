@@ -6,3 +6,4 @@ Reference
 
    configuration
    cli
+   http-api

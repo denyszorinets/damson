@@ -21,8 +21,8 @@ func TestRun(t *testing.T) {
 		{name: "no args", wantCode: exitUsage, wantErr: "Usage:"},
 		{name: "unknown", args: []string{"nope"}, wantCode: exitUsage, wantErr: "unknown command"},
 		{name: "version", args: []string{"version"}, wantCode: exitOK, wantOut: "damson"},
-		{name: "controller starts and stops", args: []string{"controller"}, cancel: true, wantCode: exitOK, wantErr: `"starting"`},
-		{name: "dev starts and stops", args: []string{"dev"}, cancel: true, wantCode: exitOK, wantErr: `"role":"dev"`},
+		{name: "controller starts and stops", args: []string{"controller"}, env: ctrlEnv(t), cancel: true, wantCode: exitOK, wantErr: `"starting"`},
+		{name: "dev starts and stops", args: []string{"dev"}, env: ctrlEnv(t), cancel: true, wantCode: exitOK, wantErr: `"role":"dev"`},
 		{name: "agent without config fails", args: []string{"agent"}, wantCode: exitError, wantErr: "agent.token"},
 		{
 			name: "agent redacts token", cancel: true, wantCode: exitOK, wantErr: `"starting"`,
@@ -36,7 +36,7 @@ func TestRun(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			if tt.cancel {
-				time.AfterFunc(50*time.Millisecond, cancel)
+				time.AfterFunc(300*time.Millisecond, cancel)
 			}
 			var out, errb bytes.Buffer
 			if got := run(ctx, tt.args, &out, &errb, tt.env); got != tt.wantCode {
