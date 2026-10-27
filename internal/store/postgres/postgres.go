@@ -43,7 +43,7 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	}
 	s := &Store{pool: pool, sql: stdlib.OpenDBFromPool(pool), q: gen.New(pool)}
 	if err := s.Ping(ctx); err != nil {
-		s.Close()
+		_ = s.Close()
 		return nil, err
 	}
 	return s, nil
