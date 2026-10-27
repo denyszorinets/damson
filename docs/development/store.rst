@@ -43,6 +43,14 @@ controllers can call it at start without racing. ``Store.MigrationVersion``
 reports the applied version, for the readiness check; it never creates the
 table, so an unmigrated database reports version 0 and stays untouched.
 
+SQLite has no advisory lock, so ``Migrate`` is serialized in-process by a mutex
+keyed on the canonical database file path (absolute, symlinks resolved). This
+covers several ``Store`` values opened on one file in the same process; a later
+caller finds the schema up to date and does nothing. SQLite is
+single-controller (ARCHITECTURE section 8.1), so concurrent migration from
+several **processes** on one SQLite file is not supported; the planned
+single-controller lock row will guard that.
+
 The ``instance_settings`` table is scaffolding that exercises the store
 contract; it will be replaced by the real tables. The single-controller lock
 row described in ARCHITECTURE section 8.1 is not implemented yet.

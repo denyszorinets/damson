@@ -72,14 +72,17 @@ func testMigrate(t *testing.T, s store.Store) {
 
 func testMigrateConcurrent(t *testing.T, s store.Store) {
 	var wg sync.WaitGroup
-	errs := make([]error, 4)
+	errs := make([]error, 8)
+	start := make(chan struct{})
 	for i := range errs {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			<-start
 			errs[i] = s.Migrate(context.Background())
 		}()
 	}
+	close(start)
 	wg.Wait()
 	for i, err := range errs {
 		if err != nil {
