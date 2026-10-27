@@ -5,7 +5,7 @@ VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev
 LDFLAGS  := -X github.com/denyszorinets/damson/internal/version.Version=$(VERSION)
 SPHINX   := cd $(DOCS_DIR) && uv run --frozen
 
-.PHONY: plugin-contract build test test-pg gen vet fmt-check check docs docs-serve docs-check
+.PHONY: plugin-contract build test test-pg gen vet fmt-check check docs docs-serve docs-check web web-check
 
 build: ## Build the damson binary into bin/damson
 	go build -ldflags "$(LDFLAGS)" -o bin/damson ./cmd/damson
@@ -26,7 +26,14 @@ fmt-check: ## Fail if any Go file is not gofmt-formatted
 	@out=$$(gofmt -l cmd internal pkg plugins 2>/dev/null); \
 	if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 
-check: fmt-check vet test ## Go checks that exist so far (lint, Postgres and web join in later M0 issues)
+check: fmt-check vet test $(if $(wildcard web/node_modules),web-check) ## Go checks, plus web lint and typecheck when web/node_modules exists (lint and Postgres join later)
+
+web: ## Build the SvelteKit SPA into web/build (embedded by the binary)
+	cd web && npm ci && npm run build
+	touch web/build/.gitkeep
+
+web-check: ## Web lint (prettier + eslint) and typecheck (svelte-check)
+	cd web && npm run lint && npm run check
 
 docs: ## Build the documentation site into docs/_build/html
 	$(SPHINX) sphinx-build -b html . _build/html

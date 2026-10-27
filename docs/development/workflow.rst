@@ -77,6 +77,10 @@ Make targets
      - Live-reloading documentation preview.
    * - ``make docs-check``
      - Strict documentation build and linkcheck.
+   * - ``make web``
+     - Build the SvelteKit SPA into ``web/build`` (see :doc:`web-ui`).
+   * - ``make web-check``
+     - Web lint (prettier, eslint) and typecheck (svelte-check).
 
 .. note::
 
