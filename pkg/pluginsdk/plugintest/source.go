@@ -22,23 +22,41 @@ const modulePath = "github.com/denyszorinets/damson"
 //   - it has no package-level mutable state (only blank vars, error sentinels
 //     made with errors.New, and compiled regexps are allowed)
 //   - it imports no Damson internals except pkg/pluginsdk and plugins/internal/*
+//     (SkipImportRule disables this for plugins/all)
 //
-// Test files are ignored.
-func CheckSource(t *testing.T, dir string) {
+// A package under plugins/internal/ is a shared helper, not a plugin, so it is
+// not required to export Plugins(). Test files are ignored.
+func CheckSource(t *testing.T, dir string, opts ...SourceOption) {
 	t.Helper()
-	for _, p := range SourceProblems(t, dir) {
+	for _, p := range SourceProblems(t, dir, opts...) {
 		t.Error(p)
 	}
 }
 
+// SourceOption tunes CheckSource.
+type SourceOption func(*sourceConfig)
+
+type sourceConfig struct{ skipImports bool }
+
+// SkipImportRule disables the import rule. Use it for plugins/all, which must
+// import every built-in plugin package.
+func SkipImportRule() SourceOption { return func(c *sourceConfig) { c.skipImports = true } }
+
 // SourceProblems returns the convention violations CheckSource would report.
-func SourceProblems(t *testing.T, dir string) []string {
+func SourceProblems(t *testing.T, dir string, opts ...SourceOption) []string {
 	t.Helper()
+	var cfg sourceConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+	helper := isInternalHelper(dir)
 	files := parseDir(t, dir)
 	var probs []string
 	hasPlugins := false
 	for fname, f := range files {
-		probs = append(probs, checkImports(f, fname)...)
+		if !cfg.skipImports {
+			probs = append(probs, checkImports(f, fname)...)
+		}
 		for _, d := range f.Decls {
 			switch d := d.(type) {
 			case *ast.FuncDecl:
@@ -55,16 +73,25 @@ func SourceProblems(t *testing.T, dir string) []string {
 			}
 		}
 	}
-	if !hasPlugins {
+	if !hasPlugins && !helper {
 		probs = append(probs, dir+": missing func Plugins() []pluginsdk.Plugin")
 	}
 	return probs
 }
 
+// isInternalHelper reports whether dir is a package under plugins/internal/.
+func isInternalHelper(dir string) bool {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(filepath.ToSlash(abs)+"/", "/plugins/internal/")
+}
+
 func checkImports(f *ast.File, fname string) (probs []string) {
 	for _, imp := range f.Imports {
 		p, _ := strconv.Unquote(imp.Path.Value)
-		if !strings.HasPrefix(p, modulePath) {
+		if !strings.HasPrefix(p, modulePath+"/") {
 			continue
 		}
 		rest := strings.TrimPrefix(p, modulePath+"/")

@@ -352,7 +352,7 @@ In v1 every plugin is **compiled into the binary**.
 **Developer tooling**
 
 - `damson plugin new <name>` scaffolds the package, input and output structs, a test, and a README.
-- `pkg/pluginsdk/plugintest` runs a plugin's `Execute` in a unit test with a fake emitter, fake secrets, and a temp WorkDir, then asserts outputs and masked logs. It also provides a **contract suite** every plugin must pass: schema generation, cancellation, secret masking, and output-schema conformance.
+- `pkg/pluginsdk/plugintest` runs a plugin's `Execute` in a unit test with a fake emitter, fake secrets, and a temp WorkDir, then asserts outputs and masked logs. It also provides a **contract suite** every plugin must pass: schema generation, cancellation (including an optional blocking case), secret masking (plaintext check), and output-schema conformance (validated with `santhosh-tekuri/jsonschema/v6`, a dependency of `plugintest` only).
 - `damson plugin run <name> --input input.json --secrets secrets.json` runs one plugin locally without a controller.
 - `damson plugin validate` checks the manifest, the schemas, and semver.
 - `examples/plugins/hello` is a minimal out-of-tree plugin. CI builds it into a custom binary with `damson build`.
@@ -377,37 +377,68 @@ This is not in v1, but the design keeps it possible: a plugin `.so` dropped into
 
 ### SDK interface
 
+The SDK is semver `0.x` (`pluginsdk.Version`): treated as stable, but breaking changes are still allowed before 1.0.
+
 ```go
 package pluginsdk
 
+const Version = "0.1.0"
+
+type TargetMode string // wire values: "none" | "single_node" | "inventory"; Valid() bool
+
 type Manifest struct {
-    Name         string             // "ssh"
+    Name         string             // "ssh": [a-z][a-z0-9_-]*
     Version      string             // semver
     Title        string
     Description  string
-    InputSchema  *jsonschema.Schema // generated from the Input struct
+    InputSchema  *jsonschema.Schema // generated from the Input struct (SchemaFor / MustSchemaFor)
     OutputSchema *jsonschema.Schema // generated from the Output struct
     Idempotent   bool               // safe to retry after a "lost" execution
     Requires     []string           // agent capabilities, e.g. "bin:ansible-playbook", "bin:git"
-    TargetMode   TargetMode         // None | SingleNode | Inventory
+    TargetMode   TargetMode
 }
+
+// Validate checks the manifest; Checksum is sha256 over canonical JSON (sorted keys),
+// independent of schema marshaling order.
+func (Manifest) Validate() error
+func (Manifest) Checksum() (string, error)
 
 type Plugin interface {
     Manifest() Manifest
     // Validate runs on the agent before Execute (cross-field rules). A failure is a
     // non-retryable validation error. The controller validates only against InputSchema,
     // because it may not have the plugin's code (plugins in custom agent binaries).
+    // InputSchema validates the RESOLVED input (after ${{ }} evaluation), not the saved spec.
     Validate(ctx context.Context, input json.RawMessage) error
-    // Execute runs on the agent.
+    // Execute runs on the agent. A step failure goes in Result.Error; a non-nil error
+    // return means an unexpected plugin fault.
     Execute(ctx context.Context, req ExecRequest, emit Emitter) (Result, error)
 }
 
 type ExecRequest struct {
     Input     json.RawMessage        // fully resolved input (secret refs still as refs)
     Secrets   SecretResolver         // resolves secret:// refs from the bundle sent with the request
-    Nodes     map[string]NodeInfo    // nodes referenced by this step, with connection details
+    Nodes     map[string]NodeInfo    // nodes referenced by this step, keyed by node name
     WorkDir   string                 // per-execution temp dir, removed after
-    Logger    *slog.Logger
+    Logger    *slog.Logger           // diagnostics only; never receives secret values
+}
+
+// No ctx: the bundle (§9.3) is already in agent memory.
+type SecretResolver interface {
+    Resolve(ref string) (string, error)                  // one value
+    ResolveFields(ref string) (map[string]string, error) // whole credential (ssh_key, s3, ...)
+}
+
+type NodeInfo struct { // names and wire tags follow the node fields of §11
+    Name          string         `json:"name"`
+    Address       string         `json:"address"`
+    Port          int            `json:"port,omitempty"`
+    Transport     string         `json:"transport,omitempty"`       // ssh | winrm
+    OS            string         `json:"os,omitempty"`
+    Attributes    map[string]any `json:"attributes,omitempty"`      // string | number | bool
+    Credential    string         `json:"credential,omitempty"`      // secret:// ref, never a value
+    HostKey       string         `json:"host_key,omitempty"`
+    HostKeyPolicy string         `json:"host_key_policy,omitempty"` // strict | tofu | insecure
 }
 
 type Emitter interface {
@@ -417,9 +448,32 @@ type Emitter interface {
 
 type Result struct {
     Outputs json.RawMessage
-    Error   *StepError               // Kind: connection|auth|timeout|exit_code|validation|cancelled|internal
+    Error   *StepError               // see below
 }
+
+type ErrorKind string // connection|auth|timeout|exit_code|validation|cancelled|internal; Valid() bool
+
+type StepError struct {
+    Kind     ErrorKind `json:"kind"`
+    Message  string    `json:"message"`
+    ExitCode *int      `json:"exit_code,omitempty"` // for exit_code
+    // unexported cause, never serialized
+}
+
+// Helpers: NewError, ValidationError, ExitCodeError, and AsStepError(err), which maps
+// any error to a *StepError (context.Canceled -> cancelled, DeadlineExceeded -> timeout,
+// anything else -> internal).
 ```
+
+**Error reporting**
+
+- A step failure is returned as `Result.Error`. A non-nil `error` return means the plugin itself failed unexpectedly; callers normalize it with `AsStepError`.
+- If `Execute` returns a non-nil error while its context is cancelled, the kind is `cancelled`.
+- The agent recovers a panic in a plugin and reports it as an `internal` step error.
+
+**Schemas**
+
+- `SchemaFor[T]` / `MustSchemaFor[T]` generate JSON Schema (`github.com/invopop/jsonschema`, version pinned in `go.mod`) from the struct's `json` and `jsonschema` tags. A field is required unless its `json` tag has `omitempty`; objects get `additionalProperties: false`. A golden test pins the output and the manifest checksum.
 
 **Rules**
 

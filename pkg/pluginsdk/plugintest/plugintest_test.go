@@ -37,6 +37,18 @@ func TestSourceProblems(t *testing.T) {
 	}
 }
 
+func TestSourceOptionsAndHelpers(t *testing.T) {
+	if got := plugintest.SourceProblems(t, "testdata/helper/plugins/internal/util"); len(got) != 0 {
+		t.Fatalf("plugins/internal helper must not need Plugins(): %q", got)
+	}
+	got := plugintest.SourceProblems(t, "testdata/bad", plugintest.SkipImportRule())
+	for _, g := range got {
+		if strings.Contains(g, "forbidden import") {
+			t.Fatalf("import rule not skipped: %q", got)
+		}
+	}
+}
+
 func TestFakes(t *testing.T) {
 	e := &plugintest.FakeEmitter{}
 	e.Log(pluginsdk.Stderr, "a")
@@ -50,7 +62,23 @@ func TestFakes(t *testing.T) {
 	if got := e.Text(); got != "a\nhalf\n" {
 		t.Fatalf("text %q", got)
 	}
+	b := plugintest.FakeBundle{"secret://ssh": {"private_key": "k", "username": "u"}}
+	if f, err := b.ResolveFields("secret://ssh"); err != nil || f["username"] != "u" {
+		t.Fatalf("fields = %v %v", f, err)
+	}
+	if v, err := b.Resolve("secret://ssh#private_key"); err != nil || v != "k" {
+		t.Fatalf("resolve = %q %v", v, err)
+	}
+	if _, err := b.Resolve("secret://ssh#nope"); err == nil {
+		t.Fatal("missing field should error")
+	}
+	if _, err := b.ResolveFields("secret://nope"); err == nil {
+		t.Fatal("missing bundle should error")
+	}
 	s := plugintest.FakeSecrets{"secret://a": "v"}
+	if f, err := s.ResolveFields("secret://a"); err != nil || f["value"] != "v" {
+		t.Fatalf("fields = %v %v", f, err)
+	}
 	if v, err := s.Resolve("secret://a"); err != nil || v != "v" {
 		t.Fatalf("resolve = %q %v", v, err)
 	}

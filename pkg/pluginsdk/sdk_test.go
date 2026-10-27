@@ -119,3 +119,76 @@ func TestAsStepError(t *testing.T) {
 		t.Fatal("cause not unwrapped")
 	}
 }
+
+func TestEnumValid(t *testing.T) {
+	for _, m := range []pluginsdk.TargetMode{pluginsdk.TargetNone, pluginsdk.TargetSingleNode, pluginsdk.TargetInventory} {
+		if !m.Valid() {
+			t.Errorf("mode %q should be valid", m)
+		}
+	}
+	for _, m := range []pluginsdk.TargetMode{"", "None", "single", "inventory "} {
+		if m.Valid() {
+			t.Errorf("mode %q should be invalid", m)
+		}
+	}
+	kinds := []pluginsdk.ErrorKind{pluginsdk.KindConnection, pluginsdk.KindAuth, pluginsdk.KindTimeout,
+		pluginsdk.KindExitCode, pluginsdk.KindValidation, pluginsdk.KindCancelled, pluginsdk.KindInternal}
+	for _, k := range kinds {
+		if !k.Valid() {
+			t.Errorf("kind %q should be valid", k)
+		}
+	}
+	for _, k := range []pluginsdk.ErrorKind{"", "exit", "Auth"} {
+		if k.Valid() {
+			t.Errorf("kind %q should be invalid", k)
+		}
+	}
+}
+
+func TestResultJSONRoundTrip(t *testing.T) {
+	r := pluginsdk.Result{
+		Outputs: json.RawMessage(`{"a":1}`),
+		Error:   pluginsdk.ExitCodeError(7, "failed"),
+	}
+	b, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `{"outputs":{"a":1},"error":{"kind":"exit_code","message":"failed","exit_code":7}}`
+	if string(b) != want {
+		t.Fatalf("wire = %s, want %s", b, want)
+	}
+	var got pluginsdk.Result
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Error == nil || got.Error.Kind != pluginsdk.KindExitCode || *got.Error.ExitCode != 7 || got.Error.Message != "failed" {
+		t.Fatalf("round trip lost data: %+v", got.Error)
+	}
+	// The cause is never serialized.
+	b, _ = json.Marshal(pluginsdk.NewError(pluginsdk.KindInternal, "m", errors.New("secret detail")))
+	if string(b) != `{"kind":"internal","message":"m"}` {
+		t.Fatalf("wire = %s", b)
+	}
+	b, _ = json.Marshal(pluginsdk.Result{})
+	if string(b) != `{}` {
+		t.Fatalf("empty result wire = %s", b)
+	}
+}
+
+func TestNodeInfoWire(t *testing.T) {
+	n := pluginsdk.NodeInfo{Name: "n1", Address: "10.0.0.1", Port: 22, Transport: "ssh", OS: "linux",
+		Attributes: map[string]any{"rack": 4, "prod": true, "env": "x"}, Credential: "secret://_inventory/n1",
+		HostKey: "ssh-ed25519 AAAA", HostKeyPolicy: "strict"}
+	b, err := json.Marshal(n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	_ = json.Unmarshal(b, &m)
+	for _, k := range []string{"name", "address", "port", "transport", "os", "attributes", "credential", "host_key", "host_key_policy"} {
+		if _, ok := m[k]; !ok {
+			t.Errorf("missing wire key %q in %s", k, b)
+		}
+	}
+}

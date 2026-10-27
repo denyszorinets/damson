@@ -22,15 +22,10 @@ type Output struct {
 	Greeting string `json:"greeting" jsonschema:"description=The greeting that was logged"`
 }
 
-// Plugins returns the plugins in this package.
+// Plugins returns the plugins in this package. The manifest, with its
+// generated schemas, is built once here.
 func Plugins() []pluginsdk.Plugin {
-	return []pluginsdk.Plugin{plugin{}}
-}
-
-type plugin struct{}
-
-func (plugin) Manifest() pluginsdk.Manifest {
-	return pluginsdk.Manifest{
+	return []pluginsdk.Plugin{plugin{manifest: pluginsdk.Manifest{
 		Name:         "hello",
 		Version:      "0.1.0",
 		Title:        "Hello",
@@ -39,8 +34,12 @@ func (plugin) Manifest() pluginsdk.Manifest {
 		OutputSchema: pluginsdk.MustSchemaFor[Output](),
 		Idempotent:   true,
 		TargetMode:   pluginsdk.TargetNone,
-	}
+	}}}
 }
+
+type plugin struct{ manifest pluginsdk.Manifest }
+
+func (p plugin) Manifest() pluginsdk.Manifest { return p.manifest }
 
 func decode(raw json.RawMessage) (Input, error) {
 	var in Input

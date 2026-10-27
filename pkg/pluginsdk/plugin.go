@@ -36,20 +36,37 @@ type ExecRequest struct {
 	Logger *slog.Logger
 }
 
-// SecretResolver resolves secret:// references to their values. Values must
+// SecretResolver resolves secret:// references against the secret bundle sent
+// with the request (ARCHITECTURE.md section 9.3). The bundle lives in agent
+// memory, so the methods take no context and never block on I/O. Values must
 // only be held in memory and never logged or returned in outputs.
 type SecretResolver interface {
+	// Resolve returns the value of a single-value ref, such as
+	// secret://team/token or secret://team/key#private_key.
 	Resolve(ref string) (string, error)
+	// ResolveFields returns all fields of a whole-credential ref, such as an
+	// ssh_key (private_key, passphrase, username) or an s3 connection.
+	ResolveFields(ref string) (map[string]string, error)
 }
 
-// NodeInfo is the connection detail of one inventory node.
+// NodeInfo is the connection detail of one inventory node. Field names and
+// wire tags follow the node fields of ARCHITECTURE.md section 11.
 type NodeInfo struct {
-	Name       string            `json:"name"`
-	Address    string            `json:"address"`
-	Port       int               `json:"port,omitempty"`
-	Attributes map[string]string `json:"attributes,omitempty"`
+	Name    string `json:"name"`
+	Address string `json:"address"`
+	Port    int    `json:"port,omitempty"`
+	// Transport is "ssh" or "winrm".
+	Transport string `json:"transport,omitempty"`
+	// OS is "linux", "windows", and so on.
+	OS string `json:"os,omitempty"`
+	// Attributes values are strings, numbers or bools.
+	Attributes map[string]any `json:"attributes,omitempty"`
 	// Credential is a secret:// ref, never a value.
 	Credential string `json:"credential,omitempty"`
+	// HostKey is the pinned public host key, if any.
+	HostKey string `json:"host_key,omitempty"`
+	// HostKeyPolicy is "strict", "tofu" or "insecure".
+	HostKeyPolicy string `json:"host_key_policy,omitempty"`
 }
 
 // Stream identifies the log stream a line belongs to.

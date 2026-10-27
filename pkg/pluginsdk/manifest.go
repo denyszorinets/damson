@@ -1,6 +1,7 @@
 package pluginsdk
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -71,11 +72,25 @@ func (m Manifest) Validate() error {
 
 // Checksum is a stable digest of the manifest. The controller compares it to
 // detect schema conflicts between agents reporting the same name and version.
+//
+// The manifest is marshaled, decoded into generic values and marshaled again.
+// encoding/json writes map keys sorted, so the digest depends on the schema
+// content only, not on the key order or struct layout of the schema library.
 func (m Manifest) Checksum() (string, error) {
-	b, err := json.Marshal(m)
+	raw, err := json.Marshal(m)
 	if err != nil {
 		return "", fmt.Errorf("marshaling manifest: %w", err)
 	}
-	sum := sha256.Sum256(b)
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return "", fmt.Errorf("canonicalizing manifest: %w", err)
+	}
+	canon, err := json.Marshal(v)
+	if err != nil {
+		return "", fmt.Errorf("marshaling canonical manifest: %w", err)
+	}
+	sum := sha256.Sum256(canon)
 	return hex.EncodeToString(sum[:]), nil
 }

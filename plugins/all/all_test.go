@@ -18,5 +18,5 @@ func TestBuiltinsPassContract(t *testing.T) {
 }
 
 func TestSource(t *testing.T) {
-	plugintest.CheckSource(t, ".")
+	plugintest.CheckSource(t, ".", plugintest.SkipImportRule())
 }

@@ -75,7 +75,8 @@ func (e *FakeEmitter) Text() string {
 	return b.String()
 }
 
-// FakeSecrets is a map-backed pluginsdk.SecretResolver.
+// FakeSecrets is a map-backed pluginsdk.SecretResolver for single-value refs.
+// For whole-credential refs use FakeBundle.
 type FakeSecrets map[string]string
 
 // Resolve implements pluginsdk.SecretResolver.
@@ -85,4 +86,49 @@ func (s FakeSecrets) Resolve(ref string) (string, error) {
 		return "", fmt.Errorf("secret %q not found", ref)
 	}
 	return v, nil
+}
+
+// ResolveFields implements pluginsdk.SecretResolver. A single-value secret is
+// returned as one field named "value".
+func (s FakeSecrets) ResolveFields(ref string) (map[string]string, error) {
+	v, err := s.Resolve(ref)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{"value": v}, nil
+}
+
+// FakeBundle is a pluginsdk.SecretResolver over whole credentials (ref to
+// fields). Resolve returns the "value" field, or the field named by a
+// "#key" suffix on the ref.
+type FakeBundle map[string]map[string]string
+
+// Resolve implements pluginsdk.SecretResolver.
+func (b FakeBundle) Resolve(ref string) (string, error) {
+	base, key, found := strings.Cut(ref, "#")
+	if !found {
+		key = "value"
+	}
+	fields, err := b.ResolveFields(base)
+	if err != nil {
+		return "", err
+	}
+	v, ok := fields[key]
+	if !ok {
+		return "", fmt.Errorf("secret %q has no field %q", base, key)
+	}
+	return v, nil
+}
+
+// ResolveFields implements pluginsdk.SecretResolver. It returns a copy.
+func (b FakeBundle) ResolveFields(ref string) (map[string]string, error) {
+	fields, ok := b[ref]
+	if !ok {
+		return nil, fmt.Errorf("secret %q not found", ref)
+	}
+	out := make(map[string]string, len(fields))
+	for k, v := range fields {
+		out[k] = v
+	}
+	return out, nil
 }
