@@ -525,11 +525,22 @@ func testLogVsClaimRace(t *testing.T, s store.Store) {
 		if err := s.RequeueExecution(ctx, e.ID, e.AttemptID, claimNow); err != nil {
 			return err
 		}
-		var err error
-		reclaimed, err = s.ClaimExecutions(ctx, store.ClaimParams{
-			AgentID: "agent-2", ControllerID: "ctrl-2", Pools: []string{"default"}, Limit: 1, LeaseTTL: leaseTTL,
-		}, claimNow)
-		return err
+		// The claim skips rows another transaction holds (the insert's share
+		// lock on Postgres), so an empty result means "try again", as the
+		// dispatch loop does.
+		for try := 0; try < 100 && len(reclaimed) == 0; try++ {
+			var err error
+			reclaimed, err = s.ClaimExecutions(ctx, store.ClaimParams{
+				AgentID: "agent-2", ControllerID: "ctrl-2", Pools: []string{"default"}, Limit: 1, LeaseTTL: leaseTTL,
+			}, claimNow)
+			if err != nil {
+				return err
+			}
+			if len(reclaimed) == 0 {
+				time.Sleep(10 * time.Millisecond)
+			}
+		}
+		return nil
 	})
 	if len(res.other) != 0 || res.won+res.stale != 2 {
 		t.Fatalf("unexpected results: %+v", res)
