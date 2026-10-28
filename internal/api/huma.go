@@ -18,8 +18,18 @@ import (
 // APIPrefix + "/openapi.json".
 const APIPrefix = "/api/v1"
 
+// RunEnqueuer enqueues run.advance inside a store transaction, so the job
+// exists if and only if the change that needs it commits (ADR-0010). The
+// controller passes *advance.Advancer; nil disables enqueueing (tests, and
+// controllers that do not run the orchestrator).
+type RunEnqueuer interface {
+	Enqueue(ctx context.Context, tx store.Tx, runID string) error
+}
+
 // DataStore is what the typed endpoints read from the store.
 type DataStore interface {
+	store.TxRunner
+
 	ListAgents(ctx context.Context, cursor string, limit int) (store.AgentPage, error)
 	GetAgent(ctx context.Context, id string) (store.Agent, error)
 	ListPools(ctx context.Context) ([]store.Pool, error)

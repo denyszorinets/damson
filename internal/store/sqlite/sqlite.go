@@ -22,6 +22,11 @@ type Store struct {
 	db      *sql.DB
 	q       *gen.Queries
 	lockKey string
+	// queueDB is the pool River uses: one connection, because River issues
+	// many concurrent writes and SQLite allows one writer (riversqlite docs).
+	// It is a second pool on the same file; transactional enqueues still run
+	// on the caller's own transaction from db.
+	queueDB *sql.DB
 }
 
 var _ store.Store = (*Store)(nil)
@@ -42,9 +47,15 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening sqlite: %w", err)
 	}
-	s := &Store{db: db, q: gen.New(db)}
-	if err := s.Ping(ctx); err != nil {
+	queueDB, err := sql.Open("sqlite", withPragmas(dsn))
+	if err != nil {
 		_ = db.Close()
+		return nil, fmt.Errorf("opening sqlite queue pool: %w", err)
+	}
+	queueDB.SetMaxOpenConns(1)
+	s := &Store{db: db, q: gen.New(db), queueDB: queueDB}
+	if err := s.Ping(ctx); err != nil {
+		_ = s.Close()
 		return nil, err
 	}
 	// Computed after Ping on purpose: the file exists by now, so symlinks
@@ -80,11 +91,14 @@ func (s *Store) Ping(ctx context.Context) error {
 //
 // SQLite has no advisory lock, so calls are serialized in-process per database
 // file. Concurrent migration from several processes is not supported (SQLite
-// is single-controller).
+// is single-controller). It also applies River's own migrations (ADR-0010).
 func (s *Store) Migrate(ctx context.Context) error {
 	unlock := lockMigrations(s.lockKey)
 	defer unlock()
-	return migrations.Up(ctx, s.db, migrations.SQLite)
+	if err := migrations.Up(ctx, s.db, migrations.SQLite); err != nil {
+		return err
+	}
+	return migrations.RiverUpSQLite(ctx, s.queueDB)
 }
 
 // MigrationVersion implements store.Store.
@@ -93,7 +107,12 @@ func (s *Store) MigrationVersion(ctx context.Context) (int64, error) {
 }
 
 // Close implements store.Store.
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	return errors.Join(s.queueDB.Close(), s.db.Close())
+}
+
+// QueueDB returns the single-connection pool for the River SQLite driver.
+func (s *Store) QueueDB() *sql.DB { return s.queueDB }
 
 // GetSetting implements store.Store.
 func (s *Store) GetSetting(ctx context.Context, key string) (store.Setting, error) {

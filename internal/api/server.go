@@ -27,6 +27,9 @@ type Config struct {
 	LogTail LogTail
 	// RunNotify wakes run event streams early. Nil means polling only.
 	RunNotify RunNotifier
+	// Advance enqueues run.advance in the same transaction as a trigger or a
+	// cancel request. Nil means nothing is enqueued.
+	Advance RunEnqueuer
 	// Mounts maps extra mux patterns (for example "/agent/v1/connect") to
 	// handlers owned by other components. They are wrapped by the same
 	// request logging as the API.

@@ -765,7 +765,8 @@ Action = CreateStepInstance | ScheduleExecution | SkipStep | CompleteGroup | Com
    - Load the run state.
    - Call `Decide`.
    - Apply actions transactionally, with optimistic concurrency on `runs.version`.
-   - River uniqueness (one available or running `run.advance` per run) avoids concurrent advancement. The version check makes it safe anyway.
+   - River uniqueness is by `(run_id, runs.version)`: identical enqueues collapse, but an enqueue after a state change is kept even while an advance is running. River cannot exclude `running` from the unique states, and a job keyed on `run_id` alone would swallow a wake-up that arrives after the running advance read its state. Every event that must wake a run bumps `runs.version` in its own transaction (`Tx.TouchRun`), and the advance applies with a CAS on that version, so concurrent advancement is safe and a lost wake-up is impossible.
+   - A periodic sweep (default 1m, any controller) re-enqueues every `pending` or `running` run as a safety net for crash windows and runs created before the queue existed.
 3. **Dispatch** (every controller, for its own sockets):
    - A loop wakes on a notify hint or every 1s.
    - Claims queued, due Executions that match the pool, labels, and capabilities of its connected agents with free slots:

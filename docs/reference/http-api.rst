@@ -191,8 +191,11 @@ Triggering a run
    ``steps[<path>].input.<field>`` and nothing is inserted. A plugin the
    registry does not know (no agent connected yet) is allowed to queue;
    dispatch validates again against the version an agent will run (#53).
-#. Enqueueing ``run.advance`` in the same transaction arrives with the
-   orchestrator (#53); until then nothing advances a pending run.
+#. ``run.advance`` is enqueued in the same transaction as the run insert
+   (:doc:`/development/orchestration`), so a run exists if and only if its
+   advance job does. ``POST /runs/{id}/cancel`` enqueues in the same
+   transaction as the cancel request. A controller whose database is not
+   migrated, or one built without the orchestrator, enqueues nothing.
 
 Contract with the orchestrator (#53). The trigger inserts the first step
 instance and its queued execution with the run, but not the ``start_run``

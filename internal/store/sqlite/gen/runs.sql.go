@@ -80,6 +80,36 @@ func (q *Queries) GetStepInstance(ctx context.Context, id string) (StepInstance,
 	return i, err
 }
 
+const getStepInstanceByPath = `-- name: GetStepInstanceByPath :one
+SELECT id, run_id, path, kind, plugin, input, status, outputs, error, created_at, started_at, finished_at
+FROM step_instances WHERE run_id = ?1 AND path = ?2
+`
+
+type GetStepInstanceByPathParams struct {
+	RunID string
+	Path  string
+}
+
+func (q *Queries) GetStepInstanceByPath(ctx context.Context, arg GetStepInstanceByPathParams) (StepInstance, error) {
+	row := q.db.QueryRowContext(ctx, getStepInstanceByPath, arg.RunID, arg.Path)
+	var i StepInstance
+	err := row.Scan(
+		&i.ID,
+		&i.RunID,
+		&i.Path,
+		&i.Kind,
+		&i.Plugin,
+		&i.Input,
+		&i.Status,
+		&i.Outputs,
+		&i.Error,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+	)
+	return i, err
+}
+
 const insertRun = `-- name: InsertRun :execrows
 INSERT INTO runs (id, job_id, job_version_id, trigger, options, status, version, concurrency_key, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5,
@@ -146,6 +176,42 @@ func (q *Queries) InsertStepInstance(ctx context.Context, arg InsertStepInstance
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const listActiveRunIDs = `-- name: ListActiveRunIDs :many
+SELECT id FROM runs
+WHERE status IN ('pending', 'running') AND id > ?1
+ORDER BY id
+LIMIT ?2
+`
+
+type ListActiveRunIDsParams struct {
+	AfterID  string
+	RowLimit int64
+}
+
+// Keyset page of unfinished runs for the run.advance safety-net sweep.
+func (q *Queries) ListActiveRunIDs(ctx context.Context, arg ListActiveRunIDsParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listActiveRunIDs, arg.AfterID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listRunsBefore = `-- name: ListRunsBefore :many
@@ -315,6 +381,21 @@ type RequestRunCancelCASParams struct {
 
 func (q *Queries) RequestRunCancelCAS(ctx context.Context, arg RequestRunCancelCASParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, requestRunCancelCAS, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const touchRunCAS = `-- name: TouchRunCAS :execrows
+UPDATE runs SET version = version + 1
+WHERE id = ?1 AND status NOT IN ('succeeded', 'failed', 'canceled')
+`
+
+// An event marker: callers whose change does not move the run otherwise bump
+// the version so a run.advance job keyed on it is never lost behind a running one.
+func (q *Queries) TouchRunCAS(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, touchRunCAS, id)
 	if err != nil {
 		return 0, err
 	}

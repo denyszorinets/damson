@@ -72,6 +72,14 @@ Risks
 - SQLite driver maturity. Mitigation: SQLite is dev and single-controller only;
   covered by the dual-database test suite.
 
+Implementation note (M2)
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+River requires ``running`` among the unique states, so uniqueness is by
+``(run_id, runs.version)`` instead of by run alone: a job keyed on the run
+would swallow a wake-up arriving while an advance is running. See
+:doc:`/development/orchestration`. The decision itself is unchanged.
+
 Follow-up
 ~~~~~~~~~
 

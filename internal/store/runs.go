@@ -167,6 +167,10 @@ type RunStore interface {
 	// ListRuns lists a job's runs newest first; cursor is the previous
 	// page's NextCursor ("" for the first page).
 	ListRuns(ctx context.Context, jobID, cursor string, limit int) (RunPage, error)
+	// ListActiveRunIDs returns up to limit ids of pending or running runs
+	// with id > afterID, ascending (keyset; "" starts). It feeds the
+	// run.advance safety-net sweep.
+	ListActiveRunIDs(ctx context.Context, afterID string, limit int) ([]string, error)
 	// QueryRuns is ListRuns across jobs: newest first, optionally filtered by
 	// job and status. The cursor is the previous page's NextCursor.
 	QueryRuns(ctx context.Context, f RunFilter, cursor string, limit int) (RunPage, error)

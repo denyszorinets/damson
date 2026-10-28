@@ -67,7 +67,12 @@ func triggerRun(ctx context.Context, d deps, in *triggerRunInput) (*runDetailOut
 	if err != nil {
 		return nil, apiError(ctx, err)
 	}
-	tree, err := d.ds.CreateRun(ctx, nr, d.now())
+	var tree store.RunTree
+	err = d.inTx(ctx, func(tx store.Tx) (string, error) {
+		var err error
+		tree, err = tx.CreateRun(ctx, nr, d.now())
+		return tree.ID, err
+	})
 	if err != nil {
 		return nil, apiError(ctx, err)
 	}

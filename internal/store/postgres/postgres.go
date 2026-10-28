@@ -58,9 +58,13 @@ func (s *Store) Ping(ctx context.Context) error {
 }
 
 // Migrate implements store.Store. It holds a Postgres advisory lock so that
-// concurrent controllers serialize.
+// concurrent controllers serialize. It also applies River's own migrations
+// (ADR-0010) to the same database.
 func (s *Store) Migrate(ctx context.Context) error {
-	return migrations.Up(ctx, s.sql, migrations.Postgres)
+	if err := migrations.Up(ctx, s.sql, migrations.Postgres); err != nil {
+		return err
+	}
+	return migrations.RiverUpPostgres(ctx, s.pool)
 }
 
 // MigrationVersion implements store.Store.

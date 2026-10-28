@@ -51,3 +51,8 @@ WHERE id = sqlc.arg(id) AND attempt_id = sqlc.arg(attempt_id) AND state IN ('dis
 UPDATE executions SET state = 'queued', scheduled_at = sqlc.arg(scheduled_at), agent_id = NULL,
        controller_id = NULL, lease_expires_at = NULL
 WHERE id = sqlc.arg(id) AND attempt_id = sqlc.arg(attempt_id) AND state = 'dispatched';
+
+-- A queued attempt was never dispatched, so run.advance may cancel it directly.
+-- name: CancelQueuedExecutionCAS :execrows
+UPDATE executions SET state = 'canceled', finished_at = sqlc.arg(finished_at), error = sqlc.arg(error)
+WHERE id = sqlc.arg(id) AND run_id = sqlc.arg(run_id) AND state = 'queued';
