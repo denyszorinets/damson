@@ -105,6 +105,11 @@ functions of rule 8:
   cancelled; pending steps become ``cancelled`` unless their ``when`` allows
   them to run (an ``always()`` cleanup still runs). The run ends ``cancelled``
   if any step was cancelled.
+* If cancel arrives after the last step finished, nothing is cancelled and the
+  run ends ``succeeded`` (or ``failed``).
+* ``Decide`` does not derive step status from executions: when an execution
+  completes, the store must update the step instance status in the same
+  transaction. Until then a pending step simply waits.
 * The run ends ``failed`` if any step failed without ``continue_on_error``,
   otherwise ``succeeded``.
 
@@ -126,6 +131,9 @@ Interpolation uses ``${{ <CEL> }}`` inside any string of ``with``.
 * ``$${{`` yields a literal ``${{``. The closing ``}}`` is the first one
   outside a quoted string.
 * Map keys are not interpolated.
+* Limitation: the closing ``}}`` is the first one outside a quoted string, so
+  a map literal ending in ``}}`` inside an expression (``${{ {'a': {'b': 1}} }}``)
+  closes early. Put a space between the braces: ``{'b': 1} }``.
 
 Context variables: ``inputs``, ``run`` (``id``, ``status``, ``trigger``,
 ``triggered_by``, ``started_at``), ``job`` (``name``, ``project``,

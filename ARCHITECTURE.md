@@ -264,7 +264,7 @@ The spec is JSON; it is the canonical format stored in the database. YAML may be
 | `id` | Unique within its enclosing scope (`[a-z0-9-]+`) |
 | `plugin` + `with` | A plugin step. `plugin` is `name` or `name@<major>`. `with` is validated against the plugin's input schema *after* interpolation. |
 | `type: "group"` | A container with `steps`, optional `catch`, `finally`, `rethrow`, `for_each`, `max_parallel`, `fail_threshold` |
-| `when` | A CEL condition. The default is `success()` (all previous steps in scope succeeded or were handled). |
+| `when` | A CEL condition. The default is `success()` (all previous steps in scope succeeded or were handled). If the expression calls any status function (`success()`, `failure()`, `always()`, `cancelled()`), the implicit `success()` is off; otherwise it is evaluated as `success() && (when)`. |
 | `continue_on_error` | A failure is recorded but does not fail the enclosing scope. |
 | `timeout` | Per attempt. The job-level `timeout` covers the whole run. |
 | `retry` | `max_attempts`, `backoff{initial, multiplier, max, jitter}`, `retry_on` (CEL over `error`), `on_lost` (bool) |
@@ -276,7 +276,7 @@ The engine evaluates these rules deterministically:
 
 1. Steps in a list run **sequentially**.
 2. Before a step runs, its `when` is evaluated. If false, the step is `skipped`.
-3. If a step fails and has no `continue_on_error`, the rest of that list is skipped, except for steps whose `when` explicitly allows it (`failure()` or `always()`).
+3. If a step fails and has no `continue_on_error`, the rest of that list is skipped, except for steps whose `when` explicitly allows it by calling a status function (`failure()`, `always()` or `cancelled()`). Any status function in `when` turns off the implicit `success() &&` that is otherwise prepended.
 4. **Group with `catch`.** If any step in `steps` fails, `catch` runs with `error` bound to the failing step's error.
    - If `catch` succeeds and `rethrow` is false, the group is `succeeded (handled)`.
    - If `rethrow` is true, the group fails after `catch` and `finally`.
@@ -728,7 +728,7 @@ Action = CreateStepInstance | ScheduleExecution | SkipStep | CompleteGroup | Com
 ```
 
 - Implemented as `(*engine.Engine).Decide(job, state, now) ([]Action, error)`; the `Engine` only holds the compiled-expression environment. The sequential subset (M2) additionally emits `StartRun` and `FailStep` (a step whose `when` or `with` expression failed to evaluate); `SkipStep` also creates the instance, with status `skipped` or `cancelled`.
-- A `when` that calls no status function is evaluated as `success() && (when)`, as in GitHub Actions; a step must call `failure()`, `always()` or `cancelled()` to run after a failure or cancel.
+- `when` follows the implicit `success() &&` rule of §5.2/§5.3 rule 3.
 - No I/O, fully deterministic, exhaustively table-tested, including golden tests over JSON fixtures.
 - All control-flow semantics in §5.3 live here and nowhere else.
 

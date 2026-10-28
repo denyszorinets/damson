@@ -18,6 +18,8 @@ type decideFixture struct {
 	State   json.RawMessage `json:"state"`
 }
 
+func exprLimits() expr.Limits { return expr.Limits{} }
+
 func newEngine(t *testing.T, l expr.Limits) *Engine {
 	t.Helper()
 	e, err := New(l)
@@ -174,6 +176,10 @@ func TestDecideRules(t *testing.T) {
 		{"skipped steps do not fail the run", abc,
 			[]StepInstanceState{done("a", StepSucceeded), done("b", StepSkipped), done("c", StepSucceeded)},
 			[]string{"complete_run"}, RunSucceeded},
+		{"waits when execution is terminal but step still pending (store flips status atomically)", abc,
+			[]StepInstanceState{{Path: "a", StepID: "a", Status: StepPending, CreatedAt: t0,
+				Executions: []ExecutionView{{ID: "e", AttemptID: "t", State: ExecSucceeded}}}},
+			nil, ""},
 		{"waits while a step is in flight", abc,
 			[]StepInstanceState{{Path: "a", StepID: "a", Status: StepPending, CreatedAt: t0,
 				Executions: []ExecutionView{{ID: "e", AttemptID: "t", State: ExecRunning}}}},
@@ -202,6 +208,59 @@ func TestDecideRules(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDecideCancelRules(t *testing.T) {
+	t0 := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	cancelAt := t0.Add(time.Minute)
+	now := t0.Add(2 * time.Minute)
+	ok := StepInstanceState{Path: "a", StepID: "a", Status: StepSucceeded, CreatedAt: t0}
+	tests := []struct {
+		name  string
+		steps string
+		state []StepInstanceState
+		want  []string
+		last  RunStatus
+	}{
+		{"!failure() after cancel runs", `[{"id":"a","plugin":"x"},{"id":"b","plugin":"x","when":"!failure()"}]`,
+			[]StepInstanceState{ok}, []string{"create_step_instance", "schedule_execution"}, ""},
+		{"cancel after the last step: run succeeds", `[{"id":"a","plugin":"x"}]`,
+			[]StepInstanceState{ok}, []string{"complete_run"}, RunSucceeded},
+		{"default when is skipped as cancelled", `[{"id":"a","plugin":"x"},{"id":"b","plugin":"x"}]`,
+			[]StepInstanceState{ok}, []string{"skip_step", "complete_run"}, RunCancelled},
+	}
+	eng := newEngine(t, expr.Limits{})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := RunState{ID: "r", Status: RunRunning, StartedAt: &t0, CancelRequestedAt: &cancelAt, Steps: tt.state}
+			acts, err := eng.Decide(jobFromSteps(t, tt.steps), st, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := actionTypes(acts); strings.Join(got, ",") != strings.Join(tt.want, ",") {
+				t.Fatalf("actions = %v, want %v", got, tt.want)
+			}
+			if tt.last != "" && acts[len(acts)-1].(CompleteRun).Status != tt.last {
+				t.Fatalf("last = %+v", acts[len(acts)-1])
+			}
+		})
+	}
+}
+
+// A failed step (here: a bad `with` expression) with continue_on_error does
+// not fail the run or skip later steps (rule 3).
+func TestDecideContinueOnErrorWithExpressionError(t *testing.T) {
+	job := jobFromSteps(t, `[{"id":"a","plugin":"x","continue_on_error":true,"with":{"k":"${{ inputs.nope }}"}},{"id":"b","plugin":"x"}]`)
+	acts, err := newEngine(t, expr.Limits{}).Decide(job, RunState{ID: "r", Status: RunRunning}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(actionTypes(acts), ","); got != "fail_step,create_step_instance,schedule_execution" {
+		t.Fatalf("actions = %s", got)
+	}
+	if !acts[0].(FailStep).ContinueOnError {
+		t.Fatal("FailStep lost continue_on_error")
 	}
 }
 

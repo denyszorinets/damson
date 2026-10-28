@@ -19,8 +19,22 @@ const schemaURL = "damson:job-v1.schema.json"
 // is a ValidationErrors with precise paths. Plugin names are not checked
 // here: whether a plugin exists and what its input schema is belongs to the
 // caller (the plugin registry).
+//
+// Parse compiles the job schema on every call; use (*Engine).Parse to reuse a
+// schema compiled once by New.
 func Parse(data []byte) (*Job, error) {
-	if errs, err := validateSchema(data); err != nil {
+	compiled, err := compileJobSchema()
+	if err != nil {
+		return nil, err
+	}
+	return parseWith(compiled, data)
+}
+
+// Parse is the package-level Parse using the schema compiled by New.
+func (e *Engine) Parse(data []byte) (*Job, error) { return parseWith(e.jobSchema, data) }
+
+func parseWith(compiled *jsonschema.Schema, data []byte) (*Job, error) {
+	if errs, err := validateSchema(compiled, data); err != nil {
 		return nil, err
 	} else if len(errs) > 0 {
 		return nil, errs
@@ -37,9 +51,18 @@ func Parse(data []byte) (*Job, error) {
 	return &j, nil
 }
 
-// validateSchema checks data against the generated JSON Schema. A non-nil
-// error means the input was not JSON at all or the schema itself is broken.
-func validateSchema(data []byte) (ValidationErrors, error) {
+// newSchemaCompiler returns a compiler that never performs I/O: every URL
+// scheme is denied, so a $ref in a user-supplied schema (file:, http:, ...)
+// fails to compile instead of reading the disk or the network. The engine is
+// pure (hard rule 1).
+func newSchemaCompiler() *jsonschema.Compiler {
+	c := jsonschema.NewCompiler()
+	c.UseLoader(jsonschema.SchemeURLLoader{})
+	return c
+}
+
+// compileJobSchema compiles the generated job schema.
+func compileJobSchema() (*jsonschema.Schema, error) {
 	schemaBytes, err := Schema()
 	if err != nil {
 		return nil, err
@@ -48,7 +71,7 @@ func validateSchema(data []byte) (ValidationErrors, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading job schema: %w", err)
 	}
-	c := jsonschema.NewCompiler()
+	c := newSchemaCompiler()
 	if err := c.AddResource(schemaURL, sch); err != nil {
 		return nil, fmt.Errorf("adding job schema: %w", err)
 	}
@@ -56,6 +79,12 @@ func validateSchema(data []byte) (ValidationErrors, error) {
 	if err != nil {
 		return nil, fmt.Errorf("compiling job schema: %w", err)
 	}
+	return compiled, nil
+}
+
+// validateSchema checks data against the compiled job schema. A non-nil error
+// means the schema itself is broken; invalid input yields ValidationErrors.
+func validateSchema(compiled *jsonschema.Schema, data []byte) (ValidationErrors, error) {
 	inst, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
 	if err != nil {
 		return nil, ValidationErrors{{Path: "$", Message: "not valid JSON: " + err.Error()}}

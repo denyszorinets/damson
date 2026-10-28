@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/denyszorinets/damson/internal/expr"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // defaultWhen is the condition of a step without `when` (§5.2).
@@ -14,7 +15,8 @@ const defaultWhen = "success()"
 // compiled-expression environment, so it is safe for concurrent use and
 // Decide stays a pure function of its arguments.
 type Engine struct {
-	env *expr.Env
+	env       *expr.Env
+	jobSchema *jsonschema.Schema
 }
 
 // New builds an Engine whose expressions run under the given limits.
@@ -23,7 +25,11 @@ func New(limits expr.Limits) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Engine{env: env}, nil
+	schema, err := compileJobSchema()
+	if err != nil {
+		return nil, err
+	}
+	return &Engine{env: env, jobSchema: schema}, nil
 }
 
 // Decide computes the next actions for a run. job must have passed Parse or
@@ -86,6 +92,10 @@ func (d *decider) index() error {
 
 func (d *decider) emit(a ...Action) { d.acts = append(d.acts, a...) }
 
+// decide is the sequential-scope kernel: one flat loop over one step list.
+// In M3 it is re-keyed by Path and recursed per scope (groups, catch/finally,
+// for_each lanes) rather than rewritten; the helpers below already take the
+// step and its instance, not a list index.
 func (d *decider) decide() ([]Action, error) {
 	d.runStatus = d.st.Status
 	d.startedAt = d.now
@@ -153,7 +163,10 @@ func (d *decider) cancelActive() {
 }
 
 // waitOn handles a step instance that is not terminal yet. Normally an
-// execution is in flight and there is nothing to do. An instance with no
+// execution is in flight and there is nothing to do. Contract: when an
+// execution completes, the store must flip the step instance status in the
+// same transaction (§8.3 "Complete"); Decide does not derive step status from
+// executions, so a pending step with only terminal executions just waits. An instance with no
 // execution at all (it cannot happen when actions are applied atomically) is
 // repaired by scheduling its first one.
 func (d *decider) waitOn(step Step, inst StepInstanceState) ([]Action, error) {

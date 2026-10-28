@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/denyszorinets/damson/internal/expr"
-	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 var (
@@ -71,7 +70,7 @@ func (v *validator) options(opts map[string]any) {
 		v.add("spec.options.type", "must be \"object\"")
 		return
 	}
-	c := jsonschema.NewCompiler()
+	c := newSchemaCompiler()
 	if err := c.AddResource("damson:options", opts); err != nil {
 		v.add("spec.options", "not a valid JSON Schema: %v", err)
 		return

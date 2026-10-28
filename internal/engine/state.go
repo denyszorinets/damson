@@ -117,12 +117,3 @@ type StepError struct {
 const (
 	ErrKindExpression = "expression"
 )
-
-func (s StepInstanceState) hasActiveExecution() bool {
-	for _, e := range s.Executions {
-		if !e.State.Terminal() {
-			return true
-		}
-	}
-	return false
-}

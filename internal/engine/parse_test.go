@@ -104,6 +104,37 @@ func TestParseInvalid(t *testing.T) {
 	}
 }
 
+// User-supplied schemas must never trigger I/O: remote and file $refs fail
+// to compile with a validation error.
+func TestOptionsRefsDoNotLoad(t *testing.T) {
+	for _, ref := range []string{"file:///etc/passwd", "https://example.com/schema.json", "http://127.0.0.1:1/x.json"} {
+		t.Run(ref, func(t *testing.T) {
+			doc := mutate(t, `"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"`, `"$ref": "`+ref+`"`)
+			_, err := Parse(doc)
+			var ve ValidationErrors
+			if !errors.As(err, &ve) {
+				t.Fatalf("err = %v, want ValidationErrors", err)
+			}
+			for _, fe := range ve {
+				if fe.Path == "spec.options" && strings.Contains(fe.Message, "not a valid JSON Schema") {
+					return
+				}
+			}
+			t.Fatalf("no spec.options error in %v", ve)
+		})
+	}
+}
+
+func TestEngineParseUsesCachedSchema(t *testing.T) {
+	eng := newEngine(t, exprLimits())
+	if _, err := eng.Parse(readFixture(t, "valid-linear.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := eng.Parse([]byte(`{"kind":"x"}`)); !errors.As(err, new(ValidationErrors)) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestValidateReportsAllErrors(t *testing.T) {
 	doc := mutate(t, `"id": "install"`, `"id": "fetch"`)
 	doc = []byte(strings.Replace(string(doc), `"timeout": "10m"`, `"timeout": "ten"`, 1))
