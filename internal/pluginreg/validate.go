@@ -148,6 +148,27 @@ func compileInput(m pluginsdk.Manifest) (*jsonschema.Schema, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encoding input schema of %q: %w", m.Name, err)
 	}
+	return compileRaw(m.Name, raw)
+}
+
+// ValidateJSONSchema checks input against a JSON Schema document the caller
+// holds (for example a job's spec.options) with the same limits, deny-all URL
+// loader and value-free messages as ValidateInput. name labels the schema in
+// errors that are not about the input.
+func ValidateJSONSchema(name string, schema, input json.RawMessage) error {
+	if len(input) > MaxInputBytes {
+		return ErrInputTooLarge
+	}
+	sch, err := compileRaw(name, schema)
+	if err != nil {
+		return err
+	}
+	return validate(sch, input)
+}
+
+// compileRaw compiles a schema document after bounding its size and depth.
+func compileRaw(name string, raw []byte) (*jsonschema.Schema, error) {
+	m := pluginsdk.Manifest{Name: name}
 	if len(raw) > MaxSchemaBytes || jsonDepth(raw) > MaxSchemaDepth {
 		return nil, fmt.Errorf("plugin %q: %w", m.Name, ErrSchemaTooLarge)
 	}

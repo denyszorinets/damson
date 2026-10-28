@@ -18,6 +18,15 @@ type Config struct {
 	// Plugins serves /api/v1/plugins; nil answers 503.
 	Plugins PluginCatalog
 	UI      http.Handler // served for every path the API does not claim
+	// Now is the clock for timestamps the API writes; nil means time.Now.
+	Now func() time.Time
+	// Stream tunes the SSE endpoints; zero fields take defaults.
+	Stream StreamConfig
+	// LogTail serves the live part of execution logs. Nil means the stream
+	// polls the store until the execution ends.
+	LogTail LogTail
+	// RunNotify wakes run event streams early. Nil means polling only.
+	RunNotify RunNotifier
 	// Mounts maps extra mux patterns (for example "/agent/v1/connect") to
 	// handlers owned by other components. They are wrapped by the same
 	// request logging as the API.
@@ -61,7 +70,7 @@ func routes(cfg Config) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthz)
 	mux.HandleFunc("/readyz", readyz(cfg.Store))
-	newHuma(mux, cfg.Data, cfg.Plugins)
+	newHuma(mux, newDeps(cfg))
 	mux.HandleFunc("/api/", notFound)
 	for pattern, h := range cfg.Mounts {
 		mux.Handle(pattern, h)

@@ -38,6 +38,150 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/executions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one execution attempt */
+        get: operations["get-execution"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/executions/{id}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Server-sent events of an execution's log
+         * @description Stored chunks first, in sequence order, then the live tail, then end. Events: log {seq, ts, stream, line} with id = seq; gap {seq_from, seq_to} for a range that will never arrive (declared lost by the agent, or a missing stored chunk); end {state, last_seq}.
+         */
+        get: operations["stream-execution-logs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List jobs of a project */
+        get: operations["list-jobs"];
+        put?: never;
+        /** Create a job with version 1 */
+        post: operations["create-job"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dry-run validation of a job spec
+         * @description Always answers 200; invalid specs are reported in errors, with spec paths. Plugins no agent has reported are warnings. The job graph is added in M3.
+         */
+        post: operations["validate-job"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a job with its current version and spec */
+        get: operations["get-job"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Trigger a run through the API */
+        post: operations["trigger-run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List versions of a job */
+        get: operations["list-job-versions"];
+        put?: never;
+        /** Append an immutable version */
+        post: operations["create-job-version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{id}/versions/{v}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one version with its spec */
+        get: operations["get-job-version"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/plugins": {
         parameters: {
             query?: never;
@@ -89,6 +233,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List runs, newest first */
+        get: operations["list-runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a run with its step tree */
+        get: operations["get-run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/runs/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request cancellation of a run
+         * @description Records the request; the run is cancelled by the next advance. Idempotent: repeating it while the run is still active answers 200 with the run. A run that already finished answers 409.
+         */
+        post: operations["cancel-run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/runs/{id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Server-sent events of a run
+         * @description Events: snapshot (the full run with its step tree), then run and step as they change, then end once the run is finished. Every event has a numeric id. At most StreamConfig.MaxStreams streams are open at once; beyond that the answer is 503.
+         */
+        get: operations["stream-run-events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -119,8 +337,102 @@ export interface components {
             telemetry?: components["schemas"]["Telemetry"];
             version: string;
         };
+        CreateJobInputBody: {
+            /** @description Job name; defaults to spec.metadata.name and must equal it when given. */
+            name?: string;
+            /** @description The job document (apiVersion damson.dev/v1, kind Job). */
+            spec: unknown;
+        };
+        CreateVersionInputBody: {
+            /**
+             * Format: int64
+             * @description The current_version the caller based this spec on; the write fails with 409 if another version landed meanwhile. Omitted means the version current when the request is handled.
+             */
+            expected_version?: number;
+            spec: unknown;
+        };
+        Execution: {
+            agent_id?: string;
+            /**
+             * Format: int64
+             * @description Attempt number, from 1.
+             */
+            attempt: number;
+            error?: string;
+            /** Format: date-time */
+            finished_at?: string;
+            id: string;
+            outputs?: unknown;
+            pool: string;
+            /** Format: date-time */
+            scheduled_at: string;
+            /** Format: date-time */
+            started_at?: string;
+            /** @enum {string} */
+            state: "queued" | "dispatched" | "running" | "succeeded" | "failed" | "canceled" | "timed_out" | "lost";
+        };
+        ExecutionDetail: {
+            agent_id?: string;
+            /**
+             * Format: int64
+             * @description Attempt number, from 1.
+             */
+            attempt: number;
+            error?: string;
+            /** Format: date-time */
+            finished_at?: string;
+            id: string;
+            outputs?: unknown;
+            plugin?: string;
+            pool: string;
+            run_id: string;
+            /** Format: date-time */
+            scheduled_at: string;
+            /** Format: date-time */
+            started_at?: string;
+            /** @enum {string} */
+            state: "queued" | "dispatched" | "running" | "succeeded" | "failed" | "canceled" | "timed_out" | "lost";
+            step_path: string;
+        };
+        Job: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            current_version: number;
+            id: string;
+            managed_by: string;
+            name: string;
+            /** @description Project name. */
+            project: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        JobDetail: {
+            job: components["schemas"]["Job"];
+            /** @description The current version on reads, the new version on writes. */
+            version: components["schemas"]["JobVersion"];
+            /** @description Non-fatal findings, such as plugins no agent has reported yet. */
+            warnings?: components["schemas"]["SpecIssue"][] | null;
+        };
+        JobVersion: {
+            /** @description SHA-256 of the canonical spec. */
+            checksum: string;
+            /** Format: date-time */
+            created_at: string;
+            id: string;
+            job_id: string;
+            /** @description The spec document exactly as submitted. */
+            spec?: unknown;
+            /** Format: int64 */
+            version: number;
+        };
         ListAgentsOutputBody: {
             items: components["schemas"]["Agent"][] | null;
+            /** @description Empty on the last page. */
+            next_cursor?: string;
+        };
+        ListJobsOutputBody: {
+            items: components["schemas"]["Job"][] | null;
             /** @description Empty on the last page. */
             next_cursor?: string;
         };
@@ -130,6 +442,17 @@ export interface components {
         ListPoolsOutputBody: {
             items: components["schemas"]["Pool"][] | null;
             /** @description Empty on the last page. */
+            next_cursor?: string;
+        };
+        ListRunsOutputBody: {
+            /** @description Newest first. */
+            items: components["schemas"]["Run"][] | null;
+            /** @description Empty on the last page. */
+            next_cursor?: string;
+        };
+        ListVersionsOutputBody: {
+            /** @description Ascending by version, without the spec. */
+            items: components["schemas"]["JobVersion"][] | null;
             next_cursor?: string;
         };
         Plugin: {
@@ -194,6 +517,75 @@ export interface components {
             location?: string;
             message?: string;
         };
+        Run: {
+            /** Format: date-time */
+            cancel_requested_at?: string;
+            concurrency_key?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            finished_at?: string;
+            id: string;
+            job_id: string;
+            job_version_id: string;
+            /** @description Resolved options with defaults applied; secrets appear as secret:// references only. */
+            options?: unknown;
+            /** Format: date-time */
+            started_at?: string;
+            /** @enum {string} */
+            status: "pending" | "running" | "succeeded" | "failed" | "canceled";
+            trigger?: unknown;
+        };
+        RunDetail: {
+            /** Format: date-time */
+            cancel_requested_at?: string;
+            concurrency_key?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            finished_at?: string;
+            id: string;
+            job_id: string;
+            /**
+             * Format: int64
+             * @description Number of the pinned job version.
+             */
+            job_version: number;
+            job_version_id: string;
+            /** @description Resolved options with defaults applied; secrets appear as secret:// references only. */
+            options?: unknown;
+            /** Format: date-time */
+            started_at?: string;
+            /** @enum {string} */
+            status: "pending" | "running" | "succeeded" | "failed" | "canceled";
+            /** @description Step instances in creation order. */
+            steps: components["schemas"]["Step"][] | null;
+            trigger?: unknown;
+        };
+        SpecIssue: {
+            message: string;
+            path: string;
+        };
+        Step: {
+            /** Format: date-time */
+            created_at: string;
+            error?: string;
+            executions: components["schemas"]["Execution"][] | null;
+            /** Format: date-time */
+            finished_at?: string;
+            id: string;
+            /** @description Resolved plugin input; holds secret:// references, never secret values. */
+            input?: unknown;
+            /** @enum {string} */
+            kind: "step" | "group";
+            outputs?: unknown;
+            path: string;
+            plugin?: string;
+            /** Format: date-time */
+            started_at?: string;
+            /** @enum {string} */
+            status: "pending" | "running" | "succeeded" | "failed" | "skipped" | "canceled";
+        };
         Telemetry: {
             /**
              * Format: double
@@ -222,6 +614,30 @@ export interface components {
              * @description Bytes of unsent output spooled on the agent.
              */
             spool_bytes?: number;
+        };
+        TriggerBody: {
+            /**
+             * @description Only queue (the default) is supported until M3; the others answer 422.
+             * @enum {string}
+             */
+            concurrency_policy?: "queue" | "skip" | "cancel_previous";
+            /** @description Run options; validated against spec.options, defaults applied. */
+            options?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Format: int64
+             * @description Job version to run; defaults to the current version.
+             */
+            version?: number;
+        };
+        ValidateInputBody: {
+            spec: unknown;
+        };
+        ValidateOutputBody: {
+            errors: components["schemas"]["SpecIssue"][] | null;
+            valid: boolean;
+            warnings: components["schemas"]["SpecIssue"][] | null;
         };
     };
     responses: never;
@@ -284,6 +700,525 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Agent"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "get-execution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "stream-execution-logs": {
+        parameters: {
+            query?: {
+                /** @description Only lines with a greater sequence number. */
+                after_seq?: number;
+            };
+            header?: {
+                /** @description Sent by EventSource on reconnect; takes precedence over after_seq. */
+                "Last-Event-ID"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description An event stream. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "list-jobs": {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from a previous page's next_cursor. */
+                cursor?: string;
+                /** @description Page size. */
+                limit?: number;
+                /** @description Project name. */
+                project?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListJobsOutputBody"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "create-job": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateJobInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobDetail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "validate-job": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValidateInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidateOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "get-job": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "trigger-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["TriggerBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "list-job-versions": {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from a previous page's next_cursor. */
+                cursor?: string;
+                /** @description Page size. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListVersionsOutputBody"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "create-job-version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateVersionInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "get-job-version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                v: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobVersion"];
                 };
             };
             /** @description Not Found */
@@ -418,6 +1353,212 @@ export interface operations {
             };
             /** @description Error */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "list-runs": {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from a previous page's next_cursor. */
+                cursor?: string;
+                /** @description Page size. */
+                limit?: number;
+                /** @description Only runs of this job id. */
+                job?: string;
+                /** @description Only runs in this status. */
+                status?: "pending" | "running" | "succeeded" | "failed" | "canceled";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListRunsOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "get-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "cancel-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "stream-run-events": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Resume marker sent by EventSource. The server cannot replay missed events, so it always starts with a fresh snapshot and continues the event ids from this value. */
+                "Last-Event-ID"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description An event stream. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -10,6 +10,7 @@ import (
 
 	"github.com/denyszorinets/damson/internal/pluginreg"
 	"github.com/denyszorinets/damson/internal/store"
+	"github.com/denyszorinets/damson/pkg/pluginsdk"
 )
 
 // PluginCatalog is what the plugin endpoints read. *pluginreg.Registry
@@ -17,6 +18,11 @@ import (
 type PluginCatalog interface {
 	List() []pluginreg.Plugin
 	Get(name string) (pluginreg.Plugin, bool)
+	// Lookup and ValidateInput serve authoring-time job validation: the
+	// highest known manifest for a plugin reference, and a cached check of
+	// step input against its schema.
+	Lookup(ref string) (pluginsdk.Manifest, error)
+	ValidateInput(m pluginsdk.Manifest, input json.RawMessage) error
 }
 
 // PluginProvider is an agent that runs a plugin version.

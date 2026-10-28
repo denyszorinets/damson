@@ -51,6 +51,7 @@ type Store interface {
 	RunStore
 	ExecutionStore
 	LogStore
+	StampStore
 
 	// GetSetting returns ErrNotFound if the key is absent.
 	GetSetting(ctx context.Context, key string) (Setting, error)

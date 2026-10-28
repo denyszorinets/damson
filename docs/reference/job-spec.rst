@@ -44,7 +44,9 @@ Document layout
      - Rules
    * - ``spec.options``
      - A JSON Schema of ``type: object`` describing run inputs. It must itself
-       be a valid schema.
+       be a valid schema. A property marked ``x-damson-secret: true`` (and
+       everything below it) accepts only ``secret://`` references; see
+       :ref:`job-spec-secret-options`.
    * - ``spec.targets.selector``
      - A CEL expression. Compiled for syntax now; evaluated by the inventory
        work later.
@@ -146,6 +148,28 @@ available.
 Secrets are never values in the context. ``secret://`` references are plain
 strings that pass through resolution unchanged and are resolved at dispatch
 time.
+
+.. _job-spec-secret-options:
+
+Secret options
+~~~~~~~~~~~~~~
+
+Run options are stored with the run and returned by the API verbatim. Mark every
+option that carries a credential with ``x-damson-secret: true``:
+
+.. code-block:: json
+
+   { "type": "object",
+     "properties": { "token": { "type": "string", "x-damson-secret": true } } }
+
+A marked option, and every value below it (array items, nested properties),
+accepts only ``secret://...`` reference strings. A run trigger with any other
+value is rejected with ``422`` and a value-free message ("must be a secret://
+reference") at ``options.<path>``; the value is never stored, logged or
+returned. Validation of the spec itself requires a marked option to be a string
+(or an array or object of strings) and rejects a ``default``, ``const`` or
+``enum`` that is not a ``secret://`` reference. Options that are **not** marked
+are stored and returned as given, so authors must mark credentials.
 
 Expressions run under limits (``expr.Limits``): a CEL cost budget (default
 100,000), a maximum result size (64 KiB per expression) and a maximum source
