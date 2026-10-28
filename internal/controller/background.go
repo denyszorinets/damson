@@ -8,8 +8,7 @@ import (
 )
 
 // flushLoop writes batched heartbeat data every FlushInterval.
-func (g *Gateway) flushLoop(ctx context.Context) {
-	t := g.cfg.Clock.ticker(g.cfg.FlushInterval)
+func (g *Gateway) flushLoop(ctx context.Context, t Ticker) {
 	defer t.Stop()
 	for {
 		select {
@@ -50,8 +49,7 @@ func (g *Gateway) flush(ctx context.Context) {
 
 // instanceLoop heartbeats controller_instances every InstanceInterval and
 // re-registers if the row vanished.
-func (g *Gateway) instanceLoop(ctx context.Context) {
-	t := g.cfg.Clock.ticker(g.cfg.InstanceInterval)
+func (g *Gateway) instanceLoop(ctx context.Context, t Ticker) {
 	defer t.Stop()
 	for {
 		select {
