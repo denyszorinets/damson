@@ -1280,6 +1280,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "Server-sent events of an execution's log",
@@ -2220,7 +2230,7 @@
     },
     "/runs/{id}/events": {
       "get": {
-        "description": "Events: snapshot (the full run with its step tree), then run and step as they change, then end once the run is finished. Every event has a numeric id.",
+        "description": "Events: snapshot (the full run with its step tree), then run and step as they change, then end once the run is finished. Every event has a numeric id. At most StreamConfig.MaxStreams streams are open at once; beyond that the answer is 503.",
         "operationId": "stream-run-events",
         "parameters": [
           {
@@ -2282,6 +2292,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "Server-sent events of a run",

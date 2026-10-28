@@ -216,7 +216,10 @@ func cancelRun(ctx context.Context, d deps, id string) (*cancelRunOutput, error)
 	}
 	run, err := d.ds.RequestCancel(ctx, id, d.now())
 	if errors.Is(err, store.ErrStale) {
-		// Either the request was already recorded or the run finished.
+		// Either the request was already recorded or the run finished. The
+		// read below is a separate statement, so the run may change between
+		// the two; the answer is still correct for the instant it reads (a
+		// run that finishes in that window reports 409, which is true by then).
 		cur, gerr := d.ds.GetRun(ctx, id)
 		switch {
 		case gerr != nil:

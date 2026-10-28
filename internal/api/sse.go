@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -14,20 +15,22 @@ import (
 
 // sseWriter writes server-sent events and flushes after each one.
 type sseWriter struct {
-	w  http.ResponseWriter
-	rc *http.ResponseController
+	w       http.ResponseWriter
+	rc      *http.ResponseController
+	timeout time.Duration
 }
 
 // sseResponse adapts a streaming body to Huma. The handler runs after the
 // request was validated and the target checked, so errors are still plain
 // problem+json; once streaming starts the status is 200.
-func sseResponse(body func(ctx context.Context, s *sseWriter)) *huma.StreamResponse {
+func sseResponse(d deps, release func(), body func(ctx context.Context, s *sseWriter)) *huma.StreamResponse {
 	return &huma.StreamResponse{Body: func(hctx huma.Context) {
+		defer release()
 		hctx.SetHeader("Content-Type", "text/event-stream")
 		hctx.SetHeader("Cache-Control", "no-cache")
 		hctx.SetHeader("X-Accel-Buffering", "no") // keep nginx from buffering
 		_, w := humago.Unwrap(hctx)
-		s := &sseWriter{w: w, rc: http.NewResponseController(w)}
+		s := &sseWriter{w: w, rc: http.NewResponseController(w), timeout: d.stream.WriteTimeout}
 		if s.comment("stream open") != nil {
 			return
 		}
@@ -55,6 +58,11 @@ func (s *sseWriter) event(id, name string, data any) error {
 func (s *sseWriter) comment(text string) error { return s.write(": " + text + "\n\n") }
 
 func (s *sseWriter) write(str string) error {
+	// A client that cannot take the event in time is dropped. Writers
+	// without deadline support (tests) just write.
+	if s.timeout > 0 {
+		_ = s.rc.SetWriteDeadline(time.Now().Add(s.timeout))
+	}
 	if _, err := s.w.Write([]byte(str)); err != nil {
 		return err //nolint:wrapcheck // a closed client connection, not worth wrapping
 	}

@@ -48,13 +48,26 @@ func (s *syncBuffer) String() string {
 
 func newJR(t *testing.T, st store.Store, tail api.LogTail) *jrFixture {
 	t.Helper()
+	return newJRStream(t, st, tail, api.StreamConfig{})
+}
+
+// newJRStream is newJR with stream limits; unset poll and heartbeat intervals
+// get the fast test values.
+func newJRStream(t *testing.T, st store.Store, tail api.LogTail, sc api.StreamConfig) *jrFixture {
+	t.Helper()
+	if sc.PollInterval == 0 {
+		sc.PollInterval = 10 * time.Millisecond
+	}
+	if sc.Heartbeat == 0 {
+		sc.Heartbeat = 20 * time.Millisecond
+	}
 	reg, err := pluginreg.New([]pluginsdk.Manifest{apiManifest("ssh", "1.0.0")}, nil)
 	require.NoError(t, err)
 	logs := &syncBuffer{}
 	srv := api.NewServer(api.Config{
 		Addr: "127.0.0.1:0", Store: st, Data: st, Plugins: reg, UI: ui(), LogTail: tail,
 		Now:    func() time.Time { return t0 },
-		Stream: api.StreamConfig{PollInterval: 10 * time.Millisecond, Heartbeat: 20 * time.Millisecond},
+		Stream: sc,
 		Logger: slog.New(slog.NewJSONHandler(logs, nil)),
 	})
 	return &jrFixture{st: st, h: srv.Handler(), logs: logs}

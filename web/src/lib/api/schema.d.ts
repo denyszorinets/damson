@@ -296,7 +296,7 @@ export interface paths {
         };
         /**
          * Server-sent events of a run
-         * @description Events: snapshot (the full run with its step tree), then run and step as they change, then end once the run is finished. Every event has a numeric id.
+         * @description Events: snapshot (the full run with its step tree), then run and step as they change, then end once the run is finished. Every event has a numeric id. At most StreamConfig.MaxStreams streams are open at once; beyond that the answer is 503.
          */
         get: operations["stream-run-events"];
         put?: never;
@@ -826,6 +826,15 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1541,6 +1550,15 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -44,6 +44,8 @@ type DataStore interface {
 	GetExecution(ctx context.Context, id string) (store.Execution, error)
 	ListLogChunks(ctx context.Context, executionID string, fromSeq, toSeq int64, limit int) ([]store.LogChunk, error)
 	GetLogData(ctx context.Context, key string) ([]byte, error)
+	GetRunStamp(ctx context.Context, runID string) (store.RunStamp, error)
+	GetLogStamp(ctx context.Context, executionID string) (store.LogStamp, error)
 }
 
 // setErrorModel points Huma's own errors (request validation, 4xx) at

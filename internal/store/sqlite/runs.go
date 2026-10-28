@@ -98,6 +98,9 @@ func (s *Store) CreateRun(ctx context.Context, nr store.NewRun, now time.Time) (
 	if isForeignKey(err) {
 		return store.RunTree{}, fmt.Errorf("job %q or job version %q: %w", nr.JobID, nr.JobVersionID, store.ErrNotFound)
 	}
+	if isUnique(err) {
+		return store.RunTree{}, fmt.Errorf("run %q: %w", id, store.ErrConflict)
+	}
 	if err != nil {
 		return store.RunTree{}, fmt.Errorf("creating run: %w", err)
 	}

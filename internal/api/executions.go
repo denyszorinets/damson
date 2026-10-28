@@ -94,7 +94,7 @@ func registerExecutions(api huma.API, d deps) {
 	})
 	huma.Register(api, huma.Operation{
 		OperationID: "stream-execution-logs", Method: http.MethodGet, Path: "/executions/{id}/logs",
-		Summary: "Server-sent events of an execution's log", Tags: []string{"executions"}, Errors: []int{http.StatusNotFound},
+		Summary: "Server-sent events of an execution's log", Tags: []string{"executions"}, Errors: []int{http.StatusNotFound, http.StatusServiceUnavailable},
 		Description: "Stored chunks first, in sequence order, then the live tail, then end. Events: log {seq, ts, stream, line} with id = seq; gap {seq_from, seq_to} for a range that will never arrive (declared lost by the agent, or a missing stored chunk); end {state, last_seq}.",
 		Responses:   sseOperationResponses("An event stream."),
 	}, func(ctx context.Context, in *logsInput) (*huma.StreamResponse, error) {
@@ -108,7 +108,11 @@ func registerExecutions(api huma.API, d deps) {
 		if n, ok := parseEventID(in.LastEventID); ok {
 			after = n
 		}
-		return sseResponse(func(ctx context.Context, s *sseWriter) {
+		release, err := d.acquireStream()
+		if err != nil {
+			return nil, apiError(ctx, err)
+		}
+		return sseResponse(d, release, func(ctx context.Context, s *sseWriter) {
 			(&logStream{d: d, s: s, execID: in.ID, next: after + 1}).run(ctx)
 		}), nil
 	})
@@ -116,14 +120,40 @@ func registerExecutions(api huma.API, d deps) {
 
 // logStream sends one execution's log. next is the next sequence number the
 // client has not seen.
+//
+// A hole in the stored sequence (the next chunk starts beyond next) is not
+// reported at once: chunks may commit out of order, so the missing lines can
+// still arrive. A gap event is sent only when the hole is confirmed, that is
+// when the execution is terminal (nothing more will be written) or the same
+// hole was seen on an earlier poll too. Declared gaps (the agent's gap_to)
+// look the same in the manifest and are confirmed the same way.
 type logStream struct {
 	d      deps
 	s      *sseWriter
 	execID string
 	next   int64
+
+	pass      int  // poll counter; a hole is confirmed by a later pass
+	terminal  bool // the execution had finished when this pass began
+	blocked   bool // drainStored stopped at an unconfirmed hole
+	hole      *holeObs
+	held      []LogLine // live lines waiting behind an unconfirmed hole
+	lastStamp store.LogStamp
+	haveStamp bool
 }
 
-const chunkPage = 100
+// holeObs records the first pass that saw a hole.
+type holeObs struct {
+	gap  LogGap
+	pass int
+}
+
+const (
+	chunkPage = 100
+	// maxHeld bounds the live lines kept behind an unconfirmed hole; beyond
+	// it the hole is reported so memory stays bounded.
+	maxHeld = 5000
+)
 
 func (l *logStream) run(ctx context.Context) {
 	var live <-chan LogLine
@@ -132,38 +162,53 @@ func (l *logStream) run(ctx context.Context) {
 		switch {
 		case err == nil:
 			live = ch
-		case !errors.Is(err, ErrNoLiveTail):
+		case !errors.Is(err, ErrNoLiveTail) && ctx.Err() == nil:
 			loggerFromCtx(ctx).Warn("log tail unavailable, polling", "execution_id", l.execID, "error", err)
 		}
 	}
-	poll := time.NewTicker(l.d.stream.PollInterval)
-	defer poll.Stop()
 	beat := time.NewTicker(l.d.stream.Heartbeat)
 	defer beat.Stop()
 	for {
-		// Read the state before the stored lines: lines flushed before the
-		// execution became terminal are then never missed.
-		exec, err := l.d.ds.GetExecution(ctx, l.execID)
-		if err != nil {
-			if !errors.Is(err, store.ErrNotFound) && ctx.Err() == nil {
-				loggerFromCtx(ctx).Warn("log stream: reading execution", "execution_id", l.execID, "error", err)
-			}
-			if errors.Is(err, store.ErrNotFound) || ctx.Err() != nil {
-				return
-			}
-		} else {
-			if !l.drainStored(ctx) {
-				return
-			}
-			if exec.State.Terminal() {
-				_ = l.s.event("", "end", LogEnd{State: string(exec.State), LastSeq: l.next - 1})
-				return
-			}
+		l.pass++
+		if cont, ok := l.poll(ctx); !ok || !cont {
+			return
 		}
-		if !l.wait(ctx, &live, poll.C, beat.C) {
+		timer := time.NewTimer(jitter(l.d.stream.PollInterval))
+		ok := l.wait(ctx, &live, timer.C, beat.C)
+		timer.Stop()
+		if !ok {
 			return
 		}
 	}
+}
+
+// poll does one store pass: the cheap stamp first, and the chunk list only
+// when the stamp moved or a hole awaits its second look. The stamp (hence the
+// state) is read before the chunks, so lines flushed before the execution
+// became terminal are never missed. ok is false when the stream is over; cont
+// is false after the end event.
+func (l *logStream) poll(ctx context.Context) (cont, ok bool) {
+	ls, err := l.d.ds.GetLogStamp(ctx, l.execID)
+	if err != nil {
+		if ctx.Err() != nil || errors.Is(err, store.ErrNotFound) {
+			return false, false
+		}
+		loggerFromCtx(ctx).Warn("log stream: reading execution", "execution_id", l.execID, "error", err)
+		return true, true
+	}
+	if l.haveStamp && ls == l.lastStamp && l.hole == nil && len(l.held) == 0 {
+		return true, true
+	}
+	l.lastStamp, l.haveStamp = ls, true
+	l.terminal = ls.State.Terminal()
+	if !l.drainStored(ctx) || !l.flushHeld() {
+		return false, false
+	}
+	if l.terminal {
+		_ = l.s.event("", "end", LogEnd{State: string(ls.State), LastSeq: l.next - 1})
+		return false, true
+	}
+	return true, true
 }
 
 // wait blocks until the next poll tick, forwarding live lines and heartbeats
@@ -191,31 +236,65 @@ func (l *logStream) wait(ctx context.Context, live *<-chan LogLine, poll, beat <
 	}
 }
 
-// sendLive forwards a live line. A line ahead of next means the lines between
-// are not in the tail: read what the store has, and report the rest as a gap.
+// sendLive queues a live line and forwards what is deliverable. A line ahead
+// of next means lines between are not in the tail: the store is read, and
+// what is still missing is held back until the hole is confirmed.
 func (l *logStream) sendLive(ctx context.Context, ln LogLine) bool {
 	if ln.Seq < l.next {
 		return true
 	}
-	if ln.Seq > l.next {
-		if !l.drainStored(ctx) {
-			return false
+	l.held = append(l.held, ln)
+	if ln.Seq > l.next && !l.drainStored(ctx) {
+		return false
+	}
+	return l.flushHeld()
+}
+
+// flushHeld sends held live lines in order, stopping at an unconfirmed hole.
+func (l *logStream) flushHeld() bool {
+	i := 0
+	for ; i < len(l.held); i++ {
+		ln := l.held[i]
+		if ln.Seq < l.next {
+			continue
 		}
-		if ln.Seq > l.next && !l.gap(l.next, ln.Seq-1) {
+		if ln.Seq > l.next {
+			if !l.confirmed(l.next, ln.Seq-1) {
+				break
+			}
+			if !l.gap(l.next, ln.Seq-1) {
+				return false
+			}
+		}
+		if !l.line(ln) {
 			return false
 		}
 	}
-	if ln.Seq < l.next {
+	l.held = l.held[i:]
+	return true
+}
+
+// confirmed reports whether the hole [from, to] is real: the execution is
+// over, too many lines wait behind it, or an earlier pass saw it too.
+func (l *logStream) confirmed(from, to int64) bool {
+	g := LogGap{SeqFrom: from, SeqTo: to}
+	if l.terminal || len(l.held) > maxHeld {
 		return true
 	}
-	return l.line(ln)
+	if l.hole != nil && l.hole.gap == g && l.hole.pass < l.pass {
+		return true
+	}
+	if l.hole == nil || l.hole.gap != g {
+		l.hole = &holeObs{gap: g, pass: l.pass}
+	}
+	return false
 }
 
 func (l *logStream) line(ln LogLine) bool {
 	if l.s.event(strconv.FormatInt(ln.Seq, 10), "log", ln) != nil {
 		return false
 	}
-	l.next = ln.Seq + 1
+	l.next, l.hole = ln.Seq+1, nil
 	return true
 }
 
@@ -223,14 +302,16 @@ func (l *logStream) gap(from, to int64) bool {
 	if l.s.event(strconv.FormatInt(to, 10), "gap", LogGap{SeqFrom: from, SeqTo: to}) != nil {
 		return false
 	}
-	l.next = to + 1
+	l.next, l.hole = to+1, nil
 	return true
 }
 
-// drainStored sends every stored line from next on, in sequence order, with a
-// gap event for each missing range. It reports false when the stream is over.
+// drainStored sends every stored line from next on, in sequence order, and
+// stops at a hole that is not confirmed yet. It reports false when the stream
+// is over.
 func (l *logStream) drainStored(ctx context.Context) bool {
-	for {
+	l.blocked = false
+	for !l.blocked {
 		chunks, err := l.d.ds.ListLogChunks(ctx, l.execID, l.next, 0, chunkPage)
 		if err != nil {
 			if ctx.Err() == nil {
@@ -245,22 +326,34 @@ func (l *logStream) drainStored(ctx context.Context) bool {
 			if !l.sendChunk(ctx, c) {
 				return false
 			}
+			if l.blocked {
+				return true
+			}
 		}
 		if len(chunks) < chunkPage {
 			return true
 		}
 	}
+	return true
 }
 
 func (l *logStream) sendChunk(ctx context.Context, c store.LogChunk) bool {
-	if c.SeqFrom > l.next && !l.gap(l.next, c.SeqFrom-1) {
-		return false
+	if c.SeqFrom > l.next {
+		if !l.confirmed(l.next, c.SeqFrom-1) {
+			l.blocked = true
+			return true
+		}
+		if !l.gap(l.next, c.SeqFrom-1) {
+			return false
+		}
 	}
 	lines, err := l.readChunk(ctx, c)
 	if err != nil {
 		if ctx.Err() != nil {
 			return false
 		}
+		// The manifest row is committed after the object, so a missing or
+		// unreadable object is a loss, not a race.
 		loggerFromCtx(ctx).Warn("log stream: chunk unreadable", "execution_id", l.execID, "seq_from", c.SeqFrom, "error", err)
 		return l.gap(max(l.next, c.SeqFrom), c.SeqTo)
 	}

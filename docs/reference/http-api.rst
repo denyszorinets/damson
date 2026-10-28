@@ -173,7 +173,9 @@ Triggering a run
    Schema, with the same size limits and deny-all URL loader as plugin
    schemas). Failures are a ``422`` listing ``options.<path>`` locations;
    messages never repeat a submitted value. A job without ``spec.options``
-   accepts no options.
+   accepts no options. Options marked ``x-damson-secret: true`` accept only
+   ``secret://`` references (:ref:`job-spec-secret-options`); unmarked options
+   are stored and returned verbatim.
 #. ``concurrency_policy`` accepts ``queue`` (the default) until M3; ``skip``
    and ``cancel_previous`` are a ``422``. ``spec.concurrency`` is still
    rejected at authoring time.
@@ -183,8 +185,30 @@ Triggering a run
    first executions, are inserted together with the run by one
    ``CreateRun`` transaction. The run is ``pending``; the pool of an
    execution is the step's ``runs_on.pool``, or ``default``.
+#. The resolved input of each created step instance is validated against the
+   input schema of the highest known version of its plugin
+   (``pluginreg.Lookup``); a mismatch is a ``422`` at
+   ``steps[<path>].input.<field>`` and nothing is inserted. A plugin the
+   registry does not know (no agent connected yet) is allowed to queue;
+   dispatch validates again against the version an agent will run (#53).
 #. Enqueueing ``run.advance`` in the same transaction arrives with the
    orchestrator (#53); until then nothing advances a pending run.
+
+Contract with the orchestrator (#53). The trigger inserts the first step
+instance and its queued execution with the run, but not the ``start_run``
+action: the run stays ``pending`` and the first ``run.advance`` applies it.
+``run.advance`` builds ``RunState`` from the database, including these rows
+(``engine.RunStatusFromStore`` and friends map the stored spelling), and
+``engine.Decide`` then emits only ``start_run`` and waits; it does not create
+the instance or schedule the execution again (pinned by
+``TestDecideAfterTriggerInsert``). The dispatcher must claim only executions
+of runs that are neither terminal nor ``cancel_requested``, because a run can
+be cancelled before anything advances it.
+
+Status spelling. The store, the API and the agent protocol use ``canceled``
+(and ``pending`` for a run that has not started); the engine uses
+``cancelled`` (and ``queued``) internally. ``internal/engine/status_map.go`` is
+the single mapping.
 
 Options are stored with the run and returned by the API. They must carry
 ``secret://`` references, never secret values (ARCHITECTURE section 9).
@@ -193,6 +217,12 @@ Options are stored with the run and returned by the API. They must carry
 
 Server-sent events
 ~~~~~~~~~~~~~~~~~~
+
+At most ``StreamConfig.MaxStreams`` (default 256) streams are open at once;
+further requests get ``503``. Each write has a 10 s deadline, after which the
+slow client is disconnected. The server polls a cheap change marker (counts
+over indexed rows) with 20% jitter and loads the run tree or the chunk list
+only when it moved.
 
 Both streams answer ``text/event-stream`` after the target was checked
 (``404`` problem+json otherwise). A comment line (``: heartbeat``) is sent
@@ -217,7 +247,11 @@ every stored line was sent. ``Last-Event-ID`` takes precedence over
 ``after_seq`` (browsers resend it on reconnect). A ``gap`` event
 ``{seq_from, seq_to}`` reports a range that will never arrive: lines the
 agent declared lost when its spool overflowed, or a stored chunk whose object
-is missing. Streaming continues after a gap. Without a live tail (the
+is missing. Streaming continues after a gap. A gap is reported only when it
+is confirmed: the execution is terminal, or the same hole was seen on two
+consecutive polls. Chunks can commit out of order, so a hole that fills in
+between is never reported and valid lines are never called lost. A stored
+chunk whose object is missing is reported at once. Without a live tail (the
 controller's ring buffer, wired by the orchestrator) the stream polls the
 store for newly flushed chunks, which arrive up to the chunk flush interval
 late.

@@ -45,11 +45,17 @@ type runEventsInput struct {
 func registerRunEvents(api huma.API, d deps) {
 	huma.Register(api, huma.Operation{
 		OperationID: "stream-run-events", Method: http.MethodGet, Path: "/runs/{id}/events",
-		Summary: "Server-sent events of a run", Tags: []string{"runs"}, Errors: []int{http.StatusNotFound},
-		Description: "Events: snapshot (the full run with its step tree), then run and step as they change, then end once the run is finished. Every event has a numeric id.",
+		Summary: "Server-sent events of a run", Tags: []string{"runs"}, Errors: []int{http.StatusNotFound, http.StatusServiceUnavailable},
+		Description: "Events: snapshot (the full run with its step tree), then run and step as they change, then end once the run is finished. Every event has a numeric id. At most StreamConfig.MaxStreams streams are open at once; beyond that the answer is 503.",
 		Responses:   sseOperationResponses("An event stream."),
 	}, func(ctx context.Context, in *runEventsInput) (*huma.StreamResponse, error) {
 		if err := d.ready(); err != nil {
+			return nil, apiError(ctx, err)
+		}
+		// The stamp is read before the tree, so a change in between is
+		// caught by the first poll.
+		stamp, err := d.ds.GetRunStamp(ctx, in.ID)
+		if err != nil {
 			return nil, apiError(ctx, err)
 		}
 		tree, err := d.ds.GetRunTree(ctx, in.ID)
@@ -60,9 +66,13 @@ func registerRunEvents(api huma.API, d deps) {
 		if err != nil {
 			return nil, apiError(ctx, err)
 		}
+		release, err := d.acquireStream()
+		if err != nil {
+			return nil, apiError(ctx, err)
+		}
 		last, _ := parseEventID(in.LastEventID)
-		return sseResponse(func(ctx context.Context, s *sseWriter) {
-			streamRun(ctx, d, s, tree, toRunDetail(tree, ver.Version), last)
+		return sseResponse(d, release, func(ctx context.Context, s *sseWriter) {
+			streamRun(ctx, d, s, tree, stamp, toRunDetail(tree, ver.Version), last)
 		}), nil
 	})
 }
@@ -89,8 +99,9 @@ func fingerprint(t store.RunTree) runFingerprint {
 	return fp
 }
 
-// streamRun sends the snapshot, then polls the tree and sends what changed.
-func streamRun(ctx context.Context, d deps, s *sseWriter, tree store.RunTree, snap RunDetail, last int64) {
+// streamRun sends the snapshot, then polls: a cheap stamp first, and the full
+// tree only when the stamp moved.
+func streamRun(ctx context.Context, d deps, s *sseWriter, tree store.RunTree, stamp store.RunStamp, snap RunDetail, last int64) {
 	id := last
 	send := func(name string, data any) bool {
 		id++
@@ -110,40 +121,62 @@ func streamRun(ctx context.Context, d deps, s *sseWriter, tree store.RunTree, sn
 		defer release()
 		wake = ch
 	}
-	poll := time.NewTicker(d.stream.PollInterval)
-	defer poll.Stop()
 	beat := time.NewTicker(d.stream.Heartbeat)
 	defer beat.Stop()
 	for {
+		timer := time.NewTimer(jitter(d.stream.PollInterval))
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
 		case <-beat.C:
+			timer.Stop()
 			if s.comment("heartbeat") != nil {
 				return
 			}
 			continue
-		case <-poll.C:
+		case <-timer.C:
 		case <-wake:
+			timer.Stop()
 		}
-		tree, err := d.ds.GetRunTree(ctx, snap.ID)
-		if errors.Is(err, store.ErrNotFound) {
-			return
-		}
+		changed, err := pollRun(ctx, d, snap.ID, &stamp)
 		if err != nil {
+			if ctx.Err() != nil || errors.Is(err, store.ErrNotFound) {
+				return
+			}
 			loggerFromCtx(ctx).Warn("run events: reading run", "run_id", snap.ID, "error", err)
 			continue
 		}
-		cur := fingerprint(tree)
-		if !emitChanges(send, tree, prev, cur) {
+		if changed == nil {
+			continue // nothing changed
+		}
+		fp := fingerprint(*changed)
+		if !emitChanges(send, *changed, prev, fp) {
 			return
 		}
-		prev = cur
-		if terminalRun(cur.run.Status) {
-			send("end", cur.run)
+		prev = fp
+		if terminalRun(fp.run.Status) {
+			send("end", fp.run)
 			return
 		}
 	}
+}
+
+// pollRun reads the stamp and, if it moved, the tree (nil when unchanged).
+func pollRun(ctx context.Context, d deps, runID string, last *store.RunStamp) (*store.RunTree, error) {
+	st, err := d.ds.GetRunStamp(ctx, runID)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // classified by the caller
+	}
+	if st == *last {
+		return nil, nil
+	}
+	tree, err := d.ds.GetRunTree(ctx, runID)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // classified by the caller
+	}
+	*last = st
+	return &tree, nil
 }
 
 // emitChanges sends a run event and one step event per changed step, in step

@@ -77,7 +77,9 @@ func (v *validator) options(opts map[string]any) {
 	}
 	if _, err := c.Compile("damson:options"); err != nil {
 		v.add("spec.options", "not a valid JSON Schema: %v", err)
+		return
 	}
+	v.checkSecretSchema("spec.options", opts, false)
 }
 
 func (v *validator) steps(path string, steps []Step) {

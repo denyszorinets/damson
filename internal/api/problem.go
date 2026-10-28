@@ -63,6 +63,9 @@ const (
 // status.
 var errRunFinished = errors.New("run already finished")
 
+// errTooManyStreams marks a refused SSE stream: the server is at its limit.
+var errTooManyStreams = errors.New("too many open streams")
+
 // invalidError is a request the API understood but rejects (422). Fields
 // locate each problem; they never carry request values.
 type invalidError struct {
@@ -98,6 +101,8 @@ func problemFor(err error) Problem {
 		return Problem{Type: typeConflict, Title: "Conflict", Status: http.StatusConflict, Detail: "the run has already finished"}
 	case errors.Is(err, store.ErrInvalid):
 		return Problem{Type: typeValidation, Title: "Unprocessable Entity", Status: http.StatusUnprocessableEntity, Detail: "the request was rejected as invalid"}
+	case errors.Is(err, errTooManyStreams):
+		return Problem{Type: typeUnavailable, Title: "Service Unavailable", Status: http.StatusServiceUnavailable, Detail: "too many open streams; retry later"}
 	case errors.Is(err, errUnavailable):
 		return Problem{Type: typeUnavailable, Title: "Service Unavailable", Status: http.StatusServiceUnavailable, Detail: "a required dependency is not available"}
 	default:

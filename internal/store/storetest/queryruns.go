@@ -83,8 +83,8 @@ func testCreateRunWithID(t *testing.T, s store.Store) {
 	if _, err := s.GetRun(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateRun(ctx, store.NewRun{ID: id, JobID: job.ID, JobVersionID: ver.ID}, t0); err == nil {
-		t.Error("CreateRun with a duplicate id succeeded")
+	if _, err := s.CreateRun(ctx, store.NewRun{ID: id, JobID: job.ID, JobVersionID: ver.ID}, t0); !errors.Is(err, store.ErrConflict) {
+		t.Errorf("CreateRun with a duplicate id: %v; want ErrConflict", err)
 	}
 	if _, err := s.CreateRun(ctx, store.NewRun{ID: "not-a-uuid", JobID: job.ID, JobVersionID: ver.ID}, t0); !errors.Is(err, store.ErrInvalid) {
 		t.Errorf("CreateRun with a bad id: %v; want ErrInvalid", err)

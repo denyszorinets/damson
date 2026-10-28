@@ -96,24 +96,49 @@ func resolveOptions(spec *engine.Job, given map[string]any) (map[string]any, err
 	if err != nil {
 		return nil, fmt.Errorf("encoding options: %w", err)
 	}
+	// Values under an x-damson-secret option must be secret:// references.
+	// Locations only: neither check ever formats a submitted value.
+	fields := secretFields(engine.SecretOptionViolations(spec.Spec.Options, opts))
 	err = pluginreg.ValidateJSONSchema("options", schema, input)
 	var ve pluginreg.ValidationErrors
 	switch {
 	case err == nil:
-		return opts, nil
 	case errors.Is(err, pluginreg.ErrInputTooLarge):
 		return nil, invalid("options are too large")
 	case errors.As(err, &ve):
-		fields := make([]ProblemDetail, len(ve))
-		for i, fe := range ve {
-			fields[i] = ProblemDetail{Message: fe.Message, Location: "options." + fe.Path}
+		for _, fe := range ve {
+			loc := "options." + fe.Path
 			if fe.Path == "$" {
-				fields[i].Location = "options"
+				loc = "options"
+			}
+			if !hasLocation(fields, loc) {
+				fields = append(fields, ProblemDetail{Message: fe.Message, Location: loc})
 			}
 		}
+	default:
+		return nil, fmt.Errorf("validating options: %w", err)
+	}
+	if len(fields) > 0 {
 		return nil, invalid("the options are invalid", fields...)
 	}
-	return nil, fmt.Errorf("validating options: %w", err)
+	return opts, nil
+}
+
+func secretFields(paths []string) []ProblemDetail {
+	out := make([]ProblemDetail, len(paths))
+	for i, p := range paths {
+		out[i] = ProblemDetail{Message: "must be a secret:// reference", Location: p}
+	}
+	return out
+}
+
+func hasLocation(fields []ProblemDetail, loc string) bool {
+	for _, f := range fields {
+		if f.Location == loc {
+			return true
+		}
+	}
+	return false
 }
 
 // newRun builds the run insert from what Decide returns for a queued run: the
@@ -141,10 +166,45 @@ func (d deps) newRun(job store.Job, ver store.JobVersion, spec *engine.Job, opts
 	if err != nil {
 		return store.NewRun{}, fmt.Errorf("deciding the initial state of run %s: %w", id, err)
 	}
+	if err := d.checkStepInputs(actions); err != nil {
+		return store.NewRun{}, err
+	}
 	return store.NewRun{
 		ID: id, JobID: job.ID, JobVersionID: ver.ID, Trigger: trigger, Options: options,
 		Steps: initialSteps(actions),
 	}, nil
+}
+
+// checkStepInputs validates the resolved input of each step instance the run
+// is created with against the plugin's input schema, when the registry knows
+// the plugin. A plugin it does not know (no agent connected yet) is allowed
+// to queue: dispatch validates again against the version an agent will run
+// (#53). Messages carry schema paths only, never input values.
+func (d deps) checkStepInputs(actions []engine.Action) error {
+	if d.plugins == nil {
+		return nil
+	}
+	var fields []ProblemDetail
+	for _, a := range actions {
+		c, ok := a.(engine.CreateStepInstance)
+		if !ok {
+			continue
+		}
+		m, err := d.plugins.Lookup(c.Plugin)
+		if err != nil {
+			continue
+		}
+		var ve pluginreg.ValidationErrors
+		if err := d.plugins.ValidateInput(m, c.Input); errors.As(err, &ve) {
+			for _, fe := range ve {
+				fields = append(fields, ProblemDetail{Message: fe.Message, Location: joinPath("steps["+c.Path+"].input", fe.Path)})
+			}
+		}
+	}
+	if len(fields) > 0 {
+		return invalid("a step input does not match its plugin schema", fields...)
+	}
+	return nil
 }
 
 // initialSteps turns CreateStepInstance and ScheduleExecution actions into

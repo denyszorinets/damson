@@ -51,6 +51,7 @@ func Run(t *testing.T, f Factory) {
 		{"RequestCancel", testRequestCancel},
 		{"ListRuns", testListRuns},
 		{"QueryRuns", testQueryRuns},
+		{"Stamps", testStamps},
 		{"CreateRunWithID", testCreateRunWithID},
 		{"ClaimExecutions", testClaim},
 		{"ClaimConcurrent", testClaimConcurrent},

@@ -312,6 +312,7 @@ The engine evaluates these rules deterministically:
   | `error` | Inside `catch`: `step`, `kind`, `message`, `exit_code` |
 
 - **Secrets are never values in the CEL context.** They are referenced only as `secret://...` strings in plugin fields whose schema marks them `x-damson-secret: true`. They are resolved at dispatch time (§9).
+- **Run options** marked `x-damson-secret: true` in `spec.options` accept only `secret://` references (anything else is rejected at trigger time, and such an option may not default to a plaintext value). Options that are not marked are stored and returned verbatim, so authors must mark credentials.
 - CEL programs run with a cost limit and a size limit on results.
 - **Outputs** are JSON objects, validated against the plugin's output schema, with a maximum of 256 KiB per execution. Larger data belongs in files or object storage.
 
@@ -1002,6 +1003,8 @@ All routes are under `/api/v1`, with the OpenAPI document at `/api/v1/openapi.js
 - `apply`
 
 **Errors** use RFC 9457 problem+json. **Pagination** is cursor-based.
+
+**Status spelling.** The store, the API and the agent protocol use `canceled`; the engine uses `cancelled` (§5.3) and calls a not-yet-started run `queued` (stored as `pending`). The mapping lives in one place, `internal/engine/status_map.go`.
 
 ---
 

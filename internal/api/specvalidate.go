@@ -96,7 +96,7 @@ func (c *specCheck) checkInput(pc PluginCatalog, name, base string, m pluginsdk.
 	case errors.As(err, &ve):
 		for _, fe := range ve {
 			if underExpression(with, fe.Path) {
-				continue // resolved at run time; the schema check happens then
+				continue // known only once resolved: the trigger validates the resolved input (when the plugin is known), dispatch validates again
 			}
 			c.errors = append(c.errors, SpecIssue{Path: joinPath(base, fe.Path), Message: fe.Message})
 		}
@@ -119,7 +119,8 @@ func joinPath(base, p string) string {
 
 // underExpression reports whether the value at path in with, or any value on
 // the way to it, is a string holding a ${{ }} expression. Such a value is
-// only known at run time, so a schema failure there is not an authoring error.
+// only known when the step is created, so a schema failure there is not an
+// authoring error; the trigger and dispatch check the resolved input.
 func underExpression(with map[string]any, path string) bool {
 	var cur any = with
 	if path == "" || path == "$" {
