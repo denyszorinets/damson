@@ -21,6 +21,18 @@ const (
 	AgentDisconnected AgentStatus = "disconnected"
 )
 
+// Telemetry is the last heartbeat snapshot of an agent. Every field is
+// optional: a field the agent did not report, or reported with an unexpected
+// type, is omitted.
+type Telemetry struct {
+	FreeSlots       *int     `json:"free_slots,omitempty" doc:"Slots not running an attempt."`
+	CPUPercent      *float64 `json:"cpu_percent,omitempty" doc:"CPU use across all cores, 0 to 100."`
+	MemoryBytes     *uint64  `json:"memory_bytes,omitempty" doc:"Used memory in bytes."`
+	Load1           *float64 `json:"load1,omitempty" doc:"One-minute load average."`
+	SpoolBytes      *int64   `json:"spool_bytes,omitempty" doc:"Bytes of unsent output spooled on the agent."`
+	RunningAttempts []string `json:"running_attempts,omitempty" doc:"Attempt IDs the agent is running."`
+}
+
 // Agent is the API view of an agent.
 type Agent struct {
 	ID             string            `json:"id"`
@@ -31,7 +43,7 @@ type Agent struct {
 	Labels         map[string]string `json:"labels"`
 	Capabilities   map[string]string `json:"capabilities" doc:"Plugin name to version."`
 	Capacity       int               `json:"capacity"`
-	Telemetry      map[string]any    `json:"telemetry,omitempty" doc:"Last telemetry snapshot reported by the agent."`
+	Telemetry      *Telemetry        `json:"telemetry,omitempty" doc:"Last telemetry snapshot reported by the agent."`
 	ConnectedAt    time.Time         `json:"connected_at"`
 	LastSeen       time.Time         `json:"last_seen"`
 	DisconnectedAt *time.Time        `json:"disconnected_at,omitempty"`
@@ -53,11 +65,7 @@ func toAgentView(a store.Agent) Agent {
 		v.Capabilities = map[string]string{}
 	}
 	if len(a.Telemetry) > 0 {
-		// A snapshot that is not a JSON object is dropped, not an error.
-		var t map[string]any
-		if json.Unmarshal(a.Telemetry, &t) == nil {
-			v.Telemetry = t
-		}
+		v.Telemetry = decodeTelemetry(a.Telemetry)
 	}
 	return v
 }
@@ -118,4 +126,37 @@ func registerAgents(api huma.API, ds DataStore) {
 		}
 		return &getAgentOutput{Body: toAgentView(a)}, nil
 	})
+}
+
+// decodeTelemetry reads a stored snapshot leniently: unknown keys are ignored
+// and a field with the wrong type is dropped without failing the request. A
+// snapshot that is not a JSON object yields nil.
+func decodeTelemetry(raw json.RawMessage) *Telemetry {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return nil
+	}
+	var t Telemetry
+	setPtr(fields, "free_slots", &t.FreeSlots)
+	setPtr(fields, "cpu_percent", &t.CPUPercent)
+	setPtr(fields, "memory_bytes", &t.MemoryBytes)
+	setPtr(fields, "load1", &t.Load1)
+	setPtr(fields, "spool_bytes", &t.SpoolBytes)
+	var running []string
+	if json.Unmarshal(fields["running_attempts"], &running) == nil {
+		t.RunningAttempts = running
+	}
+	return &t
+}
+
+// setPtr sets *dst to the decoded value of key only when it decodes cleanly.
+func setPtr[T any](fields map[string]json.RawMessage, key string, dst **T) {
+	raw, ok := fields[key]
+	if !ok {
+		return
+	}
+	var v T
+	if json.Unmarshal(raw, &v) == nil {
+		*dst = &v
+	}
 }

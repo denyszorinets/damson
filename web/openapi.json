@@ -51,9 +51,8 @@
             "type": "string"
           },
           "telemetry": {
-            "additionalProperties": {},
-            "description": "Last telemetry snapshot reported by the agent.",
-            "type": "object"
+            "$ref": "#/components/schemas/Telemetry",
+            "description": "Last telemetry snapshot reported by the agent."
           },
           "version": {
             "type": "string"
@@ -186,6 +185,48 @@
           },
           "message": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Telemetry": {
+        "additionalProperties": false,
+        "properties": {
+          "cpu_percent": {
+            "description": "CPU use across all cores, 0 to 100.",
+            "format": "double",
+            "type": "number"
+          },
+          "free_slots": {
+            "description": "Slots not running an attempt.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "load1": {
+            "description": "One-minute load average.",
+            "format": "double",
+            "type": "number"
+          },
+          "memory_bytes": {
+            "description": "Used memory in bytes.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "running_attempts": {
+            "description": "Attempt IDs the agent is running.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "spool_bytes": {
+            "description": "Bytes of unsent output spooled on the agent.",
+            "format": "int64",
+            "type": "integer"
           }
         },
         "type": "object"

@@ -53,7 +53,7 @@ func v1Fixture(t *testing.T, st store.Store) (h http.Handler, logs *bytes.Buffer
 		}
 	}
 	if _, err := st.BatchTouchAgents(ctx, "c1", []store.AgentTouch{{
-		ID: "a1", SessionSeq: 1, LastSeen: t0.Add(time.Minute), Telemetry: json.RawMessage(`{"cpu":0.5,"mem_mb":128}`),
+		ID: "a1", SessionSeq: 1, LastSeen: t0.Add(time.Minute), Telemetry: json.RawMessage(`{"cpu_percent":0.5,"memory_bytes":128,"free_slots":3,"bogus":1,"load1":"x"}`),
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ type agentList struct {
 	Items []struct {
 		ID             string         `json:"id"`
 		Status         string         `json:"status"`
-		Telemetry      map[string]any `json:"telemetry"`
+		Telemetry      *api.Telemetry `json:"telemetry"`
 		LastSeen       time.Time      `json:"last_seen"`
 		DisconnectedAt *time.Time     `json:"disconnected_at"`
 	} `json:"items"`
@@ -103,7 +103,7 @@ func TestV1Agents(t *testing.T) {
 			t.Fatalf("list = %+v", all)
 		}
 		a1, a2 := all.Items[0], all.Items[1]
-		if a1.ID != "a1" || a1.Status != "connected" || a1.Telemetry["cpu"] != 0.5 || !a1.LastSeen.Equal(t0.Add(time.Minute)) {
+		if a1.ID != "a1" || a1.Status != "connected" || a1.Telemetry == nil || a1.Telemetry.CPUPercent == nil || *a1.Telemetry.CPUPercent != 0.5 || a1.Telemetry.Load1 != nil || !a1.LastSeen.Equal(t0.Add(time.Minute)) {
 			t.Errorf("a1 = %+v", a1)
 		}
 		if a2.ID != "a2" || a2.Status != "disconnected" || a2.DisconnectedAt == nil {
@@ -133,10 +133,10 @@ func TestV1Agents(t *testing.T) {
 			PoolID       string            `json:"pool_id"`
 			Labels       map[string]string `json:"labels"`
 			Capabilities map[string]string `json:"capabilities"`
-			Telemetry    map[string]any    `json:"telemetry"`
+			Telemetry    *api.Telemetry    `json:"telemetry"`
 		}
 		getJSON(t, h, "/api/v1/agents/a1", http.StatusOK, &one)
-		if one.ID != "a1" || one.PoolID == "" || one.Labels["os"] != "linux" || one.Capabilities["ssh"] != "1" || one.Telemetry["mem_mb"] != 128.0 {
+		if one.ID != "a1" || one.PoolID == "" || one.Labels["os"] != "linux" || one.Capabilities["ssh"] != "1" || one.Telemetry == nil || one.Telemetry.MemoryBytes == nil || *one.Telemetry.MemoryBytes != 128 || one.Telemetry.FreeSlots == nil || *one.Telemetry.FreeSlots != 3 {
 			t.Errorf("get a1 = %+v", one)
 		}
 	})
