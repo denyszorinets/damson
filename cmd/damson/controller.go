@@ -52,7 +52,7 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 	if err != nil {
 		return err
 	}
-	plugins, err := newPluginRegistry()
+	plugins, err := newPluginRegistry(log)
 	if err != nil {
 		return err
 	}
@@ -145,12 +145,12 @@ func awaitShutdown(ctx context.Context, log *slog.Logger, srvErr <-chan error, d
 
 // newPluginRegistry links the built-in plugins into a registry, so their
 // schemas are known before any agent connects (ARCHITECTURE section 6).
-func newPluginRegistry() (*pluginreg.Registry, error) {
+func newPluginRegistry(log *slog.Logger) (*pluginreg.Registry, error) {
 	var ms []pluginsdk.Manifest
 	for _, p := range all.Plugins() {
 		ms = append(ms, p.Manifest())
 	}
-	reg, err := pluginreg.New(ms)
+	reg, err := pluginreg.New(ms, log)
 	if err != nil {
 		return nil, fmt.Errorf("building plugin registry: %w", err)
 	}

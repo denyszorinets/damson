@@ -56,7 +56,7 @@ type pluginView struct {
 }
 
 func TestPluginsEndpoints(t *testing.T) {
-	reg, err := pluginreg.New([]pluginsdk.Manifest{apiManifest("ssh", "1.0.0", "bin:ssh")})
+	reg, err := pluginreg.New([]pluginsdk.Manifest{apiManifest("ssh", "1.0.0", "bin:ssh")}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestPluginsEndpoints(t *testing.T) {
 }
 
 func TestPluginsEmptyAndUnavailable(t *testing.T) {
-	reg, err := pluginreg.New(nil)
+	reg, err := pluginreg.New(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

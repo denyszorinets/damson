@@ -62,7 +62,8 @@ func (g *Gateway) handleHello(ctx context.Context, s *session, p protocol.Params
 	s.mu.Lock()
 	s.helloed, s.seq, s.lastSeen = true, req.SessionSeq, now
 	s.mu.Unlock()
-	if loser := g.reg.replace(s, func() { g.setPlugins(s, req) }); loser != nil {
+	prep := g.preparePlugins(s, req)
+	if loser := g.reg.replace(s, func() { g.commitPlugins(prep) }); loser != nil {
 		loser.log.Info("superseded by a newer socket for the same agent", "session_seq", req.SessionSeq)
 		if loser == s {
 			s.reject()
@@ -153,18 +154,26 @@ func (g *Gateway) isStopping() bool {
 	return g.stopping
 }
 
-// setPlugins publishes the agent's manifests to the plugin registry. A
-// rejected manifest is logged and skipped; the agent stays connected.
-func (g *Gateway) setPlugins(s *session, req protocol.HelloRequest) {
+// preparePlugins validates the agent's manifests outside the session-registry
+// lock. A rejected manifest is logged and skipped; the agent stays connected.
+func (g *Gateway) preparePlugins(s *session, req protocol.HelloRequest) *pluginreg.Prepared {
 	if g.cfg.Plugins == nil {
-		return
+		return nil
 	}
 	ms := make([]pluginsdk.Manifest, len(req.Manifests))
 	for i, m := range req.Manifests {
 		ms[i] = m.Manifest
 	}
-	err := g.cfg.Plugins.SetAgent(pluginreg.AgentInfo{ID: s.agentID, Pool: s.pool.Name, Capabilities: req.Capabilities, Manifests: ms})
+	prep, err := g.cfg.Plugins.Prepare(pluginreg.AgentInfo{ID: s.agentID, Pool: s.pool.Name, Capabilities: req.Capabilities, Manifests: ms})
 	if err != nil {
 		s.log.Warn("plugin manifests rejected", "error", err)
+	}
+	return prep
+}
+
+// commitPlugins runs under the session-registry lock and must stay cheap.
+func (g *Gateway) commitPlugins(prep *pluginreg.Prepared) {
+	if prep != nil {
+		g.cfg.Plugins.Commit(prep)
 	}
 }

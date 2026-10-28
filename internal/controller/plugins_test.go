@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/denyszorinets/damson/internal/pluginreg"
@@ -35,7 +37,7 @@ func helloWithManifests(seq uint64, ms ...pluginsdk.Manifest) protocol.HelloRequ
 
 func TestHelloFeedsPluginRegistry(t *testing.T) {
 	forEachBackend(t, func(t *testing.T, st store.Store) {
-		reg, err := pluginreg.New(nil)
+		reg, err := pluginreg.New(nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -72,5 +74,37 @@ func TestHelloFeedsPluginRegistry(t *testing.T) {
 		if _, err := reg.Resolve("demo", pluginreg.Filter{}); err == nil {
 			t.Error("plugin still resolvable after disconnect")
 		}
+	})
+}
+
+// Concurrent hellos with different session_seq: whichever order they finish
+// in, the plugin registry ends with the manifests of the highest seq only.
+func TestConcurrentHellosKeepHighestSeqPlugins(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		reg, err := pluginreg.New(nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := newRig(t, st, func(c *Config) { c.Plugins = reg })
+		const n = 6
+		agents := make([]*agent, n)
+		for i := range agents {
+			agents[i] = r.dial("agent-1")
+		}
+		var wg sync.WaitGroup
+		for i, a := range agents {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, _ = a.hello(helloWithManifests(uint64(i+1), pManifest(fmt.Sprintf("1.%d.0", i+1))))
+			}()
+		}
+		wg.Wait()
+		eventually(t, "highest session's manifests only", func() bool {
+			p, ok := reg.Get("demo")
+			s := r.gw.reg.get("agent-1")
+			return ok && len(p.Versions) == 1 && p.Versions[0].Manifest.Version == fmt.Sprintf("1.%d.0", n) &&
+				s != nil && s.seqValue() == n
+		})
 	})
 }

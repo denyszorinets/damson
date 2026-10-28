@@ -30,9 +30,15 @@ type Version struct {
 }
 
 // Plugin is every known version of one plugin name, highest first.
+//
+// A Plugin and its slices are shared with the registry's cache: treat them as
+// read-only.
 type Plugin struct {
-	Name     string
-	Versions []Version
+	Name string
+	// HasBuiltin is true when the controller links a version of this name.
+	// Unpinned references to such a name resolve only to built-in versions.
+	HasBuiltin bool
+	Versions   []Version
 }
 
 // Pools returns the sorted distinct pools of the agents running v.
@@ -47,10 +53,25 @@ func (v Version) Pools() []string {
 	return pools
 }
 
-// snapshot derives the plugin view from the builtins and live agents.
+// snapshot returns the derived plugin view, rebuilding it only after a
+// SetAgent or RemoveAgent invalidated it.
 func (r *Registry) snapshot() map[string]*Plugin {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
+	c := r.cache
+	r.mu.RUnlock()
+	if c != nil {
+		return c
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cache == nil {
+		r.cache = r.build()
+	}
+	return r.cache
+}
+
+// build derives the view; the caller holds r.mu.
+func (r *Registry) build() map[string]*Plugin {
 	groups := map[pluginKey]map[string]*Version{}
 	get := func(k pluginKey, sum string, m pluginsdk.Manifest) *Version {
 		g := groups[k]
@@ -79,7 +100,8 @@ func (r *Registry) snapshot() map[string]*Plugin {
 	for k, g := range groups {
 		p := out[k.name]
 		if p == nil {
-			p = &Plugin{Name: k.name}
+			_, hasBuiltin := r.builtinTop[k.name]
+			p = &Plugin{Name: k.name, HasBuiltin: hasBuiltin}
 			out[k.name] = p
 		}
 		p.Versions = append(p.Versions, accept(g))

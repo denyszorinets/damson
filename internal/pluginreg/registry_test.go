@@ -44,7 +44,7 @@ func altMan(name, version string) pluginsdk.Manifest {
 
 func newReg(t *testing.T, builtins ...pluginsdk.Manifest) *pluginreg.Registry {
 	t.Helper()
-	r, err := pluginreg.New(builtins)
+	r, err := pluginreg.New(builtins, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,10 +261,10 @@ func TestSetAgentSkipsBadManifests(t *testing.T) {
 func TestNewRejectsBadBuiltins(t *testing.T) {
 	bad := man("a", "1.0.0")
 	bad.Title = ""
-	if _, err := pluginreg.New([]pluginsdk.Manifest{bad}); err == nil {
+	if _, err := pluginreg.New([]pluginsdk.Manifest{bad}, nil); err == nil {
 		t.Error("invalid builtin accepted")
 	}
-	if _, err := pluginreg.New([]pluginsdk.Manifest{man("a", "1.0.0"), man("a", "1.0.0")}); err == nil {
+	if _, err := pluginreg.New([]pluginsdk.Manifest{man("a", "1.0.0"), man("a", "1.0.0")}, nil); err == nil {
 		t.Error("duplicate builtin accepted")
 	}
 }

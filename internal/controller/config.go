@@ -57,11 +57,14 @@ type realTicker struct{ t *time.Ticker }
 func (r realTicker) C() <-chan time.Time { return r.t.C }
 func (r realTicker) Stop()               { r.t.Stop() }
 
-// PluginSink receives the plugin manifests of live agents. The gateway calls
-// SetAgent after a successful hello and RemoveAgent when the owning socket
-// ends. *pluginreg.Registry implements it.
+// PluginSink receives the plugin manifests of live agents. On a hello the
+// gateway calls Prepare (validation and checksums, no lock held) and then
+// Commit (cheap) under its session-registry lock, so installs follow the
+// session_seq order; it calls RemoveAgent when the owning socket ends.
+// *pluginreg.Registry implements it.
 type PluginSink interface {
-	SetAgent(pluginreg.AgentInfo) error
+	Prepare(pluginreg.AgentInfo) (*pluginreg.Prepared, error)
+	Commit(*pluginreg.Prepared)
 	RemoveAgent(id string)
 }
 

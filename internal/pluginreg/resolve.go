@@ -61,19 +61,37 @@ type Resolution struct {
 	Agents []Provider
 }
 
+// eligible applies the shadowing rule: an unpinned reference to a name the
+// controller links itself resolves only to a built-in version, so an agent
+// cannot take over a built-in by reporting a higher version. Agent-only
+// versions of such a name need an explicit pin (name@major).
+func (p Plugin) eligible(ref Ref, v Version) bool {
+	return ref.matches(v.Manifest.Version) && (ref.Pinned || !p.HasBuiltin || v.Builtin)
+}
+
 // Lookup returns the highest known version matching ref, whether or not an
-// agent can run it right now. It is what input validation needs.
+// agent can run it right now. It is for authoring time only (job validation,
+// UI forms): it may name a version no connected agent can run. The dispatch
+// path must not use it; it must validate against the manifest that Resolve
+// returns, because that is the version an agent will actually execute.
 func (r *Registry) Lookup(ref string) (pluginsdk.Manifest, error) {
 	p, parsed, err := r.find(ref)
 	if err != nil {
 		return pluginsdk.Manifest{}, err
 	}
 	for _, v := range p.Versions {
-		if parsed.matches(v.Manifest.Version) {
+		if p.eligible(parsed, v) {
 			return v.Manifest, nil
 		}
 	}
-	return pluginsdk.Manifest{}, fmt.Errorf("%w: %s", ErrNoVersion, ref)
+	return pluginsdk.Manifest{}, noVersion(ref, p, parsed)
+}
+
+func noVersion(ref string, p Plugin, parsed Ref) error {
+	if !parsed.Pinned && p.HasBuiltin {
+		return fmt.Errorf("%w: %s (unpinned references resolve only to built-in versions; pin a major such as %s@1)", ErrNoVersion, ref, ref)
+	}
+	return fmt.Errorf("%w: %s", ErrNoVersion, ref)
 }
 
 // Resolve picks the highest version matching ref that at least one eligible
@@ -89,7 +107,7 @@ func (r *Registry) Resolve(ref string, f Filter) (Resolution, error) {
 	}
 	matched := false
 	for _, v := range p.Versions {
-		if !parsed.matches(v.Manifest.Version) {
+		if !p.eligible(parsed, v) {
 			continue
 		}
 		matched = true
@@ -98,7 +116,7 @@ func (r *Registry) Resolve(ref string, f Filter) (Resolution, error) {
 		}
 	}
 	if !matched {
-		return Resolution{}, fmt.Errorf("%w: %s", ErrNoVersion, ref)
+		return Resolution{}, noVersion(ref, p, parsed)
 	}
 	note := ""
 	if f.Pool != "" {
