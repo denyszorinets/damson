@@ -9,13 +9,16 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/denyszorinets/damson/internal/api"
 	"github.com/denyszorinets/damson/internal/protocol"
 	"github.com/denyszorinets/damson/internal/store"
 )
 
 // ErrNoLiveTail is returned by Subscribe when this controller holds no
 // buffer for the execution.
-var ErrNoLiveTail = errors.New("no live log tail for this execution")
+var ErrNoLiveTail = api.ErrNoLiveTail
+
+var _ api.LogTail = (*Ingest)(nil)
 
 // maxSeq bounds sequence numbers so int64 arithmetic cannot overflow.
 const maxSeq = math.MaxInt64 / 4

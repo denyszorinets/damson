@@ -8,16 +8,13 @@ import (
 	"io"
 	"time"
 
+	"github.com/denyszorinets/damson/internal/api"
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 )
 
-// Line is one log entry as held in the ring buffer and in chunks.
-type Line struct {
-	Seq    int64
-	TS     time.Time
-	Stream string // "out", "err" or "sys"
-	Line   string
-}
+// Line is one log entry as held in the ring buffer and in chunks. It is the
+// API's LogLine, so Ingest satisfies api.LogTail.
+type Line = api.LogLine
 
 // Stream names stored in chunks and served to clients.
 const (

@@ -66,8 +66,17 @@ Idempotency and fencing at the store
   authoritative fence. When another attempt currently owns the buffer of an
   execution, the cache is bypassed and the store decides.
 
+Gaps are not stored inside chunks: a declared ``gap_to`` range (or a hole) is
+simply a range of sequence numbers covered by no ``log_chunks`` row. The stored
+log reader in ``internal/api`` derives its ``gap`` events from that, so the
+encoding needs nothing more.
+
 Live tail
 ---------
+
+``Ingest`` satisfies ``api.LogTail`` (``Line`` is ``api.LogLine`` and
+``ErrNoLiveTail`` is ``api.ErrNoLiveTail``). Pass the same value as
+``api.Config.LogTail`` when wiring the controller.
 
 ``Subscribe(ctx, executionID, afterSeq)`` replays the buffered lines with
 ``seq > afterSeq`` and then delivers new ones. It returns ``ErrNoLiveTail``
