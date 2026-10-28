@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -22,12 +23,18 @@ const (
 	CodeMethodNotFound = -32601
 	CodeInvalidParams  = -32602
 	CodeInternalError  = -32603
+	// CodeServerOverloaded is an implementation-defined server error (the
+	// -32000 to -32099 range): the peer has too many requests in flight.
+	CodeServerOverloaded = -32000
 )
 
 // Frame errors.
 var (
 	ErrFrameTooLarge = errors.New("frame exceeds 4 MiB")
 	ErrBadFrame      = errors.New("malformed frame")
+	// ErrNullIDResponse marks a response whose id is null. Such a response
+	// cannot be correlated and is invalid; it is never answered.
+	ErrNullIDResponse = fmt.Errorf("%w: response has no id or a null id", ErrBadFrame)
 )
 
 // RPCError is the JSON-RPC error object. It is also a Go error.
@@ -35,7 +42,12 @@ type RPCError struct {
 	Code    int                `msgpack:"code" json:"code"`
 	Message string             `msgpack:"message" json:"message"`
 	Data    msgpack.RawMessage `msgpack:"data,omitempty" json:"-"`
+
+	cause error // local detail, never sent
 }
+
+// Unwrap returns the local cause, if any.
+func (e *RPCError) Unwrap() error { return e.cause }
 
 // Error implements error.
 func (e *RPCError) Error() string {
@@ -113,13 +125,48 @@ func DecodeMessage(b []byte) (*Message, error) {
 	if err := Decode(b, &m); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrBadFrame, err)
 	}
+	if len(m.ID) == 0 {
+		// The decoder turns an explicit nil into an empty RawMessage; restore
+		// it so a null id is not mistaken for a notification.
+		has, err := hasIDKey(b)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrBadFrame, err)
+		}
+		if has {
+			m.ID = msgpack.RawMessage{0xc0}
+		}
+	}
 	switch {
 	case m.JSONRPC != JSONRPCVersion:
 		return nil, fmt.Errorf("%w: jsonrpc must be %q", ErrBadFrame, JSONRPCVersion)
-	case m.IsResponse() && len(m.ID) == 0 && m.Error == nil:
-		return nil, fmt.Errorf("%w: response has no id", ErrBadFrame)
+	case m.IsResponse() && (len(m.ID) == 0 || m.hasNullID()):
+		return nil, ErrNullIDResponse
 	}
 	return &m, nil
+}
+
+// hasIDKey reports whether the top-level map of b has an "id" key, whatever
+// its value, by walking the keys and skipping the values. A malformed frame
+// is an error.
+func hasIDKey(b []byte) (bool, error) {
+	dec := msgpack.NewDecoder(bytes.NewReader(b))
+	n, err := dec.DecodeMapLen()
+	if err != nil {
+		return false, err
+	}
+	for range n {
+		k, err := dec.DecodeString()
+		if err != nil {
+			return false, err
+		}
+		if k == "id" {
+			return true, nil
+		}
+		if err := dec.Skip(); err != nil {
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 // raw encodes v for a Params or Result member. A nil v becomes MessagePack nil
@@ -181,10 +228,76 @@ func (p Params) Decode(v any) error {
 		return &RPCError{Code: CodeInvalidParams, Message: "missing params"}
 	}
 	if err := Decode(p.raw, v); err != nil {
-		return &RPCError{Code: CodeInvalidParams, Message: err.Error()}
+		return &RPCError{Code: CodeInvalidParams, Message: "invalid params", cause: err}
 	}
 	return nil
 }
 
-// Raw returns the encoded params.
+// Raw returns the encoded params. The bytes can contain secret values: do not
+// log them.
 func (p Params) Raw() []byte { return p.raw }
+
+// String describes the params by size only; the bytes may hold secrets.
+func (p Params) String() string { return fmt.Sprintf("Params{%dB}", len(p.raw)) }
+
+// GoString covers %#v.
+func (p Params) GoString() string { return p.String() }
+
+// Format covers every fmt verb.
+func (p Params) Format(f fmt.State, _ rune) { _, _ = f.Write([]byte(p.String())) }
+
+// LogValue implements slog.LogValuer.
+func (p Params) LogValue() slog.Value { return slog.StringValue(p.String()) }
+
+// hasNullID reports an explicit null id (MessagePack nil).
+func (m *Message) hasNullID() bool { return len(m.ID) == 1 && m.ID[0] == 0xc0 }
+
+// idString renders a raw id for logs.
+func idString(id msgpack.RawMessage) string {
+	if len(id) == 0 {
+		return ""
+	}
+	var v any
+	if err := Decode(id, &v); err != nil {
+		return "?"
+	}
+	return fmt.Sprint(v)
+}
+
+// Kind names the message type for logs: request, notification, response or
+// error.
+func (m *Message) Kind() string {
+	switch {
+	case m.IsRequest():
+		return "request"
+	case m.IsNotification():
+		return "notification"
+	case m.Error != nil:
+		return "error"
+	default:
+		return "response"
+	}
+}
+
+// String describes m without its payload: only method, id, kind and payload
+// size are shown. Params and results can carry secret values (ARCHITECTURE.md
+// section 9.3), so raw bytes are never rendered.
+func (m Message) String() string {
+	return fmt.Sprintf("Message{kind=%s method=%q id=%s payload=%dB}", m.Kind(), m.Method, idString(m.ID), len(m.Params)+len(m.Result))
+}
+
+// GoString covers %#v.
+func (m Message) GoString() string { return m.String() }
+
+// Format covers every fmt verb.
+func (m Message) Format(f fmt.State, _ rune) { _, _ = f.Write([]byte(m.String())) }
+
+// LogValue implements slog.LogValuer.
+func (m Message) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("kind", m.Kind()),
+		slog.String("method", m.Method),
+		slog.String("id", idString(m.ID)),
+		slog.Int("payload_bytes", len(m.Params)+len(m.Result)),
+	)
+}

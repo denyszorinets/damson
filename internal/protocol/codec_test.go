@@ -135,7 +135,6 @@ func TestMessageEnvelope(t *testing.T) {
 	note, _ := NewNotification(MethodLogAck, LogAck{AttemptID: "a", Seq: 1})
 	res, _ := NewResult(req.ID, StepCancelResult{Known: true})
 	nilRes, _ := NewResult(req.ID, nil)
-	errResp := NewError(nil, &RPCError{Code: CodeParseError, Message: "bad"})
 
 	tests := []struct {
 		name               string
@@ -146,7 +145,6 @@ func TestMessageEnvelope(t *testing.T) {
 		{"notification", note, false, true, false},
 		{"result", res, false, false, true},
 		{"nil result", nilRes, false, false, true},
-		{"error with null id", errResp, false, false, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

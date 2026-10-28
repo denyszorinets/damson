@@ -249,7 +249,10 @@ func TestPeerMalformedFrameKeepsConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := DecodeMessage(reply)
+	// The parse-error reply has a null id, so DecodeMessage rejects it; read
+	// it loosely.
+	var m Message
+	err = Decode(reply, &m)
 	if err != nil || m.Error == nil || m.Error.Code != CodeParseError {
 		t.Fatalf("reply = %+v, %v", m, err)
 	}

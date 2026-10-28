@@ -664,6 +664,13 @@ Deploys charts to Kubernetes. It runs on the agent (`TargetMode = None`).
 
 Params and results are MessagePack maps with snake_case keys; unknown keys are ignored so a newer peer can add fields within protocol N and N-1. Standard JSON-RPC error codes are used (`-32700` parse, `-32600` invalid request, `-32601` method not found, `-32602` invalid params, `-32603` internal). Notification handlers run in arrival order; request handlers run concurrently.
 
+- `log.append` entries are arrays of at least three elements `[ts, stream, line]`; extra trailing elements are ignored (forward compatibility within N and N-1), fewer than three is an error.
+- Error `-32000` (`CodeServerOverloaded`) is returned when a peer already has 64 incoming requests in flight (per-peer cap, `DefaultMaxInFlight`); the handler is not run and the caller may retry later.
+- Null ids: a request with `"id": null` is invalid and answered with `-32600` and id null. A response with a null or absent id is dropped and never answered, so two peers cannot echo errors forever. `DecodeMessage` rejects such responses (`ErrNullIDResponse`), so a peer's own `-32700` reply (id null) must be read with the raw `Decode`.
+- `Peer.Run` may be called once per peer; a second call returns `ErrAlreadyRunning`.
+- Because request handlers run concurrently, ordering between requests is not guaranteed: a `step.cancel` sent right after `step.execute` can be handled first. Receivers must tolerate cancel-before-execute (record the cancel and apply it when the execute arrives).
+- Handler panics are contained and answered with `-32603`; only the panic type and stack are logged, never the value, because handlers may carry secret bundles.
+
 | Method | Fields |
 |---|---|
 | `agent.hello` params | `protocol`, `session_seq`, `agent_version`, `pool`, `labels`, `max_concurrent`, `capabilities`, `manifests` (the §6 manifest as a map), `executions` (`[{attempt_id, state: running\|finished}]`) |
