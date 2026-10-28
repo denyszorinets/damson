@@ -479,7 +479,7 @@ For a normal GitHub task, follow this sequence:
 The maintainer granted standing, durable permission for the following. It applies to every session; do not ask again.
 
 - Work through the open GitHub tasks of the current milestone one by one, in dependency order. Do not ask which issue is next and do not ask permission to start it.
-- For each issue: branch from `develop`, implement (test-runner and reviewer before done), open a PR, wait for CI to be green, then merge it yourself with `gh pr merge --squash` and verify state is MERGED. Then take the next issue immediately.
+- For each issue: branch from `develop`, implement (checks via `toolcaller`; `architect` review for risky areas, per CLAUDE.md Agent team), open a PR, wait for CI to be green, then merge it yourself with `gh pr merge --squash` and verify state is MERGED. Then take the next issue immediately.
 - All git operations on feature branches are allowed, including `git push --force-with-lease` after a rebase.
 - Never bypass failing CI or branch protection. If CI is red, fix it. Stop and ask only for decisions CLAUDE.md "When unsure" reserves (job spec, protocol, DB schema, security) that ARCHITECTURE does not already settle.
 - Limits: this does NOT cover merging into `main`, cutting releases, plain `git push --force`, or force-pushing `develop`/`main`.

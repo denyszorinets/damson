@@ -62,7 +62,7 @@ Run `make check` before declaring any task done, and `make docs-check` when docs
 
 ## Autonomy (standing instruction from the maintainer)
 
-Implement the milestone's open issues one by one without asking which is next. Per issue: branch from `develop`, implement, `test-runner` + `reviewer`, PR, wait for green CI, merge yourself (`gh pr merge --squash`), verify MERGED, take the next issue. All git operations on feature branches are allowed, including `--force-with-lease`. Never merge into `main`, release, plain `--force`, or bypass red CI. Ask only for "When unsure" topics ARCHITECTURE doesn't settle. Details: `.claude/skills/gitflow/SKILL.md` (Standing Autonomy).
+Implement the milestone's open issues one by one without asking which is next. Per issue: branch from `develop`, implement, check (see Agent team), PR, wait for green CI, merge yourself (`gh pr merge --squash`), verify MERGED, take the next issue. All git operations on feature branches are allowed, including `--force-with-lease`. Never merge into `main`, release, plain `--force`, or bypass red CI. Ask only for "When unsure" topics ARCHITECTURE doesn't settle. Details: `.claude/skills/gitflow/SKILL.md` (Standing Autonomy).
 
 ## Go conventions
 
@@ -80,49 +80,36 @@ Implement the milestone's open issues one by one without asking which is next. P
 - Live data uses SSE endpoints wrapped in one `lib/sse.ts` helper with reconnect and `after_seq` resume.
 - Log viewer: virtualized list with ANSI rendering. Never render unbounded logs into the DOM.
 
-## Model routing (token efficiency)
+## Agent team (token efficiency)
 
-The main session runs `opusplan` (set in `.claude/settings.json`): Opus while planning, Sonnet while executing. Delegate everything else to the cheapest model that can do it well, using the subagents in `.claude/agents/`.
+The main session runs `sonnet` (`.claude/settings.json`) and is the **code writer**: it reads the code it needs, writes code and tests, resolves rebase conflicts, and talks to three subagents in `.claude/agents/`. Each subagent starts cold, so brief it with goal, files, acceptance criteria, and the exact command; ask for a compact result.
 
-**Standing instruction from the maintainer: delegate to these subagents with the Agent tool.** This counts as the user explicitly asking for subagents, for every task in this repo; do not wait to be asked again. The main session plans, decides, writes briefs, and integrates results. It does not itself do work that a row below assigns to a subagent, except trivial one-line edits or when the user says to do it inline.
-
-| Work | Model | Subagent |
+| Agent | Model | Use it for |
 |---|---|---|
-| Finding code, files, usages; "where is X" | Haiku | `Explore` (overridden to Haiku) |
-| Running `make check` / tests / `make gen` and reporting failures | Haiku | `test-runner` |
-| Mechanical edits: renames, lint and format fixes, applying a fix whose exact change is already decided | Haiku | `mechanic` |
-| Doc sync: milestone line, ARCHITECTURE references, ADRs and docs pages from a decision already made | Haiku | `doc-sync` |
-| Implementing a planned step: store methods, API handlers, plugins, CLI commands, with tests | Sonnet | `implementer` |
-| Svelte pages and components | Sonnet | `frontend` |
-| Reviewing a finished change against the hard rules | Sonnet | `reviewer` |
-| Planning a slice; engine semantics (§5.3); protocol, fencing, leases; DB schema; secrets, auth, CEL policy; HA and chaos-test failures; ADRs | Opus | main session, in plan mode |
+| `architect` | Opus | Design decisions CLAUDE.md "When unsure" reserves (job spec, protocol, DB schema, security, engine semantics, fencing, leases, HA, ADRs) and review of a finished diff against the hard rules before merge. Read-only. |
+| `toolcaller` | Haiku | `gh` issues, PRs, checks, merges; git fetch, diff, push, rebase attempts; `make check`, `make test-pg`, `make gen`, narrow tests; watching CI; diff digests; "where is X" lookups. Never edits files. |
+| `docs-writer` | Sonnet | `docs/` (Sphinx reST), ADR files, ARCHITECTURE.md sections, the `CURRENT:` milestone line, from facts you state. Runs `make docs-check`. |
 
 **Rules**
 
-- **Opus decides, others execute.** Anything listed under "When unsure" is designed in the main session first. A subagent gets a written plan, not an open question.
-- **Delegate with a complete brief:** goal, files to touch, acceptance criteria, and the exact test command. Subagents start cold; a vague brief costs more tokens than it saves.
-- **Escalate instead of guessing.** A Haiku agent stops after two failed attempts, or on anything that needs judgment, and reports back. A Sonnet agent stops and reports if the plan conflicts with ARCHITECTURE or the hard rules.
-- **Compact results.** Subagents return a short summary (what changed, file:line references, test result), never file dumps or full logs.
-- **Run independent subagents in parallel**, for example `implementer` on the store while `frontend` builds the page against the generated client.
-- **Default sequence for a code change:** `Explore` (find patterns) → main session plans → `implementer`/`frontend` (or `mechanic` for decided edits) → `test-runner` → `reviewer` → fix findings via the same agent → `doc-sync`.
-- **Never skip `test-runner` and `reviewer`** before declaring a code change done.
-
-**Context hygiene**
-
-- Grep before Read; read with offset and limit; don't re-read a file you just edited.
-- Run the narrowest test first (`go test ./internal/engine/... -run TestRetry`), and `make check` once at the end.
-- `/clear` between slices and `/compact` at natural break points inside a long slice.
-- Keep this file short. Detailed instructions belong in the subagent files, which load only when used.
+- **Write code yourself.** Do not spawn agents to implement; the main session already holds the context. Parallel code work is for independent slices only, in separate worktrees.
+- **Keep noise out of the main context:** send long output (CI logs, test runs, large diffs) to `toolcaller` and read its summary. Grep before Read; read with offset and limit; don't re-read a file you just edited.
+- **Ask `architect` before coding** anything in the "When unsure" list that ARCHITECTURE does not settle, and **before merging** any change that touches the protocol, schema, fencing, secrets, auth, or the engine. Routine changes (plugins, UI, CLI, small store methods) are reviewed by yourself with `git diff` plus green CI.
+- **Escalate instead of guessing.** `toolcaller` stops after two failed attempts at a step and reports; `architect` says when the maintainer must decide.
+- **Run independent agents in parallel** (for example `toolcaller` watching CI while `docs-writer` writes the page).
+- Run the narrowest test first (`go test ./internal/engine/... -run TestRetry`); `make check` once at the end. `/clear` between slices.
+- Keep this file short. Detailed instructions belong in the agent files, which load only when used.
 
 ## Workflow for each task
 
-1. Restate the slice and its acceptance criteria. Check ARCHITECTURE for the relevant sections. Plan in plan mode (Opus).
+1. Restate the slice and its acceptance criteria. Read the relevant ARCHITECTURE sections. For a "When unsure" topic ARCHITECTURE does not settle, get a decision from `architect` first.
 2. Write or adjust tests first for the engine, store, and protocol logic.
-3. Implement the smallest change that passes, delegating planned steps to `implementer` or `frontend`.
-4. Have `test-runner` run `make check`, then `make test-pg` if the store changed.
-5. Have `reviewer` check the change; fix what it finds.
-6. Update docs (ARCHITECTURE, ADRs, this file's milestone line) in the same change, via `doc-sync` where it's mechanical.
-7. Summarize: what changed, what was tested, what is deliberately left out.
+3. Implement the smallest change that passes.
+4. Have `toolcaller` run `make check` (and `make test-pg` if the store changed) and report failures.
+5. Review your own diff against the hard rules; for risky areas (see Agent team) have `architect` review it, and fix what it finds.
+6. Have `docs-writer` update docs (ARCHITECTURE, ADRs, the milestone line) in the same change.
+7. Open the PR; have `toolcaller` watch CI and, once green, merge it (autonomy rules above).
+8. Summarize: what changed, what was tested, what is deliberately left out.
 
 ## When unsure
 
