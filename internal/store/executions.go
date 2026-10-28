@@ -62,9 +62,12 @@ type Execution struct {
 type ClaimParams struct {
 	AgentID      string
 	ControllerID string
-	Pool         string
-	Limit        int // free slots on the agent
-	LeaseTTL     time.Duration
+	// Pools are the pools the agent serves; executions of all of them compete
+	// in one global order (priority, scheduled_at). Label and capability
+	// matching is the dispatcher's job (M3), not the claim's.
+	Pools    []string
+	Limit    int // free slots on the agent, clamped to MaxPageLimit
+	LeaseTTL time.Duration
 }
 
 // Completion is an agent's terminal report for an attempt.
@@ -85,7 +88,7 @@ type ExecutionStore interface {
 	GetExecutionByAttempt(ctx context.Context, attemptID string) (Execution, error)
 
 	// ClaimExecutions atomically moves up to Limit queued, due executions of
-	// the pool to dispatched, assigning the agent and controller, a fresh
+	// the pools to dispatched, assigning the agent and controller, a fresh
 	// attempt_id and a lease of now+LeaseTTL. Concurrent claimers never get the
 	// same execution (FOR UPDATE SKIP LOCKED on Postgres, serialized
 	// transactions on SQLite). It returns the claimed executions, possibly none.
@@ -93,9 +96,10 @@ type ExecutionStore interface {
 	// MarkExecutionRunning moves dispatched to running. ErrNotFound if the
 	// execution is absent; ErrStale if the attempt_id or state does not match.
 	MarkExecutionRunning(ctx context.Context, executionID, attemptID string, now time.Time) error
-	// RenewLeases extends the lease of every listed attempt that is still
-	// dispatched or running and owned by controllerID, and returns the
-	// attempt ids that were renewed. The rest are stale, with no error.
+	// RenewLeases is one batched update: it extends (never shortens) the lease
+	// of every listed attempt that is still dispatched or running and owned
+	// by controllerID, and returns the ids of those attempts. The rest are
+	// stale, with no error.
 	RenewLeases(ctx context.Context, controllerID string, attemptIDs []string, leaseExpiresAt time.Time) ([]string, error)
 	// ExpireLeases marks up to limit dispatched or running executions whose
 	// lease ended before now as lost, and returns them (the reaper).
@@ -123,8 +127,13 @@ func ValidateCompletion(c Completion) error {
 
 // ValidateClaim rejects claims the store cannot apply.
 func ValidateClaim(p ClaimParams) error {
-	if p.AgentID == "" || p.ControllerID == "" || p.Pool == "" || p.Limit <= 0 || p.LeaseTTL <= 0 {
-		return fmt.Errorf("claim needs agent, controller, pool, positive limit and lease ttl: %w", ErrInvalid)
+	if p.AgentID == "" || p.ControllerID == "" || len(p.Pools) == 0 || p.Limit <= 0 || p.LeaseTTL <= 0 {
+		return fmt.Errorf("claim needs agent, controller, pools, positive limit and lease ttl: %w", ErrInvalid)
+	}
+	for _, pool := range p.Pools {
+		if pool == "" {
+			return fmt.Errorf("claim has an empty pool name: %w", ErrInvalid)
+		}
 	}
 	return nil
 }

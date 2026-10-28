@@ -24,7 +24,7 @@ CREATE TABLE jobs (
     UNIQUE (project_id, name)
 );
 
--- spec is TEXT, not JSONB, so the stored bytes match the checksum exactly.
+-- JSON columns are TEXT (byte-exact, same as SQLite); Go validates and compacts them.
 CREATE TABLE job_versions (
     id         TEXT        PRIMARY KEY,
     job_id     TEXT        NOT NULL REFERENCES jobs (id),
@@ -40,8 +40,8 @@ CREATE TABLE runs (
     id                  TEXT        PRIMARY KEY,
     job_id              TEXT        NOT NULL REFERENCES jobs (id),
     job_version_id      TEXT        NOT NULL REFERENCES job_versions (id),
-    trigger             JSONB       NOT NULL DEFAULT '{}',
-    options             JSONB       NOT NULL DEFAULT '{}',
+    trigger             TEXT        NOT NULL DEFAULT '{}',
+    options             TEXT        NOT NULL DEFAULT '{}',
     status              TEXT        NOT NULL,
     version             BIGINT      NOT NULL DEFAULT 1,
     cancel_requested_at TIMESTAMPTZ,
@@ -51,7 +51,8 @@ CREATE TABLE runs (
     finished_at         TIMESTAMPTZ
 );
 CREATE INDEX runs_job_id_idx ON runs (job_id, id);
-CREATE INDEX runs_concurrency_key_idx ON runs (concurrency_key);
+CREATE INDEX runs_concurrency_key_idx ON runs (concurrency_key) WHERE concurrency_key <> '';
+CREATE INDEX runs_job_version_id_idx ON runs (job_version_id);
 CREATE INDEX runs_status_idx ON runs (status);
 
 -- path is stable and unique within a run (for example main/step-id). input
@@ -62,9 +63,9 @@ CREATE TABLE step_instances (
     path        TEXT        NOT NULL,
     kind        TEXT        NOT NULL DEFAULT 'step',
     plugin      TEXT        NOT NULL DEFAULT '',
-    input       JSONB       NOT NULL DEFAULT '{}',
+    input       TEXT        NOT NULL DEFAULT '{}',
     status      TEXT        NOT NULL,
-    outputs     JSONB       NOT NULL DEFAULT '{}',
+    outputs     TEXT        NOT NULL DEFAULT '{}',
     error       TEXT        NOT NULL DEFAULT '',
     created_at  TIMESTAMPTZ NOT NULL,
     started_at  TIMESTAMPTZ,
@@ -88,7 +89,7 @@ CREATE TABLE executions (
     agent_id         TEXT,
     controller_id    TEXT,
     lease_expires_at TIMESTAMPTZ,
-    outputs          JSONB       NOT NULL DEFAULT '{}',
+    outputs          TEXT        NOT NULL DEFAULT '{}',
     error            TEXT        NOT NULL DEFAULT '',
     created_at       TIMESTAMPTZ NOT NULL,
     started_at       TIMESTAMPTZ,

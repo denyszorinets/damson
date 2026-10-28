@@ -8,12 +8,15 @@ package gen
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
-const claimExecutionCAS = `-- name: ClaimExecutionCAS :execrows
+const claimExecutionCAS = `-- name: ClaimExecutionCAS :one
 UPDATE executions SET state = 'dispatched', attempt_id = ?1, agent_id = ?2,
        controller_id = ?3, lease_expires_at = ?4
 WHERE id = ?5 AND state = 'queued'
+RETURNING id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
+          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at
 `
 
 type ClaimExecutionCASParams struct {
@@ -24,18 +27,35 @@ type ClaimExecutionCASParams struct {
 	ID             string
 }
 
-func (q *Queries) ClaimExecutionCAS(ctx context.Context, arg ClaimExecutionCASParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, claimExecutionCAS,
+func (q *Queries) ClaimExecutionCAS(ctx context.Context, arg ClaimExecutionCASParams) (Execution, error) {
+	row := q.db.QueryRowContext(ctx, claimExecutionCAS,
 		arg.AttemptID,
 		arg.AgentID,
 		arg.ControllerID,
 		arg.LeaseExpiresAt,
 		arg.ID,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	var i Execution
+	err := row.Scan(
+		&i.ID,
+		&i.RunID,
+		&i.StepInstanceID,
+		&i.AttemptNo,
+		&i.AttemptID,
+		&i.State,
+		&i.ScheduledAt,
+		&i.Priority,
+		&i.Pool,
+		&i.AgentID,
+		&i.ControllerID,
+		&i.LeaseExpiresAt,
+		&i.Outputs,
+		&i.Error,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+	)
+	return i, err
 }
 
 const completeExecutionCAS = `-- name: CompleteExecutionCAS :execrows
@@ -168,16 +188,21 @@ func (q *Queries) InsertExecution(ctx context.Context, arg InsertExecutionParams
 	return result.RowsAffected()
 }
 
-const latestAttemptNo = `-- name: LatestAttemptNo :one
-SELECT attempt_no FROM executions
+const latestAttempt = `-- name: LatestAttempt :one
+SELECT attempt_no, state FROM executions
 WHERE step_instance_id = ?1 ORDER BY attempt_no DESC LIMIT 1
 `
 
-func (q *Queries) LatestAttemptNo(ctx context.Context, stepInstanceID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, latestAttemptNo, stepInstanceID)
-	var attempt_no int64
-	err := row.Scan(&attempt_no)
-	return attempt_no, err
+type LatestAttemptRow struct {
+	AttemptNo int64
+	State     string
+}
+
+func (q *Queries) LatestAttempt(ctx context.Context, stepInstanceID string) (LatestAttemptRow, error) {
+	row := q.db.QueryRowContext(ctx, latestAttempt, stepInstanceID)
+	var i LatestAttemptRow
+	err := row.Scan(&i.AttemptNo, &i.State)
+	return i, err
 }
 
 const listExecutionsByRun = `-- name: ListExecutionsByRun :many
@@ -238,8 +263,7 @@ type LockExecutionAttemptParams struct {
 }
 
 // LockExecutionAttempt is a no-op write that fences the transaction: it
-// matches only while attempt_id is current, and holds the row against a
-// concurrent claim or requeue until commit.
+// matches only while attempt_id is current. SQLite serializes writers.
 func (q *Queries) LockExecutionAttempt(ctx context.Context, arg LockExecutionAttemptParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, lockExecutionAttempt, arg.ID, arg.AttemptID)
 	if err != nil {
@@ -248,10 +272,12 @@ func (q *Queries) LockExecutionAttempt(ctx context.Context, arg LockExecutionAtt
 	return result.RowsAffected()
 }
 
-const markExecutionLostCAS = `-- name: MarkExecutionLostCAS :execrows
+const markExecutionLostCAS = `-- name: MarkExecutionLostCAS :one
 UPDATE executions SET state = 'lost', finished_at = ?1, error = 'lease expired'
 WHERE id = ?2 AND attempt_id = ?3 AND state IN ('dispatched', 'running')
   AND lease_expires_at < ?4
+RETURNING id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
+          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at
 `
 
 type MarkExecutionLostCASParams struct {
@@ -261,17 +287,34 @@ type MarkExecutionLostCASParams struct {
 	Now        sql.NullString
 }
 
-func (q *Queries) MarkExecutionLostCAS(ctx context.Context, arg MarkExecutionLostCASParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, markExecutionLostCAS,
+func (q *Queries) MarkExecutionLostCAS(ctx context.Context, arg MarkExecutionLostCASParams) (Execution, error) {
+	row := q.db.QueryRowContext(ctx, markExecutionLostCAS,
 		arg.FinishedAt,
 		arg.ID,
 		arg.AttemptID,
 		arg.Now,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	var i Execution
+	err := row.Scan(
+		&i.ID,
+		&i.RunID,
+		&i.StepInstanceID,
+		&i.AttemptNo,
+		&i.AttemptID,
+		&i.State,
+		&i.ScheduledAt,
+		&i.Priority,
+		&i.Pool,
+		&i.AgentID,
+		&i.ControllerID,
+		&i.LeaseExpiresAt,
+		&i.Outputs,
+		&i.Error,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+	)
+	return i, err
 }
 
 const markExecutionRunningCAS = `-- name: MarkExecutionRunningCAS :execrows
@@ -293,24 +336,56 @@ func (q *Queries) MarkExecutionRunningCAS(ctx context.Context, arg MarkExecution
 	return result.RowsAffected()
 }
 
-const renewLeaseCAS = `-- name: RenewLeaseCAS :execrows
-UPDATE executions SET lease_expires_at = ?1
-WHERE attempt_id = ?2 AND controller_id = ?3
+const renewLeases = `-- name: RenewLeases :many
+UPDATE executions SET lease_expires_at = max(lease_expires_at, ?)
+WHERE attempt_id IN (/*SLICE:attempt_ids*/?) AND controller_id = ?
   AND state IN ('dispatched', 'running')
+RETURNING attempt_id
 `
 
-type RenewLeaseCASParams struct {
-	LeaseExpiresAt sql.NullString
-	AttemptID      string
-	ControllerID   sql.NullString
+type RenewLeasesParams struct {
+	MAX          interface{}
+	AttemptIds   []string
+	ControllerID sql.NullString
 }
 
-func (q *Queries) RenewLeaseCAS(ctx context.Context, arg RenewLeaseCASParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, renewLeaseCAS, arg.LeaseExpiresAt, arg.AttemptID, arg.ControllerID)
-	if err != nil {
-		return 0, err
+// Monotonic: a lease is only ever extended (a dispatched or running row always
+// has a lease, so max() never sees NULL). Every live attempt owned by the
+// controller is returned, whether or not its lease moved. Plain ? parameters:
+// sqlc.slice and numbered parameters do not combine.
+func (q *Queries) RenewLeases(ctx context.Context, arg RenewLeasesParams) ([]string, error) {
+	query := renewLeases
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.MAX)
+	if len(arg.AttemptIds) > 0 {
+		for _, v := range arg.AttemptIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:attempt_ids*/?", strings.Repeat(",?", len(arg.AttemptIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:attempt_ids*/?", "NULL", 1)
 	}
-	return result.RowsAffected()
+	queryParams = append(queryParams, arg.ControllerID)
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var attempt_id string
+		if err := rows.Scan(&attempt_id); err != nil {
+			return nil, err
+		}
+		items = append(items, attempt_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const requeueExecutionCAS = `-- name: RequeueExecutionCAS :execrows
@@ -335,20 +410,32 @@ func (q *Queries) RequeueExecutionCAS(ctx context.Context, arg RequeueExecutionC
 
 const selectClaimableExecutions = `-- name: SelectClaimableExecutions :many
 SELECT id FROM executions
-WHERE state = 'queued' AND scheduled_at <= ?1 AND pool = ?2
+WHERE state = 'queued' AND scheduled_at <= ? AND pool IN (/*SLICE:pools*/?)
 ORDER BY priority, scheduled_at, id
-LIMIT ?3
+LIMIT ?
 `
 
 type SelectClaimableExecutionsParams struct {
-	Now      string
-	Pool     string
-	RowLimit int64
+	ScheduledAt string
+	Pools       []string
+	Limit       int64
 }
 
 // SQLite has no row locks; writes are serialized by the immediate transaction.
 func (q *Queries) SelectClaimableExecutions(ctx context.Context, arg SelectClaimableExecutionsParams) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, selectClaimableExecutions, arg.Now, arg.Pool, arg.RowLimit)
+	query := selectClaimableExecutions
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.ScheduledAt)
+	if len(arg.Pools) > 0 {
+		for _, v := range arg.Pools {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:pools*/?", strings.Repeat(",?", len(arg.Pools))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:pools*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}

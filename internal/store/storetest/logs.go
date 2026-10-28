@@ -126,3 +126,21 @@ func testLogData(t *testing.T, s store.Store) {
 		t.Fatalf("deleted key still readable: %v", err)
 	}
 }
+
+// testLogChunkAfterComplete pins the fencing semantics: chunks are fenced by
+// attempt_id only, so a final flush after completion is accepted
+// (ARCHITECTURE section 10), while any other attempt is rejected.
+func testLogChunkAfterComplete(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	e := claimedOne(t, s)
+	if _, err := s.CompleteExecution(ctx, store.Completion{ExecutionID: e.ID, AttemptID: e.AttemptID, State: store.ExecSucceeded}, claimNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertLogChunk(ctx, e.AttemptID, chunk(e.ID, 1, 3, "final"), claimNow); err != nil {
+		t.Fatalf("final flush after completion: %v; want accepted", err)
+	}
+	if _, err := s.InsertLogChunk(ctx, "other-attempt", chunk(e.ID, 4, 6, "x"), claimNow); !errors.Is(err, store.ErrStale) {
+		t.Fatalf("foreign attempt after completion: %v; want ErrStale", err)
+	}
+}

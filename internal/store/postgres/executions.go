@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -27,7 +28,7 @@ func toExecution(r gen.Execution) store.Execution {
 		ID: r.ID, RunID: r.RunID, StepInstanceID: r.StepInstanceID, AttemptNo: int(r.AttemptNo),
 		AttemptID: r.AttemptID, State: store.ExecutionState(r.State), ScheduledAt: r.ScheduledAt.Time.UTC(),
 		Priority: int(r.Priority), Pool: r.Pool, AgentID: r.AgentID.String, ControllerID: r.ControllerID.String,
-		LeaseExpiresAt: tsPtr(r.LeaseExpiresAt), Outputs: r.Outputs, Error: r.Error,
+		LeaseExpiresAt: tsPtr(r.LeaseExpiresAt), Outputs: json.RawMessage(r.Outputs), Error: r.Error,
 		CreatedAt: r.CreatedAt.Time.UTC(), StartedAt: tsPtr(r.StartedAt), FinishedAt: tsPtr(r.FinishedAt),
 	}
 }
@@ -71,7 +72,7 @@ func (s *Store) ClaimExecutions(ctx context.Context, p store.ClaimParams, now ti
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.q.WithTx(tx)
-	ids, err := q.SelectClaimableExecutions(ctx, gen.SelectClaimableExecutionsParams{Now: ts(now), Pool: p.Pool, RowLimit: int32(p.Limit)})
+	ids, err := q.SelectClaimableExecutions(ctx, gen.SelectClaimableExecutionsParams{Now: ts(now), Pools: p.Pools, RowLimit: int32(store.ClampLimit(p.Limit))})
 	if err != nil {
 		return nil, fmt.Errorf("selecting claimable executions: %w", err)
 	}
@@ -81,21 +82,17 @@ func (s *Store) ClaimExecutions(ctx context.Context, p store.ClaimParams, now ti
 		if err != nil {
 			return nil, err
 		}
-		n, err := q.ClaimExecutionCAS(ctx, gen.ClaimExecutionCASParams{
+		row, err := q.ClaimExecutionCAS(ctx, gen.ClaimExecutionCASParams{
 			AttemptID: attemptID, AgentID: text(p.AgentID), ControllerID: text(p.ControllerID),
 			LeaseExpiresAt: ts(now.Add(p.LeaseTTL)), ID: id,
 		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue // cannot happen while the row is locked; skip rather than fail the batch
+		}
 		if err != nil {
 			return nil, fmt.Errorf("claiming execution %q: %w", id, err)
 		}
-		if n == 0 {
-			continue // cannot happen while the row is locked; skip rather than fail the batch
-		}
-		ex, err := getExecution(ctx, q, id)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, ex)
+		out = append(out, toExecution(row))
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("committing claim: %w", err)
@@ -129,24 +126,11 @@ func (s *Store) RenewLeases(ctx context.Context, controllerID string, attemptIDs
 	if len(attemptIDs) == 0 {
 		return nil, nil
 	}
-	tx, err := s.pool.Begin(ctx)
+	renewed, err := s.q.RenewLeases(ctx, gen.RenewLeasesParams{
+		LeaseExpiresAt: ts(leaseExpiresAt), AttemptIds: attemptIDs, ControllerID: text(controllerID),
+	})
 	if err != nil {
-		return nil, fmt.Errorf("beginning lease renewal: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := s.q.WithTx(tx)
-	renewed := make([]string, 0, len(attemptIDs))
-	for _, a := range attemptIDs {
-		n, err := q.RenewLeaseCAS(ctx, gen.RenewLeaseCASParams{LeaseExpiresAt: ts(leaseExpiresAt), AttemptID: a, ControllerID: text(controllerID)})
-		if err != nil {
-			return nil, fmt.Errorf("renewing lease of attempt %q: %w", a, err)
-		}
-		if n > 0 {
-			renewed = append(renewed, a)
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("committing lease renewal: %w", err)
+		return nil, fmt.Errorf("renewing leases: %w", err)
 	}
 	return renewed, nil
 }
@@ -165,18 +149,14 @@ func (s *Store) ExpireLeases(ctx context.Context, now time.Time, limit int) ([]s
 	}
 	out := make([]store.Execution, 0, len(rows))
 	for _, r := range rows {
-		n, err := q.MarkExecutionLostCAS(ctx, gen.MarkExecutionLostCASParams{FinishedAt: ts(now), ID: r.ID, AttemptID: r.AttemptID, Now: ts(now)})
+		row, err := q.MarkExecutionLostCAS(ctx, gen.MarkExecutionLostCASParams{FinishedAt: ts(now), ID: r.ID, AttemptID: r.AttemptID, Now: ts(now)})
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("marking execution %q lost: %w", r.ID, err)
 		}
-		if n == 0 {
-			continue
-		}
-		ex, err := getExecution(ctx, q, r.ID)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, ex)
+		out = append(out, toExecution(row))
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("committing lease expiry: %w", err)
@@ -194,7 +174,7 @@ func (s *Store) CompleteExecution(ctx context.Context, c store.Completion, now t
 		return store.Execution{}, err
 	}
 	n, err := s.q.CompleteExecutionCAS(ctx, gen.CompleteExecutionCASParams{
-		State: string(c.State), Outputs: outputs, Error: c.Error, FinishedAt: ts(now), ID: c.ExecutionID, AttemptID: c.AttemptID,
+		State: string(c.State), Outputs: string(outputs), Error: c.Error, FinishedAt: ts(now), ID: c.ExecutionID, AttemptID: c.AttemptID,
 	})
 	if err != nil {
 		return store.Execution{}, fmt.Errorf("completing execution %q: %w", c.ExecutionID, err)

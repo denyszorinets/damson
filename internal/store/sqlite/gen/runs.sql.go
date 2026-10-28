@@ -13,6 +13,7 @@ import (
 const bumpRunVersionCAS = `-- name: BumpRunVersionCAS :execrows
 UPDATE runs SET version = version + 1
 WHERE id = ?1 AND version = ?2
+  AND status NOT IN ('succeeded', 'failed', 'canceled')
 `
 
 type BumpRunVersionCASParams struct {
@@ -263,6 +264,7 @@ const updateRunStatusCAS = `-- name: UpdateRunStatusCAS :execrows
 UPDATE runs SET status = ?1, version = version + 1,
        started_at = ?2, finished_at = ?3
 WHERE id = ?4 AND version = ?5
+  AND status NOT IN ('succeeded', 'failed', 'canceled')
 `
 
 type UpdateRunStatusCASParams struct {

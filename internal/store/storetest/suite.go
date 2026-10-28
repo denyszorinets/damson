@@ -58,6 +58,14 @@ func Run(t *testing.T, f Factory) {
 		{"Leases", testLeases},
 		{"LogChunks", testLogChunks},
 		{"LogData", testLogData},
+		{"ClaimMultiPool", testClaimMultiPool},
+		{"TerminalRunRejectsAdvance", testTerminalRunRejectsAdvance},
+		{"JSONColumns", testJSONColumns},
+		{"LeaseRaces", testLeaseRaces},
+		{"ScheduleRaces", testScheduleRaces},
+		{"AddStepsRaces", testAddStepsRaces},
+		{"LogVsClaimRace", testLogVsClaimRace},
+		{"LogChunkAfterComplete", testLogChunkAfterComplete},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) { tt.fn(t, f(t)) })

@@ -147,6 +147,8 @@ func testCreateRunErrors(t *testing.T, s store.Store) {
 		want error
 	}{
 		{"unknown job", func(nr *store.NewRun) { nr.JobID = "nope" }, store.ErrNotFound},
+		{"version of another job", func(nr *store.NewRun) { _, v := mustJob(t, s, "other"); nr.JobVersionID = v.ID }, store.ErrConflict},
+		{"nul escape in options", func(nr *store.NewRun) { nr.Options = json.RawMessage(`{"a":"\u0000"}`) }, store.ErrInvalid},
 		{"unknown version", func(nr *store.NewRun) { nr.JobVersionID = "nope" }, store.ErrNotFound},
 		{"missing job", func(nr *store.NewRun) { nr.JobID = "" }, store.ErrInvalid},
 		{"bad options", func(nr *store.NewRun) { nr.Options = json.RawMessage(`{`) }, store.ErrInvalid},
@@ -242,7 +244,14 @@ func testAdvancePrimitives(t *testing.T, s store.Store) {
 		t.Fatalf("add to missing run: %v; want ErrNotFound", err)
 	}
 
-	// Retry: the next attempt gets attempt_no 2 and a distinct attempt_id.
+	// Retry: allowed only once the latest attempt is terminal.
+	if _, err := s.ScheduleExecution(ctx, tree.ID, 2, step.ID, store.NewExecution{Pool: "default", ScheduledAt: t0}, t0); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("schedule while latest attempt is queued: %v; want ErrConflict", err)
+	}
+	if run, _ := s.GetRun(ctx, tree.ID); run.Version != 2 {
+		t.Fatalf("conflicting schedule must roll back the version bump; version = %d", run.Version)
+	}
+	failExecution(t, s, step.ID)
 	ex, err := s.ScheduleExecution(ctx, tree.ID, 2, step.ID, store.NewExecution{Pool: "default", ScheduledAt: t0.Add(time.Hour), Priority: 3}, t0)
 	if err != nil || ex.AttemptNo != 2 || ex.AttemptID == step.Executions[0].AttemptID || ex.Priority != 3 {
 		t.Fatalf("ScheduleExecution = %+v, %v", ex, err)
@@ -356,5 +365,80 @@ func testListRuns(t *testing.T, s store.Store) {
 		if got[i] != ids[i] {
 			t.Fatalf("ListRuns order = %v; want %v (newest first)", got, ids)
 		}
+	}
+}
+
+// failExecution claims every queued default-pool execution and fails the one
+// belonging to stepID.
+func failExecution(t *testing.T, s store.Store, stepID string) {
+	t.Helper()
+	found := false
+	for _, e := range claim(t, s, "default", 50) {
+		if e.StepInstanceID != stepID {
+			continue
+		}
+		found = true
+		if _, err := s.CompleteExecution(context.Background(), store.Completion{
+			ExecutionID: e.ID, AttemptID: e.AttemptID, State: store.ExecFailed, Error: "boom",
+		}, claimNow); err != nil {
+			t.Fatalf("failing execution: %v", err)
+		}
+	}
+	if !found {
+		t.Fatal("step had no claimable execution")
+	}
+}
+
+func testTerminalRunRejectsAdvance(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	_, tree := mustRun(t, s, "j")
+	failExecution(t, s, tree.Steps[0].ID)
+	if _, err := s.UpdateRunStatus(ctx, tree.ID, 1, store.RunFailed, claimNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpdateRunStatus(ctx, tree.ID, 2, store.RunRunning, claimNow); !errors.Is(err, store.ErrStale) {
+		t.Errorf("UpdateRunStatus on terminal run: %v; want ErrStale", err)
+	}
+	if _, err := s.AddStepInstances(ctx, tree.ID, 2, []store.NewStepInstance{{Path: "late"}}, claimNow); !errors.Is(err, store.ErrStale) {
+		t.Errorf("AddStepInstances on terminal run: %v; want ErrStale", err)
+	}
+	ne := store.NewExecution{Pool: "default", ScheduledAt: claimNow}
+	if _, err := s.ScheduleExecution(ctx, tree.ID, 2, tree.Steps[0].ID, ne, claimNow); !errors.Is(err, store.ErrStale) {
+		t.Errorf("ScheduleExecution on terminal run: %v; want ErrStale", err)
+	}
+	if got, _ := s.GetRunTree(ctx, tree.ID); got.Version != 2 || len(got.Steps) != 1 || len(got.Steps[0].Executions) != 1 {
+		t.Fatalf("terminal run mutated: version=%d steps=%d", got.Version, len(got.Steps))
+	}
+}
+
+func testJSONColumns(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	job, ver := mustJob(t, s, "j")
+	tree, err := s.CreateRun(ctx, store.NewRun{
+		JobID: job.ID, JobVersionID: ver.ID, Options: json.RawMessage(`{ "b": 1,  "a": [1, 2] }`),
+		Steps: []store.NewStepInstance{{Path: "a", Input: json.RawMessage("{\"z\": 1, \"y\": 2}")}},
+	}, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetRunTree(ctx, tree.ID)
+	if string(got.Options) != `{"b":1,"a":[1,2]}` || string(got.Steps[0].Input) != `{"z":1,"y":2}` {
+		t.Fatalf("json columns = %s / %s; want compact, key order kept", got.Options, got.Steps[0].Input)
+	}
+	bad := json.RawMessage(`{"a":"x\u0000y"}`)
+	if _, _, err := s.CreateJob(ctx, store.NewJob{ProjectID: store.DefaultProjectID, Name: "n", Spec: bad, Checksum: "c"}, t0); !errors.Is(err, store.ErrInvalid) {
+		t.Errorf("job spec with NUL escape: %v; want ErrInvalid", err)
+	}
+	if _, err := s.AddStepInstances(ctx, tree.ID, 1, []store.NewStepInstance{{Path: "b", Input: bad}}, t0); !errors.Is(err, store.ErrInvalid) {
+		t.Errorf("step input with NUL escape: %v; want ErrInvalid", err)
+	}
+	if _, err := s.UpdateStepInstance(ctx, store.StepUpdate{ID: got.Steps[0].ID, ExpectedStatus: store.StepPending, Status: store.StepRunning, Outputs: bad}, t0); !errors.Is(err, store.ErrInvalid) {
+		t.Errorf("step outputs with NUL escape: %v; want ErrInvalid", err)
+	}
+	e := claimedOne(t, s)
+	if _, err := s.CompleteExecution(ctx, store.Completion{ExecutionID: e.ID, AttemptID: e.AttemptID, State: store.ExecSucceeded, Outputs: bad}, t0); !errors.Is(err, store.ErrInvalid) {
+		t.Errorf("execution outputs with NUL escape: %v; want ErrInvalid", err)
 	}
 }

@@ -37,14 +37,15 @@ func (s *Store) InsertLogChunk(ctx context.Context, attemptID string, c store.Ne
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.q.WithTx(tx)
-	// The fence write also locks the row, so the attempt cannot rotate
-	// between the check and the insert.
-	n, err := q.LockExecutionAttempt(ctx, gen.LockExecutionAttemptParams{ID: c.ExecutionID, AttemptID: attemptID})
+	// Fenced by attempt_id only: a final flush after completion is allowed
+	// (ARCHITECTURE section 10). The share lock keeps the attempt from
+	// rotating between the check and the insert.
+	_, err = q.LockExecutionAttempt(ctx, gen.LockExecutionAttemptParams{ID: c.ExecutionID, AttemptID: attemptID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.LogChunk{}, s.fencedMiss(ctx, c.ExecutionID, "has a different current attempt")
+	}
 	if err != nil {
 		return store.LogChunk{}, fmt.Errorf("fencing log chunk for execution %q: %w", c.ExecutionID, err)
-	}
-	if n == 0 {
-		return store.LogChunk{}, s.fencedMiss(ctx, c.ExecutionID, "has a different current attempt")
 	}
 	_, err = q.InsertLogChunk(ctx, gen.InsertLogChunkParams{
 		ID: id, ExecutionID: c.ExecutionID, SeqFrom: c.SeqFrom, SeqTo: c.SeqTo, Backend: c.Backend,

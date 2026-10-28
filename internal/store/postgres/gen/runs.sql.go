@@ -14,6 +14,7 @@ import (
 const bumpRunVersionCAS = `-- name: BumpRunVersionCAS :execrows
 UPDATE runs SET version = version + 1
 WHERE id = $1 AND version = $2
+  AND status NOT IN ('succeeded', 'failed', 'canceled')
 `
 
 type BumpRunVersionCASParams struct {
@@ -90,8 +91,8 @@ type InsertRunParams struct {
 	ID             string
 	JobID          string
 	JobVersionID   string
-	Trigger        []byte
-	Options        []byte
+	Trigger        string
+	Options        string
 	Status         string
 	ConcurrencyKey string
 	CreatedAt      pgtype.Timestamptz
@@ -126,7 +127,7 @@ type InsertStepInstanceParams struct {
 	Path      string
 	Kind      string
 	Plugin    string
-	Input     []byte
+	Input     string
 	Status    string
 	CreatedAt pgtype.Timestamptz
 }
@@ -258,6 +259,7 @@ const updateRunStatusCAS = `-- name: UpdateRunStatusCAS :execrows
 UPDATE runs SET status = $1, version = version + 1,
        started_at = $2, finished_at = $3
 WHERE id = $4 AND version = $5
+  AND status NOT IN ('succeeded', 'failed', 'canceled')
 `
 
 type UpdateRunStatusCASParams struct {
@@ -290,7 +292,7 @@ WHERE id = $6 AND status = $7
 
 type UpdateStepInstanceCASParams struct {
 	Status         string
-	Outputs        []byte
+	Outputs        string
 	Error          string
 	StartedAt      pgtype.Timestamptz
 	FinishedAt     pgtype.Timestamptz

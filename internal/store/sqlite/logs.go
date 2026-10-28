@@ -46,8 +46,9 @@ func (s *Store) InsertLogChunk(ctx context.Context, attemptID string, c store.Ne
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.q.WithTx(tx)
-	// The fence write serializes with claims and requeues, so the attempt
-	// cannot rotate between the check and the insert.
+	// Fenced by attempt_id only: a final flush after completion is allowed
+	// (ARCHITECTURE section 10). The write serializes with claims and
+	// requeues, so the attempt cannot rotate between check and insert.
 	n, err := q.LockExecutionAttempt(ctx, gen.LockExecutionAttemptParams{ID: c.ExecutionID, AttemptID: attemptID})
 	if err != nil {
 		return store.LogChunk{}, fmt.Errorf("fencing log chunk for execution %q: %w", c.ExecutionID, err)

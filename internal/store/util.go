@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -84,14 +85,33 @@ func DecodeJSON(b []byte, v any) error {
 	return nil
 }
 
-// JSONOrEmpty validates raw and returns it, or {} when empty. Invalid JSON is
-// ErrInvalid.
+// JSONOrEmpty validates and compacts raw for a JSON text column, or returns
+// {} when empty. Invalid JSON and the \u0000 escape (which Postgres cannot
+// store in jsonb and tools cannot round-trip) are ErrInvalid.
 func JSONOrEmpty(raw json.RawMessage) ([]byte, error) {
 	if len(raw) == 0 {
 		return []byte("{}"), nil
 	}
-	if !json.Valid(raw) {
+	if err := checkJSON("column value", raw); err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err != nil {
 		return nil, fmt.Errorf("column value is not valid json: %w", ErrInvalid)
 	}
-	return raw, nil
+	return buf.Bytes(), nil
+}
+
+// checkJSON rejects non-empty raw that is invalid JSON or contains \u0000.
+func checkJSON(what string, raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	if !json.Valid(raw) {
+		return fmt.Errorf("%s is not valid json: %w", what, ErrInvalid)
+	}
+	if bytes.Contains(raw, []byte(`\u0000`)) {
+		return fmt.Errorf("%s contains a \\u0000 escape: %w", what, ErrInvalid)
+	}
+	return nil
 }

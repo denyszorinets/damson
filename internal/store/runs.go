@@ -158,6 +158,8 @@ type RunStore interface {
 	// GetStepInstance returns ErrNotFound if absent.
 	GetStepInstance(ctx context.Context, id string) (StepInstance, error)
 
+	// Advance primitives reject a terminal run with ErrStale.
+	//
 	// UpdateRunStatus is a CAS on version. It sets started_at when the run
 	// first moves to running and finished_at when it reaches a terminal
 	// status, and returns the updated run (Version expectedVersion+1). It
@@ -168,7 +170,8 @@ type RunStore interface {
 	// version mismatch, ErrConflict on a duplicate path.
 	AddStepInstances(ctx context.Context, runID string, expectedVersion int64, steps []NewStepInstance, now time.Time) ([]StepNode, error)
 	// ScheduleExecution adds the next attempt of a step instance (retry) and
-	// bumps the run version by one. ErrNotFound if the step is not in the run.
+	// bumps the run version by one. ErrNotFound if the step is not in the
+	// run; ErrConflict if its latest attempt is not yet terminal or lost.
 	ScheduleExecution(ctx context.Context, runID string, expectedVersion int64, stepInstanceID string,
 		ne NewExecution, now time.Time) (Execution, error)
 	// UpdateStepInstance is a CAS on the step's status; it does not touch
@@ -221,13 +224,6 @@ func ValidateSteps(steps []NewStepInstance) error {
 func ValidateNewExecution(ne NewExecution) error {
 	if ne.Pool == "" {
 		return fmt.Errorf("execution needs a pool: %w", ErrInvalid)
-	}
-	return nil
-}
-
-func checkJSON(what string, raw json.RawMessage) error {
-	if len(raw) > 0 && !json.Valid(raw) {
-		return fmt.Errorf("%s is not valid json: %w", what, ErrInvalid)
 	}
 	return nil
 }

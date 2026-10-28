@@ -19,7 +19,7 @@ var claimNow = t0.Add(time.Hour)
 func claim(t *testing.T, s store.Store, pool string, limit int) []store.Execution {
 	t.Helper()
 	got, err := s.ClaimExecutions(context.Background(), store.ClaimParams{
-		AgentID: "agent-1", ControllerID: "ctrl-1", Pool: pool, Limit: limit, LeaseTTL: leaseTTL,
+		AgentID: "agent-1", ControllerID: "ctrl-1", Pools: []string{pool}, Limit: limit, LeaseTTL: leaseTTL,
 	}, claimNow)
 	if err != nil {
 		t.Fatalf("ClaimExecutions: %v", err)
@@ -95,9 +95,11 @@ func testClaim(t *testing.T, s store.Store) {
 	}
 
 	for _, p := range []store.ClaimParams{
-		{ControllerID: "c", Pool: "p", Limit: 1, LeaseTTL: time.Second},
-		{AgentID: "a", ControllerID: "c", Pool: "p", Limit: 0, LeaseTTL: time.Second},
-		{AgentID: "a", ControllerID: "c", Pool: "p", Limit: 1},
+		{ControllerID: "c", Pools: []string{"p"}, Limit: 1, LeaseTTL: time.Second},
+		{AgentID: "a", ControllerID: "c", Pools: []string{"p"}, Limit: 0, LeaseTTL: time.Second},
+		{AgentID: "a", ControllerID: "c", Pools: []string{"p"}, Limit: 1},
+		{AgentID: "a", ControllerID: "c", Pools: []string{""}, Limit: 1, LeaseTTL: time.Second},
+		{AgentID: "a", ControllerID: "c", Limit: 1, LeaseTTL: time.Second},
 	} {
 		if _, err := s.ClaimExecutions(ctx, p, claimNow); !errors.Is(err, store.ErrInvalid) {
 			t.Errorf("ClaimExecutions(%+v): %v; want ErrInvalid", p, err)
@@ -114,7 +116,7 @@ func testClaimConcurrent(t *testing.T, s store.Store) {
 	var mu sync.Mutex
 	res := raceN(8, func(i int) error {
 		got, err := s.ClaimExecutions(context.Background(), store.ClaimParams{
-			AgentID: fmt.Sprint("agent-", i), ControllerID: "ctrl", Pool: "default", Limit: 1, LeaseTTL: leaseTTL,
+			AgentID: fmt.Sprint("agent-", i), ControllerID: "ctrl", Pools: []string{"default"}, Limit: 1, LeaseTTL: leaseTTL,
 		}, claimNow)
 		mu.Lock()
 		wins += len(got)
@@ -134,7 +136,7 @@ func testClaimConcurrent(t *testing.T, s store.Store) {
 	seen := map[string]int{}
 	res = raceN(8, func(i int) error {
 		got, err := s.ClaimExecutions(context.Background(), store.ClaimParams{
-			AgentID: fmt.Sprint("agent-", i), ControllerID: "ctrl", Pool: "bulk", Limit: 5, LeaseTTL: leaseTTL,
+			AgentID: fmt.Sprint("agent-", i), ControllerID: "ctrl", Pools: []string{"bulk"}, Limit: 5, LeaseTTL: leaseTTL,
 		}, claimNow)
 		mu.Lock()
 		defer mu.Unlock()
@@ -321,6 +323,14 @@ func testLeases(t *testing.T, s store.Store) {
 		t.Fatalf("lease = %v; want %v", got.LeaseExpiresAt, extended)
 	}
 
+	// Renewal is monotonic: an older expiry never shortens a lease, yet the
+	// attempt still counts as renewed (it is alive).
+	if again, err := s.RenewLeases(ctx, "ctrl-1", []string{a.AttemptID}, claimNow.Add(time.Second)); err != nil || len(again) != 1 {
+		t.Fatalf("renew with older expiry = %v, %v; want a still reported", again, err)
+	}
+	if got := mustState(t, s, a.ID, store.ExecRunning); !got.LeaseExpiresAt.Equal(extended) {
+		t.Fatalf("lease shortened to %v; want %v", got.LeaseExpiresAt, extended)
+	}
 	if lost, err := s.ExpireLeases(ctx, claimNow.Add(leaseTTL), 10); err != nil || len(lost) != 0 {
 		t.Fatalf("ExpireLeases at exact lease end = %+v, %v; want none", lost, err)
 	}
@@ -346,5 +356,193 @@ func testLeases(t *testing.T, s store.Store) {
 	lost, err = s.ExpireLeases(ctx, extended.Add(time.Second), 10)
 	if err != nil || len(lost) != 1 || lost[0].ID != a.ID {
 		t.Fatalf("ExpireLeases after extension = %+v, %v; want a", lost, err)
+	}
+}
+
+func testClaimMultiPool(t *testing.T, s store.Store) {
+	migrated(t, s)
+	step := func(path, pool string, prio int) store.NewStepInstance {
+		return store.NewStepInstance{Path: path, Execution: &store.NewExecution{Pool: pool, Priority: prio, ScheduledAt: t0}}
+	}
+	_, tree := mustRun(t, s, "j", step("a", "pa", 5), step("b", "pb", 1), step("c", "pc", 0))
+	got, err := s.ClaimExecutions(context.Background(), store.ClaimParams{
+		AgentID: "agent", ControllerID: "ctrl", Pools: []string{"pa", "pb"}, Limit: 2, LeaseTTL: leaseTTL,
+	}, claimNow)
+	if err != nil || len(got) != 2 || got[0].StepInstanceID != tree.Steps[1].ID || got[1].StepInstanceID != tree.Steps[0].ID {
+		t.Fatalf("multi-pool claim = %+v, %v; want b then a, never c", got, err)
+	}
+}
+
+func testLeaseRaces(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	steps := make([]store.NewStepInstance, 12)
+	for i := range steps {
+		steps[i] = store.NewStepInstance{Path: fmt.Sprint("s", i), Execution: execSpec("default")}
+	}
+	mustRun(t, s, "j", steps...)
+	execs := claim(t, s, "default", 12)
+	if len(execs) != 12 {
+		t.Fatalf("claimed %d; want 12", len(execs))
+	}
+	expireAt, extendTo := claimNow.Add(2*leaseTTL), claimNow.Add(time.Hour)
+	var renewed []string
+	var lost []store.Execution
+	res := raceN(2, func(i int) error {
+		var err error
+		if i == 0 {
+			ids := make([]string, len(execs))
+			for j, e := range execs {
+				ids[j] = e.AttemptID
+			}
+			renewed, err = s.RenewLeases(ctx, "ctrl-1", ids, extendTo)
+		} else {
+			lost, err = s.ExpireLeases(ctx, expireAt, 50)
+		}
+		return err
+	})
+	if len(res.other) != 0 {
+		t.Fatalf("errors: %v", res.other)
+	}
+	// Every execution ends either renewed and dispatched, or lost; a lost
+	// attempt is never reported as renewed after it was reaped.
+	lostSet := map[string]bool{}
+	for _, e := range lost {
+		lostSet[e.ID] = true
+	}
+	for _, e := range execs {
+		got, _ := s.GetExecution(ctx, e.ID)
+		switch {
+		case lostSet[e.ID] && got.State != store.ExecLost, !lostSet[e.ID] && got.State != store.ExecDispatched:
+			t.Fatalf("execution %s state %s, reaped=%v", e.ID, got.State, lostSet[e.ID])
+		case !lostSet[e.ID] && !got.LeaseExpiresAt.Equal(extendTo):
+			t.Fatalf("survivor lease = %v; want %v", got.LeaseExpiresAt, extendTo)
+		}
+	}
+	if len(renewed)+len(lost) < len(execs) {
+		t.Fatalf("renewed %d + lost %d < %d: an attempt vanished", len(renewed), len(lost), len(execs))
+	}
+}
+
+func testScheduleRaces(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	_, tree := mustRun(t, s, "j")
+	failExecution(t, s, tree.Steps[0].ID)
+	res := raceN(8, func(int) error {
+		_, err := s.ScheduleExecution(ctx, tree.ID, 1, tree.Steps[0].ID, store.NewExecution{Pool: "default", ScheduledAt: t0}, t0)
+		return err
+	})
+	if res.won != 1 || res.stale != 7 || len(res.other) != 0 {
+		t.Fatalf("ScheduleExecution winners=%d stale=%d other=%v; want 1 and 7", res.won, res.stale, res.other)
+	}
+	// Racing retries that each reload the version still yield one new attempt:
+	// the loser sees the queued attempt and gets ErrConflict.
+	var mu sync.Mutex
+	var won, conflict int
+	raceN(8, func(int) error {
+		for {
+			run, err := s.GetRun(ctx, tree.ID)
+			if err != nil {
+				return err
+			}
+			_, err = s.ScheduleExecution(ctx, tree.ID, run.Version, tree.Steps[0].ID, store.NewExecution{Pool: "default", ScheduledAt: t0}, t0)
+			if errors.Is(err, store.ErrStale) {
+				continue
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			switch {
+			case err == nil:
+				won++
+			case errors.Is(err, store.ErrConflict):
+				conflict++
+			default:
+				t.Errorf("unexpected: %v", err)
+			}
+			return nil
+		}
+	})
+	if won != 0 || conflict != 8 {
+		t.Fatalf("retry race: won=%d conflict=%d; want 0 and 8 (attempt 2 is still queued)", won, conflict)
+	}
+	got, _ := s.GetRunTree(ctx, tree.ID)
+	if n := len(got.Steps[0].Executions); n != 2 {
+		t.Fatalf("executions = %d; want exactly 2 attempts", n)
+	}
+}
+
+func testAddStepsRaces(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	_, tree := mustRun(t, s, "j")
+	var mu sync.Mutex
+	var won, conflict int
+	raceN(8, func(int) error {
+		for {
+			run, err := s.GetRun(ctx, tree.ID)
+			if err != nil {
+				return err
+			}
+			_, err = s.AddStepInstances(ctx, tree.ID, run.Version, []store.NewStepInstance{{Path: "dup"}}, t0)
+			if errors.Is(err, store.ErrStale) {
+				continue
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			switch {
+			case err == nil:
+				won++
+			case errors.Is(err, store.ErrConflict):
+				conflict++
+			default:
+				t.Errorf("unexpected: %v", err)
+			}
+			return nil
+		}
+	})
+	got, _ := s.GetRunTree(ctx, tree.ID)
+	if won != 1 || conflict != 7 || len(got.Steps) != 2 {
+		t.Fatalf("won=%d conflict=%d steps=%d; want 1, 7, 2", won, conflict, len(got.Steps))
+	}
+	if got.Version != 2 {
+		t.Fatalf("version = %d; conflicting adds must not bump it", got.Version)
+	}
+}
+
+func testLogVsClaimRace(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	e := claimedOne(t, s)
+	var inserted bool
+	var reclaimed []store.Execution
+	res := raceN(2, func(i int) error {
+		if i == 0 {
+			_, err := s.InsertLogChunk(ctx, e.AttemptID, chunk(e.ID, 1, 5, "k"), claimNow)
+			inserted = err == nil
+			return err
+		}
+		if err := s.RequeueExecution(ctx, e.ID, e.AttemptID, claimNow); err != nil {
+			return err
+		}
+		var err error
+		reclaimed, err = s.ClaimExecutions(ctx, store.ClaimParams{
+			AgentID: "agent-2", ControllerID: "ctrl-2", Pools: []string{"default"}, Limit: 1, LeaseTTL: leaseTTL,
+		}, claimNow)
+		return err
+	})
+	if len(res.other) != 0 || res.won+res.stale != 2 {
+		t.Fatalf("unexpected results: %+v", res)
+	}
+	if len(reclaimed) != 1 || reclaimed[0].AttemptID == e.AttemptID {
+		t.Fatalf("reclaim = %+v; want a rotated attempt", reclaimed)
+	}
+	chunks, _ := s.ListLogChunks(ctx, e.ID, 0, 0, 10)
+	if inserted != (len(chunks) == 1) {
+		t.Fatalf("insert reported %v but %d chunks stored", inserted, len(chunks))
+	}
+	// Once the attempt rotated, the old one can never write again.
+	if _, err := s.InsertLogChunk(ctx, e.AttemptID, chunk(e.ID, 6, 9, "k2"), claimNow); !errors.Is(err, store.ErrStale) {
+		t.Fatalf("late chunk of rotated attempt: %v; want ErrStale", err)
 	}
 }

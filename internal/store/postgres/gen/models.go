@@ -51,7 +51,7 @@ type Execution struct {
 	AgentID        pgtype.Text
 	ControllerID   pgtype.Text
 	LeaseExpiresAt pgtype.Timestamptz
-	Outputs        []byte
+	Outputs        string
 	Error          string
 	CreatedAt      pgtype.Timestamptz
 	StartedAt      pgtype.Timestamptz
@@ -122,8 +122,8 @@ type Run struct {
 	ID                string
 	JobID             string
 	JobVersionID      string
-	Trigger           []byte
-	Options           []byte
+	Trigger           string
+	Options           string
 	Status            string
 	Version           int64
 	CancelRequestedAt pgtype.Timestamptz
@@ -139,9 +139,9 @@ type StepInstance struct {
 	Path       string
 	Kind       string
 	Plugin     string
-	Input      []byte
+	Input      string
 	Status     string
-	Outputs    []byte
+	Outputs    string
 	Error      string
 	CreatedAt  pgtype.Timestamptz
 	StartedAt  pgtype.Timestamptz

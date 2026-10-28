@@ -20,11 +20,13 @@ LIMIT sqlc.arg(row_limit);
 -- name: UpdateRunStatusCAS :execrows
 UPDATE runs SET status = sqlc.arg(status), version = version + 1,
        started_at = sqlc.arg(started_at), finished_at = sqlc.arg(finished_at)
-WHERE id = sqlc.arg(id) AND version = sqlc.arg(expected_version);
+WHERE id = sqlc.arg(id) AND version = sqlc.arg(expected_version)
+  AND status NOT IN ('succeeded', 'failed', 'canceled');
 
 -- name: BumpRunVersionCAS :execrows
 UPDATE runs SET version = version + 1
-WHERE id = sqlc.arg(id) AND version = sqlc.arg(expected_version);
+WHERE id = sqlc.arg(id) AND version = sqlc.arg(expected_version)
+  AND status NOT IN ('succeeded', 'failed', 'canceled');
 
 -- name: RequestRunCancelCAS :execrows
 UPDATE runs SET cancel_requested_at = sqlc.arg(now), version = version + 1

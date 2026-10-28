@@ -80,7 +80,7 @@ func (s *Store) ClaimExecutions(ctx context.Context, p store.ClaimParams, now ti
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.q.WithTx(tx)
-	ids, err := q.SelectClaimableExecutions(ctx, gen.SelectClaimableExecutionsParams{Now: fmtTime(now), Pool: p.Pool, RowLimit: int64(p.Limit)})
+	ids, err := q.SelectClaimableExecutions(ctx, gen.SelectClaimableExecutionsParams{ScheduledAt: fmtTime(now), Pools: p.Pools, Limit: int64(store.ClampLimit(p.Limit))})
 	if err != nil {
 		return nil, fmt.Errorf("selecting claimable executions: %w", err)
 	}
@@ -90,17 +90,17 @@ func (s *Store) ClaimExecutions(ctx context.Context, p store.ClaimParams, now ti
 		if err != nil {
 			return nil, err
 		}
-		n, err := q.ClaimExecutionCAS(ctx, gen.ClaimExecutionCASParams{
+		row, err := q.ClaimExecutionCAS(ctx, gen.ClaimExecutionCASParams{
 			AttemptID: attemptID, AgentID: nullStr(p.AgentID), ControllerID: nullStr(p.ControllerID),
 			LeaseExpiresAt: someTime(now.Add(p.LeaseTTL)), ID: id,
 		})
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("claiming execution %q: %w", id, err)
 		}
-		if n == 0 {
-			continue
-		}
-		ex, err := getExecution(ctx, q, id)
+		ex, err := toExecution(row)
 		if err != nil {
 			return nil, err
 		}
@@ -133,6 +133,9 @@ func (s *Store) MarkExecutionRunning(ctx context.Context, executionID, attemptID
 	return nil
 }
 
+// renewChunk bounds the IN list well under SQLite's variable limit.
+const renewChunk = 500
+
 // RenewLeases implements store.ExecutionStore.
 func (s *Store) RenewLeases(ctx context.Context, controllerID string, attemptIDs []string, leaseExpiresAt time.Time) ([]string, error) {
 	if len(attemptIDs) == 0 {
@@ -145,14 +148,15 @@ func (s *Store) RenewLeases(ctx context.Context, controllerID string, attemptIDs
 	defer func() { _ = tx.Rollback() }()
 	q := s.q.WithTx(tx)
 	renewed := make([]string, 0, len(attemptIDs))
-	for _, a := range attemptIDs {
-		n, err := q.RenewLeaseCAS(ctx, gen.RenewLeaseCASParams{LeaseExpiresAt: someTime(leaseExpiresAt), AttemptID: a, ControllerID: nullStr(controllerID)})
+	for start := 0; start < len(attemptIDs); start += renewChunk {
+		end := min(start+renewChunk, len(attemptIDs))
+		got, err := q.RenewLeases(ctx, gen.RenewLeasesParams{
+			MAX: fmtTime(leaseExpiresAt), AttemptIds: attemptIDs[start:end], ControllerID: nullStr(controllerID),
+		})
 		if err != nil {
-			return nil, fmt.Errorf("renewing lease of attempt %q: %w", a, err)
+			return nil, fmt.Errorf("renewing leases: %w", err)
 		}
-		if n > 0 {
-			renewed = append(renewed, a)
-		}
+		renewed = append(renewed, got...)
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("committing lease renewal: %w", err)
@@ -174,14 +178,14 @@ func (s *Store) ExpireLeases(ctx context.Context, now time.Time, limit int) ([]s
 	}
 	out := make([]store.Execution, 0, len(rows))
 	for _, r := range rows {
-		n, err := q.MarkExecutionLostCAS(ctx, gen.MarkExecutionLostCASParams{FinishedAt: someTime(now), ID: r.ID, AttemptID: r.AttemptID, Now: someTime(now)})
+		row, err := q.MarkExecutionLostCAS(ctx, gen.MarkExecutionLostCASParams{FinishedAt: someTime(now), ID: r.ID, AttemptID: r.AttemptID, Now: someTime(now)})
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("marking execution %q lost: %w", r.ID, err)
 		}
-		if n == 0 {
-			continue
-		}
-		ex, err := getExecution(ctx, q, r.ID)
+		ex, err := toExecution(row)
 		if err != nil {
 			return nil, err
 		}

@@ -25,7 +25,7 @@ CREATE TABLE jobs (
     UNIQUE (project_id, name)
 );
 
--- spec is TEXT, not TEXT, so the stored bytes match the checksum exactly.
+-- spec is stored verbatim so the bytes match the checksum exactly.
 CREATE TABLE job_versions (
     id         TEXT        PRIMARY KEY,
     job_id     TEXT        NOT NULL REFERENCES jobs (id),
@@ -52,7 +52,8 @@ CREATE TABLE runs (
     finished_at         TEXT
 );
 CREATE INDEX runs_job_id_idx ON runs (job_id, id);
-CREATE INDEX runs_concurrency_key_idx ON runs (concurrency_key);
+CREATE INDEX runs_concurrency_key_idx ON runs (concurrency_key) WHERE concurrency_key <> '';
+CREATE INDEX runs_job_version_id_idx ON runs (job_version_id);
 CREATE INDEX runs_status_idx ON runs (status);
 
 -- path is stable and unique within a run (for example main/step-id). input

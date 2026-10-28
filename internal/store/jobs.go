@@ -99,8 +99,8 @@ func ValidateSpec(spec json.RawMessage, checksum string) error {
 	if checksum == "" {
 		return fmt.Errorf("job version needs a checksum: %w", ErrInvalid)
 	}
-	if !json.Valid(spec) {
-		return fmt.Errorf("job spec is not valid json: %w", ErrInvalid)
+	if len(spec) == 0 {
+		return fmt.Errorf("job spec is empty: %w", ErrInvalid)
 	}
-	return nil
+	return checkJSON("job spec", spec)
 }
