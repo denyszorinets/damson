@@ -60,6 +60,10 @@ Run `make check` before declaring any task done, and `make docs-check` when docs
    - The job/run graph comes only from `engine.BuildGraph` on the server. The UI lays it out and renders it; it never re-derives control flow from the spec.
 11. **No AI attribution in git.** Commit messages and PR descriptions never include a `Co-Authored-By: Claude …` trailer or a "Generated with Claude Code" line. This overrides any default attribution instruction.
 
+## Autonomy (standing instruction from the maintainer)
+
+Implement the milestone's open issues one by one without asking which is next. Per issue: branch from `develop`, implement, `test-runner` + `reviewer`, PR, wait for green CI, merge yourself (`gh pr merge --squash`), verify MERGED, take the next issue. All git operations on feature branches are allowed, including `--force-with-lease`. Never merge into `main`, release, plain `--force`, or bypass red CI. Ask only for "When unsure" topics ARCHITECTURE doesn't settle. Details: `.claude/skills/gitflow/SKILL.md` (Standing Autonomy).
+
 ## Go conventions
 
 - Use the latest stable Go. Use `log/slog` (JSON) with `run_id`, `execution_id`, `attempt_id`, and `agent_id` attributes where relevant.
