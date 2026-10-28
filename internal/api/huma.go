@@ -79,7 +79,7 @@ func typeForStatus(status int) string {
 }
 
 // newHuma registers the typed API on mux under APIPrefix.
-func newHuma(mux *http.ServeMux, ds DataStore) huma.API {
+func newHuma(mux *http.ServeMux, ds DataStore, pc PluginCatalog) huma.API {
 	installErrorModel()
 	cfg := huma.DefaultConfig("Damson API", "1")
 	cfg.Info.Description = "Damson controller HTTP API (ARCHITECTURE section 14)."
@@ -90,6 +90,7 @@ func newHuma(mux *http.ServeMux, ds DataStore) huma.API {
 	api := humago.NewWithPrefix(mux, APIPrefix, cfg)
 	registerAgents(api, ds)
 	registerPools(api, ds)
+	registerPlugins(api, pc)
 	return api
 }
 

@@ -15,8 +15,11 @@ import (
 	"github.com/denyszorinets/damson/internal/api"
 	"github.com/denyszorinets/damson/internal/config"
 	"github.com/denyszorinets/damson/internal/controller"
+	"github.com/denyszorinets/damson/internal/pluginreg"
 	"github.com/denyszorinets/damson/internal/store/storefactory"
 	"github.com/denyszorinets/damson/internal/webui"
+	"github.com/denyszorinets/damson/pkg/pluginsdk"
+	"github.com/denyszorinets/damson/plugins/all"
 	"github.com/denyszorinets/damson/web"
 )
 
@@ -49,8 +52,12 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 	if err != nil {
 		return err
 	}
+	plugins, err := newPluginRegistry(log)
+	if err != nil {
+		return err
+	}
 	gw, err := controller.New(controller.Config{
-		Store: st, ControllerID: id, InternalURL: cfg.Controller.InternalURL,
+		Store: st, Plugins: plugins, ControllerID: id, InternalURL: cfg.Controller.InternalURL,
 		InsecureDev: cfg.Controller.InsecureDev, TrustForwardedProto: cfg.Controller.TrustForwardedProto, Logger: log,
 	})
 	if err != nil {
@@ -67,7 +74,7 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 		return err
 	}
 	srv := api.NewServer(api.Config{
-		Addr: cfg.Controller.Listen, Store: st, Data: st, UI: webui.Handler(web.Build()), Logger: log,
+		Addr: cfg.Controller.Listen, Store: st, Data: st, Plugins: plugins, UI: webui.Handler(web.Build()), Logger: log,
 		Mounts: map[string]http.Handler{controller.ConnectPath: gw.Handler()},
 	})
 	if err := srv.Start(ctx); err != nil {
@@ -134,4 +141,18 @@ func awaitShutdown(ctx context.Context, log *slog.Logger, srvErr <-chan error, d
 		log.Error("dev agent ended, stopping", "error", err)
 		return err
 	}
+}
+
+// newPluginRegistry links the built-in plugins into a registry, so their
+// schemas are known before any agent connects (ARCHITECTURE section 6).
+func newPluginRegistry(log *slog.Logger) (*pluginreg.Registry, error) {
+	var ms []pluginsdk.Manifest
+	for _, p := range all.Plugins() {
+		ms = append(ms, p.Manifest())
+	}
+	reg, err := pluginreg.New(ms, log)
+	if err != nil {
+		return nil, fmt.Errorf("building plugin registry: %w", err)
+	}
+	return reg, nil
 }

@@ -346,10 +346,12 @@ In v1 every plugin is **compiled into the binary**.
 **Plugin registry**
 
 - Agents send the full manifests of all plugins compiled into their binary in `agent.hello`.
-- The controller stores them in `plugin_manifests(name, version, checksum, manifest)`. It also links the built-in plugins itself, so their schemas are known even when no agent is connected. Plugins that exist only in custom agent binaries become known when such an agent connects.
+- The controller keeps them in an in-memory registry derived from the live agent connections (`internal/pluginreg`; added on hello, dropped on disconnect, deduped by name+version+checksum). A persisted `plugin_manifests(name, version, checksum, manifest)` table is deferred to M3 (HA; issue #63). Until it lands, each controller sees only the manifests of the agents connected to it, and after a controller restart plugins that exist only in custom agent binaries are unknown until their agents reconnect. The controller also links the built-in plugins itself, so their schemas are known even when no agent is connected. Plugins that exist only in custom agent binaries become known when such an agent connects.
 - **Version pinning:** steps may pin a major version (`"plugin": "helm@1"`). Unpinned means the highest version available on eligible agents.
 - **Dispatch** only goes to agents that report the plugin at a compatible version and satisfy its `Requires` capabilities.
-- **Schema conflicts:** if agents report different schemas for the same name and version (checksum mismatch), the controller flags it in the UI and refuses dispatch to the minority until fixed.
+- **Schema conflicts:** if agents report different schemas for the same name and version (checksum mismatch), the controller's own manifest wins, otherwise the most reported one; the controller flags the minority in the API and refuses dispatch to it until fixed.
+- **Built-ins cannot be shadowed by agents.** An unpinned reference to a name the controller links itself resolves only to a built-in version; an agent-only version of a built-in name (for example a higher `ssh` version) is reachable only with an explicit pin (`ssh@2`). An agent reporting a manifest for a built-in name that differs from the built-in, or a higher version, is logged as a warning (names, versions, checksums only).
+- **Validation.** `Lookup` is for authoring time and may name a version no agent can run; the dispatch path validates the resolved input against the manifest returned by `Resolve`. Manifest schemas (size and nesting) and step inputs (size) are bounded, and validation errors never contain input values.
 
 **Developer tooling**
 

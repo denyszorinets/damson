@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/denyszorinets/damson/internal/pluginreg"
 	"github.com/denyszorinets/damson/internal/protocol"
 	"github.com/denyszorinets/damson/internal/store"
 )
@@ -56,9 +57,22 @@ type realTicker struct{ t *time.Ticker }
 func (r realTicker) C() <-chan time.Time { return r.t.C }
 func (r realTicker) Stop()               { r.t.Stop() }
 
+// PluginSink receives the plugin manifests of live agents. On a hello the
+// gateway calls Prepare (validation and checksums, no lock held) and then
+// Commit (cheap) under its session-registry lock, so installs follow the
+// session_seq order; it calls RemoveAgent when the owning socket ends.
+// *pluginreg.Registry implements it.
+type PluginSink interface {
+	Prepare(pluginreg.AgentInfo) (*pluginreg.Prepared, error)
+	Commit(*pluginreg.Prepared)
+	RemoveAgent(id string)
+}
+
 // Config configures a Gateway.
 type Config struct {
 	Store store.Store
+	// Plugins receives agent manifests. Optional.
+	Plugins PluginSink
 	// ControllerID identifies this controller in controller_instances and as
 	// the owner of agent rows. Required.
 	ControllerID string

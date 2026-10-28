@@ -38,6 +38,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List plugins with manifests, schemas and the agents that provide them */
+        get: operations["list-plugins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/plugins/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one plugin with all known versions */
+        get: operations["get-plugin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pools": {
         parameters: {
             query?: never;
@@ -90,10 +124,55 @@ export interface components {
             /** @description Empty on the last page. */
             next_cursor?: string;
         };
+        ListPluginsOutputBody: {
+            items: components["schemas"]["Plugin"][] | null;
+        };
         ListPoolsOutputBody: {
             items: components["schemas"]["Pool"][] | null;
             /** @description Empty on the last page. */
             next_cursor?: string;
+        };
+        Plugin: {
+            name: string;
+            versions: components["schemas"]["PluginVersion"][] | null;
+        };
+        PluginConflict: {
+            agents: components["schemas"]["PluginProvider"][] | null;
+            checksum: string;
+        };
+        PluginProvider: {
+            agent_id: string;
+            /** @description Pool name. */
+            pool: string;
+        };
+        PluginVersion: {
+            /** @description Connected agents running this version. */
+            agents: components["schemas"]["PluginProvider"][] | null;
+            /** @description The controller links this exact manifest itself. */
+            builtin: boolean;
+            /** @description SHA-256 of the canonical manifest. */
+            checksum: string;
+            /** @description Agents reporting a different manifest for this version; empty when consistent. */
+            conflicts: components["schemas"]["PluginConflict"][] | null;
+            description: string;
+            idempotent: boolean;
+            /** @description JSON Schema of the resolved step input. */
+            input_schema: {
+                [key: string]: unknown;
+            };
+            /** @description JSON Schema of the step outputs. */
+            output_schema: {
+                [key: string]: unknown;
+            };
+            /** @description Pools with at least one connected agent running this version. */
+            pools: string[] | null;
+            /** @description Agent capabilities needed, such as bin:git. */
+            requires: string[] | null;
+            /** @enum {string} */
+            target_mode: "none" | "single_node" | "inventory";
+            title: string;
+            /** @description Semantic version. */
+            version: string;
         };
         Pool: {
             /** Format: date-time */
@@ -205,6 +284,84 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Agent"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "list-plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListPluginsOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "get-plugin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Plugin"];
                 };
             };
             /** @description Not Found */

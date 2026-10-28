@@ -62,3 +62,53 @@ plugins are built with ``damson build --with <module>@<version>``
 
 Scripts run by ``ssh`` and ``winrm`` can return values by printing
 ``##damson-output key=value`` or ``##damson-output-json {...}``.
+
+.. _plugin-registry:
+
+Plugin registry
+---------------
+
+The controller keeps a plugin registry (``internal/pluginreg``). It holds the
+manifests of the built-in plugins, which the controller links itself, so their
+schemas are known with no agent connected, and the manifests every connected
+agent sent in ``agent.hello``. The registry is a derived cache, not durable
+state: the gateway adds an agent's manifests after a successful hello and drops
+them when that agent's socket ends, and a restarted controller rebuilds it as
+agents reconnect. It therefore describes the agents connected to *this*
+controller. ARCHITECTURE section 6 also names a ``plugin_manifests`` table; it
+is deferred until several controllers must share one view (M3, HA), because
+nothing before then needs a manifest the controller has not seen live.
+
+* **Deduplication.** Manifests are keyed by name, version and checksum; many
+  agents reporting the same manifest are one entry with many providers.
+* **Resolution.** ``plugin`` picks the highest semver version that at least
+  one eligible agent can run. ``plugin@1`` pins the major version. An agent is
+  eligible when it is in the requested pool, reports the accepted manifest and
+  has every capability in the manifest's ``requires``.
+* **Conflicts.** If agents report different checksums for one name and
+  version, the controller's own manifest wins, otherwise the most reported one
+  (ties go to the smaller checksum). Agents on the other side are listed under
+  ``conflicts`` in the API and are never chosen for dispatch.
+* **Built-ins cannot be shadowed.** An unpinned reference to a name the
+  controller links itself resolves only to a built-in version. An agent-only
+  version of such a name (for example a higher ``ssh``) is reachable only with
+  an explicit pin such as ``ssh@2``. An agent that reports a manifest for a
+  built-in name that differs from the built-in, or a higher version, is
+  logged as a warning (names, versions and checksums only, never manifest
+  contents).
+* **Authoring versus dispatch.** ``Lookup`` returns the highest matching
+  manifest even if no connected agent can run it; use it for job validation
+  and forms only. Dispatch must validate against the manifest ``Resolve``
+  returned, because that is the version an agent will execute.
+* **Limits.** A manifest input schema is bounded in size and nesting depth
+  and must compile (reference cycles are refused); an oversized step input is
+  rejected. The compiled-schema cache is bounded and never stores failures.
+* **Several controllers.** With more than one controller each sees only the
+  manifests of its own agents until the ``plugin_manifests`` table lands
+  (issue #63, M3). After a controller restart, plugins that exist only in
+  custom agent binaries are unknown until their agents reconnect.
+* **Input validation.** Before dispatch the resolved step input is validated
+  against the manifest ``input_schema`` (the agent's own ``Validate`` still
+  runs later). Errors name the field path and the rule, never an input value
+  or an input property name, and a
+  ``secret://`` reference is an ordinary string.
