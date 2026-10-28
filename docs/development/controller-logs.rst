@@ -21,9 +21,12 @@ For every running execution that sends ``log.append`` to this controller, the
    contiguous frontier. A declared ``gap_to`` range counts as contiguous. A
    batch that skips sequence numbers without declaring a gap is **refused**
    from the first skipped line on (``Stats.BatchesOutOfOrder``): acknowledging
-   past a hole would let the agent free lines the controller never saw. The
-   first batch of an attempt on this controller sets the frontier just below
-   itself, because the agent frees only acknowledged sequence numbers.
+   past a hole would let the agent free lines the controller never saw. A new
+   state starts at the highest sequence number committed for the execution,
+   read from the database (``GetLogStamp``), never at whatever batch arrives
+   first: the controller keeps no durable state, so a state created after
+   ``Finish``, eviction or a handoff from another controller continues exactly
+   where the committed log ends.
 3. Appends the lines to a 5,000 line ring buffer (live tail) and to the pending
    chunk.
 4. Writes the pending lines as chunks every 5 s or 1 MiB, whichever comes
@@ -42,9 +45,13 @@ hole in the sequence, the per-execution pending cap, a state that closed
 underneath it), ``Append`` returns ``ErrNeedResend`` and ``Register`` closes
 the agent's session. The agent reconnects and resends everything after its
 last acknowledgement. Nothing past the last ingested line is ever
-acknowledged, so a refused batch cannot be lost. A state created again for an
-attempt (after ``Finish`` or eviction) starts at the last acknowledged position
-(``floors``, bounded), not at the first batch it happens to see.
+acknowledged, so a refused batch cannot be lost. The socket's handler also
+remembers the refusal and drops every later ``log.append`` on that socket
+unacknowledged: frames that are already in the read loop's queue would
+otherwise be ingested and acknowledged past the refused batch. The lookup
+retries share one deadline (``StoreTimeout``) because they run on the socket's
+read loop. A persistent refusal (store down, pending cap) repeats once per
+agent reconnect, so the agent's reconnect backoff bounds the churn.
 
 Lines stay in the pending buffer until their chunk row is committed, so the ack
 position can never run ahead of the database. Acks are coalesced: at most one
@@ -172,7 +179,8 @@ Known limits
 * A crash between writing a chunk object and its row, or the conflict path,
   can leave an object no row references. Retention removes it with the
   execution's prefix.
-* A new controller that takes over an execution adopts the frontier from the
-  first batch it receives and trusts the agent to resend only what is
-  unacknowledged.
+* A new controller that takes over an execution reads the committed frontier
+  from the database. A declared gap that no later chunk follows yet is not
+  visible there; the agent always sends a gap line right after a declared gap,
+  so the next committed chunk covers it.
 * Compaction into a single gzipped object on completion is not implemented.

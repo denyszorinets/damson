@@ -48,7 +48,7 @@ type execState struct {
 
 	mu         sync.Mutex
 	agentID    string
-	high       int64 // highest contiguous seq accounted for: ingested lines and declared gaps; -1 until the first batch
+	high       int64 // highest contiguous seq accounted for: committed at creation, then ingested lines and declared gaps
 	acked      int64 // highest seq already queued for log.ack
 	pending    []Line
 	pendBytes  int
@@ -87,9 +87,6 @@ type applyResult struct {
 func (st *execState) apply(m protocol.LogAppend, now time.Time) applyResult {
 	var res applyResult
 	st.lastActive = now
-	if st.high < 0 {
-		st.high = int64(m.SeqFrom) - 1
-	}
 	if m.GapTo >= m.SeqFrom {
 		if int64(m.SeqFrom) > st.high+1 {
 			res.outOfOrder = true

@@ -70,6 +70,7 @@ type Store interface {
 	store.LogStore
 	GetExecutionByAttempt(ctx context.Context, attemptID string) (store.Execution, error)
 	GetExecution(ctx context.Context, id string) (store.Execution, error)
+	GetLogStamp(ctx context.Context, executionID string) (store.LogStamp, error)
 }
 
 // AckSender delivers a log.ack to the agent's current session. Finding the

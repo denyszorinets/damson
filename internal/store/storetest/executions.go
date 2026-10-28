@@ -537,9 +537,12 @@ func testLogVsClaimRace(t *testing.T, s store.Store) {
 	if len(reclaimed) != 1 || reclaimed[0].AttemptID == e.AttemptID {
 		t.Fatalf("reclaim = %+v; want a rotated attempt", reclaimed)
 	}
+	// Whichever side won the race, no chunk of the old attempt survives the
+	// claim: an insert that committed first is deleted by the claim's
+	// transaction, one that came after it is refused (ErrStale, checked below).
 	chunks, _ := s.ListLogChunks(ctx, e.ID, 0, 0, 10)
-	if inserted != (len(chunks) == 1) {
-		t.Fatalf("insert reported %v but %d chunks stored", inserted, len(chunks))
+	if len(chunks) != 0 {
+		t.Fatalf("insert reported %v but %d chunks of the rotated attempt remain", inserted, len(chunks))
 	}
 	// Once the attempt rotated, the old one can never write again.
 	if _, err := s.InsertLogChunk(ctx, e.AttemptID, chunk(e.ID, 6, 9, "k2"), claimNow); !errors.Is(err, store.ErrStale) {

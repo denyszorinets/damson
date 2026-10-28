@@ -24,8 +24,8 @@ func (i *Ingest) Flush(ctx context.Context, executionID string) error {
 }
 
 // Finish flushes the execution and releases its ring buffer: live-tail
-// subscribers see their channel close. If the flush fails the state is kept
-// so the caller can retry.
+// subscribers see their channel close. If the flush fails, or lines keep
+// arriving, the state is kept so the caller can retry.
 func (i *Ingest) Finish(ctx context.Context, executionID string) error {
 	st := i.state(executionID)
 	if st == nil {
@@ -37,23 +37,13 @@ func (i *Ingest) Finish(ctx context.Context, executionID string) error {
 			return err
 		}
 		i.sendAcks(ctx)
-		st.mu.Lock()
-		if len(st.pending) == 0 {
-			st.closeLocked() // nothing arrived since the flush: safe to release
-			st.mu.Unlock()
-			break
+		if i.closeAndRemove(st, true, false) {
+			return nil
 		}
-		st.mu.Unlock()
 		if try >= 2 {
 			return fmt.Errorf("execution %s still receiving logs: %w", executionID, store.ErrConflict)
 		}
 	}
-	i.mu.Lock()
-	if i.states[executionID] == st {
-		delete(i.states, executionID)
-	}
-	i.mu.Unlock()
-	return nil
 }
 
 // flushState persists everything pending in st. Lines stay in st.pending
@@ -239,18 +229,9 @@ func (i *Ingest) flushAll(ctx context.Context, states []*execState) {
 }
 
 func (i *Ingest) evict(st *execState) {
-	st.mu.Lock()
-	if len(st.pending) > 0 || len(st.subs) > 0 {
-		st.mu.Unlock()
+	if !i.closeAndRemove(st, true, true) {
 		return
 	}
-	st.closeLocked()
-	st.mu.Unlock()
-	i.mu.Lock()
-	if i.states[st.execID] == st {
-		delete(i.states, st.execID)
-	}
-	i.mu.Unlock()
 	i.stats.executionsEvicted.Add(1)
 	i.log.Debug("evicted idle execution log state", "execution_id", st.execID, "attempt_id", st.attempt)
 }

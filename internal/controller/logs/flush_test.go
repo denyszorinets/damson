@@ -105,6 +105,10 @@ func TestFlush_ConflictIsAlreadyPersisted(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			forEachBackend(t, func(t *testing.T, st store.Store) {
 				f := newFx(t, st)
+				// The state exists before the other controller's rows commit, so the
+				// rows are found only when this controller flushes (a conflict).
+				_, err := f.in.route(context.Background(), "agent-1", f.exec.AttemptID)
+				require.NoError(t, err)
 				for _, r := range tc.existing { // persisted earlier, ack lost
 					_, err := st.InsertLogChunk(context.Background(), f.exec.AttemptID, store.NewLogChunk{
 						ExecutionID: f.exec.ID, SeqFrom: r[0], SeqTo: r[1], Backend: "db", ObjectKey: ObjectKey(f.exec.ID, f.exec.AttemptID, r[0], r[1]),

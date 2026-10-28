@@ -30,9 +30,6 @@ var ErrNeedResend = errors.New("logs: batch not ingested, the agent must resend"
 // ErrStopped is returned for appends that arrive once Stop has begun.
 var ErrStopped = errors.New("logs: ingest stopped")
 
-// maxFloors bounds the memory of acknowledged positions kept per attempt.
-const maxFloors = 8192
-
 // maxSeq bounds sequence numbers so int64 arithmetic cannot overflow.
 const maxSeq = math.MaxInt64 / 4
 
@@ -74,12 +71,6 @@ type Ingest struct {
 	mu     sync.Mutex
 	states map[string]*execState // by execution id
 	acks   map[string]pendingAck // by attempt id; coalesced until the next send
-	// floors remembers, per attempt, the highest seq acknowledged to the agent
-	// (bounded). A state created again for the same attempt starts there, never
-	// from the first batch it happens to see, so lines dropped in between can
-	// not be skipped by a later ack.
-	floors     map[string]int64
-	floorOrder []string
 
 	lifeMu  sync.Mutex
 	started bool
@@ -96,7 +87,7 @@ func New(cfg Config) (*Ingest, error) {
 	}
 	return &Ingest{
 		cfg: cfg, log: cfg.Logger, cache: newAttemptCache(attemptCacheSize, cfg.AttemptTTL),
-		states: make(map[string]*execState), acks: make(map[string]pendingAck), floors: make(map[string]int64), wake: make(chan struct{}, 1),
+		states: make(map[string]*execState), acks: make(map[string]pendingAck), wake: make(chan struct{}, 1),
 	}, nil
 }
 
@@ -118,11 +109,20 @@ func (i *Ingest) Stats() Stats {
 // agent reconnects and resends from its last acknowledgement.
 func (i *Ingest) Register(peer *protocol.Peer, agentID string) {
 	h := i.Handler(agentID)
+	// refused is per socket: once a batch was refused, every later log.append
+	// on this socket is dropped unacknowledged until the close takes effect.
+	// The peer's read loop may already hold more frames; ingesting one of them
+	// would let a later ack skip the refused batch.
+	var refused atomic.Bool
 	peer.Handle(protocol.MethodLogAppend, func(ctx context.Context, p protocol.Params) (any, error) {
+		if refused.Load() {
+			return nil, nil
+		}
 		res, err := h(ctx, p)
 		if errors.Is(err, ErrNeedResend) {
+			refused.Store(true)
 			i.log.Warn("closing agent session so it resends logs", "agent_id", agentID, "error", err)
-			go func() { _ = peer.Close() }() // not on the read loop: Close waits for it
+			go func() { _ = peer.Close() }() // off the read loop that is running this handler
 			return nil, nil
 		}
 		return res, err
@@ -159,8 +159,10 @@ func (i *Ingest) Append(ctx context.Context, agentID string, m protocol.LogAppen
 	if i.isStopped() {
 		return ErrStopped
 	}
+	rctx, cancel := context.WithTimeout(ctx, i.cfg.StoreTimeout) // one deadline for all lookup retries: this runs on the socket's read loop
+	defer cancel()
 	for try := 0; ; try++ {
-		st, err := i.routeWithRetry(ctx, agentID, m.AttemptID)
+		st, err := i.routeWithRetry(rctx, agentID, m.AttemptID)
 		switch {
 		case errors.Is(err, store.ErrNotFound), errors.Is(err, store.ErrStale):
 			i.stats.staleBatches.Add(1)
@@ -235,11 +237,16 @@ func (i *Ingest) routeWithRetry(ctx context.Context, agentID, attempt string) (*
 // cached lookup is trusted for at most AttemptTTL. When another attempt
 // holds the buffer the store decides which one is current before the buffer
 // is replaced, so a late batch of a superseded attempt can never discard the
-// current attempt's lines.
+// current attempt's lines. A new state starts at the highest sequence number
+// committed for the execution, read from the database: the controller holds
+// no durable state, and a state recreated after Finish, eviction or a
+// handoff to another controller must continue exactly where the committed
+// log ends.
 func (i *Ingest) route(ctx context.Context, agentID, attempt string) (*execState, error) {
 	execID, cached := i.cachedExec(attempt)
-	verified := false
-	for try := 0; try < 4; try++ {
+	verified, haveFrontier := false, false
+	var frontier int64
+	for try := 0; try < 5; try++ {
 		if cached && execID == "" {
 			return nil, store.ErrStale
 		}
@@ -255,7 +262,10 @@ func (i *Ingest) route(ctx context.Context, agentID, attempt string) (*execState
 			i.mu.Unlock()
 			return old, nil
 		}
-		if old != nil && !verified {
+		if (old != nil || cached) && !verified {
+			// Another attempt holds the buffer, or the answer came from the
+			// cache: before a state is created or replaced the store decides
+			// whether this attempt is still current.
 			i.mu.Unlock()
 			if err := i.verifyCurrent(ctx, execID, attempt); err != nil {
 				return nil, err
@@ -263,11 +273,16 @@ func (i *Ingest) route(ctx context.Context, agentID, attempt string) (*execState
 			verified = true
 			continue
 		}
-		floor := int64(-1)
-		if f, ok := i.floors[attempt]; ok {
-			floor = f
+		if !haveFrontier {
+			i.mu.Unlock()
+			var err error
+			if frontier, err = i.committedFrontier(ctx, execID); err != nil {
+				return nil, err
+			}
+			haveFrontier = true
+			continue
 		}
-		st := newExecState(execID, attempt, agentID, floor, i.cfg.RingLines, i.cfg.Clock.now())
+		st := newExecState(execID, attempt, agentID, frontier, i.cfg.RingLines, i.cfg.Clock.now())
 		i.states[execID] = st
 		i.mu.Unlock()
 		if old != nil {
@@ -276,6 +291,21 @@ func (i *Ingest) route(ctx context.Context, agentID, attempt string) (*execState
 		return st, nil
 	}
 	return nil, fmt.Errorf("attempt %s keeps changing owner: %w", attempt, store.ErrConflict)
+}
+
+// committedFrontier is the highest sequence number with a committed chunk row
+// for the execution. Chunks of earlier attempts were deleted when the current
+// attempt was claimed, so it belongs to the current attempt. Every
+// acknowledged sequence number is at or below it or inside a declared gap that
+// the next committed chunk follows.
+func (i *Ingest) committedFrontier(ctx context.Context, execID string) (int64, error) {
+	sctx, cancel := context.WithTimeout(ctx, i.cfg.StoreTimeout)
+	defer cancel()
+	stamp, err := i.cfg.Store.GetLogStamp(sctx, execID)
+	if err != nil {
+		return 0, fmt.Errorf("reading committed log frontier: %w", err)
+	}
+	return stamp.MaxSeq, nil
 }
 
 // verifyCurrent asks the store whether attempt is still the execution's
@@ -321,17 +351,36 @@ func (i *Ingest) Invalidate(attempt string) { i.cache.forget(attempt) }
 
 // discard drops a state whose attempt is stale: its lines are never written.
 func (i *Ingest) discard(st *execState) {
+	i.mu.Lock()
 	st.mu.Lock()
 	i.stats.linesDiscardedStale.Add(int64(len(st.pending)))
 	st.pending, st.pendBytes = nil, 0
 	st.closeLocked()
-	st.mu.Unlock()
-	i.mu.Lock()
 	if i.states[st.execID] == st {
 		delete(i.states, st.execID)
 	}
+	st.mu.Unlock()
 	i.mu.Unlock()
 	i.cache.forget(st.attempt)
+}
+
+// closeAndRemove closes st and removes it from the map in one step (lock
+// order i.mu then st.mu), so a concurrent Append never finds a closed state
+// in the map. It refuses, returning false, while noPending and lines are
+// pending, or noSubs and a live-tail subscriber is attached.
+func (i *Ingest) closeAndRemove(st *execState, noPending, noSubs bool) bool {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if (noPending && len(st.pending) > 0) || (noSubs && len(st.subs) > 0) {
+		return false
+	}
+	st.closeLocked()
+	if i.states[st.execID] == st {
+		delete(i.states, st.execID)
+	}
+	return true
 }
 
 func (i *Ingest) state(executionID string) *execState {
@@ -351,22 +400,6 @@ func (i *Ingest) queueAck(attempt, agentID string, seq int64) {
 	if cur, ok := i.acks[attempt]; !ok || seq >= cur.seq {
 		i.acks[attempt] = pendingAck{agentID: agentID, seq: seq}
 	}
-	i.setFloorLocked(attempt, seq)
-}
-
-// setFloorLocked records the highest seq acknowledged for attempt, evicting
-// the oldest remembered attempt beyond maxFloors. The caller holds i.mu.
-func (i *Ingest) setFloorLocked(attempt string, seq int64) {
-	if cur, ok := i.floors[attempt]; ok {
-		i.floors[attempt] = max(cur, seq)
-		return
-	}
-	if len(i.floorOrder) >= maxFloors {
-		delete(i.floors, i.floorOrder[0])
-		i.floorOrder = i.floorOrder[1:]
-	}
-	i.floors[attempt] = seq
-	i.floorOrder = append(i.floorOrder, attempt)
 }
 
 // sendAcks delivers the coalesced acks. Delivery failures are dropped: the
