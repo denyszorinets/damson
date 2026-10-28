@@ -26,6 +26,7 @@ func runRole(ctx context.Context, name string, args []string, stderr io.Writer, 
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", "", "path to a TOML config file (or set "+config.EnvConfigFile+")")
 	autoMigrate := fs.Bool("auto-migrate", false, "apply pending database migrations at start (always on for dev; ignored by agent)")
+	insecureDev := fs.Bool("insecure-dev", false, "allow plain ws:// agent connections (development only; or set controller.insecure_dev)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
@@ -45,6 +46,9 @@ func runRole(ctx context.Context, name string, args []string, stderr io.Writer, 
 		<-ctx.Done()
 		log.Info("stopping")
 		return exitOK
+	}
+	if *insecureDev || name == string(config.RoleDev) {
+		cfg.Controller.InsecureDev = true // dev serves plain ws:// on loopback
 	}
 	migrate := *autoMigrate || name == string(config.RoleDev)
 	if err := runController(ctx, cfg, log, migrate); err != nil {

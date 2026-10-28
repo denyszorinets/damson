@@ -12,9 +12,13 @@ import (
 
 // Config configures a Server.
 type Config struct {
-	Addr   string       // host:port; "127.0.0.1:0" picks a free port
-	Store  Checker      // readiness checks
-	UI     http.Handler // served for every path the API does not claim
+	Addr  string       // host:port; "127.0.0.1:0" picks a free port
+	Store Checker      // readiness checks
+	UI    http.Handler // served for every path the API does not claim
+	// Mounts maps extra mux patterns (for example "/agent/v1/connect") to
+	// handlers owned by other components. They are wrapped by the same
+	// request logging as the API.
+	Mounts map[string]http.Handler
 	Logger *slog.Logger
 }
 
@@ -55,6 +59,9 @@ func routes(cfg Config) http.Handler {
 	mux.HandleFunc("/healthz", healthz)
 	mux.HandleFunc("/readyz", readyz(cfg.Store))
 	mux.HandleFunc("/api/", notFound)
+	for pattern, h := range cfg.Mounts {
+		mux.Handle(pattern, h)
+	}
 	if cfg.UI != nil {
 		mux.Handle("/", cfg.UI)
 	}

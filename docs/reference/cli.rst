@@ -27,7 +27,9 @@ Damson ships as one binary, ``damson``. The role is chosen by subcommand
 :doc:`configuration`. They log JSON to stderr and stop on SIGINT or SIGTERM.
 Invalid configuration prints every problem and exits with status 1; usage
 errors exit with status 2. Per-key flags (for example ``--listen``) are
-deferred; ``--config`` and ``--auto-migrate`` are the only flags today.
+deferred. Besides ``--config`` and ``--auto-migrate``, ``--insecure-dev`` (or
+``controller.insecure_dev``) allows plain ``ws://`` agent connections; ``dev``
+implies it.
 
 ``controller`` and ``dev`` open the configured database, serve the HTTP API and
 web UI on ``controller.listen`` (:doc:`http-api`) and shut down gracefully on

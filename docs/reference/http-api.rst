@@ -32,6 +32,8 @@ Endpoints
    * - ``/api/...``
      - Any path under ``/api/`` that no route claims returns ``404``
        problem+json (never the web UI).
+   * - ``GET /agent/v1/connect``
+     - Agent WebSocket gateway (see :ref:`reference-agent-gateway`).
    * - everything else
      - The embedded web UI (see :doc:`/development/web-ui`).
 
@@ -88,3 +90,55 @@ Server behaviour
   timeout because SSE streams will be long-lived.
 * On SIGINT or SIGTERM the listener closes and in-flight requests get 15 s to
   finish; then the store is closed.
+
+.. _reference-agent-gateway:
+
+Agent gateway
+-------------
+
+``GET /agent/v1/connect`` (package ``internal/controller``) upgrades to the
+agent protocol (:doc:`protocol`). Everything is checked **before** the
+upgrade, and a failure is a problem+json response with no upgrade:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Status
+     - Cause
+   * - ``403``
+     - Plain ``ws://`` without ``controller.insecure_dev`` (no TLS and, unless
+       ``controller.trust_forwarded_proto`` is set, no
+       ``X-Forwarded-Proto: https``).
+   * - ``401``
+     - ``Authorization: Bearer <pool token>`` missing, unknown or revoked
+       (with ``WWW-Authenticate: Bearer``).
+   * - ``400``
+     - ``X-Damson-Agent-Id`` missing, over 128 bytes or not printable.
+   * - ``503``
+     - The gateway is stopped or shutting down (also when the database was
+       not migrated at start).
+
+The token is hashed (SHA-256) and looked up; it is never logged or stored.
+After the upgrade the agent must send ``agent.hello`` within 10 seconds.
+
+Behaviour
+~~~~~~~~~
+
+* ``agent.hello``: the controller negotiates the protocol version (N and N-1),
+  checks that ``pool`` matches the token's pool, and takes ownership of the
+  agent row ordered by ``session_seq`` (a stale ``session_seq`` is refused).
+  A newer socket for the same agent supersedes and closes the older one. The
+  response carries ``heartbeat_interval_ms`` (10000), the limits and a
+  reconciliation list; until dispatch exists (M2) every reported attempt is
+  unknown and answered ``cancel``. A refused hello is answered with a
+  JSON-RPC error and the socket is closed.
+* ``agent.heartbeat``: kept in memory only. Every 10 seconds one batched
+  write updates ``last_seen`` and the telemetry snapshot of every agent that
+  sent a heartbeat, fenced by controller and ``session_seq``.
+* The controller registers itself in ``controller_instances`` at start and
+  heartbeats every 5 seconds.
+* On graceful stop (after the HTTP listener closed) the controller sends
+  ``agent.reconnect`` (jitter up to 5 seconds) to every socket, writes the
+  last telemetry batch, closes the sockets and deregisters.
+* When an agent socket ends, the agent row is marked disconnected unless a
+  newer session already owns it.

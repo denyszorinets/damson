@@ -31,6 +31,11 @@ const (
 	typeUnavailable = "urn:damson:problem:unavailable"
 	typeMethod      = "urn:damson:problem:method-not-allowed"
 	typeInternal    = "urn:damson:problem:internal"
+	// TypeUnauthorized and TypeForbidden are used by components that mount
+	// their own handlers (the agent gateway) and answer before an upgrade.
+	TypeUnauthorized = "urn:damson:problem:unauthorized"
+	TypeForbidden    = "urn:damson:problem:forbidden"
+	TypeBadRequest   = "urn:damson:problem:bad-request"
 )
 
 // errUnavailable marks a dependency (database) that cannot serve requests.
@@ -85,4 +90,11 @@ func notFound(w http.ResponseWriter, r *http.Request) {
 func methodNotAllowed(w http.ResponseWriter, r *http.Request, allow string) {
 	w.Header().Set("Allow", allow)
 	writeProblem(w, r, Problem{Type: typeMethod, Title: "Method Not Allowed", Status: http.StatusMethodNotAllowed, Detail: "use " + allow})
+}
+
+// WriteProblem sends a problem+json response with the given status. It is for
+// handlers mounted from other packages that need a specific 4xx answer; errors
+// from the store go through WriteError.
+func WriteProblem(w http.ResponseWriter, r *http.Request, status int, typ, detail string) {
+	writeProblem(w, r, Problem{Type: typ, Title: http.StatusText(status), Status: status, Detail: detail})
 }
