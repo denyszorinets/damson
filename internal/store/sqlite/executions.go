@@ -114,8 +114,8 @@ func (s *Store) ClaimExecutions(ctx context.Context, p store.ClaimParams, now ti
 
 // fencedMiss classifies a fenced CAS that changed no row: the execution is
 // absent (ErrNotFound) or the attempt/state moved on (ErrStale).
-func (s *Store) fencedMiss(ctx context.Context, executionID, what string) error {
-	if _, err := s.GetExecution(ctx, executionID); err != nil {
+func fencedMiss(ctx context.Context, q *gen.Queries, executionID, what string) error {
+	if _, err := getExecution(ctx, q, executionID); err != nil {
 		return err
 	}
 	return fmt.Errorf("execution %q %s: %w", executionID, what, store.ErrStale)
@@ -128,7 +128,7 @@ func (s *Store) MarkExecutionRunning(ctx context.Context, executionID, attemptID
 		return fmt.Errorf("marking execution %q running: %w", executionID, err)
 	}
 	if n == 0 {
-		return s.fencedMiss(ctx, executionID, "is not dispatched under this attempt")
+		return fencedMiss(ctx, s.q, executionID, "is not dispatched under this attempt")
 	}
 	return nil
 }
@@ -213,7 +213,7 @@ func (s *Store) CompleteExecution(ctx context.Context, c store.Completion, now t
 		return store.Execution{}, fmt.Errorf("completing execution %q: %w", c.ExecutionID, err)
 	}
 	if n == 0 {
-		return store.Execution{}, s.fencedMiss(ctx, c.ExecutionID, "is not running under this attempt")
+		return store.Execution{}, fencedMiss(ctx, s.q, c.ExecutionID, "is not running under this attempt")
 	}
 	return s.GetExecution(ctx, c.ExecutionID)
 }
@@ -225,7 +225,7 @@ func (s *Store) RequeueExecution(ctx context.Context, executionID, attemptID str
 		return fmt.Errorf("requeueing execution %q: %w", executionID, err)
 	}
 	if n == 0 {
-		return s.fencedMiss(ctx, executionID, "is not dispatched under this attempt")
+		return fencedMiss(ctx, s.q, executionID, "is not dispatched under this attempt")
 	}
 	return nil
 }

@@ -200,7 +200,12 @@ func insertExecution(ctx context.Context, q *gen.Queries, runID, stepID string, 
 
 // GetRun implements store.RunStore.
 func (s *Store) GetRun(ctx context.Context, id string) (store.Run, error) {
-	row, err := s.q.GetRun(ctx, id)
+	return getRun(ctx, s.q, id)
+}
+
+// getRun reads through q; see getJob.
+func getRun(ctx context.Context, q *gen.Queries, id string) (store.Run, error) {
+	row, err := q.GetRun(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return store.Run{}, fmt.Errorf("run %q: %w", id, store.ErrNotFound)
 	}

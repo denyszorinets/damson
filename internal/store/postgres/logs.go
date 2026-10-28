@@ -42,7 +42,7 @@ func (s *Store) InsertLogChunk(ctx context.Context, attemptID string, c store.Ne
 	// rotating between the check and the insert.
 	_, err = q.LockExecutionAttempt(ctx, gen.LockExecutionAttemptParams{ID: c.ExecutionID, AttemptID: attemptID})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return store.LogChunk{}, s.fencedMiss(ctx, c.ExecutionID, "has a different current attempt")
+		return store.LogChunk{}, fencedMiss(ctx, q, c.ExecutionID, "has a different current attempt")
 	}
 	if err != nil {
 		return store.LogChunk{}, fmt.Errorf("fencing log chunk for execution %q: %w", c.ExecutionID, err)

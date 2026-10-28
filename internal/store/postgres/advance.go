@@ -14,8 +14,8 @@ import (
 )
 
 // staleRun classifies a run CAS that changed no row.
-func (s *Store) staleRun(ctx context.Context, runID, what string) error {
-	if _, err := s.GetRun(ctx, runID); err != nil {
+func staleRun(ctx context.Context, q *gen.Queries, runID, what string) error {
+	if _, err := getRun(ctx, q, runID); err != nil {
 		return err
 	}
 	return fmt.Errorf("run %q %s: %w", runID, what, store.ErrStale)
@@ -37,7 +37,7 @@ func (s *Store) UpdateRunStatus(ctx context.Context, runID string, expectedVersi
 		return store.Run{}, fmt.Errorf("updating run %q: %w", runID, err)
 	}
 	if n == 0 {
-		return store.Run{}, s.staleRun(ctx, runID, fmt.Sprintf("not at version %d", expectedVersion))
+		return store.Run{}, s.staleRunOutsideTx(ctx, runID, fmt.Sprintf("not at version %d", expectedVersion))
 	}
 	cur.Status, cur.Version, cur.StartedAt, cur.FinishedAt = status, expectedVersion+1, started, finished
 	return cur, nil
@@ -54,7 +54,7 @@ func (s *Store) AddStepInstances(ctx context.Context, runID string, expectedVers
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.q.WithTx(tx)
-	if err := s.bumpRun(ctx, q, runID, expectedVersion); err != nil {
+	if err := bumpRun(ctx, q, runID, expectedVersion); err != nil {
 		return nil, err
 	}
 	nodes, err := insertSteps(ctx, q, runID, steps, now)
@@ -67,13 +67,13 @@ func (s *Store) AddStepInstances(ctx context.Context, runID string, expectedVers
 	return nodes, nil
 }
 
-func (s *Store) bumpRun(ctx context.Context, q *gen.Queries, runID string, expectedVersion int64) error {
+func bumpRun(ctx context.Context, q *gen.Queries, runID string, expectedVersion int64) error {
 	n, err := q.BumpRunVersionCAS(ctx, gen.BumpRunVersionCASParams{ID: runID, ExpectedVersion: expectedVersion})
 	if err != nil {
 		return fmt.Errorf("bumping run %q: %w", runID, err)
 	}
 	if n == 0 {
-		return s.staleRun(ctx, runID, fmt.Sprintf("not at version %d", expectedVersion))
+		return staleRun(ctx, q, runID, fmt.Sprintf("not at version %d", expectedVersion))
 	}
 	return nil
 }
@@ -90,7 +90,7 @@ func (s *Store) ScheduleExecution(ctx context.Context, runID string, expectedVer
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.q.WithTx(tx)
-	if err := s.bumpRun(ctx, q, runID, expectedVersion); err != nil {
+	if err := bumpRun(ctx, q, runID, expectedVersion); err != nil {
 		return store.Execution{}, err
 	}
 	step, err := q.GetStepInstance(ctx, stepInstanceID)
@@ -149,7 +149,12 @@ func (s *Store) RequestCancel(ctx context.Context, runID string, now time.Time) 
 		return store.Run{}, fmt.Errorf("requesting cancel of run %q: %w", runID, err)
 	}
 	if n == 0 {
-		return store.Run{}, s.staleRun(ctx, runID, "cancel already requested or run finished")
+		return store.Run{}, s.staleRunOutsideTx(ctx, runID, "cancel already requested or run finished")
 	}
 	return s.GetRun(ctx, runID)
+}
+
+// staleRunOutsideTx classifies a miss for callers with no open transaction.
+func (s *Store) staleRunOutsideTx(ctx context.Context, runID, what string) error {
+	return staleRun(ctx, s.q, runID, what)
 }

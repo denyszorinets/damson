@@ -131,7 +131,7 @@ func (s *Store) CreateJobVersion(ctx context.Context, jobID string, spec json.Ra
 		return store.JobVersion{}, fmt.Errorf("advancing job %q version: %w", jobID, err)
 	}
 	if n == 0 {
-		if _, err := s.GetJob(ctx, jobID); err != nil {
+		if _, err := getJob(ctx, q, jobID); err != nil {
 			return store.JobVersion{}, err
 		}
 		return store.JobVersion{}, fmt.Errorf("job %q not at version %d: %w", jobID, expectedCurrent, store.ErrStale)
@@ -149,7 +149,13 @@ func (s *Store) CreateJobVersion(ctx context.Context, jobID string, spec json.Ra
 
 // GetJob implements store.JobStore.
 func (s *Store) GetJob(ctx context.Context, id string) (store.Job, error) {
-	row, err := s.q.GetJob(ctx, id)
+	return getJob(ctx, s.q, id)
+}
+
+// getJob reads through q, so callers inside a transaction stay on its
+// connection (a nested pool acquisition can deadlock a small pool).
+func getJob(ctx context.Context, q *gen.Queries, id string) (store.Job, error) {
+	row, err := q.GetJob(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return store.Job{}, fmt.Errorf("job %q: %w", id, store.ErrNotFound)
 	}

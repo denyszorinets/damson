@@ -54,7 +54,7 @@ func (s *Store) InsertLogChunk(ctx context.Context, attemptID string, c store.Ne
 		return store.LogChunk{}, fmt.Errorf("fencing log chunk for execution %q: %w", c.ExecutionID, err)
 	}
 	if n == 0 {
-		return store.LogChunk{}, s.fencedMiss(ctx, c.ExecutionID, "has a different current attempt")
+		return store.LogChunk{}, fencedMiss(ctx, q, c.ExecutionID, "has a different current attempt")
 	}
 	_, err = q.InsertLogChunk(ctx, gen.InsertLogChunkParams{
 		ID: id, ExecutionID: c.ExecutionID, SeqFrom: c.SeqFrom, SeqTo: c.SeqTo, Backend: c.Backend,

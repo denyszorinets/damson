@@ -159,6 +159,12 @@ that the job exists (``ErrNotFound``) and that the version belongs to it
 executions in one transaction. Applying a whole batch of engine actions in one
 transaction is future work on top of these.
 
+Inside a transaction every read goes through the transaction's queries
+(``getRun``, ``getJob``, ``getExecution`` take the querier). Calling a pool
+method such as ``s.GetRun`` while a transaction is open acquires a second
+connection and deadlocks a small pool under concurrency (the Postgres pool
+defaults to ``max(4, CPUs)`` connections).
+
 Foreign keys carry no ``ON DELETE`` action. Retention must delete children
 before parents: ``log_chunks`` (and their ``log_chunks_data``), then
 ``executions``, ``step_instances``, ``runs``.
