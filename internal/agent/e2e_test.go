@@ -43,6 +43,7 @@ func (s *syncBuf) String() string {
 // ctl is a controller gateway behind a real listener whose address survives
 // a restart.
 type ctl struct {
+	hb   time.Duration // heartbeat interval told to agents; 0 means 20ms
 	t    *testing.T
 	st   store.Store
 	id   string
@@ -64,7 +65,7 @@ func (c *ctl) start(addr string) {
 	c.t.Helper()
 	gw, err := controller.New(controller.Config{
 		Store: c.st, ControllerID: c.id, InsecureDev: true, Logger: slog.New(slog.DiscardHandler),
-		HeartbeatInterval: 20 * time.Millisecond, FlushInterval: 20 * time.Millisecond,
+		HeartbeatInterval: c.heartbeat(), FlushInterval: 20 * time.Millisecond,
 		ReconnectJitter: 20 * time.Millisecond,
 	})
 	if err != nil {
@@ -101,6 +102,19 @@ func (c *ctl) shutdown() {
 	defer cancel()
 	_ = c.gw.Stop(ctx)
 	_ = c.srv.Close()
+}
+
+func (c *ctl) heartbeat() time.Duration {
+	if c.hb > 0 {
+		return c.hb
+	}
+	return 20 * time.Millisecond
+}
+
+// restartWith restarts the controller telling agents to heartbeat every hb.
+func (c *ctl) restartWith(hb time.Duration) {
+	c.hb = hb
+	c.restart()
 }
 
 func (c *ctl) restart() {

@@ -16,8 +16,10 @@ import (
 
 // outcome describes how one connection attempt ended.
 type outcome struct {
-	helloed bool  // the controller accepted agent.hello
-	err     error // why the attempt ended; nil after a requested reconnect
+	// stable is set when the session stayed up for one heartbeat interval
+	// after hello; only then does the reconnect backoff restart.
+	stable bool
+	err    error // why the attempt ended; nil after a requested reconnect
 	// fatal is set when retrying cannot help (bad token, pool conflict, ...).
 	fatal error
 	// reconnect is the jitter to wait after agent.reconnect.
@@ -75,19 +77,29 @@ func (a *Agent) session(ctx context.Context, seq uint64) outcome {
 	}
 	log.Info("connected", "protocol", resp.Protocol, "heartbeat_interval", interval.String())
 	wg.Go(func() { s.heartbeatLoop(rctx, interval) })
+	st := a.cfg.Clock.timer(interval)
+	defer st.Stop()
+	stable := func() bool {
+		select {
+		case <-st.C():
+			return true
+		default:
+			return false
+		}
+	}
 
 	select {
 	case d := <-s.reconnect:
-		return outcome{helloed: true, reconnect: &d}
+		return outcome{stable: stable(), reconnect: &d}
 	case <-s.peer.Done():
 		select { // the close may follow an agent.reconnect that raced it
 		case d := <-s.reconnect:
-			return outcome{helloed: true, reconnect: &d}
+			return outcome{stable: stable(), reconnect: &d}
 		default:
 		}
-		return outcome{helloed: true, err: errors.New("connection lost")}
+		return outcome{stable: stable(), err: errors.New("connection lost")}
 	case <-ctx.Done():
-		return outcome{helloed: true, err: ctx.Err()}
+		return outcome{stable: stable(), err: ctx.Err()}
 	}
 }
 

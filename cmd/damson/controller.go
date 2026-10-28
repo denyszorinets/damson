@@ -86,13 +86,7 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 			return errors.Join(err, srv.Stop(sctx), gw.Stop(sctx))
 		}
 	}
-	var serveErr error
-	select {
-	case <-ctx.Done():
-		log.Info("stopping")
-	case serveErr = <-srv.Err():
-		log.Error("http server failed, stopping", "error", serveErr)
-	}
+	serveErr := awaitShutdown(ctx, log, srv.Err(), devAgent)
 
 	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
@@ -113,4 +107,26 @@ func controllerID() (string, error) {
 		return "", fmt.Errorf("generating controller id: %w", err)
 	}
 	return host + "-" + hex.EncodeToString(nonce[:]), nil
+}
+
+// awaitShutdown blocks until ctx is cancelled, the HTTP server fails or the
+// in-process dev agent (nil outside dev) ends fatally, and returns the error
+// that ended it, if any.
+func awaitShutdown(ctx context.Context, log *slog.Logger, srvErr <-chan error, devAgent *agent.Agent) error {
+	var agentDone <-chan struct{}
+	if devAgent != nil {
+		agentDone = devAgent.Done()
+	}
+	select {
+	case <-ctx.Done():
+		log.Info("stopping")
+		return nil
+	case err := <-srvErr:
+		log.Error("http server failed, stopping", "error", err)
+		return err
+	case <-agentDone:
+		err := fmt.Errorf("dev agent stopped: %w", devAgent.Err())
+		log.Error("dev agent ended, stopping", "error", err)
+		return err
+	}
 }

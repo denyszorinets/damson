@@ -121,13 +121,13 @@ func (a *Agent) run(ctx context.Context) {
 
 // nextWait chooses the delay before the next connection attempt. A requested
 // reconnect waits the controller's jitter and resets the backoff; a session
-// that got as far as hello restarts the backoff; anything else backs off.
+// that stayed up for a heartbeat interval restarts the backoff; anything else backs off.
 func (a *Agent) nextWait(out outcome, attempt *int) time.Duration {
 	switch {
 	case out.reconnect != nil:
 		*attempt = 0
 		return *out.reconnect
-	case out.helloed:
+	case out.stable:
 		*attempt = 0
 	}
 	d := BackoffDelay(*attempt, a.cfg.BackoffBase, a.cfg.BackoffMax, a.cfg.Rand())

@@ -27,6 +27,9 @@ Right after the upgrade the agent sends ``agent.hello`` with:
   ``ansible-playbook``, ``buildah`` and ``helm`` found on ``PATH``;
 * the manifests of every built-in plugin (``plugins/all``).
 
+The startup log line shows the configured ``agent.slots`` (``0`` means auto),
+while the agent's own log lines show the resolved count.
+
 Heartbeats
 ----------
 
@@ -55,8 +58,9 @@ Reconnecting
 
 When the socket drops, the agent waits and dials again. The wait is drawn
 uniformly from ``[0, min(30 s, 1 s * 2^n)]`` (exponential backoff with full
-jitter, ``n`` counting failures since the last accepted hello). A hello that
-was accepted restarts the sequence.
+jitter, ``n`` counting failures since the last stable session). A session
+that stayed up for one heartbeat interval after hello restarts the sequence;
+a connection that is accepted and dropped at once keeps the backoff growing.
 
 .. list-table::
    :header-rows: 1

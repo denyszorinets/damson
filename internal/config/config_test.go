@@ -69,6 +69,28 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
+			name: "agent slots default to 0 (auto)", role: RoleAgent, env: agentEnv,
+			check: func(t *testing.T, c Config) {
+				if c.Agent.Slots != 0 {
+					t.Fatalf("slots = %d, want 0", c.Agent.Slots)
+				}
+			},
+		},
+		{
+			name: "agent slots 0 is valid", role: RoleAgent,
+			env: append([]string{"DAMSON_AGENT__SLOTS=0"}, agentEnv...),
+			check: func(t *testing.T, c Config) {
+				if c.Agent.Slots != 0 {
+					t.Fatalf("slots = %d, want 0", c.Agent.Slots)
+				}
+			},
+		},
+		{
+			name: "agent slots -1 is rejected", role: RoleAgent,
+			env:     append([]string{"DAMSON_AGENT__SLOTS=-1"}, agentEnv...),
+			wantErr: []string{"agent.slots"},
+		},
+		{
 			name: "agent from env with int coercion", role: RoleAgent,
 			env: append([]string{"DAMSON_AGENT__SLOTS=8"}, agentEnv...),
 			check: func(t *testing.T, c Config) {
