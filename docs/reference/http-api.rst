@@ -78,8 +78,19 @@ Go test fails when ``web/openapi.json`` differs from the live document.
      - One agent, with its last telemetry. ``404`` if unknown.
    * - ``GET /api/v1/pools``
      - Pools ordered by name, ``items`` plus ``next_cursor``.
+   * - ``GET /api/v1/plugins``
+     - Every plugin known to this controller, ordered by name, as ``items``
+       (not paged). Each plugin has ``name`` and ``versions`` (highest
+       semver first). A version has the manifest (``version``, ``title``,
+       ``description``, ``input_schema``, ``output_schema``, ``idempotent``,
+       ``requires``, ``target_mode``), its ``checksum``, ``builtin``,
+       ``pools`` and ``agents`` (the connected agents running it) and
+       ``conflicts`` (agents reporting a different manifest for the same
+       version; they receive no work). See :ref:`plugin-registry`.
+   * - ``GET /api/v1/plugins/{name}``
+     - One plugin with all known versions. ``404`` if unknown.
 
-Lists take ``limit`` (1 to 200, default 50) and ``cursor`` (the previous
+Lists (except plugins) take ``limit`` (1 to 200, default 50) and ``cursor`` (the previous
 page's ``next_cursor``, opaque, empty on the last page). An invalid ``limit`` is a
 ``422`` problem with an ``errors`` list; a malformed ``cursor`` is a ``400``.
 

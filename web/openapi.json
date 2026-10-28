@@ -94,6 +94,24 @@
         ],
         "type": "object"
       },
+      "ListPluginsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Plugin"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
       "ListPoolsOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -113,6 +131,167 @@
         },
         "required": [
           "items"
+        ],
+        "type": "object"
+      },
+      "Plugin": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/PluginVersion"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "versions"
+        ],
+        "type": "object"
+      },
+      "PluginConflict": {
+        "additionalProperties": false,
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/PluginProvider"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "checksum": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "checksum",
+          "agents"
+        ],
+        "type": "object"
+      },
+      "PluginProvider": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "pool": {
+            "description": "Pool name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "pool"
+        ],
+        "type": "object"
+      },
+      "PluginVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "agents": {
+            "description": "Connected agents running this version.",
+            "items": {
+              "$ref": "#/components/schemas/PluginProvider"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "builtin": {
+            "description": "The controller links this exact manifest itself.",
+            "type": "boolean"
+          },
+          "checksum": {
+            "description": "SHA-256 of the canonical manifest.",
+            "type": "string"
+          },
+          "conflicts": {
+            "description": "Agents reporting a different manifest for this version; empty when consistent.",
+            "items": {
+              "$ref": "#/components/schemas/PluginConflict"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "idempotent": {
+            "type": "boolean"
+          },
+          "input_schema": {
+            "additionalProperties": {},
+            "description": "JSON Schema of the resolved step input.",
+            "type": "object"
+          },
+          "output_schema": {
+            "additionalProperties": {},
+            "description": "JSON Schema of the step outputs.",
+            "type": "object"
+          },
+          "pools": {
+            "description": "Pools with at least one connected agent running this version.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "requires": {
+            "description": "Agent capabilities needed, such as bin:git.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "target_mode": {
+            "enum": [
+              "none",
+              "single_node",
+              "inventory"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "version": {
+            "description": "Semantic version.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "checksum",
+          "title",
+          "description",
+          "input_schema",
+          "output_schema",
+          "idempotent",
+          "requires",
+          "target_mode",
+          "builtin",
+          "pools",
+          "agents",
+          "conflicts"
         ],
         "type": "object"
       },
@@ -356,6 +535,99 @@
         "summary": "Get an agent with its last telemetry",
         "tags": [
           "agents"
+        ]
+      }
+    },
+    "/plugins": {
+      "get": {
+        "operationId": "list-plugins",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListPluginsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List plugins with manifests, schemas and the agents that provide them",
+        "tags": [
+          "plugins"
+        ]
+      }
+    },
+    "/plugins/{name}": {
+      "get": {
+        "operationId": "get-plugin",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plugin"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get one plugin with all known versions",
+        "tags": [
+          "plugins"
         ]
       }
     },

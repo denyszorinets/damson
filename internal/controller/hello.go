@@ -5,8 +5,10 @@ import (
 	"errors"
 	"time"
 
+	"github.com/denyszorinets/damson/internal/pluginreg"
 	"github.com/denyszorinets/damson/internal/protocol"
 	"github.com/denyszorinets/damson/internal/store"
+	"github.com/denyszorinets/damson/pkg/pluginsdk"
 )
 
 // rejectGrace lets the error response of a refused hello reach the agent
@@ -60,7 +62,7 @@ func (g *Gateway) handleHello(ctx context.Context, s *session, p protocol.Params
 	s.mu.Lock()
 	s.helloed, s.seq, s.lastSeen = true, req.SessionSeq, now
 	s.mu.Unlock()
-	if loser := g.reg.replace(s); loser != nil {
+	if loser := g.reg.replace(s, func() { g.setPlugins(s, req) }); loser != nil {
 		loser.log.Info("superseded by a newer socket for the same agent", "session_seq", req.SessionSeq)
 		if loser == s {
 			s.reject()
@@ -149,4 +151,20 @@ func (g *Gateway) isStopping() bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.stopping
+}
+
+// setPlugins publishes the agent's manifests to the plugin registry. A
+// rejected manifest is logged and skipped; the agent stays connected.
+func (g *Gateway) setPlugins(s *session, req protocol.HelloRequest) {
+	if g.cfg.Plugins == nil {
+		return
+	}
+	ms := make([]pluginsdk.Manifest, len(req.Manifests))
+	for i, m := range req.Manifests {
+		ms[i] = m.Manifest
+	}
+	err := g.cfg.Plugins.SetAgent(pluginreg.AgentInfo{ID: s.agentID, Pool: s.pool.Name, Capabilities: req.Capabilities, Manifests: ms})
+	if err != nil {
+		s.log.Warn("plugin manifests rejected", "error", err)
+	}
 }

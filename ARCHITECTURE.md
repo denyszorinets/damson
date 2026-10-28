@@ -346,7 +346,7 @@ In v1 every plugin is **compiled into the binary**.
 **Plugin registry**
 
 - Agents send the full manifests of all plugins compiled into their binary in `agent.hello`.
-- The controller stores them in `plugin_manifests(name, version, checksum, manifest)`. It also links the built-in plugins itself, so their schemas are known even when no agent is connected. Plugins that exist only in custom agent binaries become known when such an agent connects.
+- The controller keeps them in an in-memory registry derived from the live agent connections (`internal/pluginreg`; added on hello, dropped on disconnect, deduped by name+version+checksum). A persisted `plugin_manifests(name, version, checksum, manifest)` table is deferred until several controllers must share one view (M3, HA). It also links the built-in plugins itself, so their schemas are known even when no agent is connected. Plugins that exist only in custom agent binaries become known when such an agent connects.
 - **Version pinning:** steps may pin a major version (`"plugin": "helm@1"`). Unpinned means the highest version available on eligible agents.
 - **Dispatch** only goes to agents that report the plugin at a compatible version and satisfy its `Requires` capabilities.
 - **Schema conflicts:** if agents report different schemas for the same name and version (checksum mismatch), the controller flags it in the UI and refuses dispatch to the minority until fixed.

@@ -18,7 +18,10 @@ func newRegistry() *registry { return &registry{sessions: make(map[string]*sessi
 // registered for the agent; the comparison happens under the registry lock so
 // concurrent hellos converge on the highest seq. It returns the session that
 // lost (the displaced one, or s itself when not installed), or nil.
-func (r *registry) replace(s *session) (loser *session) {
+//
+// onInstall runs under the lock when s is installed, so side effects that must
+// follow the registry order (the plugin registry) cannot interleave.
+func (r *registry) replace(s *session, onInstall func()) (loser *session) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	old := r.sessions[s.agentID]
@@ -26,17 +29,24 @@ func (r *registry) replace(s *session) (loser *session) {
 		return s
 	}
 	r.sessions[s.agentID] = s
+	if onInstall != nil {
+		onInstall()
+	}
 	return old
 }
 
 // remove deletes s only if it is still the registered session for its agent.
-func (r *registry) remove(s *session) bool {
+// onRemove runs under the lock after a successful removal.
+func (r *registry) remove(s *session, onRemove func()) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.sessions[s.agentID] != s {
 		return false
 	}
 	delete(r.sessions, s.agentID)
+	if onRemove != nil {
+		onRemove()
+	}
 	return true
 }
 

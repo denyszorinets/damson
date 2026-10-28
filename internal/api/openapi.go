@@ -10,7 +10,7 @@ import (
 // store. It is the source of web/openapi.json (make gen) and is compared
 // against the committed copy in tests.
 func OpenAPIJSON() ([]byte, error) {
-	b, err := json.MarshalIndent(newHuma(http.NewServeMux(), nil).OpenAPI(), "", "  ")
+	b, err := json.MarshalIndent(newHuma(http.NewServeMux(), nil, nil).OpenAPI(), "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("encoding openapi document: %w", err)
 	}

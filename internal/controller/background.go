@@ -84,7 +84,12 @@ func (g *Gateway) disconnect(s *session) {
 		s.log.Debug("agent socket closed before hello")
 		return
 	}
-	if !g.reg.remove(s) {
+	removed := g.reg.remove(s, func() {
+		if g.cfg.Plugins != nil {
+			g.cfg.Plugins.RemoveAgent(s.agentID)
+		}
+	})
+	if !removed {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(g.base), g.cfg.StoreTimeout)
