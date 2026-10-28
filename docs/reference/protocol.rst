@@ -131,6 +131,12 @@ changes a message type.
    The agent sends the gap together with a ``system`` entry that describes the
    loss and carries the last dropped sequence number.
 
+   The controller sends ``log.ack`` only after the chunk row is committed,
+   coalesced to one per attempt per second at most. It also acknowledges a
+   duplicate batch (the agent only resends when it missed the ack) and a batch
+   of a stale attempt (the lines are discarded, but the agent may free them).
+   See :doc:`/development/controller-logs`.
+
 ``step.complete``
    Sent after the final log flush, and resent every two seconds, and on each
    new connection, until the answer has ``acknowledged`` or ``stale`` set.
