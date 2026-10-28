@@ -141,7 +141,7 @@ func (fc *fakeConn) handlers(n int) {
 		c.logs = append(c.logs, la)
 		c.mu.Unlock()
 		if c.autoAck.Load() && len(la.Entries) > 0 {
-			_ = fc.peer.Notify(ctx, protocol.MethodLogAck, protocol.LogAck{AttemptID: la.AttemptID, Seq: la.SeqFrom + uint64(len(la.Entries)) - 1})
+			_ = fc.peer.Notify(ctx, protocol.MethodLogAck, protocol.LogAck{AttemptID: la.AttemptID, Seq: la.LastSeq()})
 		}
 		return nil, nil
 	})
@@ -243,10 +243,29 @@ func (c *fakeCtl) lines(attempt string) map[uint64]protocol.LogEntry {
 	out := map[uint64]protocol.LogEntry{}
 	for _, la := range c.logsOf(attempt) {
 		for i, e := range la.Entries {
-			out[la.SeqFrom+uint64(i)] = e
+			out[la.FirstEntrySeq()+uint64(i)] = e
 		}
 	}
 	return out
+}
+
+// contiguous is the highest sequence number of attempt that is covered
+// without a hole, counting declared gaps (gap_to) as covered.
+func (c *fakeCtl) contiguous(attempt string) uint64 {
+	covered := map[uint64]bool{}
+	for _, la := range c.logsOf(attempt) {
+		for i := range la.Entries {
+			covered[la.FirstEntrySeq()+uint64(i)] = true
+		}
+		for q := la.SeqFrom; la.GapTo >= la.SeqFrom && q <= la.GapTo; q++ {
+			covered[q] = true
+		}
+	}
+	var n uint64
+	for covered[n+1] {
+		n++
+	}
+	return n
 }
 
 func (c *fakeCtl) rawFrames() [][]byte {

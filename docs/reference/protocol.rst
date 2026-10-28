@@ -120,9 +120,16 @@ changes a message type.
    Entry sequence numbers start at 1 per attempt and increase by one per entry.
    Batches are sent in order, flushed every 200 ms or 64 KiB (the hello
    ``limits`` may lower the size). Unacknowledged batches are resent, in order,
-   after a reconnect, so the controller must accept duplicates. Entries lost
-   to spool overflow leave a gap in the sequence that a ``system`` entry
-   describes. ``log.ack`` for ``seq`` frees every batch ending at or before it.
+   after a reconnect, so the controller must accept duplicates. ``log.ack``
+   for ``seq`` frees every batch ending at or before it.
+
+   ``gap_to`` is optional and omitted when unset (additive; compatible with
+   protocol N-1). When present, the sequence numbers ``seq_from`` to
+   ``gap_to`` inclusive were dropped by the agent (spool overflow) and will
+   never be sent; ``entries`` then start at ``gap_to + 1``. The controller must
+   treat a declared gap as contiguous when it computes the ``log.ack`` value.
+   The agent sends the gap together with a ``system`` entry that describes the
+   loss and carries the last dropped sequence number.
 
 ``step.complete``
    Sent after the final log flush, and resent every two seconds, and on each

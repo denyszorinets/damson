@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -80,7 +81,7 @@ func TestSpoolEvictsOldestAndWraps(t *testing.T) {
 			t.Errorf("slot %d = %q, %v", i, got, err)
 		}
 	}
-	if fi, err := os.Stat(s.f.Name()); err != nil || fi.Size() > 50 {
+	if fi, err := s.f.Stat(); err != nil || fi.Size() > 50 {
 		t.Errorf("spool file size = %v, %v; want at most the capacity", fi.Size(), err)
 	}
 }
@@ -113,15 +114,36 @@ func TestSpoolRejectsOversizedRecord(t *testing.T) {
 	}
 }
 
-func TestSpoolCloseRemovesFile(t *testing.T) {
-	s, err := newSpool(t.TempDir(), 10)
+func TestSpoolHasNoNameOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	s, err := newSpool(dir, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	name := s.f.Name()
+	if left, _ := filepath.Glob(filepath.Join(dir, "*")); s.unlinked && len(left) != 0 {
+		t.Errorf("unlinked spool still has files: %v", left)
+	}
+	if _, _, err := s.put([]byte("data"), nil); err != nil { // still usable
+		t.Fatal(err)
+	}
 	s.close()
-	if _, err := os.Stat(name); !os.IsNotExist(err) {
-		t.Errorf("spool file still there: %v", err)
+	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 0 {
+		t.Errorf("files left after close: %v", left)
+	}
+}
+
+func TestSweepSpoolRemovesStaleFilesOnly(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"damson-spool-1.bin", "damson-spool-2.bin", "other.bin"} {
+		if err := os.WriteFile(filepath.Join(dir, n), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := sweepSpool(dir); got != 2 {
+		t.Errorf("swept %d, want 2", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "other.bin")); err != nil {
+		t.Errorf("unrelated file removed: %v", err)
 	}
 }
 
@@ -159,7 +181,7 @@ func (h *logHub) batchCount(attempt string) int {
 
 func TestHubAckFreesMemoryAndSpool(t *testing.T) {
 	h := newTestHub(t, 700, 1<<20)
-	h.register("a", nil)
+	h.register("a")
 	for i := range 6 { // each batch is about 300 bytes: two fit in memory, the rest spill
 		h.add("a", uint64(i*2+1), entries(2, 100))
 	}
@@ -185,7 +207,7 @@ func TestHubAckFreesMemoryAndSpool(t *testing.T) {
 
 func TestHubForgetFreesEverything(t *testing.T) {
 	h := newTestHub(t, 1, 1<<20) // everything goes to the spool
-	h.register("a", nil)
+	h.register("a")
 	h.add("a", 1, entries(3, 50))
 	if h.spoolBytes() == 0 {
 		t.Fatal("expected a spooled batch")
@@ -197,77 +219,72 @@ func TestHubForgetFreesEverything(t *testing.T) {
 	h.add("a", 4, entries(1, 10)) // after forget: ignored, no panic
 }
 
-func TestHubSpoolOverflowDropsOldestAndReportsGap(t *testing.T) {
+func TestHubSpoolOverflowDeclaresGap(t *testing.T) {
 	h := newTestHub(t, 1, 1500) // memory is bypassed; the spool holds a few batches
-	var gaps []string
-	h.register("a", func(m string) { gaps = append(gaps, m) })
+	h.register("a")
 	for i := range 20 {
 		h.add("a", uint64(i*2+1), entries(2, 100))
 		if h.spoolBytes() > 1500 {
 			t.Fatalf("spool %d bytes exceeds its cap", h.spoolBytes())
 		}
 	}
-	if len(gaps) == 0 {
-		t.Fatal("no gap reported although the spool overflowed")
-	}
-	if !strings.Contains(gaps[0], "entries 1-2 were dropped") {
-		t.Errorf("first gap = %q, want the oldest batch (entries 1-2)", gaps[0])
-	}
 	h.mu.Lock()
-	first := h.attempts["a"].batches[0].from
-	h.mu.Unlock()
-	if first <= 2 {
-		t.Errorf("oldest surviving batch starts at %d; the oldest should be gone", first)
+	defer h.mu.Unlock()
+	bs := h.attempts["a"].batches
+	if !bs[0].gap || bs[0].from != 1 {
+		t.Fatalf("first batch = %+v; want a gap placeholder starting at 1", bs[0])
+	}
+	if bs[1].gap || bs[1].from != bs[0].to+1 {
+		t.Errorf("batch after the placeholder starts at %d, want %d", bs[1].from, bs[0].to+1)
+	}
+	line := bs[0].entries[0]
+	if line.Stream != pluginsdk.System || !strings.Contains(line.Line, fmt.Sprintf("entries 1-%d were dropped", bs[0].to)) {
+		t.Errorf("gap line = %+v", line)
+	}
+	for i := 1; i < len(bs); i++ {
+		if bs[i].gap {
+			t.Errorf("adjacent gap placeholders were not merged at %d", i)
+		}
 	}
 }
 
 func TestHubDropsWhenSpoolUnavailable(t *testing.T) {
 	h := newLogHub(slog.New(slog.DiscardHandler), &link{}, 1, 100, "/proc/damson-no-such-dir/x")
-	var gaps []string
-	h.register("a", func(m string) { gaps = append(gaps, m) })
+	h.register("a")
 	h.add("a", 1, entries(2, 100))
-	if len(gaps) != 1 || h.batchCount("a") != 0 {
-		t.Errorf("gaps=%v batches=%d", gaps, h.batchCount("a"))
+	h.add("a", 3, entries(2, 100))
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	bs := h.attempts["a"].batches
+	if len(bs) != 1 || !bs[0].gap || bs[0].from != 1 || bs[0].to != 4 {
+		t.Errorf("batches = %+v; want one merged gap 1-4", bs)
 	}
 }
 
-func TestLogPipeSequencesAndGapLine(t *testing.T) {
+func TestLogPipeSequencesAcrossAGap(t *testing.T) {
 	h := newTestHub(t, 1, 600)
-	m := newMasker(nil)
-	now := func() time.Time { return time.Unix(0, 42) }
-	p := newLogPipe(t.Context(), h, "a", m, now, time.Hour, Clock{})
+	h.now = func() time.Time { return time.Unix(0, 42) }
+	p := newLogPipe(t.Context(), h, "a", newMasker(nil), func() time.Time { return time.Unix(0, 42) }, time.Hour, Clock{})
 	// Drive flushes by hand: no loop, so the test is deterministic.
 	for i := range 10 {
 		p.Log(pluginsdk.Stdout, fmt.Sprintf("line %d %s", i, strings.Repeat("y", 150)))
 		p.flush()
 	}
-	p.flush() // delivers the gap line queued by the overflow
 	h.mu.Lock()
-	var seen []protocol.LogEntry
+	defer h.mu.Unlock()
 	var last uint64
+	var gaps int
 	for _, b := range h.attempts["a"].batches {
-		if b.from <= last {
-			t.Errorf("batch seq %d..%d overlaps or is out of order", b.from, b.to)
+		if b.from != last+1 {
+			t.Errorf("batch %d..%d does not follow %d", b.from, b.to, last)
 		}
 		last = b.to
-		es, err := h.loadLocked(b)
-		if err != nil {
-			t.Fatal(err)
-		}
-		seen = append(seen, es...)
-	}
-	h.mu.Unlock()
-	var gapLines int
-	for _, e := range seen {
-		if e.Stream == pluginsdk.System && strings.HasPrefix(e.Line, "log gap:") {
-			gapLines++
-		}
-		if e.TS != 42 {
-			t.Errorf("entry ts = %d, want the injected clock", e.TS)
+		if b.gap {
+			gaps++
 		}
 	}
-	if gapLines == 0 {
-		t.Error("the gap was not recorded as a System log line")
+	if gaps == 0 || last != 10 {
+		t.Errorf("gaps=%d last=%d; want a declared gap and the stream ending at 10", gaps, last)
 	}
 }
 
@@ -277,7 +294,12 @@ func TestTombstones(t *testing.T) {
 	var ts tombstones
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	ts.add("a", now)
-	ts.add("a", now) // idempotent
+	ts.add("a", now)                     // idempotent
+	ts.add("a", now.Add(10*time.Minute)) // refreshes the TTL
+	if !ts.has("a", now.Add(20*time.Minute)) {
+		t.Error("re-adding did not refresh the TTL")
+	}
+	ts.add("a", now)
 	if !ts.has("a", now.Add(time.Minute)) || ts.has("b", now) {
 		t.Error("has() wrong within the TTL")
 	}

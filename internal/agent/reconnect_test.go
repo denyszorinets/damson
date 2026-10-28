@@ -259,7 +259,7 @@ func TestSpoolOverflowEndToEnd(t *testing.T) {
 		<-release
 		return pluginsdk.Result{}, nil
 	})
-	startAgent(t, ctl, []pluginsdk.Plugin{p}, func(c *Config) {
+	a, _ := startAgent(t, ctl, []pluginsdk.Plugin{p}, func(c *Config) {
 		c.MemBufferBytes, c.SpoolBytes = 1, spoolCap
 	})
 	ctl.mustExecute(stepReq("a1"))
@@ -287,17 +287,19 @@ func TestSpoolOverflowEndToEnd(t *testing.T) {
 		return ok && hb.SpoolBytes > 0 && hb.SpoolBytes <= spoolCap
 	})
 
-	// After a reconnect only the surviving batches are resent; the oldest
-	// entries are gone for good.
+	// After a reconnect the dropped range is declared as a gap in the first
+	// resent batch, and the controller's acks stay contiguous across it.
 	before := len(ctl.logsOf("a1"))
+	ctl.autoAck.Store(true)
 	_ = ctl.latest().peer.Close()
 	ctl.waitHellos(2)
 	eventually(t, "resend", func() bool { return len(ctl.logsOf("a1")) > before })
-	for _, la := range ctl.logsOf("a1")[before:] {
-		if la.SeqFrom == 1 {
-			t.Errorf("batch from seq 1 was resent although it should have been dropped")
-		}
+	first := ctl.logsOf("a1")[before]
+	if first.SeqFrom != 1 || first.GapTo < 1 || len(first.Entries) != 1 || first.Entries[0].Stream != pluginsdk.System {
+		t.Errorf("first resent batch = from %d gap_to %d entries %d; want the declared gap with its System line", first.SeqFrom, first.GapTo, len(first.Entries))
 	}
+	eventually(t, "every sequence number covered", func() bool { return ctl.contiguous("a1") == 40 })
+	eventually(t, "acks drain the buffer", func() bool { return a.exec.hub.batchCount("a1") == 0 })
 	close(release)
 	completeOf(t, ctl, "a1")
 }

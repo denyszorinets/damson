@@ -45,13 +45,19 @@ is masked before it leaves (plain, base64 and URL-encoded forms).
   grace period to return; after that the agent reports the step ``canceled``
   anyway, and the plugin keeps its slot until it does return.
 * A step with a timeout is reported ``timed_out`` when it expires.
+* A step whose outputs exceed 1 MiB fails with an ``internal`` error.
+* Secrets shorter than 4 bytes are not masked in text; the step log says so
+  once. Plugins must log whole lines: a secret split across two log calls is
+  not masked.
 * A plugin panic is reported as an ``internal`` failure; nothing of the panic
   value is sent.
 * Logs are batched (200 ms or 64 KiB) and kept until the controller
   acknowledges them: first in memory (32 MiB), then in a spool file
   (``agent.spool_max_bytes``, 256 MiB by default, in ``agent.spool_dir``).
   When the spool is full the oldest unacknowledged logs are dropped and a
-  ``system`` line records the gap. An agent crash loses unacknowledged logs.
+  ``system`` line records the gap (the dropped sequence numbers are declared
+  with ``gap_to``). The spool holds masked job output in plaintext (mode 0600)
+  and is unlinked at creation. An agent crash loses unacknowledged logs.
 * ``step.complete`` is retried until the controller acknowledges it, across
   reconnects. A result that is not acknowledged is listed in the next
   ``agent.hello`` so the controller can decide.

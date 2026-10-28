@@ -81,7 +81,9 @@ written as a double underscore: ``agent.controller_url`` is
      - agent
      - empty
      - Directory of the log spool file. Empty means the system temp dir. The
-       file is removed when the agent stops.
+       file holds masked job output in plaintext (mode 0600) and is unlinked
+       as soon as it is created; stale ``damson-spool-*`` files are removed at
+       start, so do not share the directory between agents.
    * - ``agent.spool_max_bytes``
      - agent
      - ``0``

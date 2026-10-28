@@ -50,7 +50,7 @@ func newLogPipe(ctx context.Context, hub *logHub, attempt string, m *masker, now
 		kick: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{}),
 	}
 	p.cond = sync.NewCond(&p.mu)
-	hub.register(attempt, p.system)
+	hub.register(attempt)
 	return p
 }
 
@@ -65,6 +65,9 @@ func (p *logPipe) Log(stream pluginsdk.Stream, line string) {
 		cut := maxLineBytes
 		for cut > 0 && !utf8.RuneStart(line[cut]) {
 			cut--
+		}
+		if cut == 0 { // no rune start in the window (binary input): cut anywhere
+			cut = maxLineBytes
 		}
 		p.add(stream, line[:cut], true)
 		line = line[cut:]
@@ -132,15 +135,17 @@ func (p *logPipe) flush() {
 	p.hub.pump(p.ctx)
 }
 
-// close stops the loop, flushes what is left and rejects later lines.
+// close stops the loop, rejects later lines and flushes what is left. Lines
+// are rejected first so a plugin that outlives its step cannot queue text
+// nobody will flush.
 func (p *logPipe) close() {
 	close(p.stop)
 	<-p.done
-	p.flush()
 	p.mu.Lock()
 	p.closed = true
 	p.cond.Broadcast()
 	p.mu.Unlock()
+	p.flush()
 }
 
 // stepEmitter is the pluginsdk.Emitter handed to plugins.

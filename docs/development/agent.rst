@@ -104,14 +104,26 @@ Secrets
 The bundle is decoded from ``step.execute`` and handed to ``bundleResolver``;
 the request struct drops its reference. The masker is built from every field
 value with its base64 (standard, URL, padded and raw) and URL-encoded forms,
-and each line of five or more characters of a multi-line value. Masked paths:
+and each line of five or more characters of a multi-line value. Matches of all
+needles are merged as intervals, so overlapping secrets leave no fragment.
+Values shorter than 4 bytes are not masked in text (they would match ordinary
+output everywhere); the step log then gets one ``system`` line, ``secret
+value shorter than 4 bytes cannot be masked reliably``, without the value or
+its length. Masked paths:
 
 * every log line, before it enters the batcher;
 * ``step.progress`` messages;
 * error messages in ``step.complete``;
 * string values in outputs (the whole value becomes ``***``, a warning goes to
   the agent log and to the step log);
-* the plugin ``Logger`` (message, string and error attributes).
+* the plugin ``Logger`` (message, string and error attributes);
+* ``node.hostkey_observed``: the node name is masked and the key is re-encoded
+  without its comment.
+
+Masking works per ``Log`` call: a secret split across two calls is not
+recognized, so plugins must log whole lines. After the step ends the masker
+is wiped and masks every non-empty text, so a plugin goroutine that outlives
+its step cannot leak.
 
 ``secrets_test.go`` proves that no frame the agent sends and no agent log line
 contains any form of a secret, including on failure and panic.
@@ -125,15 +137,40 @@ attempt. The pipe flushes to the hub every 200 ms, or when the pending text
 reaches the batch size (64 KiB, or the ``log_batch_bytes`` limit from the
 hello response); a flush cuts batches at that size. A plugin that logs faster
 than batches can be handed over blocks briefly (backpressure) instead of
-growing memory.
+growing memory. Lines that cannot be cut on a rune boundary (binary input) are
+cut at 32 KiB anyway, so splitting always makes progress. Plugins must log
+whole lines: a secret split across two ``Log`` calls is not masked.
 
 The hub keeps every batch until ``log.ack`` covers it: in memory up to 32 MiB,
 then in the spool, a ring in one file (256 MiB by default, ``agent.spool_dir``
 and ``agent.spool_max_bytes``). When the spool is full the oldest spooled
-batches are dropped and a ``system`` log line ``log gap: entries A-B were
-dropped by the agent (log buffer full)`` goes into the attempt's stream. The
-spool is deleted when the agent stops; an agent crash loses unacknowledged
-logs. After a reconnect the hub resends everything unacknowledged, in order.
+batches are replaced, inside the hub's queue, by one placeholder (merged with
+neighbouring ones). It is sent as ``log.append`` with ``seq_from`` = A,
+``gap_to`` = B-1 and one ``system`` entry ``log gap: entries A-B were dropped
+by the agent (log buffer full)`` at sequence B, so the dropped numbers are
+declared and the controller's acks stay contiguous. Because the placeholder
+lives in the hub, it is delivered even if the attempt's pipe has closed.
+
+The spool holds masked job output in plaintext (mode 0600). The file is
+unlinked right after creation, so it has no name on disk and cannot outlive
+the process; where unlinking an open file fails the file is removed on stop,
+and ``damson-spool-*`` files found in the spool directory at start are swept
+(do not share the spool directory between agents). An agent crash loses
+unacknowledged logs.
+
+Memory bounds: the hub holds 32 MiB of batches; each running step's pipe
+may additionally queue up to 8 batch sizes (``pending``) before ``Log``
+blocks, so the worst case is slots x 8 x batch bytes plus the hub. A wedged
+socket can make the hub's single sender wait up to 10 s per send while holding
+its send lock. Outputs of a step are limited to 1 MiB and error messages to
+8 KiB, so ``step.complete`` fits ``protocol.MaxFrameSize``; at most 1024
+unacknowledged results are kept for 6 hours (oldest dropped, logged at Warn).
+Acknowledged or discarded attempts are remembered for 15 minutes, so a late
+``step.execute`` is rejected as ``already completed``. A result's delivery
+failures (an error answer, or an acknowledgement with neither ``acknowledged``
+nor ``stale``) back off per result up to 30 s and do not block the others; a
+transport error ends the round. After the acknowledgement the attempt's logs
+are dropped only if none is unsent. After a reconnect the hub resends everything unacknowledged, in order.
 Only the hub sends ``log.append`` (one send lock), which keeps batches ordered
 across reconnects.
 

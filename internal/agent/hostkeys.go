@@ -13,12 +13,15 @@ import (
 // hostKeyReporter maps pluginsdk.HostKeyReporter to node.hostkey_observed.
 // The report is best-effort: when the connection is down it is dropped, and
 // the next run on that node observes the key again. The controller applies
-// it only if the attempt is still current (fencing).
+// it only if the attempt is still current (fencing). The node name passes the
+// masker and the key is re-encoded without its comment, so no free text from
+// the plugin reaches the wire.
 type hostKeyReporter struct {
 	ctx     context.Context
 	link    *link
 	attempt string
 	log     *slog.Logger
+	m       *masker
 }
 
 // ReportHostKey implements pluginsdk.HostKeyReporter.
@@ -32,9 +35,9 @@ func (h *hostKeyReporter) ReportHostKey(node, key string) {
 	defer cancel()
 	err = h.link.notify(ctx, protocol.MethodNodeHostKeyObserved, protocol.HostKeyObserved{
 		AttemptID:   h.attempt,
-		Node:        node,
+		Node:        h.m.Mask(node),
 		KeyType:     pub.Type(),
-		HostKey:     strings.TrimSpace(key),
+		HostKey:     strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub))), // canonical: no free-text comment
 		Fingerprint: ssh.FingerprintSHA256(pub),
 	})
 	if err != nil {

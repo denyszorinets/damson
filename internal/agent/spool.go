@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // spool is a bounded ring of records in one file. Records are appended in
@@ -15,6 +16,7 @@ import (
 // spool is not safe for concurrent use: the log hub serializes access.
 type spool struct {
 	f          *os.File
+	unlinked   bool // the file has no name; nothing to remove on close
 	cap        int64
 	head, tail int64
 	q          []*spoolSlot
@@ -40,11 +42,37 @@ func newSpool(dir string, capacity int64) (*spool, error) {
 			return nil, fmt.Errorf("creating spool dir: %w", err)
 		}
 	}
-	f, err := os.CreateTemp(dir, "damson-spool-*.bin")
+	f, err := os.CreateTemp(dir, spoolPattern)
 	if err != nil {
 		return nil, fmt.Errorf("creating spool file: %w", err)
 	}
-	return &spool{f: f, cap: capacity}, nil
+	// Unlink at once: the data is then reachable only through the open
+	// descriptor and cannot outlive the process. Where that fails (for
+	// example on Windows) the file keeps its name, is removed on close and
+	// swept at the next start.
+	return &spool{f: f, cap: capacity, unlinked: os.Remove(f.Name()) == nil}, nil
+}
+
+const spoolPattern = "damson-spool-*.bin"
+
+// sweepSpool removes spool files a crashed agent left in dir ("" means the
+// system temp dir). It returns how many it removed. The spool directory must
+// not be shared with another agent: its live file would be swept too.
+func sweepSpool(dir string) int {
+	if dir == "" {
+		dir = os.TempDir()
+	}
+	names, err := filepath.Glob(filepath.Join(dir, spoolPattern))
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, name := range names {
+		if fi, err := os.Lstat(name); err == nil && fi.Mode().IsRegular() && os.Remove(name) == nil {
+			n++
+		}
+	}
+	return n
 }
 
 // put stores data for owner and returns the slot plus the live slots it
@@ -118,9 +146,10 @@ func (s *spool) advance() {
 // the newest one, holes included.
 func (s *spool) used() int64 { return s.tail - s.head }
 
-// close removes the file.
+// close closes the file and removes it if it still has a name.
 func (s *spool) close() {
-	name := s.f.Name()
 	_ = s.f.Close()
-	_ = os.Remove(name)
+	if !s.unlinked {
+		_ = os.Remove(s.f.Name())
+	}
 }

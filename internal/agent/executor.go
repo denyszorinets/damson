@@ -29,16 +29,20 @@ type Executor struct {
 	draining func() bool
 	wake     chan struct{}
 
-	mu      sync.Mutex
-	runs    map[string]*run
-	done    map[string]*finishedStep // completed, step.complete not yet acknowledged
-	tombs   tombstones
-	busy    int // plugin goroutines still running, including abandoned ones
-	started bool
-	stopped bool
-	base    context.Context
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
+	mu    sync.Mutex
+	runs  map[string]*run
+	done  map[string]*finishedStep // completed, step.complete not yet acknowledged
+	tombs tombstones               // cancelled before their execute arrived
+	// completed holds attempts whose result was acknowledged or discarded, so
+	// a late or retried step.execute cannot run them again.
+	completed tombstones
+	finishSeq uint64
+	busy      int // plugin goroutines still running, including abandoned ones
+	started   bool
+	stopped   bool
+	base      context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
 }
 
 func newExecutor(cfg *Config, log *slog.Logger, draining func() bool) (*Executor, error) {
@@ -54,6 +58,7 @@ func newExecutor(cfg *Config, log *slog.Logger, draining func() bool) (*Executor
 	l := &link{}
 	hub := newLogHub(log, l, cfg.MemBufferBytes, cfg.SpoolBytes, cfg.SpoolDir)
 	hub.batchBytes.Store(cfg.LogBatchBytes)
+	hub.now = cfg.Now
 	return &Executor{
 		cfg: cfg, log: log, link: l, hub: hub, plugins: plugins, draining: draining,
 		wake: make(chan struct{}, 1),
@@ -69,6 +74,9 @@ func (e *Executor) Start(ctx context.Context) error {
 		return errors.New("agent: executor already started")
 	}
 	e.started = true
+	if n := sweepSpool(e.cfg.SpoolDir); n > 0 {
+		e.log.Warn("removed stale log spool files left by an earlier run", "count", n)
+	}
 	e.base, e.cancel = context.WithCancel(ctx)
 	e.wg.Add(1)
 	go func() {
@@ -79,23 +87,27 @@ func (e *Executor) Start(ctx context.Context) error {
 }
 
 // Stop cancels running steps and waits for the goroutines until ctx expires.
-// Unacknowledged results and logs are lost; that is the stateless-agent
-// trade-off of ARCHITECTURE.md section 7.3. Safe to call without Start.
+// The log spool is closed on every path, also when a plugin ignores
+// cancellation and ctx expires first. Unacknowledged results and logs are
+// lost; that is the stateless-agent trade-off of ARCHITECTURE.md section 7.3.
+// Safe to call without Start and more than once; every call waits again.
 func (e *Executor) Stop(ctx context.Context) error {
 	e.mu.Lock()
-	if !e.started || e.stopped {
+	if !e.started {
 		e.mu.Unlock()
 		return nil
 	}
-	e.stopped = true
-	e.cancel()
+	defer e.hub.close()
+	if !e.stopped {
+		e.stopped = true
+		e.cancel()
+	}
 	e.mu.Unlock()
 
 	waited := make(chan struct{})
 	go func() { e.wg.Wait(); close(waited) }()
 	select {
 	case <-waited:
-		e.hub.close()
 		return nil
 	case <-ctx.Done():
 		return fmt.Errorf("waiting for steps to stop: %w", ctx.Err())
@@ -154,6 +166,8 @@ func (e *Executor) accept(req protocol.StepExecute) protocol.StepExecuteResult {
 		return reject("agent is stopping")
 	case e.draining != nil && e.draining():
 		return reject("draining")
+	case e.completed.has(req.AttemptID, e.cfg.Now()):
+		return reject("already completed")
 	case e.tombs.has(req.AttemptID, e.cfg.Now()):
 		return reject("cancelled before start")
 	case !known:

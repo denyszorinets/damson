@@ -11,6 +11,10 @@ import (
 // sanitizeOutputs decodes a plugin's JSON outputs and replaces every string
 // value that contains a secret with ***. It returns the JSON paths it
 // redacted so the caller can warn. Numbers keep their integer form.
+//
+// The decoded outputs are limited to maxOutputBytes in total (keys, strings
+// and a small fixed cost per value), which keeps step.complete far below
+// protocol.MaxFrameSize. Exceeding it is an error whose text names no value.
 func sanitizeOutputs(raw json.RawMessage, m *masker) (map[string]any, []string, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, nil, nil
@@ -31,20 +35,41 @@ func sanitizeOutputs(raw json.RawMessage, m *masker) (map[string]any, []string, 
 	if !ok {
 		return nil, nil, errors.New("plugin outputs are not a JSON object")
 	}
-	var redacted []string
-	out, _ := walkOutputs(obj, "", m, &redacted).(map[string]any)
-	return out, redacted, nil
+	w := &outputWalker{m: m}
+	out, _ := w.walk(obj, "").(map[string]any)
+	if w.size > maxOutputBytes {
+		return nil, nil, fmt.Errorf("plugin outputs exceed the limit of %d bytes", maxOutputBytes)
+	}
+	return out, w.redacted, nil
 }
 
-func walkOutputs(v any, path string, m *masker, redacted *[]string) any {
+const (
+	// maxOutputBytes caps the outputs of one step (1 MiB).
+	maxOutputBytes = 1 << 20
+	// valueCost is what a non-string value counts towards the cap.
+	valueCost = 16
+)
+
+type outputWalker struct {
+	m        *masker
+	redacted []string
+	size     int
+}
+
+func (w *outputWalker) walk(v any, path string) any {
+	if w.size > maxOutputBytes { // stop early; the caller reports the error
+		return nil
+	}
 	switch t := v.(type) {
 	case string:
-		if m.Contains(t) {
-			*redacted = append(*redacted, path)
+		w.size += len(t) + valueCost
+		if w.m.Contains(t) {
+			w.redacted = append(w.redacted, path)
 			return maskText
 		}
 		return t
 	case json.Number:
+		w.size += valueCost
 		if i, err := t.Int64(); err == nil {
 			return i
 		}
@@ -53,16 +78,18 @@ func walkOutputs(v any, path string, m *masker, redacted *[]string) any {
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, e := range t {
-			mk := m.Mask(k)
-			out[mk] = walkOutputs(e, path+"."+mk, m, redacted)
+			mk := w.m.Mask(k)
+			w.size += len(mk) + valueCost
+			out[mk] = w.walk(e, path+"."+mk)
 		}
 		return out
 	case []any:
 		out := make([]any, len(t))
 		for i, e := range t {
-			out[i] = walkOutputs(e, fmt.Sprintf("%s[%d]", path, i), m, redacted)
+			out[i] = w.walk(e, fmt.Sprintf("%s[%d]", path, i))
 		}
 		return out
 	}
+	w.size += valueCost
 	return v
 }

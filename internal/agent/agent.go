@@ -76,16 +76,21 @@ func (a *Agent) Stop(ctx context.Context) error {
 		return nil
 	}
 	cancel()
+	var err error
 	select {
 	case <-a.done:
-		if err := a.exec.Stop(ctx); err != nil {
-			return err
-		}
-		a.log.Info("agent stopped")
-		return nil
 	case <-ctx.Done():
-		return fmt.Errorf("waiting for agent to stop: %w", ctx.Err())
+		err = fmt.Errorf("waiting for agent to stop: %w", ctx.Err())
 	}
+	// The executor stops on every path so its spool is closed even when the
+	// connection loop is wedged or a plugin ignores cancellation.
+	if xerr := a.exec.Stop(ctx); err == nil {
+		err = xerr
+	}
+	if err == nil {
+		a.log.Info("agent stopped")
+	}
+	return err
 }
 
 // Done is closed when the connection loop has ended: after Stop, or when the

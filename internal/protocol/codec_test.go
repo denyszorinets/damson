@@ -57,6 +57,9 @@ func TestMessageRoundTrip(t *testing.T) {
 			{TS: 1700000000000000000, Stream: pluginsdk.Stdout, Line: "hi"},
 			{TS: 1700000000000000001, Stream: pluginsdk.System, Line: "gap"},
 		}}, func() any { return new(LogAppend) }},
+		{"log.append with gap", &LogAppend{AttemptID: "a1", SeqFrom: 3, GapTo: 9, Entries: []LogEntry{
+			{TS: 5, Stream: pluginsdk.System, Line: "log gap"},
+		}}, func() any { return new(LogAppend) }},
 		{"log.ack", &LogAck{AttemptID: "a1", Seq: 9}, func() any { return new(LogAck) }},
 		{"step.progress", &StepProgress{AttemptID: "a1", Percent: 50, Message: "half"}, func() any { return new(StepProgress) }},
 		{"step.complete", &StepComplete{
@@ -288,5 +291,36 @@ func TestApplicationErrorCodes(t *testing.T) {
 				t.Fatalf("round trip = %+v, %v", m, err)
 			}
 		})
+	}
+}
+
+func TestLogAppendSeqs(t *testing.T) {
+	e := []LogEntry{{}, {}}
+	tests := []struct {
+		name        string
+		la          LogAppend
+		first, last uint64
+	}{
+		{"plain", LogAppend{SeqFrom: 5, Entries: e}, 5, 6},
+		{"gap", LogAppend{SeqFrom: 5, GapTo: 9, Entries: e}, 10, 11},
+		{"gap only", LogAppend{SeqFrom: 5, GapTo: 9}, 10, 9},
+	}
+	for _, tt := range tests {
+		if got := tt.la.FirstEntrySeq(); got != tt.first {
+			t.Errorf("%s: first = %d, want %d", tt.name, got, tt.first)
+		}
+		if got := tt.la.LastSeq(); got != tt.last {
+			t.Errorf("%s: last = %d, want %d", tt.name, got, tt.last)
+		}
+	}
+}
+
+func TestLogAppendWithoutGapToOmitsField(t *testing.T) {
+	raw, err := Encode(&LogAppend{AttemptID: "a", SeqFrom: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte("gap_to")) {
+		t.Error("gap_to is encoded although unset")
 	}
 }

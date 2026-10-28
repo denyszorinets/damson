@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/denyszorinets/damson/internal/protocol"
+	"github.com/denyszorinets/damson/pkg/pluginsdk"
 )
 
 // entryOverhead approximates the memory cost of one entry beyond its text.
@@ -27,6 +29,10 @@ type batch struct {
 	size     int64
 	entries  []protocol.LogEntry
 	slot     *spoolSlot
+	// gap marks a placeholder for dropped entries from..to. Its single entry
+	// is the System line describing the loss and carries sequence number to;
+	// it is sent with gap_to = to-1 so the dropped numbers are declared.
+	gap bool
 }
 
 // attemptBuf is the unacknowledged batches of one attempt, oldest first.
@@ -34,8 +40,6 @@ type batch struct {
 type attemptBuf struct {
 	batches []*batch
 	cursor  int
-	// gap reports lost entries to the attempt's log (a System line).
-	gap func(msg string)
 }
 
 // logHub keeps unacknowledged log batches for all attempts: in memory up to
@@ -49,7 +53,8 @@ type logHub struct {
 	spoolCap int64
 	spoolDir string
 
-	batchBytes atomic.Int64 // flush threshold; the controller may lower it
+	batchBytes atomic.Int64     // flush threshold; the controller may lower it
+	now        func() time.Time // timestamps gap lines
 
 	mu       sync.Mutex
 	mem      int64
@@ -63,7 +68,7 @@ type logHub struct {
 func newLogHub(log *slog.Logger, l *link, memCap, spoolCap int64, spoolDir string) *logHub {
 	h := &logHub{
 		log: log, link: l, memCap: memCap, spoolCap: spoolCap, spoolDir: spoolDir,
-		attempts: map[string]*attemptBuf{},
+		attempts: map[string]*attemptBuf{}, now: time.Now,
 	}
 	h.batchBytes.Store(DefaultLogBatchBytes)
 	return h
@@ -77,45 +82,39 @@ func estimate(entries []protocol.LogEntry) int64 {
 	return n
 }
 
-// register creates the buffer of a new attempt. gap is called, outside any
-// hub lock, with a message for each run of entries that had to be dropped.
-func (h *logHub) register(attempt string, gap func(string)) {
+// register creates the buffer of a new attempt.
+func (h *logHub) register(attempt string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.attempts[attempt] = &attemptBuf{gap: gap}
+	h.attempts[attempt] = &attemptBuf{}
 }
 
 // add stores a batch. It never blocks on the network; call pump to send.
+// Batches that cannot be kept (evicted from the spool, or spooling failed)
+// are replaced in the queue by a gap placeholder, so the loss is declared to
+// the controller even when the attempt's pipe has already closed.
 func (h *logHub) add(attempt string, from uint64, entries []protocol.LogEntry) {
 	b := &batch{attempt: attempt, from: from, to: from + uint64(len(entries)) - 1, size: estimate(entries), entries: entries}
-	var lost []*batch
-
 	h.mu.Lock()
+	defer h.mu.Unlock()
 	ab := h.attempts[attempt]
 	if ab == nil { // forgotten while the last flush ran
-		h.mu.Unlock()
 		return
 	}
+	var lost []*batch
 	if h.mem+b.size <= h.memCap {
 		h.mem += b.size
 	} else {
 		lost = h.spillLocked(b)
 	}
-	dropped := b.entries == nil && b.slot == nil
-	if !dropped {
+	if b.entries == nil && b.slot == nil {
+		h.log.Warn("dropped log batch: spool unavailable", "attempt_id", b.attempt, "seq_from", b.from, "seq_to", b.to)
+		lost = append(lost, b)
+	} else {
 		ab.batches = append(ab.batches, b)
 	}
-	msgs, reports := h.collectLostLocked(lost)
-	report := ab.gap
-	h.mu.Unlock()
-
-	for i, msg := range msgs {
-		if reports[i] != nil {
-			reports[i](msg)
-		}
-	}
-	if dropped {
-		h.reportDropped(report, b)
+	for _, x := range lost {
+		h.markLostLocked(x)
 	}
 }
 
@@ -158,43 +157,53 @@ func (h *logHub) spoolLocked() *spool {
 	return h.sp
 }
 
-// collectLostLocked removes evicted batches from their attempts and returns
-// the gap messages with the callbacks to run after unlocking.
-func (h *logHub) collectLostLocked(lost []*batch) ([]string, []func(string)) {
-	var msgs []string
-	var reports []func(string)
-	for _, b := range lost {
-		ab := h.attempts[b.attempt]
-		if ab == nil {
-			continue
-		}
-		for i, x := range ab.batches {
-			if x != b {
-				continue
-			}
-			ab.batches = append(ab.batches[:i], ab.batches[i+1:]...)
-			if i < ab.cursor {
-				ab.cursor--
-			}
-			break
-		}
-		b.slot = nil
-		msgs = append(msgs, gapMessage(b))
-		reports = append(reports, ab.gap)
-		h.log.Warn("log spool full; dropped oldest unacknowledged logs", "attempt_id", b.attempt, "seq_from", b.from, "seq_to", b.to)
+// markLostLocked replaces b in its attempt's queue (or appends it, when it
+// never made it in) by a gap placeholder and merges adjacent placeholders.
+func (h *logHub) markLostLocked(b *batch) {
+	ab := h.attempts[b.attempt]
+	if ab == nil {
+		return
 	}
-	return msgs, reports
+	h.log.Warn("log buffer full; dropped unacknowledged logs", "attempt_id", b.attempt, "seq_from", b.from, "seq_to", b.to)
+	idx := slices.Index(ab.batches, b)
+	g := h.gapBatch(b.attempt, b.from, b.to)
+	if idx < 0 {
+		ab.batches = append(ab.batches, g)
+		idx = len(ab.batches) - 1
+	} else {
+		h.freeLocked(b) // idempotent for an evicted, already dead, slot
+		ab.batches[idx] = g
+	}
+	h.mem += g.size
+	if idx > 0 && ab.batches[idx-1].gap && ab.batches[idx-1].to+1 == g.from {
+		h.mergeGapsLocked(ab, idx-1)
+		idx--
+	}
+	if idx+1 < len(ab.batches) && ab.batches[idx+1].gap && g.to+1 == ab.batches[idx+1].from {
+		h.mergeGapsLocked(ab, idx)
+	}
+	ab.cursor = min(ab.cursor, idx) // the placeholder has not been sent
 }
 
-func gapMessage(b *batch) string {
-	return fmt.Sprintf("log gap: entries %d-%d were dropped by the agent (log buffer full)", b.from, b.to)
+// mergeGapsLocked merges the placeholders at i and i+1 into one at i.
+func (h *logHub) mergeGapsLocked(ab *attemptBuf, i int) {
+	x, y := ab.batches[i], ab.batches[i+1]
+	m := h.gapBatch(x.attempt, x.from, y.to)
+	h.mem += m.size - x.size - y.size
+	ab.batches[i] = m
+	ab.batches = slices.Delete(ab.batches, i+1, i+2)
+	if ab.cursor > i+1 {
+		ab.cursor--
+	}
 }
 
-func (h *logHub) reportDropped(report func(string), b *batch) {
-	h.log.Warn("dropped log batch: spool unavailable", "attempt_id", b.attempt, "seq_from", b.from, "seq_to", b.to)
-	if report != nil {
-		report(gapMessage(b))
+func (h *logHub) gapBatch(attempt string, from, to uint64) *batch {
+	line := protocol.LogEntry{
+		TS: h.now().UnixNano(), Stream: pluginsdk.System,
+		Line: fmt.Sprintf("log gap: entries %d-%d were dropped by the agent (log buffer full)", from, to),
 	}
+	entries := []protocol.LogEntry{line}
+	return &batch{attempt: attempt, from: from, to: to, size: estimate(entries), entries: entries, gap: true}
 }
 
 // loadLocked returns the batch's entries, reading the spool if needed.
@@ -226,7 +235,7 @@ func (h *logHub) nextUnsent(attempt string) (*batch, []protocol.LogEntry) {
 		entries, err := h.loadLocked(b)
 		if err != nil { // unreadable: drop it and carry on
 			h.log.Warn("dropping unreadable spooled batch", "attempt_id", attempt, "error", err)
-			h.removeLocked(ab, ab.cursor)
+			h.markLostLocked(b)
 			continue
 		}
 		ab.cursor++
@@ -244,18 +253,11 @@ func (h *logHub) unsend(b *batch) {
 	}
 }
 
-func (h *logHub) removeLocked(ab *attemptBuf, i int) {
-	b := ab.batches[i]
-	ab.batches = append(ab.batches[:i], ab.batches[i+1:]...)
-	if i < ab.cursor {
-		ab.cursor--
-	}
-	h.freeLocked(b)
-}
-
 func (h *logHub) freeLocked(b *batch) {
 	if b.slot != nil {
-		h.sp.release(b.slot)
+		if h.sp != nil {
+			h.sp.release(b.slot)
+		}
 		b.slot = nil
 		return
 	}
@@ -278,7 +280,11 @@ func (h *logHub) pump(ctx context.Context) {
 				break
 			}
 			sctx, cancel := context.WithTimeout(ctx, sendTimeout)
-			err := h.link.notify(sctx, protocol.MethodLogAppend, protocol.LogAppend{AttemptID: id, SeqFrom: b.from, Entries: entries})
+			la := protocol.LogAppend{AttemptID: id, SeqFrom: b.from, Entries: entries}
+			if b.gap && b.to > b.from {
+				la.GapTo = b.to - 1
+			}
+			err := h.link.notify(sctx, protocol.MethodLogAppend, la)
 			cancel()
 			if err != nil {
 				h.unsend(b)
@@ -323,6 +329,15 @@ func (h *logHub) ack(attempt string, seq uint64) {
 	}
 	ab.batches = ab.batches[n:]
 	ab.cursor = max(ab.cursor-n, 0)
+}
+
+// hasUnsent reports whether the attempt has batches not yet sent on the
+// current connection.
+func (h *logHub) hasUnsent(attempt string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	ab := h.attempts[attempt]
+	return ab != nil && ab.cursor < len(ab.batches)
 }
 
 // forget frees everything the attempt still holds.

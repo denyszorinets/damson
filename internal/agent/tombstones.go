@@ -1,6 +1,9 @@
 package agent
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 const (
 	// tombstoneTTL is how long a cancel for an unknown attempt is remembered.
@@ -9,10 +12,10 @@ const (
 	tombstoneMax = 4096
 )
 
-// tombstones remembers attempts cancelled before their step.execute arrived,
-// so the late execute is refused instead of starting work nobody wants.
-// Request handlers run concurrently, so this order is possible. The owner
-// serializes access.
+// tombstones remembers attempt ids for a while: those cancelled before their
+// step.execute arrived (request handlers run concurrently, so this order is
+// possible) and those already completed, so a late or retried execute is
+// refused instead of running the step again. The owner serializes access.
 type tombstones struct {
 	at    map[string]time.Time
 	order []string
@@ -23,7 +26,10 @@ func (t *tombstones) add(attempt string, now time.Time) {
 		t.at = map[string]time.Time{}
 	}
 	t.prune(now)
-	if _, ok := t.at[attempt]; ok {
+	if _, ok := t.at[attempt]; ok { // refresh: move to the newest position
+		t.order = slices.DeleteFunc(t.order, func(id string) bool { return id == attempt })
+		t.at[attempt] = now
+		t.order = append(t.order, attempt)
 		return
 	}
 	for len(t.order) >= tombstoneMax {
