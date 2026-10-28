@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -26,6 +27,12 @@ type Store struct {
 	pool *pgxpool.Pool
 	sql  *sql.DB // database/sql view of the pool, used by the migration runner
 	q    *gen.Queries
+
+	// migrateMu admits one Migrate at a time per Store. Each migration step
+	// holds a pooled connection for its advisory lock and needs a second one
+	// for River's migrator; concurrent callers would otherwise fill a small
+	// pool with lock waiters and starve the holder.
+	migrateMu sync.Mutex
 }
 
 var _ store.Store = (*Store)(nil)
@@ -61,6 +68,8 @@ func (s *Store) Ping(ctx context.Context) error {
 // concurrent controllers serialize. It also applies River's own migrations
 // (ADR-0010) to the same database.
 func (s *Store) Migrate(ctx context.Context) error {
+	s.migrateMu.Lock()
+	defer s.migrateMu.Unlock()
 	if err := migrations.Up(ctx, s.sql, migrations.Postgres); err != nil {
 		return err
 	}
