@@ -82,9 +82,7 @@ export interface components {
             /** @enum {string} */
             status: "connected" | "disconnected";
             /** @description Last telemetry snapshot reported by the agent. */
-            telemetry?: {
-                [key: string]: unknown;
-            };
+            telemetry?: components["schemas"]["Telemetry"];
             version: string;
         };
         ListAgentsOutputBody: {
@@ -116,6 +114,35 @@ export interface components {
         ProblemDetail: {
             location?: string;
             message?: string;
+        };
+        Telemetry: {
+            /**
+             * Format: double
+             * @description CPU use across all cores, 0 to 100.
+             */
+            cpu_percent?: number;
+            /**
+             * Format: int64
+             * @description Slots not running an attempt.
+             */
+            free_slots?: number;
+            /**
+             * Format: double
+             * @description One-minute load average.
+             */
+            load1?: number;
+            /**
+             * Format: int64
+             * @description Used memory in bytes.
+             */
+            memory_bytes?: number;
+            /** @description Attempt IDs the agent is running. */
+            running_attempts?: string[] | null;
+            /**
+             * Format: int64
+             * @description Bytes of unsent output spooled on the agent.
+             */
+            spool_bytes?: number;
         };
     };
     responses: never;

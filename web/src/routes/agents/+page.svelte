@@ -9,9 +9,9 @@
 	import {
 		fetchAgents,
 		fetchPools,
+		MAX_ROWS,
 		formatBytes,
 		problemMessage,
-		telemetryOf,
 		type Agent,
 		type Pool
 	} from '$lib/agents';
@@ -20,6 +20,8 @@
 
 	let pools = $state<Pool[]>([]);
 	let agents = $state<Agent[]>([]);
+	let moreAgents = $state(false);
+	let morePools = $state(false);
 	let loaded = $state(false);
 	let error = $state<string | null>(null);
 
@@ -28,20 +30,26 @@
 			const members = agents.filter((a) => a.pool_id === pool.id);
 			const connected = members.filter((a) => a.status === 'connected');
 			const capacity = connected.reduce((s, a) => s + a.capacity, 0);
-			const free = connected.reduce((s, a) => s + (telemetryOf(a).freeSlots ?? 0), 0);
+			const free = connected.reduce((s, a) => s + (a.telemetry?.free_slots ?? 0), 0);
 			return { pool, members, connected: connected.length, capacity, free };
 		})
 	);
 	const poolName = (id: string) => pools.find((p) => p.id === id)?.name ?? id;
 
-	async function refresh() {
+	async function refresh(signal: AbortSignal) {
 		try {
-			[pools, agents] = await Promise.all([fetchPools(), fetchAgents()]);
+			const [p, a] = await Promise.all([fetchPools(signal), fetchAgents(signal)]);
+			if (signal.aborted) return;
+			pools = p.items;
+			morePools = p.more;
+			agents = a.items;
+			moreAgents = a.more;
 			error = null;
 		} catch (e) {
+			if (signal.aborted) return;
 			error = problemMessage(e);
 		} finally {
-			loaded = true;
+			if (!signal.aborted) loaded = true;
 		}
 	}
 
@@ -101,6 +109,12 @@
 						</Table.Root>
 					</div>
 				{/if}
+
+				{#if morePools}
+					<p class="mt-2 text-sm text-muted-foreground" data-testid="pools-truncated">
+						Showing the first {MAX_ROWS} pools; more exist.
+					</p>
+				{/if}
 			</Card.Content>
 		</Card.Root>
 
@@ -131,7 +145,7 @@
 							</Table.Header>
 							<Table.Body>
 								{#each agents as a (a.id)}
-									{@const t = telemetryOf(a)}
+									{@const t = a.telemetry}
 									<Table.Row data-testid="agent-row">
 										<Table.Cell class="font-mono text-xs">{a.id}</Table.Cell>
 										<Table.Cell>
@@ -140,10 +154,10 @@
 											</Badge>
 										</Table.Cell>
 										<Table.Cell>{poolName(a.pool_id)}</Table.Cell>
-										<Table.Cell>{t.freeSlots ?? '-'} / {a.capacity}</Table.Cell>
-										<Table.Cell>{pct(t.cpuPercent)}</Table.Cell>
-										<Table.Cell>{formatBytes(t.memoryBytes)}</Table.Cell>
-										<Table.Cell>{fixed(t.load1)}</Table.Cell>
+										<Table.Cell>{t?.free_slots ?? '-'} / {a.capacity}</Table.Cell>
+										<Table.Cell>{pct(t?.cpu_percent)}</Table.Cell>
+										<Table.Cell>{formatBytes(t?.memory_bytes)}</Table.Cell>
+										<Table.Cell>{fixed(t?.load1)}</Table.Cell>
 										<Table.Cell>{time(a.last_seen)}</Table.Cell>
 										<Table.Cell>
 											<div class="flex flex-wrap gap-1">
@@ -157,6 +171,12 @@
 							</Table.Body>
 						</Table.Root>
 					</div>
+				{/if}
+
+				{#if moreAgents}
+					<p class="mt-2 text-sm text-muted-foreground" data-testid="agents-truncated">
+						Showing the first {MAX_ROWS} agents; more exist.
+					</p>
 				{/if}
 			</Card.Content>
 		</Card.Root>

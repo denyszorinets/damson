@@ -71,7 +71,9 @@ Go test fails when ``web/openapi.json`` differs from the live document.
        ``status`` (``connected`` while a controller owns its session,
        otherwise ``disconnected``), ``pool_id``, ``version``, ``protocol``,
        ``labels``, ``capabilities``, ``capacity``, ``telemetry`` (last
-       snapshot), ``connected_at``, ``last_seen`` and ``disconnected_at``.
+       heartbeat snapshot: optional ``free_slots``, ``cpu_percent``,
+       ``memory_bytes``, ``load1``, ``spool_bytes`` and
+       ``running_attempts``; missing or malformed fields are omitted), ``connected_at``, ``last_seen`` and ``disconnected_at``.
    * - ``GET /api/v1/agents/{id}``
      - One agent, with its last telemetry. ``404`` if unknown.
    * - ``GET /api/v1/pools``

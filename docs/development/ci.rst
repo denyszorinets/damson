@@ -28,7 +28,8 @@ Jobs
    * - ``web``
      - ``make web`` (build), ``make web-check`` (prettier, eslint,
        svelte-check) and the Playwright e2e tests, using the Google Chrome
-       preinstalled on the runner (``CHROME_PATH``).
+       preinstalled on the runner (``CHROME_PATH``). The e2e tests build and
+       run ``damson dev``, so the job also installs Go.
    * - ``generated``
      - ``make gen`` followed by ``git diff --exit-code``: fails when generated
        code was hand-edited or not regenerated. It covers whatever ``make gen``
