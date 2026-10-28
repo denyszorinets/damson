@@ -31,8 +31,9 @@ Jobs
    * - ``generated``
      - ``make gen`` followed by ``git diff --exit-code``: fails when generated
        code was hand-edited or not regenerated. It covers whatever ``make gen``
-       covers: sqlc today; the OpenAPI TypeScript client and plugin schemas
-       must be added to ``make gen`` when they exist.
+       covers: sqlc, ``web/openapi.json`` and the TypeScript API client (the job
+       installs Node 22 for ``openapi-typescript``); plugin schemas must be
+       added to ``make gen`` when they exist.
    * - ``plugin-contract``
      - ``make plugin-contract``.
    * - ``docs``

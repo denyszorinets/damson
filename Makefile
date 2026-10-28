@@ -20,8 +20,10 @@ test: ## Run Go tests (SQLite store; Postgres store tests are in test-pg)
 test-pg: ## Store tests against Postgres (testcontainers; DAMSON_TEST_POSTGRES_DSN reuses a server; fails without Docker unless DAMSON_SKIP_POSTGRES=1)
 	go test $(GOTESTFLAGS) -tags integration -count=1 ./internal/store/...
 
-gen: ## Regenerate sqlc output (version pinned by the go.mod tool directive)
+gen: ## Regenerate sqlc output, web/openapi.json and the TypeScript API client (needs node; runs npm ci if web/node_modules is missing)
 	go tool sqlc generate
+	go run ./internal/api/genopenapi web/openapi.json
+	cd web && { [ -d node_modules ] || npm ci; } && npm run gen:api
 
 vet: ## go vet
 	go vet $(GOPKGS)

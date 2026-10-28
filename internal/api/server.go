@@ -14,6 +14,7 @@ import (
 type Config struct {
 	Addr  string       // host:port; "127.0.0.1:0" picks a free port
 	Store Checker      // readiness checks
+	Data  DataStore    // typed /api/v1 endpoints; nil answers them 503
 	UI    http.Handler // served for every path the API does not claim
 	// Mounts maps extra mux patterns (for example "/agent/v1/connect") to
 	// handlers owned by other components. They are wrapped by the same
@@ -58,6 +59,7 @@ func routes(cfg Config) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthz)
 	mux.HandleFunc("/readyz", readyz(cfg.Store))
+	newHuma(mux, cfg.Data)
 	mux.HandleFunc("/api/", notFound)
 	for pattern, h := range cfg.Mounts {
 		mux.Handle(pattern, h)

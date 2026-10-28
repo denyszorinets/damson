@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -21,7 +22,25 @@ type Problem struct {
 	Status    int    `json:"status"`
 	Detail    string `json:"detail,omitempty"`
 	RequestID string `json:"request_id,omitempty"`
+	// Errors lists per-field validation failures (Huma request validation).
+	Errors []ProblemDetail `json:"errors,omitempty"`
 }
+
+// ProblemDetail is one validation failure inside a Problem.
+type ProblemDetail struct {
+	Message  string `json:"message,omitempty"`
+	Location string `json:"location,omitempty"`
+}
+
+// Error implements error, and with GetStatus huma.StatusError, so a Problem
+// can be returned from a Huma handler.
+func (p *Problem) Error() string { return p.Detail }
+
+// GetStatus implements huma.StatusError.
+func (p *Problem) GetStatus() int { return p.Status }
+
+// ContentType makes Huma serve a Problem as application/problem+json.
+func (p *Problem) ContentType(string) string { return ProblemContentType }
 
 // Problem type URIs. They are URNs, not URLs, so they never need to resolve.
 const (
@@ -31,6 +50,7 @@ const (
 	typeUnavailable = "urn:damson:problem:unavailable"
 	typeMethod      = "urn:damson:problem:method-not-allowed"
 	typeInternal    = "urn:damson:problem:internal"
+	typeValidation  = "urn:damson:problem:validation"
 	// TypeUnauthorized and TypeForbidden are used by components that mount
 	// their own handlers (the agent gateway) and answer before an upgrade.
 	TypeUnauthorized = "urn:damson:problem:unauthorized"
@@ -63,13 +83,26 @@ func problemFor(err error) Problem {
 // logged with the request id; the client only sees the generic problem.
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	p := problemFor(err)
+	logFailure(loggerFrom(r), p, err)
+	writeProblem(w, r, p)
+}
+
+func logFailure(log *slog.Logger, p Problem, err error) {
 	switch {
 	case p.Status == http.StatusInternalServerError:
-		loggerFrom(r).Error("request failed", "status", p.Status, "error", err)
+		log.Error("request failed", "status", p.Status, "error", err)
 	case p.Status >= http.StatusBadRequest:
-		loggerFrom(r).Warn("request failed", "status", p.Status, "error", err)
+		log.Warn("request failed", "status", p.Status, "error", err)
 	}
-	writeProblem(w, r, p)
+}
+
+// apiError is WriteError for Huma handlers: it maps err with problemFor and
+// returns the Problem for Huma to write.
+func apiError(ctx context.Context, err error) error {
+	p := problemFor(err)
+	logFailure(loggerFromCtx(ctx), p, err)
+	p.RequestID = requestIDFromCtx(ctx)
+	return &p
 }
 
 // writeProblem sends p; used directly for routing errors that carry no error.
