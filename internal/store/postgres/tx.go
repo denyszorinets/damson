@@ -127,7 +127,7 @@ func (t *txn) applySteps(ctx context.Context, runID string, a store.Advance, now
 			return fmt.Errorf("getting step %q: %w", at.Path, err)
 		}
 		if _, err := t.q.LatestAttempt(ctx, step.ID); err == nil {
-			return fmt.Errorf("step %q already has an attempt: %w", at.Path, store.ErrStale)
+			return fmt.Errorf("step %q already has an attempt: %w", at.Path, store.ErrConflict)
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("reading latest attempt of step %q: %w", at.Path, err)
 		}
@@ -158,18 +158,28 @@ func (t *txn) addStep(ctx context.Context, runID string, st store.AdvanceStep, n
 }
 
 func (t *txn) finishStep(ctx context.Context, stepID string, status store.StepStatus, reason string, now time.Time) error {
+	return t.finishStepFrom(ctx, stepID, status, reason, now, store.StepPending)
+}
+
+// finishStepFrom moves a step instance to a terminal status if it is in any of
+// the expected statuses. A miss is a precondition failure (ErrConflict), not
+// a lost version race: ErrStale is reserved for the runs.version CAS, which is
+// the only thing a reload of the run can fix.
+func (t *txn) finishStepFrom(ctx context.Context, stepID string, status store.StepStatus, reason string, now time.Time, expected ...store.StepStatus) error {
 	_, finished := store.Stamps(nil, nil, false, true, now)
-	n, err := t.q.UpdateStepInstanceCAS(ctx, gen.UpdateStepInstanceCASParams{
-		Status: string(status), Outputs: "{}", Error: reason, FinishedAt: tsOpt(finished),
-		ID: stepID, ExpectedStatus: string(store.StepPending),
-	})
-	if err != nil {
-		return fmt.Errorf("finishing step %q: %w", stepID, err)
+	for _, from := range expected {
+		n, err := t.q.UpdateStepInstanceCAS(ctx, gen.UpdateStepInstanceCASParams{
+			Status: string(status), Outputs: "{}", Error: reason, FinishedAt: tsOpt(finished),
+			ID: stepID, ExpectedStatus: string(from),
+		})
+		if err != nil {
+			return fmt.Errorf("finishing step %q: %w", stepID, err)
+		}
+		if n > 0 {
+			return nil
+		}
 	}
-	if n == 0 {
-		return fmt.Errorf("step %q is no longer pending: %w", stepID, store.ErrStale)
-	}
-	return nil
+	return fmt.Errorf("step %q is not in a status that can move to %s: %w", stepID, status, store.ErrConflict)
 }
 
 func (t *txn) cancelQueued(ctx context.Context, runID, executionID string, now time.Time) error {
@@ -190,7 +200,7 @@ func (t *txn) cancelQueued(ctx context.Context, runID, executionID string, now t
 	if n == 0 {
 		return nil // claimed meanwhile: the owning controller cancels it
 	}
-	return t.finishStep(ctx, ex.StepInstanceID, store.StepCanceled, "run cancelled", now)
+	return t.finishStepFrom(ctx, ex.StepInstanceID, store.StepCanceled, "run cancelled", now, store.StepPending, store.StepRunning)
 }
 
 // ListActiveRunIDs implements store.RunStore.

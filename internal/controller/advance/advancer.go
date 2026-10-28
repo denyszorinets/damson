@@ -44,7 +44,7 @@ type Config struct {
 }
 
 // DefaultSweepInterval is the safety-net sweep period.
-const DefaultSweepInterval = time.Minute
+const DefaultSweepInterval = 5 * time.Minute
 
 // queue is the dialect-specific River client behind an Advancer.
 type queue interface {
@@ -107,7 +107,9 @@ func (a *Advancer) Start(ctx context.Context) error {
 	if a.started {
 		return errors.New("advance: already started")
 	}
-	if err := a.q.start(ctx); err != nil {
+	// River treats cancelling the start context as an abrupt stop, which would
+	// defeat the graceful drain Stop promises: give it a context that outlives ctx.
+	if err := a.q.start(context.WithoutCancel(ctx)); err != nil {
 		return fmt.Errorf("starting run.advance workers: %w", err)
 	}
 	a.started = true
@@ -177,8 +179,17 @@ func (w *worker) Work(ctx context.Context, job *river.Job[Args]) error {
 	switch {
 	case err == nil:
 		return nil
-	case errors.As(err, &perm), errors.Is(err, store.ErrNotFound):
-		w.core.log.Error("run advance cannot succeed; dropping job", "run_id", job.Args.RunID, "error", err)
+	case errors.As(err, &perm):
+		// The engine rejects this run for good. Leaving it running would make
+		// the sweep re-queue it forever and could never be cancelled, so it is
+		// failed (the cause is in this log; runs have no error column yet).
+		w.core.log.Error("run advance cannot succeed; failing the run", "run_id", job.Args.RunID, "error", err)
+		if ferr := w.core.failRun(ctx, job.Args.RunID); ferr != nil {
+			return ferr // retried by River with backoff
+		}
+		return river.JobCancel(err)
+	case errors.Is(err, store.ErrNotFound):
+		w.core.log.Error("run advance: run vanished; dropping job", "run_id", job.Args.RunID, "error", err)
 		return river.JobCancel(err)
 	}
 	return err

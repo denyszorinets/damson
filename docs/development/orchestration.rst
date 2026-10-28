@@ -84,12 +84,32 @@ CAS and reloads.
 Safety-net sweep
 ----------------
 
-Every ``SweepInterval`` (default 1 minute, any controller) ``Sweep`` enqueues
+Every ``SweepInterval`` (default 5 minutes, any controller) ``Sweep`` enqueues
 an advance for every ``pending`` or ``running`` run, in batches. Uniqueness
 makes it cheap when a job is already waiting; a run that is just waiting for an
-agent costs one no-op job per interval. It covers runs inserted before the
-queue existed and any crash window. No leader lease is needed because the
-duplicates are harmless.
+agent still costs one no-op job per interval and controller (a finished job no
+longer blocks a new one at the same version), which is why the interval is
+long. It covers runs inserted before the queue existed and any crash window.
+Duplicates are harmless, so correctness needs no leader lease; the leader-only
+sweep of ARCHITECTURE 8.4 (M3) will remove the per-controller multiplication.
+
+Permanent errors
+----------------
+
+When the engine can never advance a run (a spec it rejects, corrupt stored
+JSON, a change set the store refuses), the worker moves the run to ``failed``
+in a version-checked transaction, logs the cause at error level, and cancels
+the River job. Leaving the run ``running`` would make the sweep re-queue it
+forever and a cancel would hit the same error. Runs have no error column yet,
+so the cause is in the controller log only.
+
+Store errors in an advance transaction: ``ErrStale`` means the
+``runs.version`` CAS was lost and the run is reloaded (at most five times); any
+other precondition failure (``ErrConflict``, for example a step that is not in
+a status that can move) is not retried in a tight loop but left to River's
+backoff. Cancelling a queued execution moves its step from ``pending`` or
+``running``, because an execution that lost its lease goes back to ``queued``
+while its step is still ``running``.
 
 Testing
 -------

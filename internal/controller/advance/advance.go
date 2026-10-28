@@ -66,6 +66,7 @@ func (c *core) advance(ctx context.Context, runID string) error {
 
 // once is one cycle. It returns changed=true after a committed apply.
 func (c *core) once(ctx context.Context, runID string) (changed bool, err error) {
+	now := c.now() // one instant per cycle: Decide and the stored timestamps agree
 	tree, err := c.st.GetRunTree(ctx, runID)
 	if err != nil {
 		return false, fmt.Errorf("loading run %s: %w", runID, err)
@@ -81,7 +82,7 @@ func (c *core) once(ctx context.Context, runID string) (changed bool, err error)
 	if err != nil {
 		return false, &permanentError{err}
 	}
-	acts, err := c.eng.Decide(job, state, c.now())
+	acts, err := c.eng.Decide(job, state, now)
 	if err != nil {
 		return false, &permanentError{fmt.Errorf("deciding run %s: %w", runID, err)}
 	}
@@ -93,7 +94,7 @@ func (c *core) once(ctx context.Context, runID string) (changed bool, err error)
 		return false, nil
 	}
 	err = c.st.WithTx(ctx, func(tx store.Tx) error {
-		if _, err := tx.ApplyAdvance(ctx, runID, tree.Version, adv, c.now()); err != nil {
+		if _, err := tx.ApplyAdvance(ctx, runID, tree.Version, adv, now); err != nil {
 			return err
 		}
 		// A cancelled queued execution finishes its step without any agent
@@ -103,6 +104,9 @@ func (c *core) once(ctx context.Context, runID string) (changed bool, err error)
 		}
 		return nil
 	})
+	if errors.Is(err, store.ErrInvalid) { // a change set the store rejects stays rejected
+		return false, &permanentError{err}
+	}
 	if err != nil {
 		return false, err
 	}
@@ -134,6 +138,35 @@ func (c *core) loadJob(ctx context.Context, tree store.RunTree) (*engine.Job, jo
 		}
 	}
 	return job, meta, nil
+}
+
+// failRun moves a run the engine cannot advance to failed, so it neither
+// lingers as running nor gets re-queued forever by the sweep. Steps that never
+// ran stay as they are; the dispatcher only claims executions of runs that are
+// not terminal.
+func (c *core) failRun(ctx context.Context, runID string) error {
+	for range maxConflicts {
+		tree, err := c.st.GetRunTree(ctx, runID)
+		if err != nil {
+			return fmt.Errorf("loading run %s to fail it: %w", runID, err)
+		}
+		if tree.Status.Terminal() {
+			return nil
+		}
+		err = c.st.WithTx(ctx, func(tx store.Tx) error {
+			_, err := tx.ApplyAdvance(ctx, runID, tree.Version, store.Advance{Finish: store.RunFailed}, c.now())
+			return err
+		})
+		if errors.Is(err, store.ErrStale) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		c.notify(runID)
+		return nil
+	}
+	return fmt.Errorf("run %s: %w", runID, ErrConflicts)
 }
 
 // permanentError marks a failure that retrying cannot fix (a spec the engine

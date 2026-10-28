@@ -358,3 +358,59 @@ func TestSweepEnqueuesLostRuns(t *testing.T) {
 		eventually(t, "swept run to start", func() bool { return loadTree(t, st, tree.ID).Status == store.RunRunning })
 	})
 }
+
+// A step marked running whose execution went back to queued (lease lost,
+// requeue) must still be cancellable: the cancel moves the step from running,
+// not only from pending, or the whole transaction would fail forever.
+func TestCancelRunWithRunningStepAndQueuedExecution(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		a := newTestAdvancer(t, st, -1)
+		startAdvancer(t, a)
+		id := trigger(t, st, a, seedJob(t, st))
+		eventually(t, "run to start", func() bool { return loadTree(t, st, id).Status == store.RunRunning })
+		ctx := context.Background()
+		tree := loadTree(t, st, id)
+		if _, err := st.UpdateStepInstance(ctx, store.StepUpdate{ID: tree.Steps[0].ID, ExpectedStatus: store.StepPending, Status: store.StepRunning}, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		err := st.WithTx(ctx, func(tx store.Tx) error {
+			if _, err := tx.RequestCancel(ctx, id, time.Now()); err != nil {
+				return err
+			}
+			return a.Enqueue(ctx, tx, id)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		eventually(t, "run to be cancelled", func() bool { return loadTree(t, st, id).Status == store.RunCanceled })
+		if s := loadTree(t, st, id).Steps[0]; s.Status != store.StepCanceled || s.Executions[0].State != store.ExecCanceled {
+			t.Fatalf("step = %+v", s)
+		}
+	})
+}
+
+// A run the engine can never advance (a spec it rejects) is failed instead of
+// lingering as running: the sweep would otherwise re-queue it forever and a
+// cancel would hit the same error.
+func TestPermanentEngineErrorFailsRun(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		a := newTestAdvancer(t, st, -1)
+		startAdvancer(t, a)
+		ctx := context.Background()
+		_, ver, err := st.CreateJob(ctx, store.NewJob{
+			ProjectID: store.DefaultProjectID, Name: "broken", Spec: json.RawMessage(`{"not":"a job"}`), Checksum: "broken",
+		}, t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id := trigger(t, st, a, ver)
+		eventually(t, "run to be failed", func() bool { return loadTree(t, st, id).Status == store.RunFailed })
+		eventually(t, "queue to drain", func() bool { return countJobs(t, st) == 0 })
+		if err := a.Sweep(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if n := countJobs(t, st); n != 0 {
+			t.Fatalf("%d run.advance jobs after the sweep; a failed run must not be re-queued", n)
+		}
+	})
+}

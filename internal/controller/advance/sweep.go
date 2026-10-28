@@ -2,6 +2,7 @@ package advance
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/denyszorinets/damson/internal/store"
@@ -46,7 +47,11 @@ func (a *Advancer) Sweep(ctx context.Context) error {
 		}
 		err = a.st.WithTx(ctx, func(tx store.Tx) error {
 			for _, id := range ids {
-				if err := a.Enqueue(ctx, tx, id); err != nil {
+				err := a.Enqueue(ctx, tx, id)
+				if errors.Is(err, store.ErrNotFound) {
+					continue // deleted since it was listed
+				}
+				if err != nil {
 					return err
 				}
 			}
