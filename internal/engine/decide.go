@@ -50,7 +50,7 @@ func (e *Engine) Decide(job *Job, st RunState, now time.Time) ([]Action, error) 
 	if st.Status.Terminal() {
 		return nil, nil
 	}
-	d := &decider{e: e, job: job, st: st, now: now, cancelling: st.CancelRequestedAt != nil}
+	d := &decider{e: e, job: job, st: st, now: now, canceling: st.CancelRequestedAt != nil}
 	if err := d.index(); err != nil {
 		return nil, err
 	}
@@ -58,11 +58,11 @@ func (e *Engine) Decide(job *Job, st RunState, now time.Time) ([]Action, error) 
 }
 
 type decider struct {
-	e          *Engine
-	job        *Job
-	st         RunState
-	now        time.Time
-	cancelling bool
+	e         *Engine
+	job       *Job
+	st        RunState
+	now       time.Time
+	canceling bool
 
 	byID      map[string]StepInstanceState
 	runStatus RunStatus
@@ -147,7 +147,7 @@ func finalStatus(failed, anyCancelled bool) RunStatus {
 // before the cancel request. Steps created after it (an always() cleanup) are
 // left to finish.
 func (d *decider) cancelActive() {
-	if !d.cancelling {
+	if !d.canceling {
 		return
 	}
 	for _, inst := range d.st.Steps {
@@ -218,7 +218,7 @@ func (d *decider) begin(step Step, failed bool) (status StepStatus, waiting bool
 func (d *decider) skip(step Step, failed bool) StepStatus {
 	status, reason := StepSkipped, "when condition is false"
 	switch {
-	case d.cancelling:
+	case d.canceling:
 		status, reason = StepCancelled, "run cancelled"
 	case failed:
 		reason = "a previous step failed"

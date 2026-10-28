@@ -31,9 +31,9 @@ func (d *decider) vars(failed bool) expr.Vars {
 		},
 		Steps: d.steps,
 		Status: expr.Status{
-			Success:   !failed && !d.cancelling && !d.anyCancelled(),
+			Success:   !failed && !d.canceling && !d.anyCancelled(),
 			Failure:   failed,
-			Cancelled: d.cancelling,
+			Cancelled: d.canceling,
 		},
 	}
 }
