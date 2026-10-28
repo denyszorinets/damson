@@ -14,11 +14,21 @@ const requestIDHeader = "X-Request-Id"
 type ctxKey struct{}
 
 // loggerFrom returns the request-scoped logger set by logRequests.
-func loggerFrom(r *http.Request) *slog.Logger {
-	if l, ok := r.Context().Value(ctxKey{}).(*slog.Logger); ok {
+func loggerFrom(r *http.Request) *slog.Logger { return loggerFromCtx(r.Context()) }
+
+func loggerFromCtx(ctx context.Context) *slog.Logger {
+	if l, ok := ctx.Value(ctxKey{}).(*slog.Logger); ok {
 		return l
 	}
 	return slog.Default()
+}
+
+type requestIDKey struct{}
+
+// requestIDFromCtx returns the id assigned by logRequests, or "".
+func requestIDFromCtx(ctx context.Context) string {
+	id, _ := ctx.Value(requestIDKey{}).(string)
+	return id
 }
 
 type statusRecorder struct {
@@ -60,7 +70,8 @@ func logRequests(log *slog.Logger, next http.Handler) http.Handler {
 		w.Header().Set(requestIDHeader, id)
 		rl := log.With("request_id", id)
 		rec := &statusRecorder{ResponseWriter: w}
-		next.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), ctxKey{}, rl)))
+		ctx := context.WithValue(context.WithValue(r.Context(), ctxKey{}, rl), requestIDKey{}, id)
+		next.ServeHTTP(rec, r.WithContext(ctx))
 		if rec.status == 0 {
 			rec.status = http.StatusOK
 		}

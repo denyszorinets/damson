@@ -4,14 +4,12 @@ HTTP server and errors
 ======================
 
 ``damson controller`` and ``damson dev`` serve HTTP on ``controller.listen``
-(default ``:8080``). The server lives in ``internal/api``. Typed ``/api/v1``
-endpoints (Huma, OpenAPI) arrive with later milestones; today the server
-provides the endpoints below.
-
-The health and readiness endpoints use plain stdlib ``net/http``. Huma arrives
-with the first typed ``/api/v1`` endpoint; at that point ``WriteError`` and
-``problemFor`` in ``internal/api`` become Huma's error transformer, so there
-remains one error-to-problem+json mapping.
+(default ``:8080``). The server lives in ``internal/api``. The typed
+``/api/v1`` endpoints use Huma (ADR-0018) and are listed under
+:ref:`reference-api-v1`; the health and readiness endpoints use plain stdlib
+``net/http``. Huma's own errors (request validation) and handler errors are
+both produced from ``problemFor``'s ``Problem`` type, so there is one
+error-to-problem+json mapping.
 
 Endpoints
 ---------
@@ -29,8 +27,10 @@ Endpoints
      - Readiness. ``200 {"status":"ready"}`` when the database answers
        ``Ping`` and at least one migration is applied; otherwise ``503``
        problem+json. The cause is logged, never returned.
+   * - ``/api/v1/...``
+     - The typed API (see :ref:`reference-api-v1`).
    * - ``/api/...``
-     - Any path under ``/api/`` that no route claims returns ``404``
+     - Any other path under ``/api/`` that no route claims returns ``404``
        problem+json (never the web UI).
    * - ``GET /agent/v1/connect``
      - Agent WebSocket gateway (see :ref:`reference-agent-gateway`).
@@ -47,11 +47,51 @@ problem+json with an ``Allow`` header.
    yet: readiness currently means the database is reachable and migrated at
    least once.
 
+.. _reference-api-v1:
+
+Typed API (``/api/v1``)
+-----------------------
+
+The OpenAPI 3.1 document is served at ``GET /api/v1/openapi.json``. It is
+generated from the Go types and committed as ``web/openapi.json``; ``make gen``
+rewrites it and regenerates the TypeScript types in
+``web/src/lib/api/schema.d.ts`` (``openapi-typescript``). Both are generated:
+never edit them. ``web/src/lib/api/client.ts`` wraps the types with
+``openapi-fetch``, and the UI calls the API only through it. The CI job
+"Generated code is up to date" runs ``make gen`` and fails on any diff, and a
+Go test fails when ``web/openapi.json`` differs from the live document.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Endpoint
+     - Behaviour
+   * - ``GET /api/v1/agents``
+     - Agents ordered by id, ``items`` plus ``next_cursor``. Each agent has
+       ``status`` (``connected`` while a controller owns its session,
+       otherwise ``disconnected``), ``pool_id``, ``version``, ``protocol``,
+       ``labels``, ``capabilities``, ``capacity``, ``telemetry`` (last
+       snapshot), ``connected_at``, ``last_seen`` and ``disconnected_at``.
+   * - ``GET /api/v1/agents/{id}``
+     - One agent, with its last telemetry. ``404`` if unknown.
+   * - ``GET /api/v1/pools``
+     - Pools ordered by name, ``items`` plus ``next_cursor``.
+
+Lists take ``limit`` (1 to 200, default 50) and ``cursor`` (the previous
+page's ``next_cursor``, opaque, empty on the last page). An invalid ``limit`` is a
+``422`` problem with an ``errors`` list; a malformed ``cursor`` is a ``400``.
+
+These endpoints are read-only and unauthenticated for now: authentication and
+authorization arrive in M8 (ARCHITECTURE section 12). Pool and pool token
+administration stays in the ``damson admin`` CLI until then. No endpoint
+returns a pool token or its hash.
+
 Errors
 ------
 
 All API errors are RFC 9457 ``application/problem+json``, produced by one
-function (``api.WriteError``) that maps store sentinel errors:
+function (``problemFor``, used by ``api.WriteError`` and by the Huma
+handlers) that maps store sentinel errors:
 
 .. list-table::
    :header-rows: 1
@@ -68,6 +108,9 @@ function (``api.WriteError``) that maps store sentinel errors:
    * - ``store.ErrStale``
      - 409
      - ``urn:damson:problem:stale``
+   * - invalid request (Huma validation)
+     - 422
+     - ``urn:damson:problem:validation``
    * - database unavailable
      - 503
      - ``urn:damson:problem:unavailable``

@@ -17,11 +17,16 @@ build: ## Build the damson binary into bin/damson
 test: ## Run Go tests (SQLite store; Postgres store tests are in test-pg)
 	go test $(GOTESTFLAGS) $(GOPKGS)
 
-test-pg: ## Store tests against Postgres (testcontainers; DAMSON_TEST_POSTGRES_DSN reuses a server; fails without Docker unless DAMSON_SKIP_POSTGRES=1)
-	go test $(GOTESTFLAGS) -tags integration -count=1 ./internal/store/...
+# Every package with `//go:build integration` tests must be listed here, or CI never runs them.
+PGPKGS := ./internal/store/... ./internal/api/... ./internal/controller/... ./internal/agent/... ./cmd/...
 
-gen: ## Regenerate sqlc output (version pinned by the go.mod tool directive)
+test-pg: ## Integration tests against Postgres: store, api, controller, cmd (testcontainers; DAMSON_TEST_POSTGRES_DSN reuses a server; fails without Docker unless DAMSON_SKIP_POSTGRES=1)
+	go test $(GOTESTFLAGS) -tags integration -count=1 $(PGPKGS)
+
+gen: ## Regenerate sqlc output, web/openapi.json and the TypeScript API client (needs node; runs npm ci if web/node_modules is missing)
 	go tool sqlc generate
+	go run ./internal/api/genopenapi web/openapi.json
+	cd web && { [ -d node_modules ] || npm ci; } && npm run gen:api
 
 vet: ## go vet
 	go vet $(GOPKGS)

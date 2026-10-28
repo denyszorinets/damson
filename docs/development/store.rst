@@ -124,7 +124,8 @@ Testing
 
 ``storetest.Run`` is one suite invoked per backend, so every store method is
 tested on both. SQLite runs in ``make test``. Postgres tests carry the
-``integration`` build tag and run with ``make test-pg``, which starts
+``integration`` build tag and run with ``make test-pg`` (which also covers the integration-tagged api,
+controller and cmd tests; list new packages in ``PGPKGS`` in the Makefile), which starts
 ``postgres:17-alpine`` with testcontainers. To reuse a server instead, set
 ``DAMSON_TEST_POSTGRES_DSN``; each test gets its own database, dropped on
 cleanup. Without a container runtime or that variable the Postgres tests

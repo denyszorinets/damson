@@ -21,7 +21,8 @@ Jobs
        configuration in :repo:`.golangci.yml`, same as ``make lint``) and
        ``make test GOTESTFLAGS=-race`` (SQLite store).
    * - ``postgres``
-     - ``make test-pg GOTESTFLAGS=-v``: the store suite against PostgreSQL
+     - ``make test-pg GOTESTFLAGS=-v``: every ``integration``-tagged test
+       (store, api, controller, cmd) against PostgreSQL
        started by testcontainers through the runner's Docker daemon. Verbose,
        so a skipped or failing test is visible in the log.
    * - ``web``
@@ -31,8 +32,9 @@ Jobs
    * - ``generated``
      - ``make gen`` followed by ``git diff --exit-code``: fails when generated
        code was hand-edited or not regenerated. It covers whatever ``make gen``
-       covers: sqlc today; the OpenAPI TypeScript client and plugin schemas
-       must be added to ``make gen`` when they exist.
+       covers: sqlc, ``web/openapi.json`` and the TypeScript API client (the job
+       installs Node 22 for ``openapi-typescript``); plugin schemas must be
+       added to ``make gen`` when they exist.
    * - ``plugin-contract``
      - ``make plugin-contract``.
    * - ``docs``

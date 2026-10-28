@@ -67,7 +67,7 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 		return err
 	}
 	srv := api.NewServer(api.Config{
-		Addr: cfg.Controller.Listen, Store: st, UI: webui.Handler(web.Build()), Logger: log,
+		Addr: cfg.Controller.Listen, Store: st, Data: st, UI: webui.Handler(web.Build()), Logger: log,
 		Mounts: map[string]http.Handler{controller.ConnectPath: gw.Handler()},
 	})
 	if err := srv.Start(ctx); err != nil {
