@@ -11,6 +11,32 @@ import (
 	"strings"
 )
 
+const cancelQueuedExecutionCAS = `-- name: CancelQueuedExecutionCAS :execrows
+UPDATE executions SET state = 'canceled', finished_at = ?1, error = ?2
+WHERE id = ?3 AND run_id = ?4 AND state = 'queued'
+`
+
+type CancelQueuedExecutionCASParams struct {
+	FinishedAt sql.NullString
+	Error      string
+	ID         string
+	RunID      string
+}
+
+// A queued attempt was never dispatched, so run.advance may cancel it directly.
+func (q *Queries) CancelQueuedExecutionCAS(ctx context.Context, arg CancelQueuedExecutionCASParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, cancelQueuedExecutionCAS,
+		arg.FinishedAt,
+		arg.Error,
+		arg.ID,
+		arg.RunID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const claimExecutionCAS = `-- name: ClaimExecutionCAS :one
 UPDATE executions SET state = 'dispatched', attempt_id = ?1, agent_id = ?2,
        controller_id = ?3, lease_expires_at = ?4

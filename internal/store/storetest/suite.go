@@ -71,6 +71,11 @@ func Run(t *testing.T, f Factory) {
 		{"LogVsClaimRace", testLogVsClaimRace},
 		{"LogsDroppedOnReclaim", testLogsDroppedOnReclaim},
 		{"LogChunkAfterComplete", testLogChunkAfterComplete},
+		{"WithTxRollback", testWithTxRollback},
+		{"ApplyAdvance", testApplyAdvance},
+		{"ApplyAdvanceAtomic", testApplyAdvanceAtomic},
+		{"ApplyAdvanceRace", testApplyAdvanceRace},
+		{"ActiveRunsAndTouch", testActiveRunsAndTouch},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) { withWatchdog(t, tt.fn, f(t)) })

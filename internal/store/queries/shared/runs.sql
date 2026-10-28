@@ -62,3 +62,20 @@ FROM step_instances WHERE run_id = sqlc.arg(run_id) ORDER BY id;
 UPDATE step_instances SET status = sqlc.arg(status), outputs = sqlc.arg(outputs), error = sqlc.arg(error),
        started_at = sqlc.arg(started_at), finished_at = sqlc.arg(finished_at)
 WHERE id = sqlc.arg(id) AND status = sqlc.arg(expected_status);
+
+-- name: GetStepInstanceByPath :one
+SELECT id, run_id, path, kind, plugin, input, status, outputs, error, created_at, started_at, finished_at
+FROM step_instances WHERE run_id = sqlc.arg(run_id) AND path = sqlc.arg(path);
+
+-- An event marker: callers whose change does not move the run otherwise bump
+-- the version so a run.advance job keyed on it is never lost behind a running one.
+-- name: TouchRunCAS :execrows
+UPDATE runs SET version = version + 1
+WHERE id = sqlc.arg(id) AND status NOT IN ('succeeded', 'failed', 'canceled');
+
+-- Keyset page of unfinished runs for the run.advance safety-net sweep.
+-- name: ListActiveRunIDs :many
+SELECT id FROM runs
+WHERE status IN ('pending', 'running') AND id > sqlc.arg(after_id)
+ORDER BY id
+LIMIT sqlc.arg(row_limit);

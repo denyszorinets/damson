@@ -52,6 +52,28 @@ single-controller (ARCHITECTURE section 8.1), so concurrent migration from
 several **processes** on one SQLite file is not supported; the planned
 single-controller lock row will guard that.
 
+``Store.Migrate`` also applies River's own migrations (``river_*`` tables,
+tracked in ``river_migration``) to the same database after goose, for the
+active dialect (ADR-0010). On Postgres they run under a second advisory lock;
+on SQLite under the same in-process mutex. Both steps are idempotent and the
+shared contract suite runs them concurrently. ``MigrationVersion`` reports the
+goose version only.
+
+Transactions
+------------
+
+``Store.WithTx(ctx, fn)`` (``store.TxRunner``) runs ``fn`` in one transaction:
+commit on nil, roll back on any error or panic. ``store.Tx`` offers the writes
+that must be atomic with a queue insert: ``CreateRun``, ``RequestCancel``,
+``ApplyAdvance`` (the one-CAS change set of a ``run.advance``), ``GetRun``,
+``TouchRun`` (bump ``runs.version`` as an event marker) and ``Native`` (the
+pgx or ``database/sql`` transaction River's ``InsertTx`` needs). Add a method
+to ``Tx`` only when a caller needs it in a transaction with an enqueue.
+
+On SQLite River gets its own one-connection pool (``QueueDB``) on the same
+file, because the River driver issues concurrent writes and SQLite has one
+writer; transactional enqueues still run on the caller's transaction.
+
 The ``instance_settings`` table is scaffolding that exercises the store
 contract; it will be replaced by the real tables. The single-controller lock
 row described in ARCHITECTURE section 8.1 is not implemented yet.

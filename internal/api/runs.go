@@ -214,7 +214,12 @@ func cancelRun(ctx context.Context, d deps, id string) (*cancelRunOutput, error)
 	if err := d.ready(); err != nil {
 		return nil, apiError(ctx, err)
 	}
-	run, err := d.ds.RequestCancel(ctx, id, d.now())
+	var run store.Run
+	err := d.inTx(ctx, func(tx store.Tx) (string, error) {
+		var err error
+		run, err = tx.RequestCancel(ctx, id, d.now())
+		return id, err
+	})
 	if errors.Is(err, store.ErrStale) {
 		// Either the request was already recorded or the run finished. The
 		// read below is a separate statement, so the run may change between

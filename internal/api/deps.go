@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"math/rand/v2"
 	"time"
 
 	"github.com/denyszorinets/damson/internal/engine"
 	"github.com/denyszorinets/damson/internal/expr"
+	"github.com/denyszorinets/damson/internal/store"
 )
 
 // Defaults of the SSE endpoints.
@@ -64,13 +66,30 @@ type deps struct {
 	plugins PluginCatalog
 	// eng parses and validates specs and resolves step input; engErr is set
 	// instead when it could not be built, and the endpoints then answer 503.
-	eng    *engine.Engine
-	engErr error
-	now    func() time.Time
-	stream StreamConfig
-	tail   LogTail
-	notify RunNotifier
-	slots  chan struct{} // semaphore of open SSE streams; nil means unlimited
+	eng     *engine.Engine
+	engErr  error
+	now     func() time.Time
+	stream  StreamConfig
+	tail    LogTail
+	notify  RunNotifier
+	advance RunEnqueuer
+	slots   chan struct{} // semaphore of open SSE streams; nil means unlimited
+}
+
+// inTx runs fn in one store transaction and, if an orchestrator is wired,
+// enqueues run.advance for runID in the same transaction. runID is read after
+// fn, so fn may create the run.
+func (d deps) inTx(ctx context.Context, fn func(tx store.Tx) (runID string, err error)) error {
+	return d.ds.WithTx(ctx, func(tx store.Tx) error {
+		id, err := fn(tx)
+		if err != nil {
+			return err
+		}
+		if d.advance == nil {
+			return nil
+		}
+		return d.advance.Enqueue(ctx, tx, id)
+	})
 }
 
 // acquireStream takes a stream slot. The returned release must be called
@@ -90,7 +109,7 @@ func (d deps) acquireStream() (release func(), err error) {
 func newDeps(cfg Config) deps {
 	d := deps{
 		ds: cfg.Data, plugins: cfg.Plugins, now: cfg.Now,
-		stream: cfg.Stream.withDefaults(), tail: cfg.LogTail, notify: cfg.RunNotify,
+		stream: cfg.Stream.withDefaults(), tail: cfg.LogTail, notify: cfg.RunNotify, advance: cfg.Advance,
 	}
 	d.slots = make(chan struct{}, d.stream.MaxStreams)
 	if d.now == nil {

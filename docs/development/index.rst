@@ -10,6 +10,7 @@ How to contribute to Damson.
    ci
    documentation
    store
+   orchestration
    plugin-sdk
    agent
    controller-logs

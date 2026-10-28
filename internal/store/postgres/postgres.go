@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -26,6 +27,12 @@ type Store struct {
 	pool *pgxpool.Pool
 	sql  *sql.DB // database/sql view of the pool, used by the migration runner
 	q    *gen.Queries
+
+	// migrateMu admits one Migrate at a time per Store. Each migration step
+	// holds a pooled connection for its advisory lock and needs a second one
+	// for River's migrator; concurrent callers would otherwise fill a small
+	// pool with lock waiters and starve the holder.
+	migrateMu sync.Mutex
 }
 
 var _ store.Store = (*Store)(nil)
@@ -37,6 +44,9 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	if err != nil {
 		return nil, errors.New("opening postgres: invalid dsn")
 	}
+	// Migrations hold one connection for an advisory lock and need a second
+	// for River's migrator: a pool of one would deadlock.
+	cfg.MaxConns = max(cfg.MaxConns, 2)
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("opening postgres pool: %w", err)
@@ -58,9 +68,15 @@ func (s *Store) Ping(ctx context.Context) error {
 }
 
 // Migrate implements store.Store. It holds a Postgres advisory lock so that
-// concurrent controllers serialize.
+// concurrent controllers serialize. It also applies River's own migrations
+// (ADR-0010) to the same database.
 func (s *Store) Migrate(ctx context.Context) error {
-	return migrations.Up(ctx, s.sql, migrations.Postgres)
+	s.migrateMu.Lock()
+	defer s.migrateMu.Unlock()
+	if err := migrations.Up(ctx, s.sql, migrations.Postgres); err != nil {
+		return err
+	}
+	return migrations.RiverUpPostgres(ctx, s.pool)
 }
 
 // MigrationVersion implements store.Store.

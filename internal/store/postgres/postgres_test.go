@@ -154,3 +154,43 @@ func TestOpenErrorOmitsDSN(t *testing.T) {
 		t.Fatalf("error leaks password: %v", err)
 	}
 }
+
+// TestMigrateAcrossControllers is the real multi-controller path: several
+// stores, each with its own connection pool, migrate one empty database at the
+// same time. The advisory locks serialize them; all must succeed and leave the
+// schema (goose and River) fully applied.
+func TestMigrateAcrossControllers(t *testing.T) {
+	ctx := context.Background()
+	dsn := newDatabase(t)
+	const controllers = 6
+	stores := make([]*postgres.Store, controllers)
+	for i := range stores {
+		s, err := postgres.Open(ctx, dsn)
+		if err != nil {
+			t.Fatalf("Open #%d: %v", i, err)
+		}
+		t.Cleanup(func() { _ = s.Close() })
+		stores[i] = s
+	}
+	errs := make(chan error, controllers)
+	start := make(chan struct{})
+	for _, s := range stores {
+		go func() {
+			<-start
+			errs <- s.Migrate(ctx)
+		}()
+	}
+	close(start)
+	for range stores {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent Migrate across stores: %v", err)
+		}
+	}
+	v, err := stores[0].MigrationVersion(ctx)
+	if err != nil || v == 0 {
+		t.Fatalf("MigrationVersion = %d, %v; want a migrated database", v, err)
+	}
+	if err := stores[1].Migrate(ctx); err != nil {
+		t.Fatalf("Migrate again must be a no-op: %v", err)
+	}
+}

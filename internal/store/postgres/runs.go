@@ -34,6 +34,17 @@ func toStep(r gen.StepInstance) store.StepInstance {
 
 // CreateRun implements store.RunStore.
 func (s *Store) CreateRun(ctx context.Context, nr store.NewRun, now time.Time) (store.RunTree, error) {
+	var tree store.RunTree
+	err := s.WithTx(ctx, func(tx store.Tx) error {
+		var err error
+		tree, err = tx.CreateRun(ctx, nr, now)
+		return err
+	})
+	return tree, err
+}
+
+// createRun inserts the run and its steps through q, which must be bound to a transaction.
+func createRun(ctx context.Context, q *gen.Queries, nr store.NewRun, now time.Time) (store.RunTree, error) {
 	if err := store.ValidateNewRun(nr); err != nil {
 		return store.RunTree{}, err
 	}
@@ -51,12 +62,6 @@ func (s *Store) CreateRun(ctx context.Context, nr store.NewRun, now time.Time) (
 			return store.RunTree{}, err
 		}
 	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return store.RunTree{}, fmt.Errorf("beginning run create: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := s.q.WithTx(tx)
 	if err := checkJobVersion(ctx, q, nr); err != nil {
 		return store.RunTree{}, err
 	}
@@ -76,9 +81,6 @@ func (s *Store) CreateRun(ctx context.Context, nr store.NewRun, now time.Time) (
 	steps, err := insertSteps(ctx, q, id, nr.Steps, now)
 	if err != nil {
 		return store.RunTree{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return store.RunTree{}, fmt.Errorf("committing run create: %w", err)
 	}
 	run := store.Run{
 		ID: id, JobID: nr.JobID, JobVersionID: nr.JobVersionID, Trigger: trigger, Options: options,
