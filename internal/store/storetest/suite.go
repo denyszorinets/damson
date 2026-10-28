@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/denyszorinets/damson/internal/store"
 )
@@ -38,9 +39,57 @@ func Run(t *testing.T, f Factory) {
 		{"TimestampOrdering", testTimestampOrdering},
 		{"ListAgents", testListAgents},
 		{"ControllerInstances", testControllerInstances},
+		{"Projects", testProjects},
+		{"Jobs", testJobs},
+		{"JobVersionCASSingleWinner", testJobCreateConcurrent},
+		{"ListJobsPaging", testListJobsPaging},
+		{"CreateRun", testCreateRun},
+		{"CreateRunErrors", testCreateRunErrors},
+		{"RunStatusCAS", testRunStatusCAS},
+		{"AdvancePrimitives", testAdvancePrimitives},
+		{"StepInstanceCAS", testStepInstanceCAS},
+		{"RequestCancel", testRequestCancel},
+		{"ListRuns", testListRuns},
+		{"ClaimExecutions", testClaim},
+		{"ClaimConcurrent", testClaimConcurrent},
+		{"ExecutionLifecycle", testExecutionLifecycle},
+		{"Fencing", testFencing},
+		{"CompleteConcurrent", testCompleteConcurrent},
+		{"RequeueExecution", testRequeue},
+		{"Leases", testLeases},
+		{"LogChunks", testLogChunks},
+		{"LogData", testLogData},
+		{"ClaimMultiPool", testClaimMultiPool},
+		{"TerminalRunRejectsAdvance", testTerminalRunRejectsAdvance},
+		{"JSONColumns", testJSONColumns},
+		{"LeaseRaces", testLeaseRaces},
+		{"ScheduleRaces", testScheduleRaces},
+		{"AddStepsRaces", testAddStepsRaces},
+		{"LogVsClaimRace", testLogVsClaimRace},
+		{"LogChunkAfterComplete", testLogChunkAfterComplete},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) { tt.fn(t, f(t)) })
+		t.Run(tt.name, func(t *testing.T) { withWatchdog(t, tt.fn, f(t)) })
+	}
+}
+
+// testTimeout bounds one contract test, so a deadlock (for example connection
+// pool exhaustion) fails fast with a message instead of the package timeout.
+const testTimeout = 90 * time.Second
+
+// withWatchdog runs fn and fails the test if it does not finish in time. A
+// FailNow inside fn ends only fn's goroutine, which still marks t failed.
+func withWatchdog(t *testing.T, fn func(*testing.T, store.Store), s store.Store) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn(t, s)
+	}()
+	select {
+	case <-done:
+	case <-time.After(testTimeout):
+		t.Fatalf("test did not finish within %s: deadlock or connection pool exhaustion?", testTimeout)
 	}
 }
 

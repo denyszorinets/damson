@@ -47,6 +47,10 @@ type Store interface {
 	PoolStore
 	AgentStore
 	ControllerStore
+	JobStore
+	RunStore
+	ExecutionStore
+	LogStore
 
 	// GetSetting returns ErrNotFound if the key is absent.
 	GetSetting(ctx context.Context, key string) (Setting, error)

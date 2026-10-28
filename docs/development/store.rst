@@ -95,6 +95,116 @@ pass ``now`` explicitly, so the store never reads the clock.
    ``id``, ``internal_url``, ``started_at``, ``last_seen``. Register is an
    upsert; heartbeat and delete return ``ErrNotFound`` for an unknown id.
 
+Run model tables (migration 00003)
+----------------------------------
+
+Migration ``00003_runs`` adds the M2 domain model (ARCHITECTURE sections 4,
+7.3, 8.3 and 10). Ids are UUIDv7 from Go; callers pass ``now``. The interfaces
+are ``JobStore``, ``RunStore``, ``ExecutionStore`` and ``LogStore``
+(``internal/store/{jobs,runs,executions,logs}.go``), all part of ``Store``.
+
+``projects``
+   ``id``, ``name`` (unique). One row is seeded: ``store.DefaultProjectID`` /
+   ``default``. The project tree arrives with access control.
+
+``jobs`` and ``job_versions``
+   A job has a unique ``(project_id, name)``, ``managed_by`` (``ui``,
+   ``files:<source>``, ``git:<source>``) and ``current_version``. A version is
+   immutable: ``spec`` is stored as text (also on Postgres) so the bytes match
+   ``checksum`` exactly. Every other JSON column of this model (``trigger``,
+   ``options``, ``input``, ``outputs``) is also ``TEXT`` on both backends, so
+   the stored bytes are identical across them. The Go layer validates and
+   compacts the value and rejects invalid JSON and the ``\u0000`` escape with
+   ``ErrInvalid``. ``CreateJob`` writes the job and version 1 in one
+   transaction; ``CreateJobVersion`` is a CAS on ``current_version``
+   (``ErrStale``).
+
+``runs``
+   ``job_version_id`` pins one version. ``trigger`` and ``options`` are JSON
+   (secret refs only), ``status`` is ``pending|running|succeeded|failed|canceled``,
+   ``version`` is the optimistic-concurrency counter, ``cancel_requested_at``
+   and ``concurrency_key`` serve cancel and the concurrency policy.
+
+``step_instances``
+   ``(run_id, path)`` is unique; ``path`` is stable (``main/step-id``).
+   ``kind`` is ``step`` or ``group``; ``input`` is the resolved plugin input
+   **without secret values**. The store cannot check this: the dispatch path
+   owns the guarantee (secrets are resolved only there, in memory), and the
+   M4 secrets work adds the test that proves it. ``UpdateStepInstance`` is a CAS on ``status``.
+
+``executions``
+   One attempt of a step: ``(step_instance_id, attempt_no)`` is unique and
+   ``attempt_id`` (the fencing token) is globally unique. ``state`` is
+   ``queued|dispatched|running|succeeded|failed|canceled|timed_out|lost``.
+   ``agent_id`` and ``controller_id`` have no foreign keys. A partial index on
+   queued rows serves the dispatch claim, and one on dispatched and running
+   rows serves the reaper.
+
+``log_chunks`` and ``log_chunks_data``
+   The manifest (``execution_id``, ``seq_from``/``seq_to``, ``backend``,
+   ``object_key``, ``bytes``, ``ts_first``/``ts_last``) and the bytes of the
+   default ``db`` LogStore (``object_key`` to blob).
+
+Advance primitives
+~~~~~~~~~~~~~~~~~~
+
+``UpdateRunStatus``, ``AddStepInstances``, ``ScheduleExecution`` and
+``RequestCancel`` each compare ``runs.version`` and bump it, so an advance
+built on a stale read returns ``ErrStale`` and must reload. All of them reject
+a terminal run with ``ErrStale``. ``ScheduleExecution`` also requires, in the
+same transaction, that the step's latest attempt is terminal or ``lost``;
+otherwise it returns ``ErrConflict`` and nothing changes. ``CreateRun`` checks
+that the job exists (``ErrNotFound``) and that the version belongs to it
+(``ErrConflict``). It inserts the run, its step instances and the first
+executions in one transaction. Applying a whole batch of engine actions in one
+transaction is future work on top of these.
+
+Inside a transaction every read goes through the transaction's queries
+(``getRun``, ``getJob``, ``getExecution`` take the querier). Calling a pool
+method such as ``s.GetRun`` while a transaction is open acquires a second
+connection and deadlocks a small pool under concurrency (the Postgres pool
+defaults to ``max(4, CPUs)`` connections).
+
+Foreign keys carry no ``ON DELETE`` action. Retention must delete children
+before parents: ``log_chunks`` (and their ``log_chunks_data``), then
+``executions``, ``step_instances``, ``runs``.
+
+Dispatch, leases and fencing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``ClaimExecutions`` selects queued, due executions of the agent's **pools** in
+one global ``priority, scheduled_at`` order (at most ``Limit``, clamped) and
+moves them to ``dispatched`` with the agent, controller, a **new**
+``attempt_id`` and a lease, in one transaction. This deviates from the single
+``UPDATE ... WHERE id IN (...)`` of ARCHITECTURE section 8.3 only in form: the
+attempt ids are generated in Go, so rows are updated one by one with
+``RETURNING``. Label and capability matching is not part of the claim; the
+dispatcher (M3) filters further. Postgres selects with ``pool = ANY(...)`` and
+``FOR UPDATE SKIP LOCKED`` (``queries/postgres``); SQLite uses an ``IN`` list
+and relies on its immediate write transactions (``queries/sqlite``). Every
+later transition (``MarkExecutionRunning``, ``CompleteExecution``,
+``RequeueExecution``, ``InsertLogChunk``) carries the ``attempt_id`` and the
+expected state in its ``WHERE``. A mismatch changes nothing and returns
+``ErrStale``; an unknown execution returns ``ErrNotFound``.
+
+Log chunks are fenced by ``attempt_id`` only: the check does not look at the
+execution state, so the final flush after completion (ARCHITECTURE section 10)
+is accepted, and only an attempt that differs from the current one is
+rejected. ``InsertLogChunk`` takes a lock on the execution row first
+(``SELECT ... FOR SHARE`` on Postgres, a no-op update on SQLite), so the
+attempt cannot be rotated between the check and the insert.
+
+``RenewLeases`` is one batched ``UPDATE ... RETURNING`` (chunked below the
+variable limit on SQLite). It touches only attempts owned by the calling
+controller, never shortens a lease (an older expiry is ignored), and returns
+the ids of every live attempt it matched, so the caller can answer continue or
+cancel for the rest. ``ExpireLeases`` (the reaper) marks overdue dispatched or
+running executions ``lost`` and returns them; a lost attempt can no longer
+complete or renew.
+
+``DeleteLogDataPrefix`` matches with ``substr`` (not ``LIKE``, which is
+case-insensitive on SQLite) and rejects an empty prefix.
+
 Add a migration by creating the next ``NNNNN_name.sql`` in **both** directories
 with ``-- +goose Up`` and ``-- +goose Down`` sections, then run ``make gen``.
 
