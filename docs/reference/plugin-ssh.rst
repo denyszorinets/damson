@@ -73,8 +73,15 @@ plugin's ``Validate`` on the agent.
 The command, the script and resolved ``env`` values are sent to the node on the
 standard input of a fixed ``/bin/sh -s`` command, so they do not appear in the
 remote process list. With ``pty: true`` standard input cannot be used and the
-body is passed as an argument of ``/bin/sh -c`` instead; do not combine
-``pty`` with secret ``env`` values on shared hosts.
+whole body, including the command or script text, is passed as an argument of
+``/bin/sh -c`` and **is visible in the remote process list**. Because env
+values (which may be secrets) would be exposed that way, ``pty`` together with a
+non-empty ``env`` is rejected by validation; use a step without ``pty`` when you
+need ``env``.
+
+In script mode the interpreter is not ``exec``-ed, so the shell can remove the
+temporary file when the interpreter exits. If the connection is lost or the
+shell is killed hard, the file under ``$TMPDIR`` (or ``/tmp``) can remain.
 
 Credential
 ----------
@@ -82,8 +89,12 @@ Credential
 The credential is resolved with ``ResolveFields`` and may hold ``username``
 (falls back to the node attribute ``username``), ``private_key``,
 ``passphrase`` and ``password``. The key is tried first when both are present.
-Credential values are never logged and never appear in outputs or error
-messages.
+Only public key and password authentication are offered; keyboard-interactive
+is not. Credential values are never logged and never appear in outputs or error
+messages. What the remote command itself prints (for example ``echo $TOKEN``)
+is not filtered by the plugin: masking of such output is done by the agent
+masker (ARCHITECTURE section 9.4), which the ``plugintest`` fake emitter does
+not apply, so it is not covered by this package's tests.
 
 Host keys
 ---------
@@ -100,7 +111,9 @@ The node's ``host_key_policy`` decides how the server key is checked:
    the key the server presents is accepted and, once authentication succeeded,
    reported through the SDK hook (``ExecRequest.HostKeys``). The agent forwards
    it to the controller, which stores it as ``hostkey_observed`` on the node
-   for an operator to review.
+   for an operator to review. The plugin side is done; the agent wiring of
+   ``HostKeys`` and ``Config`` is pending (tracked in #52), so until then the
+   hook is nil and ``insecure`` cannot be enabled outside tests.
 
 ``insecure``
    No verification. It is refused with a ``validation`` error unless the
@@ -180,7 +193,7 @@ server (``plugins/internal/sshtest``) executing commands with the local
 .. code-block:: console
 
    $ go test -race ./plugins/ssh/...
-   $ go test -tags integration ./plugins/ssh/...    # needs Docker
+   $ make test-integration                      # needs Docker
 
 The integration tests use ``testcontainers-go`` with the
 ``linuxserver/openssh-server`` image and cover success, a non-zero exit,

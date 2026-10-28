@@ -240,5 +240,5 @@ controller and cmd tests; list new packages in ``PGPKGS`` in the Makefile), whic
 ``DAMSON_TEST_POSTGRES_DSN``; each test gets its own database, dropped on
 cleanup. Without a container runtime or that variable the Postgres tests
 **fail**; set ``DAMSON_SKIP_POSTGRES=1`` to skip them explicitly (the run is
-then not a Postgres verification). ``make check`` does not run ``test-pg``; CI
+then not a Postgres verification). ``make check`` does not run ``test-pg`` (nor ``make test-integration`` for the non-Postgres integration packages); CI
 does, with Docker.

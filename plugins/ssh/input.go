@@ -23,7 +23,7 @@ type Input struct {
 	Workdir          string            `json:"workdir,omitempty" jsonschema:"description=Remote working directory"`
 	Sudo             bool              `json:"sudo,omitempty" jsonschema:"description=Run through sudo -n (passwordless sudo is required on the node)"`
 	SudoUser         string            `json:"sudo_user,omitempty" jsonschema:"description=Target user for sudo; requires sudo"`
-	Pty              bool              `json:"pty,omitempty" jsonschema:"description=Request a pseudo terminal. stderr is then merged into stdout and the command is passed as an argument instead of on stdin."`
+	Pty              bool              `json:"pty,omitempty" jsonschema:"description=Request a pseudo terminal. stderr is then merged into stdout. With pty the command or script text is passed as an argument and is visible in the remote process list, so env is not allowed together with pty."`
 	Credential       string            `json:"credential,omitempty" jsonschema:"description=Credential secret:// ref that overrides the node credential"`
 	SuccessExitCodes []int             `json:"success_exit_codes,omitempty" jsonschema:"description=Exit codes that count as success,default=[0]"`
 }
@@ -68,6 +68,8 @@ func (in Input) validate() error {
 		return pluginsdk.ValidationError("sudo_user requires sudo")
 	case hasControl(in.Interpreter) || hasControl(in.Workdir) || hasControl(in.SudoUser):
 		return pluginsdk.ValidationError("interpreter, workdir and sudo_user must be single-line text")
+	case in.Pty && len(in.Env) > 0:
+		return pluginsdk.ValidationError("env cannot be combined with pty: with a pty the command body is passed as an argument, so env values would be exposed in the remote process list; use a step without pty")
 	case in.SudoUser != "" && strings.HasPrefix(in.SudoUser, "-"):
 		return pluginsdk.ValidationError("sudo_user must not start with '-'")
 	}

@@ -85,7 +85,7 @@ func (h *hostKeyCheck) callback(_ string, _ net.Addr, key ssh.PublicKey) error {
 // algorithms limits negotiation to the pinned key type, so a server with
 // several host keys presents the one we can verify.
 func (h *hostKeyCheck) algorithms() []string {
-	if h.pinned == nil {
+	if h.pinned == nil || h.policy == policyInsecure {
 		return nil
 	}
 	if h.pinned.Type() == ssh.KeyAlgoRSA {

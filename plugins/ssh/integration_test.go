@@ -35,7 +35,10 @@ func startOpenSSH(t *testing.T) *openssh {
 	ctx := context.Background()
 	ctr, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "lscr.io/linuxserver/openssh-server:latest",
+			// Pinned. Assumptions about this image: sshd listens on 2222, the user
+			// named by USER_NAME is created with the key in PUBLIC_KEY, password
+			// login is off, and the user's login shell can run /bin/sh -s.
+			Image:        "lscr.io/linuxserver/openssh-server:version-10.3_p1-r1",
 			ExposedPorts: []string{itPort},
 			Env: map[string]string{
 				"PUID": "1000", "PGID": "1000", "TZ": "UTC",
@@ -144,10 +147,25 @@ func TestIntegrationOpenSSH(t *testing.T) {
 	t.Run("cancel kills the remote process", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		time.AfterFunc(3*time.Second, cancel)
 		c := o.caseFor("cancel", `{"command":"echo $$ >/tmp/damson-it.pid; exec sleep 120"}`, strict)
-		res := plugintest.Exec(ctx, t, plug(), c)
-		requireKind(t, res, pluginsdk.KindCancelled)
+		done := make(chan plugintest.Outcome, 1)
+		go func() { done <- plugintest.Exec(ctx, t, plug(), c) }()
+		// Cancel only once the remote command wrote its pid file.
+		pidDeadline := time.Now().Add(20 * time.Second)
+		for {
+			check := exec(t, o.caseFor("pid", `{"command":"test -s /tmp/damson-it.pid"}`, strict))
+			if check.Result.Error == nil && check.Err == nil {
+				break
+			}
+			if time.Now().After(pidDeadline) {
+				cancel()
+				<-done
+				t.Fatal("remote pid file never appeared")
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		cancel()
+		requireKind(t, <-done, pluginsdk.KindCancelled)
 
 		deadline := time.Now().Add(10 * time.Second)
 		for {

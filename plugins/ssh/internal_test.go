@@ -25,6 +25,8 @@ func TestDecodeValidation(t *testing.T) {
 		{"bad env name", `{"node":"n","command":"a","env":{"A-B":"x"}}`, "not a valid variable name"},
 		{"bad exit code", `{"node":"n","command":"a","success_exit_codes":[256]}`, "outside 0..255"},
 		{"newline interpreter", `{"node":"n","command":"a","interpreter":"/bin/sh\nrm"}`, "single-line"},
+		{"pty with env", `{"node":"n","command":"a","pty":true,"env":{"A":"b"}}`, "process list"},
+		{"pty without env", `{"node":"n","command":"a","pty":true}`, ""},
 		{"nul command", `{"node":"n","command":"a\u0000b"}`, "NUL"},
 	}
 	for _, tc := range tests {
@@ -65,7 +67,7 @@ func TestBuildCall(t *testing.T) {
 			name: "env workdir sudo", in: Input{Command: "id", Interpreter: "/bin/bash -e", Workdir: "/opt/my app", Sudo: true, SudoUser: "bob"},
 			env:         map[string]string{"B": "2", "A": "it's"},
 			wantCommand: "sudo -n -u 'bob' -- /bin/sh -s",
-			wantStdin:   []string{`export A='it'\''s'`, `export B='2'`, `cd '/opt/my app' || exit 1`, `exec '/bin/bash' '-e' -c 'id'`},
+			wantStdin:   []string{`export A='it'\''s'`, `export B='2'`, `cd -- '/opt/my app' || exit 1`, `exec '/bin/bash' '-e' -c 'id'`},
 		},
 		{
 			name: "script", in: Input{Script: "echo a\necho b\n", Interpreter: "python3"},

@@ -40,7 +40,7 @@ func buildCall(in Input, env map[string]string) (remoteCall, error) {
 		fmt.Fprintf(&b, "export %s=%s\n", k, quote(env[k]))
 	}
 	if in.Workdir != "" {
-		fmt.Fprintf(&b, "cd %s || exit 1\n", quote(in.Workdir))
+		fmt.Fprintf(&b, "cd -- %s || exit 1\n", quote(in.Workdir))
 	}
 	if in.Script != "" {
 		fmt.Fprintf(&b, "%s \"$f\"\n", interp)

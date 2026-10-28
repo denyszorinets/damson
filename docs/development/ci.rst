@@ -25,6 +25,11 @@ Jobs
        (store, api, controller, cmd) against PostgreSQL
        started by testcontainers through the runner's Docker daemon. Verbose,
        so a skipped or failing test is visible in the log.
+   * - ``integration``
+     - ``make test-integration GOTESTFLAGS=-v``: non-Postgres
+       ``integration``-tagged tests (currently ``plugins/ssh`` against an
+       OpenSSH container) through the runner's Docker daemon. Skipped tests or
+       a run without ``PASS`` lines fail the job. ``make check`` does not run it.
    * - ``web``
      - ``make web`` (build), ``make web-check`` (prettier, eslint,
        svelte-check) and the Playwright e2e tests, using the Google Chrome

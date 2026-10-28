@@ -9,7 +9,7 @@ GOPKGS   := $(shell go list ./... | grep -v /web/node_modules/)
 GOTESTFLAGS ?=
 SPHINX   := cd $(DOCS_DIR) && uv run --frozen
 
-.PHONY: plugin-contract build test test-pg gen vet fmt-check lint check docs docs-serve docs-check web web-check
+.PHONY: test-integration plugin-contract build test test-pg gen vet fmt-check lint check docs docs-serve docs-check web web-check
 
 build: ## Build the damson binary into bin/damson
 	go build -ldflags "$(LDFLAGS)" -o bin/damson ./cmd/damson
@@ -18,10 +18,16 @@ test: ## Run Go tests (SQLite store; Postgres store tests are in test-pg)
 	go test $(GOTESTFLAGS) $(GOPKGS)
 
 # Every package with `//go:build integration` tests must be listed here, or CI never runs them.
-PGPKGS := ./internal/store/... ./internal/api/... ./internal/controller/... ./internal/agent/... ./cmd/... ./plugins/ssh/...
+PGPKGS := ./internal/store/... ./internal/api/... ./internal/controller/... ./internal/agent/... ./cmd/...
 
 test-pg: ## Integration tests against Postgres: store, api, controller, cmd (testcontainers; DAMSON_TEST_POSTGRES_DSN reuses a server; fails without Docker unless DAMSON_SKIP_POSTGRES=1)
 	go test $(GOTESTFLAGS) -tags integration -count=1 $(PGPKGS)
+
+# Packages with `//go:build integration` tests that do not use Postgres (they need Docker for other containers).
+TESTINTPKGS := ./plugins/ssh/...
+
+test-integration: ## Non-Postgres integration tests (plugins/ssh against an sshd container); needs Docker and fails without it; list new packages in TESTINTPKGS
+	go test $(GOTESTFLAGS) -tags integration -count=1 $(TESTINTPKGS)
 
 gen: ## Regenerate sqlc output, web/openapi.json, the job spec JSON Schema and the TypeScript API client (needs node; runs npm ci if web/node_modules is missing)
 	go tool sqlc generate
