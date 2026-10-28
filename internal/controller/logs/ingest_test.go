@@ -70,13 +70,6 @@ func TestAppend_OrderingDuplicatesAndGaps(t *testing.T) {
 			wantAck:    5,
 		},
 		{
-			name:       "undeclared hole is treated as a gap",
-			batches:    []batch{{1, 0, []string{"a"}}, {4, 0, []string{"d"}}},
-			wantSeqs:   []int64{1, 4},
-			wantRanges: [][2]int64{{1, 1}, {4, 4}},
-			wantAck:    4,
-		},
-		{
 			name:       "gap already covered by ingested lines",
 			batches:    []batch{{1, 0, []string{"a", "b", "c"}}, {2, 3, []string{"d"}}},
 			wantSeqs:   []int64{1, 2, 3, 4},
@@ -112,7 +105,7 @@ func TestAppend_StoredLinesRoundTrip(t *testing.T) {
 		assert.Equal(t, t0.Add(1), got[1].TS)
 		c := f.chunks()[0]
 		assert.Equal(t, "db", c.Backend)
-		assert.Equal(t, "logs/"+f.exec.ID+"/1-2.ndjson", c.ObjectKey)
+		assert.Equal(t, "logs/"+f.exec.ID+"/"+f.exec.AttemptID+"/1-2.ndjson", c.ObjectKey)
 		assert.WithinDuration(t, t0, c.TsFirst, time.Second)
 		assert.WithinDuration(t, t0, c.TsLast, time.Second)
 	})
@@ -194,7 +187,7 @@ func TestFencing_CachedAttemptIsOnlyTrustedForTTL(t *testing.T) {
 		// but the fenced chunk insert still refuses to persist it.
 		f.mustSend(2, 0, "within-ttl")
 		require.NoError(t, f.in.Flush(context.Background(), f.exec.ID))
-		assert.Equal(t, [][2]int64{{1, 1}}, f.ranges(), "stale lines must never reach the manifest")
+		assert.Empty(t, f.ranges(), "stale lines never reach the manifest, and the reclaim dropped the previous attempt's chunk")
 		_, err := f.in.Subscribe(context.Background(), f.exec.ID, 0)
 		require.ErrorIs(t, err, ErrNoLiveTail, "the stale buffer is discarded")
 

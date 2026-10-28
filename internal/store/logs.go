@@ -57,6 +57,13 @@ type LogStore interface {
 	DeleteLogDataPrefix(ctx context.Context, prefix string) (int64, error)
 }
 
+// LogDataPrefix is the key prefix under which every log object of an
+// execution is stored (the chunk writer names objects logs/<execution>/...).
+// Claiming an execution under a new attempt deletes everything below it:
+// sequence numbers restart for each attempt, so the previous attempt's chunks
+// must not mix with the new one's.
+func LogDataPrefix(executionID string) string { return "logs/" + executionID + "/" }
+
 // ValidateLogChunk rejects chunks the store cannot record.
 func ValidateLogChunk(attemptID string, c NewLogChunk) error {
 	if attemptID == "" || c.ExecutionID == "" || c.Backend == "" || c.ObjectKey == "" {

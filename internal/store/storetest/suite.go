@@ -69,6 +69,7 @@ func Run(t *testing.T, f Factory) {
 		{"ScheduleRaces", testScheduleRaces},
 		{"AddStepsRaces", testAddStepsRaces},
 		{"LogVsClaimRace", testLogVsClaimRace},
+		{"LogsDroppedOnReclaim", testLogsDroppedOnReclaim},
 		{"LogChunkAfterComplete", testLogChunkAfterComplete},
 	}
 	for _, tt := range tests {

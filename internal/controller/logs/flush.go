@@ -31,14 +31,23 @@ func (i *Ingest) Finish(ctx context.Context, executionID string) error {
 	if st == nil {
 		return nil
 	}
-	if err := i.flushState(ctx, st); err != nil {
+	for try := 0; ; try++ {
+		if err := i.flushState(ctx, st); err != nil {
+			i.sendAcks(ctx)
+			return err
+		}
 		i.sendAcks(ctx)
-		return err
+		st.mu.Lock()
+		if len(st.pending) == 0 {
+			st.closeLocked() // nothing arrived since the flush: safe to release
+			st.mu.Unlock()
+			break
+		}
+		st.mu.Unlock()
+		if try >= 2 {
+			return fmt.Errorf("execution %s still receiving logs: %w", executionID, store.ErrConflict)
+		}
 	}
-	i.sendAcks(ctx)
-	st.mu.Lock()
-	st.closeLocked()
-	st.mu.Unlock()
 	i.mu.Lock()
 	if i.states[executionID] == st {
 		delete(i.states, executionID)
@@ -150,7 +159,7 @@ func (i *Ingest) putChunk(ctx context.Context, st *execState, run []Line) error 
 	if err != nil {
 		return err
 	}
-	key := ObjectKey(st.execID, from, to)
+	key := ObjectKey(st.execID, st.attempt, from, to)
 	sctx, cancel := context.WithTimeout(ctx, i.cfg.StoreTimeout)
 	defer cancel()
 	now := i.cfg.Clock.now()
@@ -172,7 +181,7 @@ func (i *Ingest) putChunk(ctx context.Context, st *execState, run []Line) error 
 func (i *Ingest) chunkAt(ctx context.Context, executionID string, seq int64) (store.LogChunk, error) {
 	sctx, cancel := context.WithTimeout(ctx, i.cfg.StoreTimeout)
 	defer cancel()
-	chunks, err := i.cfg.Store.ListLogChunks(sctx, executionID, seq, seq, 8)
+	chunks, err := i.cfg.Store.ListLogChunks(sctx, executionID, seq, seq, 64)
 	if err != nil {
 		return store.LogChunk{}, fmt.Errorf("listing log chunks: %w", err)
 	}
@@ -197,7 +206,7 @@ func (i *Ingest) duePass(ctx context.Context) {
 		switch {
 		case len(st.pending) > 0 && (st.pendBytes >= i.cfg.FlushBytes || now.Sub(st.oldest) >= i.cfg.FlushInterval):
 			due = append(due, st)
-		case len(st.pending) == 0 && now.Sub(st.lastActive) >= i.cfg.IdleTTL:
+		case len(st.pending) == 0 && len(st.subs) == 0 && now.Sub(st.lastActive) >= i.cfg.IdleTTL:
 			idle = append(idle, st)
 		}
 		st.mu.Unlock()
@@ -231,7 +240,7 @@ func (i *Ingest) flushAll(ctx context.Context, states []*execState) {
 
 func (i *Ingest) evict(st *execState) {
 	st.mu.Lock()
-	if len(st.pending) > 0 {
+	if len(st.pending) > 0 || len(st.subs) > 0 {
 		st.mu.Unlock()
 		return
 	}

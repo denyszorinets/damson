@@ -16,10 +16,17 @@ const (
 	DefaultFlushInterval   = 5 * time.Second
 	DefaultFlushBytes      = 1 << 20
 	DefaultCheckInterval   = time.Second
-	DefaultAttemptTTL      = 5 * time.Second
+	DefaultAttemptTTL      = time.Second
 	DefaultStoreTimeout    = 5 * time.Second
 	DefaultIdleTTL         = 15 * time.Minute
 	DefaultSubscriberQueue = 1024
+	// DefaultMaxPendingBytes bounds the unflushed lines held per execution.
+	// Beyond it a batch is refused and the session closed, so the agent
+	// resends after reconnecting. The total is this times the executions a
+	// controller serves (bounded by agent slots).
+	DefaultMaxPendingBytes = 4 << 20
+	DefaultLookupRetries   = 2
+	DefaultLookupRetryWait = 150 * time.Millisecond
 	DefaultBackend         = "db"
 
 	attemptCacheSize = 4096
@@ -62,6 +69,7 @@ func (r realTicker) Stop()               { r.t.Stop() }
 type Store interface {
 	store.LogStore
 	GetExecutionByAttempt(ctx context.Context, attemptID string) (store.Execution, error)
+	GetExecution(ctx context.Context, id string) (store.Execution, error)
 }
 
 // AckSender delivers a log.ack to the agent's current session. Finding the
@@ -88,6 +96,9 @@ type Config struct {
 	StoreTimeout    time.Duration // bound on one store call or ack send
 	IdleTTL         time.Duration // evicts executions that received nothing for this long
 	SubscriberQueue int           // extra channel capacity of a live-tail subscriber
+	MaxPendingBytes int           // unflushed bytes per execution before a batch is refused
+	LookupRetries   int           // extra attempts when resolving an attempt fails transiently
+	LookupRetryWait time.Duration // pause between those attempts
 }
 
 var (
@@ -117,6 +128,7 @@ func (c *Config) applyDefaults() error {
 		{&c.AttemptTTL, DefaultAttemptTTL},
 		{&c.StoreTimeout, DefaultStoreTimeout},
 		{&c.IdleTTL, DefaultIdleTTL},
+		{&c.LookupRetryWait, DefaultLookupRetryWait},
 	} {
 		if *d.v <= 0 {
 			*d.v = d.d
@@ -129,10 +141,16 @@ func (c *Config) applyDefaults() error {
 		{&c.RingLines, DefaultRingLines},
 		{&c.FlushBytes, DefaultFlushBytes},
 		{&c.SubscriberQueue, DefaultSubscriberQueue},
+		{&c.MaxPendingBytes, DefaultMaxPendingBytes},
 	} {
 		if *n.v <= 0 {
 			*n.v = n.d
 		}
+	}
+	if c.LookupRetries < 0 {
+		c.LookupRetries = 0
+	} else if c.LookupRetries == 0 {
+		c.LookupRetries = DefaultLookupRetries
 	}
 	return nil
 }

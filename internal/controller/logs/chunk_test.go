@@ -30,7 +30,7 @@ func TestReadChunk_RejectsGarbage(t *testing.T) {
 }
 
 func TestObjectKey(t *testing.T) {
-	assert.Equal(t, "logs/e1/5-9.ndjson", ObjectKey("e1", 5, 9))
+	assert.Equal(t, "logs/e1/a1/5-9.ndjson", ObjectKey("e1", "a1", 5, 9))
 }
 
 func TestContiguousRuns(t *testing.T) {

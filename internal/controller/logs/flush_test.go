@@ -107,7 +107,7 @@ func TestFlush_ConflictIsAlreadyPersisted(t *testing.T) {
 				f := newFx(t, st)
 				for _, r := range tc.existing { // persisted earlier, ack lost
 					_, err := st.InsertLogChunk(context.Background(), f.exec.AttemptID, store.NewLogChunk{
-						ExecutionID: f.exec.ID, SeqFrom: r[0], SeqTo: r[1], Backend: "db", ObjectKey: ObjectKey(f.exec.ID, r[0], r[1]),
+						ExecutionID: f.exec.ID, SeqFrom: r[0], SeqTo: r[1], Backend: "db", ObjectKey: ObjectKey(f.exec.ID, f.exec.AttemptID, r[0], r[1]),
 					}, t0)
 					require.NoError(t, err)
 				}
@@ -192,12 +192,12 @@ func TestAck_NotSentWhenCommitFails(t *testing.T) {
 func TestFlush_PartialFailureAcksOnlyCommittedRun(t *testing.T) {
 	f := newFx(t, openSQLite(t))
 	f.mustSend(1, 0, "a", "b")
-	f.mustSend(5, 0, "e") // hole 3-4 makes a second chunk
+	f.mustSend(3, 4, "e") // declared gap 3-4 makes a second chunk
 	flaky := &flakyInsert{Store: f.st, failFrom: 5}
 	f.in.cfg.Store = flaky
 	require.Error(t, f.in.Flush(context.Background(), f.exec.ID))
 	assert.Equal(t, [][2]int64{{1, 2}}, f.ranges())
-	assert.EqualValues(t, 4, f.acks.last(f.exec.AttemptID), "ack stops before the uncommitted run (the hole 3-4 counts as a gap)")
+	assert.EqualValues(t, 4, f.acks.last(f.exec.AttemptID), "ack stops before the uncommitted run (the declared gap 3-4 counts as contiguous)")
 	flaky.failFrom = 0
 	f.flush()
 	assert.Equal(t, [][2]int64{{1, 2}, {5, 5}}, f.ranges())

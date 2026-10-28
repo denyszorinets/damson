@@ -48,7 +48,7 @@ type execState struct {
 
 	mu         sync.Mutex
 	agentID    string
-	high       int64 // highest seq accounted for: ingested lines and declared gaps
+	high       int64 // highest contiguous seq accounted for: ingested lines and declared gaps; -1 until the first batch
 	acked      int64 // highest seq already queued for log.ack
 	pending    []Line
 	pendBytes  int
@@ -59,9 +59,9 @@ type execState struct {
 	closed     bool
 }
 
-func newExecState(execID, attempt, agentID string, ringLines int, now time.Time) *execState {
+func newExecState(execID, attempt, agentID string, floor int64, ringLines int, now time.Time) *execState {
 	return &execState{
-		execID: execID, attempt: attempt, agentID: agentID, ring: ring{cap: ringLines},
+		execID: execID, attempt: attempt, agentID: agentID, high: floor, ring: ring{cap: ringLines},
 		subs: make(map[*subscriber]struct{}), lastActive: now,
 	}
 }
@@ -70,18 +70,32 @@ func newExecState(execID, attempt, agentID string, ringLines int, now time.Time)
 type applyResult struct {
 	added int // lines newly ingested
 	dups  int // lines already ingested
-	holes int // lines that skipped ahead without a declared gap
-	drops int // subscribers dropped for being too slow
+	// outOfOrder is set when the batch starts beyond the contiguous frontier
+	// without declaring a gap. Nothing from the offending point on is kept:
+	// acking past a hole would let the agent free lines the controller never saw.
+	outOfOrder bool
+	drops      int // subscribers dropped for being too slow
 }
 
-// apply ingests m: it drops seqs already seen, counts a declared gap as
-// contiguous, and feeds the ring, the pending chunk and the subscribers.
-// The caller holds st.mu.
+// apply ingests m in order: it drops seqs already seen, counts a declared gap
+// as contiguous, and feeds the ring, the pending chunk and the subscribers.
+// A batch that starts beyond the frontier without declaring a gap is refused
+// from that point on (res.outOfOrder); the caller makes the agent resend.
+// The first batch of an attempt on this controller sets the frontier to just
+// below itself: the agent frees only acknowledged seqs, so everything below
+// its oldest unacknowledged line is persisted. The caller holds st.mu.
 func (st *execState) apply(m protocol.LogAppend, now time.Time) applyResult {
 	var res applyResult
 	st.lastActive = now
-	if m.GapTo >= m.SeqFrom && int64(m.GapTo) > st.high {
-		st.high = int64(m.GapTo)
+	if st.high < 0 {
+		st.high = int64(m.SeqFrom) - 1
+	}
+	if m.GapTo >= m.SeqFrom {
+		if int64(m.SeqFrom) > st.high+1 {
+			res.outOfOrder = true
+			return res
+		}
+		st.high = max(st.high, int64(m.GapTo))
 	}
 	first := int64(m.FirstEntrySeq())
 	for i, e := range m.Entries {
@@ -91,7 +105,8 @@ func (st *execState) apply(m protocol.LogAppend, now time.Time) applyResult {
 			continue
 		}
 		if seq > st.high+1 {
-			res.holes++ // the agent skipped seqs without declaring a gap: treat as one
+			res.outOfOrder = true
+			return res
 		}
 		st.high = seq
 		l := Line{Seq: seq, TS: time.Unix(0, e.TS).UTC(), Stream: streamName(e.Stream), Line: e.Line}

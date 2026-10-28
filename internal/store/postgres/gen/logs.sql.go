@@ -11,6 +11,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const deleteLogChunksOfExecution = `-- name: DeleteLogChunksOfExecution :execrows
+DELETE FROM log_chunks WHERE execution_id = $1
+`
+
+func (q *Queries) DeleteLogChunksOfExecution(ctx context.Context, executionID string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteLogChunksOfExecution, executionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteLogDataPrefix = `-- name: DeleteLogDataPrefix :execrows
 DELETE FROM log_chunks_data WHERE substr(object_key, 1, $1) = $2
 `

@@ -878,7 +878,7 @@ type SecretStore interface {
   - `db` (**default**, including HA production): chunks stored as bytea or blob in a dedicated `log_chunks_data` table. This keeps the required infrastructure to Postgres only. Retention deletes are batched to limit bloat.
   - `fs`: dev, or a single controller with a shared volume.
   - `s3` (optional): any S3-compatible endpoint, for installations whose log volume would bloat the database. Switching is a config change; old chunks stay readable through their stored backend id.
-- **Object key:** `logs/<execution-id>/<seq_from>-<seq_to>.ndjson[.gz]` (the execution id is globally unique, so the project and run ids are not part of the key). Each line is `{"t":<unix ns>, "s":"out|err|sys", "l":"..."}`; the sequence number is implicit (line i of a chunk has `seq_from + i`), so a chunk holds a contiguous run and a declared gap splits a flush into two chunks.
+- **Object key:** `logs/<execution-id>/<attempt-id>/<seq_from>-<seq_to>.ndjson[.gz]` (the execution id is globally unique, so the project and run ids are not part of the key; sequence numbers restart for every attempt, so the attempt id is part of the key, and claiming an execution under a new attempt deletes the previous attempt's chunk rows and objects). Each line is `{"t":<unix ns>, "s":"out|err|sys", "l":"..."}`; the sequence number is implicit (line i of a chunk has `seq_from + i`), so a chunk holds a contiguous run and a declared gap splits a flush into two chunks.
 - **UI read path:** `GET /api/v1/executions/{id}/logs?after_seq=N` via SSE.
   - Serves stored chunks first, then switches to live tail from the owning controller's ring buffer (proxied if needed).
   - Gaps are reported explicitly.

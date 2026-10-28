@@ -34,9 +34,12 @@ func streamName(s pluginsdk.Stream) string {
 	}
 }
 
-// ObjectKey is the LogStore key of the chunk holding seqFrom..seqTo.
-func ObjectKey(executionID string, seqFrom, seqTo int64) string {
-	return fmt.Sprintf("logs/%s/%d-%d.ndjson", executionID, seqFrom, seqTo)
+// ObjectKey is the LogStore key of the chunk holding seqFrom..seqTo of one
+// attempt. The attempt id is part of the key because sequence numbers restart
+// at 1 for every attempt of an execution: a late flush by a superseded attempt
+// must never overwrite the bytes behind the current attempt's chunk row.
+func ObjectKey(executionID, attemptID string, seqFrom, seqTo int64) string {
+	return fmt.Sprintf("logs/%s/%s/%d-%d.ndjson", executionID, attemptID, seqFrom, seqTo)
 }
 
 // chunkLine is the stored form: one JSON object per line,

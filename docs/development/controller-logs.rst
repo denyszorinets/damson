@@ -18,15 +18,33 @@ For every running execution that sends ``log.append`` to this controller, the
    so the agent frees its buffer.
 2. Drops sequence numbers that were already ingested (the agent resends
    unacknowledged batches after a reconnect) and keeps a per-execution
-   high-water mark. A declared ``gap_to`` range counts as contiguous. A batch
-   that skips sequence numbers without declaring a gap is treated the same
-   way and counted in ``Stats.LinesHoled``.
+   contiguous frontier. A declared ``gap_to`` range counts as contiguous. A
+   batch that skips sequence numbers without declaring a gap is **refused**
+   from the first skipped line on (``Stats.BatchesOutOfOrder``): acknowledging
+   past a hole would let the agent free lines the controller never saw. The
+   first batch of an attempt on this controller sets the frontier just below
+   itself, because the agent frees only acknowledged sequence numbers.
 3. Appends the lines to a 5,000 line ring buffer (live tail) and to the pending
    chunk.
 4. Writes the pending lines as chunks every 5 s or 1 MiB, whichever comes
    first, and on ``Flush`` or ``Finish``.
 5. Sends ``log.ack`` with the highest contiguous sequence number that is
    committed, or declared a gap, and only after the chunk row committed.
+
+Refused batches and resends
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``log.append`` is a notification, so the controller cannot tell the agent that
+a batch was refused, and the agent never resends on its own except after a
+reconnect. When a batch cannot be ingested for any reason other than a stale
+attempt (a transient store error that survived ``LookupRetries`` retries, a
+hole in the sequence, the per-execution pending cap, a state that closed
+underneath it), ``Append`` returns ``ErrNeedResend`` and ``Register`` closes
+the agent's session. The agent reconnects and resends everything after its
+last acknowledgement. Nothing past the last ingested line is ever
+acknowledged, so a refused batch cannot be lost. A state created again for an
+attempt (after ``Finish`` or eviction) starts at the last acknowledged position
+(``floors``, bounded), not at the first batch it happens to see.
 
 Lines stay in the pending buffer until their chunk row is committed, so the ack
 position can never run ahead of the database. Acks are coalesced: at most one
@@ -39,7 +57,13 @@ Chunk format
 
 A chunk is one LogStore object plus one ``log_chunks`` row.
 
-* Object key: ``logs/<execution_id>/<seq_from>-<seq_to>.ndjson``.
+* Object key: ``logs/<execution_id>/<attempt_id>/<seq_from>-<seq_to>.ndjson``.
+  Sequence numbers restart at 1 for every attempt of an execution, so the
+  attempt id is part of the key: a late flush of a superseded attempt can never
+  overwrite the bytes behind the current attempt's chunk row. Claiming the
+  execution under a new attempt deletes the previous attempt's chunk rows and
+  objects (``store.LogDataPrefix``) in the claim's transaction, after which the
+  old attempt's writes are fenced out with ``ErrStale``.
 * Body: newline-delimited JSON, one object per line:
   ``{"t": <unix ns>, "s": "out|err|sys", "l": "<text>"}``. The sequence number
   is not stored: line *i* has ``seq_from + i``, so a chunk only ever holds a
@@ -61,10 +85,12 @@ Idempotency and fencing at the store
   buffered lines are discarded and the execution's live tail is closed.
 * Any other error keeps the lines and is retried on the next pass. No ack is
   sent for a run that did not commit.
-* The attempt to execution lookup is cached for 5 s (unknown attempts for 1 s)
+* The attempt to execution lookup is cached for 1 s (unknown attempts for 1 s)
   in a bounded LRU. It is only a hint to save queries: the chunk insert is the
-  authoritative fence. When another attempt currently owns the buffer of an
-  execution, the cache is bypassed and the store decides.
+  authoritative fence. Before another attempt's buffer is replaced, the store
+  is asked which attempt is current, so a late batch of a superseded attempt
+  cannot discard the current attempt's lines. Dispatch should call
+  ``Invalidate`` when it rotates an attempt to close the remaining window.
 
 Gaps are not stored inside chunks: a declared ``gap_to`` range (or a hole) is
 simply a range of sequence numbers covered by no ``log_chunks`` row. The stored
@@ -116,7 +142,8 @@ it when it moves an execution to a new attempt.
 Logs for an execution that is already terminal are still accepted as long as
 the attempt id matches: a resend after the final ``step.complete`` must be
 persisted and acknowledged so the agent can free its buffer. Executions that
-receive nothing for 15 minutes without pending lines are evicted from memory.
+receive nothing for 15 minutes, have no pending lines and no live-tail
+subscriber are evicted from memory.
 
 Secrets
 -------
@@ -135,11 +162,17 @@ errors). They are the hook for the Prometheus metrics of ARCHITECTURE section
 Known limits
 ------------
 
-* A transient store error while resolving the attempt makes ``log.append``
-  fail without ingesting. The batch is not resent until the agent
-  reconnects; the later lines then arrive with a skipped range that is
-  treated as a gap.
-* A store outage lets pending lines grow in memory until it recovers.
-* A new controller that takes over an execution starts with an empty
-  high-water mark and trusts the agent to resend only what is unacknowledged.
+* A transient store error makes the controller close the agent's session
+  after a few retries; the agent reconnects and resends, which costs one
+  reconnect but loses nothing.
+* A store outage lets pending lines grow in memory up to
+  ``MaxPendingBytes`` (4 MiB) per execution; beyond that batches are refused
+  and the session closed. The total is that cap times the executions a
+  controller serves, which agent slots bound.
+* A crash between writing a chunk object and its row, or the conflict path,
+  can leave an object no row references. Retention removes it with the
+  execution's prefix.
+* A new controller that takes over an execution adopts the frontier from the
+  first batch it receives and trusts the agent to resend only what is
+  unacknowledged.
 * Compaction into a single gzipped object on completion is not implemented.
