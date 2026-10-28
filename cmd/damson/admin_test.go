@@ -5,34 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/denyszorinets/damson/internal/config"
 	"github.com/denyszorinets/damson/internal/store"
-	"github.com/denyszorinets/damson/internal/store/storefactory"
 	"github.com/denyszorinets/damson/internal/store/tokens"
 )
-
-// adminEnv returns env for a temp SQLite DB, migrated when migrate is true.
-func adminEnv(t *testing.T, migrate bool) []string {
-	t.Helper()
-	dsn := filepath.Join(t.TempDir(), "admin.db")
-	if migrate {
-		st, err := storefactory.Open(context.Background(), config.Database{Driver: "sqlite", DSN: dsn})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := st.Migrate(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-		if err := st.Close(); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return []string{"DAMSON_DATABASE__DRIVER=sqlite", "DAMSON_DATABASE__DSN=" + dsn}
-}
 
 func admin(t *testing.T, env []string, args ...string) (code int, out, errOut string) {
 	t.Helper()
@@ -50,19 +28,12 @@ func mustAdmin(t *testing.T, env []string, args ...string) string {
 	return out
 }
 
-func openStore(t *testing.T, env []string) store.Store {
-	t.Helper()
-	dsn := strings.TrimPrefix(env[1], "DAMSON_DATABASE__DSN=")
-	st, err := storefactory.Open(context.Background(), config.Database{Driver: "sqlite", DSN: dsn})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	return st
+func TestAdminUsageAndErrors(t *testing.T) {
+	forEachBackend(t, testAdminUsageAndErrors)
 }
 
-func TestAdminUsageAndErrors(t *testing.T) {
-	migrated := adminEnv(t, true)
+func testAdminUsageAndErrors(t *testing.T, be adminBackend) {
+	migrated := adminEnv(t, be, true)
 	tests := []struct {
 		name     string
 		env      []string
@@ -80,7 +51,7 @@ func TestAdminUsageAndErrors(t *testing.T) {
 		{"token create no name", nil, []string{"token", "create", "--pool", "p"}, exitUsage, "--name is required"},
 		{"token list no pool", nil, []string{"token", "list"}, exitUsage, "--pool is required"},
 		{"token revoke no id", nil, []string{"token", "revoke"}, exitUsage, "expected 1 argument"},
-		{"not migrated", adminEnv(t, false), []string{"pool", "list"}, exitError, "not migrated"},
+		{"not migrated", adminEnv(t, be, false), []string{"pool", "list"}, exitError, "not migrated"},
 		{"token unknown pool", migrated, []string{"token", "list", "--pool", "nope"}, exitError, `pool "nope" not found`},
 		{"revoke unknown token", migrated, []string{"token", "revoke", "nope"}, exitError, "not found"},
 	}
@@ -98,7 +69,11 @@ func TestAdminUsageAndErrors(t *testing.T) {
 }
 
 func TestAdminPools(t *testing.T) {
-	env := adminEnv(t, true)
+	forEachBackend(t, testAdminPools)
+}
+
+func testAdminPools(t *testing.T, be adminBackend) {
+	env := adminEnv(t, be, true)
 	out := mustAdmin(t, env, "pool", "create", "prod", "--description", "production")
 	if !strings.Contains(out, "prod") || !strings.Contains(out, "production") {
 		t.Errorf("create output: %q", out)
@@ -127,7 +102,11 @@ func TestAdminPools(t *testing.T) {
 }
 
 func TestAdminTokenLifecycle(t *testing.T) {
-	env := adminEnv(t, true)
+	forEachBackend(t, testAdminTokenLifecycle)
+}
+
+func testAdminTokenLifecycle(t *testing.T, be adminBackend) {
+	env := adminEnv(t, be, true)
 	mustAdmin(t, env, "pool", "create", "prod")
 
 	var o, e bytes.Buffer
@@ -146,7 +125,7 @@ func TestAdminTokenLifecycle(t *testing.T) {
 		t.Errorf("stderr missing hint: %q", e.String())
 	}
 
-	st := openStore(t, env)
+	st := openStore(t, be, env)
 	ctx := context.Background()
 	if _, _, err := st.LookupPoolToken(ctx, token); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("plaintext must not be stored as the hash, err = %v", err)
@@ -182,7 +161,11 @@ func TestAdminTokenLifecycle(t *testing.T) {
 }
 
 func TestAdminTokenCreateJSON(t *testing.T) {
-	env := adminEnv(t, true)
+	forEachBackend(t, testAdminTokenCreateJSON)
+}
+
+func testAdminTokenCreateJSON(t *testing.T, be adminBackend) {
+	env := adminEnv(t, be, true)
 	mustAdmin(t, env, "pool", "create", "prod")
 	var o, e bytes.Buffer
 	if code := run(context.Background(), []string{"admin", "token", "create", "--pool", "prod", "--name", "ci", "--json"}, &o, &e, env); code != exitOK {
