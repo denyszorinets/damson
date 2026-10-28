@@ -125,6 +125,11 @@ func awaitShutdown(ctx context.Context, log *slog.Logger, srvErr <-chan error, d
 		log.Error("http server failed, stopping", "error", err)
 		return err
 	case <-agentDone:
+		if devAgent.Err() == nil {
+			// The agent exits cleanly when ctx is cancelled; that is a normal shutdown.
+			log.Info("stopping")
+			return nil
+		}
 		err := fmt.Errorf("dev agent stopped: %w", devAgent.Err())
 		log.Error("dev agent ended, stopping", "error", err)
 		return err
