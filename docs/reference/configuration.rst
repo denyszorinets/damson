@@ -41,6 +41,18 @@ written as a double underscore: ``agent.controller_url`` is
      - controller, dev
      - ``:8080``
      - ``host:port``.
+   * - ``controller.insecure_dev``
+     - controller, dev
+     - ``false``
+     - Allow plain ``ws://`` agent connections (also ``--insecure-dev``; always
+       on for ``dev``). Development only: the pool token crosses the network
+       in clear text. Without it the gateway refuses connections that are
+       neither TLS nor marked ``X-Forwarded-Proto: https`` by a proxy.
+   * - ``controller.internal_url``
+     - controller, dev
+     - empty
+     - URL other controllers use to reach this one; stored in
+       ``controller_instances``.
    * - ``agent.controller_url``
      - agent
      - none

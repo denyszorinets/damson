@@ -50,6 +50,15 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
+			name: "insecure_dev and internal_url from env", role: RoleController,
+			env: []string{"DAMSON_CONTROLLER__INSECURE_DEV=true", "DAMSON_CONTROLLER__INTERNAL_URL=http://c1:8080"},
+			check: func(t *testing.T, c Config) {
+				if !c.Controller.InsecureDev || c.Controller.InternalURL != "http://c1:8080" {
+					t.Fatalf("env not applied: %+v", c.Controller)
+				}
+			},
+		},
+		{
 			name: "env overrides file", role: RoleController,
 			file: "[controller]\nlisten = \"127.0.0.1:9000\"\n",
 			env:  []string{"DAMSON_CONTROLLER__LISTEN=:7000", "DAMSON_LOG__LEVEL=debug", "UNRELATED=1"},

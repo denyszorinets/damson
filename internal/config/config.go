@@ -44,6 +44,12 @@ type Database struct {
 // Controller configures the controller role.
 type Controller struct {
 	Listen string `koanf:"listen"` // host:port for the HTTP API and agent sockets
+	// InsecureDev allows plain ws:// agent connections (no TLS and no
+	// X-Forwarded-Proto: https). Development only: the pool token crosses the
+	// wire in clear text. Always on for the dev role.
+	InsecureDev bool `koanf:"insecure_dev"`
+	// InternalURL is where other controllers reach this one (ARCHITECTURE 8.5).
+	InternalURL string `koanf:"internal_url"`
 }
 
 // Agent configures the agent role.
@@ -77,13 +83,15 @@ func redact(s string) string {
 
 func defaults() map[string]any {
 	return map[string]any{
-		"log.level":            "info",
-		"database.driver":      DriverSQLite,
-		"database.dsn":         "file:damson.db",
-		"controller.listen":    ":8080",
-		"agent.controller_url": "",
-		"agent.token":          "",
-		"agent.pool":           "default",
-		"agent.slots":          4,
+		"log.level":               "info",
+		"database.driver":         DriverSQLite,
+		"database.dsn":            "file:damson.db",
+		"controller.listen":       ":8080",
+		"controller.insecure_dev": false,
+		"controller.internal_url": "",
+		"agent.controller_url":    "",
+		"agent.token":             "",
+		"agent.pool":              "default",
+		"agent.slots":             4,
 	}
 }
