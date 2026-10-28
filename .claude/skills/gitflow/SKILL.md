@@ -322,7 +322,7 @@ git push --force-with-lease
 
 ## Merging to Develop
 
-The feature branch is merged into `develop` only through the approved Pull Request process — normally a human merges it after review, or Claude does when the user explicitly instructs it to (see [Human Review Is Mandatory](#human-review-is-mandatory)).
+The feature branch is merged into `develop` only through the approved Pull Request process — normally a human merges it after review, or Claude does when the user explicitly instructs it to (see [Human Review Is Mandatory](#human-review-is-mandatory)), or the standing autonomy rule below applies.
 
 After the PR is merged:
 
@@ -473,3 +473,13 @@ For a normal GitHub task, follow this sequence:
 16. Never bypass required GitHub review or branch protection.
 17. Keep GitHub ticket, branch, commit, and PR associated with the same piece of work.
 18. Never add `Co-Authored-By: Claude` trailers or "Generated with Claude Code" lines to commits or PRs.
+
+## Standing Autonomy (granted by the maintainer, 2026-10-28)
+
+The maintainer granted standing, durable permission for the following. It applies to every session; do not ask again.
+
+- Work through the open GitHub tasks of the current milestone one by one, in dependency order. Do not ask which issue is next and do not ask permission to start it.
+- For each issue: branch from `develop`, implement (test-runner and reviewer before done), open a PR, wait for CI to be green, then merge it yourself with `gh pr merge --squash` and verify state is MERGED. Then take the next issue immediately.
+- All git operations on feature branches are allowed, including `git push --force-with-lease` after a rebase.
+- Never bypass failing CI or branch protection. If CI is red, fix it. Stop and ask only for decisions CLAUDE.md "When unsure" reserves (job spec, protocol, DB schema, security) that ARCHITECTURE does not already settle.
+- Limits: this does NOT cover merging into `main`, cutting releases, plain `git push --force`, or force-pushing `develop`/`main`.
