@@ -384,7 +384,7 @@ The SDK is semver `0.x` (`pluginsdk.Version`): treated as stable, but breaking c
 ```go
 package pluginsdk
 
-const Version = "0.1.0"
+const Version = "0.2.0"
 
 type TargetMode string // wire values: "none" | "single_node" | "inventory"; Valid() bool
 
@@ -423,6 +423,14 @@ type ExecRequest struct {
     Nodes     map[string]NodeInfo    // nodes referenced by this step, keyed by node name
     WorkDir   string                 // per-execution temp dir, removed after
     Logger    *slog.Logger           // diagnostics only; never receives secret values
+    HostKeys  HostKeyReporter        // observed host keys (tofu); may be nil
+    Config    map[string]string      // operator settings for this plugin, e.g. "allow_insecure_host_keys"; may be nil
+}
+
+// ReportHostKey records a host key (authorized_keys format) observed on a node. The agent
+// forwards it to the controller, which stores it as the node's observed host key.
+type HostKeyReporter interface {
+    ReportHostKey(node, key string)
 }
 
 // No ctx: the bundle (§9.3) is already in agent memory.

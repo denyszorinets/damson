@@ -28,6 +28,8 @@ type Case struct {
 	// Bundle holds whole-credential secrets (ref to fields), resolved with
 	// ResolveFields. Its values are leak-checked like Secrets.
 	Bundle map[string]map[string]string
+	// Config is passed as ExecRequest.Config.
+	Config map[string]string
 }
 
 // Options configures the contract suite for one plugin.
@@ -48,6 +50,8 @@ type Outcome struct {
 	Result  pluginsdk.Result
 	Err     error
 	Emitter *FakeEmitter
+	// HostKeys records keys the plugin reported through ExecRequest.HostKeys.
+	HostKeys *FakeHostKeys
 	// LogOutput is everything the plugin wrote to req.Logger.
 	LogOutput string
 }
@@ -59,14 +63,17 @@ func Exec(ctx context.Context, t testing.TB, p pluginsdk.Plugin, c Case) Outcome
 	t.Helper()
 	em := &FakeEmitter{}
 	logs := &lockedBuffer{}
+	hk := &FakeHostKeys{}
 	req := pluginsdk.ExecRequest{
-		Input:   c.Input,
-		Secrets: resolverFor(c),
-		Nodes:   c.Nodes,
-		WorkDir: t.TempDir(),
-		Logger:  slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Input:    c.Input,
+		Secrets:  resolverFor(c),
+		Nodes:    c.Nodes,
+		WorkDir:  t.TempDir(),
+		Logger:   slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		HostKeys: hk,
+		Config:   c.Config,
 	}
-	o := Outcome{Emitter: em}
+	o := Outcome{Emitter: em, HostKeys: hk}
 	func() {
 		defer func() {
 			if r := recover(); r != nil {

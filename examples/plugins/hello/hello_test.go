@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/denyszorinets/damson/examples/plugins/hello"
+	"github.com/denyszorinets/damson/pkg/pluginsdk"
 	"github.com/denyszorinets/damson/pkg/pluginsdk/plugintest"
 )
 
@@ -18,6 +19,16 @@ func TestContract(t *testing.T) {
 		{Name: "default", Input: json.RawMessage(`{}`)},
 		{Name: "named", Input: json.RawMessage(`{"name":"damson"}`)},
 	}})
+}
+
+// TestNilOptionalRequestFields shows that plugins that ignore HostKeys and
+// Config (SDK 0.2) still work when the host leaves them nil.
+func TestNilOptionalRequestFields(t *testing.T) {
+	req := pluginsdk.ExecRequest{Input: json.RawMessage(`{}`)}
+	res, err := hello.Plugins()[0].Execute(context.Background(), req, &plugintest.FakeEmitter{})
+	if err != nil || res.Error != nil {
+		t.Fatalf("Execute with nil HostKeys/Config failed: %v %v", err, res.Error)
+	}
 }
 
 func TestSource(t *testing.T) {

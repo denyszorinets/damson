@@ -41,7 +41,7 @@ Built-in plugins (v1):
      - Purpose
    * - ``ssh``
      - Run a command or script on a node; host key policies
-       ``strict``/``tofu``/``insecure``.
+       ``strict``/``tofu``/``insecure`` (:doc:`/reference/plugin-ssh`).
    * - ``winrm``
      - Run a command or PowerShell on Windows (HTTPS, Basic or NTLM).
    * - ``transfer``

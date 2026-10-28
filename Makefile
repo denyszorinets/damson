@@ -18,7 +18,7 @@ test: ## Run Go tests (SQLite store; Postgres store tests are in test-pg)
 	go test $(GOTESTFLAGS) $(GOPKGS)
 
 # Every package with `//go:build integration` tests must be listed here, or CI never runs them.
-PGPKGS := ./internal/store/... ./internal/api/... ./internal/controller/... ./internal/agent/... ./cmd/...
+PGPKGS := ./internal/store/... ./internal/api/... ./internal/controller/... ./internal/agent/... ./cmd/... ./plugins/ssh/...
 
 test-pg: ## Integration tests against Postgres: store, api, controller, cmd (testcontainers; DAMSON_TEST_POSTGRES_DSN reuses a server; fails without Docker unless DAMSON_SKIP_POSTGRES=1)
 	go test $(GOTESTFLAGS) -tags integration -count=1 $(PGPKGS)

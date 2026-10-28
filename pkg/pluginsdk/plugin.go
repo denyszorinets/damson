@@ -34,6 +34,25 @@ type ExecRequest struct {
 	WorkDir string
 	// Logger is for diagnostics only. It never receives secret values.
 	Logger *slog.Logger
+	// HostKeys receives host keys a plugin observed on a node (trust on first
+	// use). It may be nil, for example when the host does not collect keys;
+	// plugins must tolerate that.
+	HostKeys HostKeyReporter
+	// Config holds operator settings for this plugin, such as
+	// "allow_insecure_host_keys" for the ssh plugin. Keys are defined by each
+	// plugin; absent keys mean the safe default. It may be nil.
+	Config map[string]string
+}
+
+// HostKeyReporter lets a plugin report the host key it observed on a node.
+// The agent forwards it to the controller, which stores it as the node's
+// observed host key (ARCHITECTURE.md sections 6.1 and 11). Implementations
+// must be safe for concurrent use.
+type HostKeyReporter interface {
+	// ReportHostKey records key, in authorized_keys format (for example
+	// "ssh-ed25519 AAAA..."), as observed on the named node. Host keys are
+	// public data, not secrets.
+	ReportHostKey(node, key string)
 }
 
 // SecretResolver resolves secret:// references against the secret bundle sent

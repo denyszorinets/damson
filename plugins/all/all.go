@@ -2,11 +2,14 @@
 // registration: add each built-in package to Plugins by hand.
 package all
 
-import "github.com/denyszorinets/damson/pkg/pluginsdk"
+import (
+	"github.com/denyszorinets/damson/pkg/pluginsdk"
+	"github.com/denyszorinets/damson/plugins/ssh"
+)
 
-// Plugins returns every built-in plugin. It is empty until the first built-in
-// (ssh, M2) lands.
+// Plugins returns every built-in plugin.
 func Plugins() []pluginsdk.Plugin {
 	var ps []pluginsdk.Plugin
+	ps = append(ps, ssh.Plugins()...)
 	return ps
 }

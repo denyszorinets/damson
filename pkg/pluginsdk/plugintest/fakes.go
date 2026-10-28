@@ -132,3 +132,30 @@ func (b FakeBundle) ResolveFields(ref string) (map[string]string, error) {
 	}
 	return out, nil
 }
+
+// ObservedKey is one host key reported through FakeHostKeys.
+type ObservedKey struct {
+	Node string
+	Key  string
+}
+
+// FakeHostKeys records host keys reported by a plugin. It implements
+// pluginsdk.HostKeyReporter and is safe for concurrent use.
+type FakeHostKeys struct {
+	mu   sync.Mutex
+	keys []ObservedKey
+}
+
+// ReportHostKey implements pluginsdk.HostKeyReporter.
+func (h *FakeHostKeys) ReportHostKey(node, key string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.keys = append(h.keys, ObservedKey{node, key})
+}
+
+// Keys returns a copy of the reported keys.
+func (h *FakeHostKeys) Keys() []ObservedKey {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]ObservedKey(nil), h.keys...)
+}
