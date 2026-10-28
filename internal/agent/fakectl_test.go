@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -45,6 +47,9 @@ type fakeCtl struct {
 type fakeConn struct {
 	ctl  *fakeCtl
 	peer *protocol.Peer
+	// helloed is set once this connection has answered the agent's hello;
+	// the controller only sends work to a connection that completed it.
+	helloed atomic.Bool
 }
 
 // recConn records the frames the agent sends.
@@ -120,7 +125,9 @@ func (fc *fakeConn) handlers(n int) {
 		c.mu.Lock()
 		c.hellos = append(c.hellos, req)
 		c.mu.Unlock()
-		return c.helloResp(n, req), nil
+		resp := c.helloResp(n, req)
+		fc.helloed.Store(true)
+		return resp, nil
 	})
 	fc.peer.Handle(protocol.MethodAgentHeartbeat, func(_ context.Context, p protocol.Params) (any, error) {
 		var hb protocol.Heartbeat
@@ -276,13 +283,30 @@ func (c *fakeCtl) rawFrames() [][]byte {
 
 // --- commands to the agent ---
 
+// execute sends step.execute like a real controller: to the newest
+// connection that completed its hello, and again on a newer connection if the
+// one it chose was closed first (the agent reconnected).
 func (c *fakeCtl) execute(req protocol.StepExecute) (protocol.StepExecuteResult, error) {
 	c.t.Helper()
 	var res protocol.StepExecuteResult
 	ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
 	defer cancel()
-	err := c.latest().peer.Call(ctx, protocol.MethodStepExecute, req, &res)
-	return res, err
+	for {
+		fc := c.latest()
+		if fc == nil || !fc.helloed.Load() {
+			select {
+			case <-ctx.Done():
+				return res, fmt.Errorf("no connection completed hello: %w", ctx.Err())
+			case <-time.After(2 * time.Millisecond):
+			}
+			continue
+		}
+		err := fc.peer.Call(ctx, protocol.MethodStepExecute, req, &res)
+		if errors.Is(err, protocol.ErrClosed) && c.latest() != fc {
+			continue
+		}
+		return res, err
+	}
 }
 
 func (c *fakeCtl) mustExecute(req protocol.StepExecute) {
