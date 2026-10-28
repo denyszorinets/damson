@@ -92,12 +92,33 @@ func (s *Store) ClaimExecutions(ctx context.Context, p store.ClaimParams, now ti
 		if err != nil {
 			return nil, fmt.Errorf("claiming execution %q: %w", id, err)
 		}
+		if err := dropPreviousAttemptLogs(ctx, q, id); err != nil {
+			return nil, err
+		}
 		out = append(out, toExecution(row))
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("committing claim: %w", err)
 	}
 	return out, nil
+}
+
+// dropPreviousAttemptLogs removes the log chunks of earlier attempts in the
+// claim's transaction: the attempt id rotates here, after which their writers
+// are fenced out, so nothing can race the delete.
+func dropPreviousAttemptLogs(ctx context.Context, q *gen.Queries, executionID string) error {
+	if _, err := q.DeleteLogChunksOfExecution(ctx, executionID); err != nil {
+		return fmt.Errorf("dropping previous log chunks of %q: %w", executionID, err)
+	}
+	prefix := store.LogDataPrefix(executionID)
+	l, err := store.PrefixArgs(prefix)
+	if err != nil {
+		return err
+	}
+	if _, err := q.DeleteLogDataPrefix(ctx, gen.DeleteLogDataPrefixParams{PrefixLen: int32(l), Prefix: prefix}); err != nil {
+		return fmt.Errorf("dropping previous log data of %q: %w", executionID, err)
+	}
+	return nil
 }
 
 // fencedMiss classifies a fenced CAS that changed no row: the execution is

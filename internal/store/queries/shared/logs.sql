@@ -19,6 +19,9 @@ ON CONFLICT (object_key) DO UPDATE SET data = excluded.data;
 -- name: GetLogData :one
 SELECT data FROM log_chunks_data WHERE object_key = sqlc.arg(object_key);
 
+-- name: DeleteLogChunksOfExecution :execrows
+DELETE FROM log_chunks WHERE execution_id = sqlc.arg(execution_id);
+
 -- substr is used instead of LIKE: SQLite LIKE is case-insensitive.
 -- name: DeleteLogDataPrefix :execrows
 DELETE FROM log_chunks_data WHERE substr(object_key, 1, sqlc.arg(prefix_len)) = sqlc.arg(prefix);

@@ -9,6 +9,18 @@ import (
 	"context"
 )
 
+const deleteLogChunksOfExecution = `-- name: DeleteLogChunksOfExecution :execrows
+DELETE FROM log_chunks WHERE execution_id = ?1
+`
+
+func (q *Queries) DeleteLogChunksOfExecution(ctx context.Context, executionID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteLogChunksOfExecution, executionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteLogDataPrefix = `-- name: DeleteLogDataPrefix :execrows
 DELETE FROM log_chunks_data WHERE substr(object_key, 1, ?1) = ?2
 `

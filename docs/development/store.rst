@@ -242,3 +242,13 @@ cleanup. Without a container runtime or that variable the Postgres tests
 **fail**; set ``DAMSON_SKIP_POSTGRES=1`` to skip them explicitly (the run is
 then not a Postgres verification). ``make check`` does not run ``test-pg`` (nor ``make test-integration`` for the non-Postgres integration packages); CI
 does, with Docker.
+
+Log chunks and attempt rotation
+-------------------------------
+
+Sequence numbers of an execution's logs restart at 1 for every attempt.
+``ClaimExecutions`` therefore deletes the claimed execution's previous log
+chunk rows and objects (everything under ``store.LogDataPrefix``) in the same
+transaction that rotates the attempt id. After the claim, the superseded
+attempt's ``InsertLogChunk`` fails with ``ErrStale``, so attempts never mix in
+one execution's log.

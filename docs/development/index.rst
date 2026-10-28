@@ -12,4 +12,5 @@ How to contribute to Damson.
    store
    plugin-sdk
    agent
+   controller-logs
    web-ui

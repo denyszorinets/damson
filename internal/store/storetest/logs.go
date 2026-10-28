@@ -144,3 +144,61 @@ func testLogChunkAfterComplete(t *testing.T, s store.Store) {
 		t.Fatalf("foreign attempt after completion: %v; want ErrStale", err)
 	}
 }
+
+// testLogsDroppedOnReclaim pins the attempt-rotation rule: sequence numbers
+// restart for each attempt, so claiming an execution under a new attempt
+// deletes the previous attempt's chunk rows and objects in the claim's
+// transaction. The superseded attempt can no longer write (ErrStale), and
+// another execution's logs are untouched.
+func testLogsDroppedOnReclaim(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	e := claimedOne(t, s)
+	mustRun(t, s, "other")
+	o := claim(t, s, "default", 1)
+	if len(o) != 1 {
+		t.Fatalf("claimed %d other executions; want 1", len(o))
+	}
+
+	key := store.LogDataPrefix(e.ID) + e.AttemptID + "/1-10.ndjson"
+	otherKey := store.LogDataPrefix(o[0].ID) + o[0].AttemptID + "/1-5.ndjson"
+	for _, w := range []struct {
+		ex  store.Execution
+		key string
+		to  int64
+	}{{e, key, 10}, {o[0], otherKey, 5}} {
+		if err := s.PutLogData(ctx, w.key, []byte("data"), claimNow); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.InsertLogChunk(ctx, w.ex.AttemptID, chunk(w.ex.ID, 1, w.to, w.key), claimNow); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := s.RequeueExecution(ctx, e.ID, e.AttemptID, claimNow); err != nil {
+		t.Fatalf("RequeueExecution: %v", err)
+	}
+	re := claim(t, s, "default", 1)
+	if len(re) != 1 || re[0].ID != e.ID || re[0].AttemptID == e.AttemptID {
+		t.Fatalf("reclaim = %+v; want the same execution under a new attempt", re)
+	}
+
+	if cs, err := s.ListLogChunks(ctx, e.ID, 0, 0, 10); err != nil || len(cs) != 0 {
+		t.Fatalf("chunks after reclaim = %+v, %v; want none", cs, err)
+	}
+	if _, err := s.GetLogData(ctx, key); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("old attempt's data after reclaim: %v; want ErrNotFound", err)
+	}
+	if _, err := s.InsertLogChunk(ctx, e.AttemptID, chunk(e.ID, 11, 12, key+"2"), claimNow); !errors.Is(err, store.ErrStale) {
+		t.Fatalf("superseded attempt insert: %v; want ErrStale", err)
+	}
+	if cs, _ := s.ListLogChunks(ctx, o[0].ID, 0, 0, 10); len(cs) != 1 {
+		t.Fatalf("other execution's chunks = %+v; want untouched", cs)
+	}
+	if _, err := s.GetLogData(ctx, otherKey); err != nil {
+		t.Fatalf("other execution's data: %v", err)
+	}
+	if _, err := s.InsertLogChunk(ctx, re[0].AttemptID, chunk(e.ID, 1, 3, store.LogDataPrefix(e.ID)+re[0].AttemptID+"/1-3.ndjson"), claimNow); err != nil {
+		t.Fatalf("new attempt restarts at seq 1: %v", err)
+	}
+}
