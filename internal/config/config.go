@@ -61,6 +61,13 @@ type Agent struct {
 	Token         string `koanf:"token"`          // pool token; secret
 	Pool          string `koanf:"pool"`
 	Slots         int    `koanf:"slots"` // concurrent executions; 0 means CPU count x 4
+	// SpoolDir holds the bounded log spool file; empty means the system temp dir.
+	SpoolDir string `koanf:"spool_dir"`
+	// SpoolMaxBytes bounds the log spool; 0 means 256 MiB.
+	SpoolMaxBytes int64 `koanf:"spool_max_bytes"`
+	// AllowInsecureHostKeys lets the ssh plugin accept nodes whose host key
+	// policy is "insecure". Off by default.
+	AllowInsecureHostKeys bool `koanf:"allow_insecure_host_keys"`
 }
 
 // SlogLevel returns the configured level. Validate guarantees it parses.
@@ -97,5 +104,8 @@ func defaults() map[string]any {
 		"agent.token":                      "",
 		"agent.pool":                       "default",
 		"agent.slots":                      0,
+		"agent.spool_dir":                  "",
+		"agent.spool_max_bytes":            0,
+		"agent.allow_insecure_host_keys":   false,
 	}
 }

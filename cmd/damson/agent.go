@@ -14,6 +14,7 @@ import (
 	"github.com/denyszorinets/damson/internal/store/tokens"
 	"github.com/denyszorinets/damson/internal/version"
 	"github.com/denyszorinets/damson/plugins/all"
+	"github.com/denyszorinets/damson/plugins/ssh"
 )
 
 // agentStopTimeout bounds how long the agent may take to close its socket.
@@ -37,7 +38,21 @@ func newAgent(cfg config.Agent, controllerURL, token string, log *slog.Logger) (
 		Version:       version.Version,
 		Plugins:       all.Plugins(),
 		Logger:        log,
+		ExecConfig: agent.ExecConfig{
+			SpoolDir:     cfg.SpoolDir,
+			SpoolBytes:   cfg.SpoolMaxBytes,
+			PluginConfig: pluginConfig(cfg),
+		},
 	})
+}
+
+// pluginConfig turns the operator's agent settings into per-plugin
+// pluginsdk.ExecRequest.Config maps.
+func pluginConfig(cfg config.Agent) map[string]map[string]string {
+	if !cfg.AllowInsecureHostKeys {
+		return nil
+	}
+	return map[string]map[string]string{"ssh": {ssh.ConfigAllowInsecureHostKeys: "true"}}
 }
 
 // runAgent connects to the controller and blocks until ctx is cancelled or

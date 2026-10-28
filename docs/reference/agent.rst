@@ -30,6 +30,36 @@ Right after the upgrade the agent sends ``agent.hello`` with:
 The startup log line shows the configured ``agent.slots`` (``0`` means auto),
 while the agent's own log lines show the resolved count.
 
+Running steps
+-------------
+
+The controller sends ``step.execute``; the agent runs the named plugin (built
+in, exact name and version) in its own goroutine, at most ``agent.slots`` at a
+time. The plugin gets its input, the nodes of the step, a per-execution work
+directory (removed afterwards) and a logger. Secret values arrive only in
+``step.execute``, live only in the agent's memory, and are dropped when the
+step ends; every log line, progress message, error message and string output
+is masked before it leaves (plain, base64 and URL-encoded forms).
+
+* ``step.cancel`` cancels the plugin's context. The plugin has the requested
+  grace period to return; after that the agent reports the step ``canceled``
+  anyway, and the plugin keeps its slot until it does return.
+* A step with a timeout is reported ``timed_out`` when it expires.
+* A plugin panic is reported as an ``internal`` failure; nothing of the panic
+  value is sent.
+* Logs are batched (200 ms or 64 KiB) and kept until the controller
+  acknowledges them: first in memory (32 MiB), then in a spool file
+  (``agent.spool_max_bytes``, 256 MiB by default, in ``agent.spool_dir``).
+  When the spool is full the oldest unacknowledged logs are dropped and a
+  ``system`` line records the gap. An agent crash loses unacknowledged logs.
+* ``step.complete`` is retried until the controller acknowledges it, across
+  reconnects. A result that is not acknowledged is listed in the next
+  ``agent.hello`` so the controller can decide.
+* ``agent.allow_insecure_host_keys`` lets the ``ssh`` plugin connect to nodes
+  whose host key policy is ``insecure``. Off by default.
+
+Internals are described in :doc:`/development/agent`.
+
 Heartbeats
 ----------
 

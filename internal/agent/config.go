@@ -89,6 +89,8 @@ type Config struct {
 	Plugins []pluginsdk.Plugin
 	// Version is the agent version announced in agent.hello.
 	Version string
+	// ExecConfig tunes step execution, logs and the spool.
+	ExecConfig
 
 	Logger  *slog.Logger
 	Clock   Clock
@@ -132,6 +134,7 @@ func (c *Config) applyDefaults() error {
 	if c.Slots <= 0 {
 		c.Slots = DefaultSlots()
 	}
+	c.ExecConfig.applyDefaults()
 	if c.Logger == nil {
 		c.Logger = slog.Default()
 	}

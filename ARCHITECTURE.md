@@ -715,6 +715,12 @@ The `secrets` member is the only place secret values cross the wire. The Go type
   - If the spool overflows, the oldest unacked batches are dropped and a `System` log line records the gap.
   - The spool is best-effort: an agent crash loses unacked logs. That is an accepted trade-off of stateless agents.
 - **Capacity.** The agent advertises `max_concurrent` (default: CPU count × 4). The controller never dispatches beyond the free slots reported.
+- **Execution on the agent.** Pinned behavior of the agent executor (`internal/agent`); no message changes.
+  - `step.execute` is accepted only for a built-in plugin with exactly the requested name and version and a free slot; otherwise it is rejected with a reason. A repeated execute for a known attempt is accepted without running twice.
+  - A `step.cancel` for an attempt the agent does not hold leaves a tombstone (15 minutes, bounded), so a `step.execute` that overtakes or follows it is rejected. A cancelled plugin has `grace_ms` (default 5s) to return; after that the step is reported `canceled` and the plugin keeps its slot until it returns.
+  - Log `seq` starts at 1 per attempt and increases by one per entry. Unacknowledged batches are resent in order after a reconnect, so ingest must be idempotent.
+  - A finished result stays in memory and in the `agent.hello` `executions` list until `step.complete` is acknowledged or stale. A reconciliation `cancel` for a finished attempt discards it.
+  - Secret values live only in the executor's memory; masking covers log lines, progress, errors, string outputs and the plugin logger (§9.4).
 - **Protocol versioning.** `agent.hello` carries `protocol: 1`. The controller supports N and N-1.
 
 ---

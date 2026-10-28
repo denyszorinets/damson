@@ -16,6 +16,7 @@ type Agent struct {
 	cfg     Config
 	log     *slog.Logger
 	connURL string
+	exec    *Executor
 
 	mu      sync.Mutex
 	started bool
@@ -36,10 +37,14 @@ func New(cfg Config) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Agent{
+	a := &Agent{
 		cfg: cfg, connURL: u, done: make(chan struct{}),
 		log: cfg.Logger.With("agent_id", cfg.AgentID),
-	}, nil
+	}
+	if a.exec, err = newExecutor(&a.cfg, a.log, a.draining.Load); err != nil {
+		return nil, err
+	}
+	return a, nil
 }
 
 // Start launches the connection loop. It returns immediately; ctx cancellation
@@ -52,6 +57,10 @@ func (a *Agent) Start(ctx context.Context) error {
 	}
 	a.started = true
 	ctx, a.cancel = context.WithCancel(ctx)
+	if err := a.exec.Start(ctx); err != nil {
+		a.cancel()
+		return err
+	}
 	go a.run(ctx)
 	a.log.Info("agent started", "pool", a.cfg.Pool, "slots", a.cfg.Slots)
 	return nil
@@ -69,6 +78,9 @@ func (a *Agent) Stop(ctx context.Context) error {
 	cancel()
 	select {
 	case <-a.done:
+		if err := a.exec.Stop(ctx); err != nil {
+			return err
+		}
 		a.log.Info("agent stopped")
 		return nil
 	case <-ctx.Done():

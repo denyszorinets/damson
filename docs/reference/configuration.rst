@@ -77,6 +77,20 @@ written as a double underscore: ``agent.controller_url`` is
      - ``0``
      - Concurrent executions (``max_concurrent`` in ``agent.hello``).
        ``0`` means the CPU count times four; otherwise at least 1.
+   * - ``agent.spool_dir``
+     - agent
+     - empty
+     - Directory of the log spool file. Empty means the system temp dir. The
+       file is removed when the agent stops.
+   * - ``agent.spool_max_bytes``
+     - agent
+     - ``0``
+     - Bound of the log spool, in bytes. ``0`` means 256 MiB.
+   * - ``agent.allow_insecure_host_keys``
+     - agent
+     - ``false``
+     - Let the ``ssh`` plugin connect to nodes with host key policy
+       ``insecure``.
 
 Example:
 
