@@ -16,6 +16,7 @@ type Agent struct {
 	cfg     Config
 	log     *slog.Logger
 	connURL string
+	exec    *Executor
 
 	mu      sync.Mutex
 	started bool
@@ -36,10 +37,14 @@ func New(cfg Config) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Agent{
+	a := &Agent{
 		cfg: cfg, connURL: u, done: make(chan struct{}),
 		log: cfg.Logger.With("agent_id", cfg.AgentID),
-	}, nil
+	}
+	if a.exec, err = newExecutor(&a.cfg, a.log, a.draining.Load); err != nil {
+		return nil, err
+	}
+	return a, nil
 }
 
 // Start launches the connection loop. It returns immediately; ctx cancellation
@@ -52,6 +57,10 @@ func (a *Agent) Start(ctx context.Context) error {
 	}
 	a.started = true
 	ctx, a.cancel = context.WithCancel(ctx)
+	if err := a.exec.Start(ctx); err != nil {
+		a.cancel()
+		return err
+	}
 	go a.run(ctx)
 	a.log.Info("agent started", "pool", a.cfg.Pool, "slots", a.cfg.Slots)
 	return nil
@@ -67,13 +76,21 @@ func (a *Agent) Stop(ctx context.Context) error {
 		return nil
 	}
 	cancel()
+	var err error
 	select {
 	case <-a.done:
-		a.log.Info("agent stopped")
-		return nil
 	case <-ctx.Done():
-		return fmt.Errorf("waiting for agent to stop: %w", ctx.Err())
+		err = fmt.Errorf("waiting for agent to stop: %w", ctx.Err())
 	}
+	// The executor stops on every path so its spool is closed even when the
+	// connection loop is wedged or a plugin ignores cancellation.
+	if xerr := a.exec.Stop(ctx); err == nil {
+		err = xerr
+	}
+	if err == nil {
+		a.log.Info("agent stopped")
+	}
+	return err
 }
 
 // Done is closed when the connection loop has ended: after Stop, or when the

@@ -91,6 +91,29 @@ func TestLoad(t *testing.T) {
 			wantErr: []string{"agent.slots"},
 		},
 		{
+			name: "agent spool and host key settings", role: RoleAgent,
+			env: append([]string{"DAMSON_AGENT__SPOOL_DIR=/var/spool/damson", "DAMSON_AGENT__SPOOL_MAX_BYTES=1048576", "DAMSON_AGENT__ALLOW_INSECURE_HOST_KEYS=true"}, agentEnv...),
+			check: func(t *testing.T, c Config) {
+				a := c.Agent
+				if a.SpoolDir != "/var/spool/damson" || a.SpoolMaxBytes != 1<<20 || !a.AllowInsecureHostKeys {
+					t.Fatalf("unexpected agent config: %+v", a)
+				}
+			},
+		},
+		{
+			name: "agent spool settings default to safe values", role: RoleAgent, env: agentEnv,
+			check: func(t *testing.T, c Config) {
+				if a := c.Agent; a.SpoolDir != "" || a.SpoolMaxBytes != 0 || a.AllowInsecureHostKeys {
+					t.Fatalf("unexpected defaults: %+v", a)
+				}
+			},
+		},
+		{
+			name: "agent negative spool size is rejected", role: RoleAgent,
+			env:     append([]string{"DAMSON_AGENT__SPOOL_MAX_BYTES=-5"}, agentEnv...),
+			wantErr: []string{"agent.spool_max_bytes"},
+		},
+		{
 			name: "agent from env with int coercion", role: RoleAgent,
 			env: append([]string{"DAMSON_AGENT__SLOTS=8"}, agentEnv...),
 			check: func(t *testing.T, c Config) {

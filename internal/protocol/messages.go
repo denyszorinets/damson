@@ -210,12 +210,35 @@ func (e *LogEntry) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// LogAppend is the params of log.append (A->C, notification). Entry i has
-// sequence number SeqFrom+i.
+// LogAppend is the params of log.append (A->C, notification). Without GapTo,
+// entry i has sequence number SeqFrom+i. With GapTo (additive, optional) the
+// agent declares the sequence numbers SeqFrom..GapTo inclusive dropped: they
+// will never be sent, and entry i has sequence number GapTo+1+i. A receiver
+// treats a declared gap as contiguous when it computes the log.ack sequence.
 type LogAppend struct {
 	AttemptID string     `msgpack:"attempt_id" json:"attempt_id"`
 	SeqFrom   uint64     `msgpack:"seq_from" json:"seq_from"`
+	GapTo     uint64     `msgpack:"gap_to,omitempty" json:"gap_to,omitempty"`
 	Entries   []LogEntry `msgpack:"entries" json:"entries"`
+}
+
+// FirstEntrySeq is the sequence number of Entries[0].
+func (l LogAppend) FirstEntrySeq() uint64 {
+	if l.GapTo >= l.SeqFrom {
+		return l.GapTo + 1
+	}
+	return l.SeqFrom
+}
+
+// LastSeq is the highest sequence number the message accounts for, entries
+// and declared gap included. It is the log.ack value once everything before
+// it is persisted.
+func (l LogAppend) LastSeq() uint64 {
+	last := l.FirstEntrySeq() + uint64(len(l.Entries)) - 1
+	if len(l.Entries) == 0 {
+		return max(l.GapTo, l.SeqFrom-1)
+	}
+	return last
 }
 
 // LogAck is the params of log.ack (C->A, notification): the highest

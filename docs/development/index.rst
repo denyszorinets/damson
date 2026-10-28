@@ -11,4 +11,5 @@ How to contribute to Damson.
    documentation
    store
    plugin-sdk
+   agent
    web-ui

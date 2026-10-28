@@ -7,8 +7,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/denyszorinets/damson/internal/config"
 	"github.com/denyszorinets/damson/internal/store"
 )
+
+func TestPluginConfig(t *testing.T) {
+	if got := pluginConfig(config.Agent{}); got != nil {
+		t.Errorf("default plugin config = %v, want none (safe default)", got)
+	}
+	got := pluginConfig(config.Agent{AllowInsecureHostKeys: true})
+	if got["ssh"]["allow_insecure_host_keys"] != "true" {
+		t.Errorf("plugin config = %v", got)
+	}
+}
 
 // waitAgents polls the store until pred holds for the listed agents.
 func waitAgents(t *testing.T, st store.Store, what string, pred func([]store.Agent) bool) []store.Agent {

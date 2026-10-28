@@ -689,7 +689,7 @@ Params and results are MessagePack maps with snake_case keys; unknown keys are i
 | `agent.heartbeat` | `running_attempts`, `free_slots`, `cpu_percent`, `memory_bytes`, `load1`, `spool_bytes` |
 | `step.execute` params | `attempt_id`, `execution_id`, `step_path`, `plugin`, `plugin_version`, `input` (object), `secrets` (`{ref -> {field -> value}}`, §9.3), `nodes` (`{name -> NodeInfo}`, §11), `timeout_ms`, `trace` (`traceparent`, `tracestate`) |
 | `step.execute` result | `accepted`, `reason` (set when rejected) |
-| `log.append` | `attempt_id`, `seq_from`, `entries`: each entry is the array `[ts_unix_ns, stream, line]`; entry i has seq `seq_from + i` |
+| `log.append` | `attempt_id`, `seq_from`, optional `gap_to` (uint64, omitted when unset), `entries`: each entry is the array `[ts_unix_ns, stream, line]`. Without `gap_to`, entry i has seq `seq_from + i`. With `gap_to` the agent declares seqs `seq_from..gap_to` inclusive dropped and never to be sent; entry i then has seq `gap_to + 1 + i`. The controller treats a declared gap as contiguous when it computes `log.ack`. Additive and optional, so N-1 compatible: a peer that ignores `gap_to` sees a hole it must already tolerate. |
 | `log.ack` | `attempt_id`, `seq` |
 | `step.progress` | `attempt_id`, `percent` (0 to 100), `message` |
 | `step.complete` params | `attempt_id`, `status` (`succeeded`, `failed`, `canceled`, `timed_out`), `outputs`, `error` (`code`, `message`, `retryable`), `started_at_ns`, `finished_at_ns` |
@@ -712,9 +712,18 @@ The `secrets` member is the only place secret values cross the wire. The Go type
   - The controller takes ownership (`controller_id`), renews leases, and replies continue or cancel for each.
   - Ownership is ordered by `session_seq` (a per-process connection counter sent in `agent.hello`), not wall clocks: only a hello with a strictly higher `session_seq` takes over the agent row.
 - **Log buffering.** The agent keeps unacked log batches in memory, bounded at 32 MiB, then spills to a bounded local spool file (256 MiB default).
-  - If the spool overflows, the oldest unacked batches are dropped and a `System` log line records the gap.
+  - If the spool overflows, the oldest unacked batches are dropped. The hub replaces them in its queue by one placeholder that is sent as `log.append` with `seq_from` = first dropped seq, `gap_to` = last dropped seq minus one, and a `System` log line carrying the last dropped seq, so no seq is lost and acks stay contiguous. The placeholder lives in the hub, so it is delivered even after the attempt's pipe has closed.
+  - The spool file is unlinked right after creation (stale `damson-spool-*` files from a crashed agent are swept at start) and holds masked job output in plaintext, mode 0600.
   - The spool is best-effort: an agent crash loses unacked logs. That is an accepted trade-off of stateless agents.
 - **Capacity.** The agent advertises `max_concurrent` (default: CPU count × 4). The controller never dispatches beyond the free slots reported.
+- **Execution on the agent.** Pinned behavior of the agent executor (`internal/agent`); no message changes.
+  - `step.execute` is accepted only for a built-in plugin with exactly the requested name and version and a free slot; otherwise it is rejected with a reason. A repeated execute for a known attempt is accepted without running twice.
+  - A `step.cancel` for an attempt the agent does not hold leaves a tombstone (15 minutes, bounded), so a `step.execute` that overtakes or follows it is rejected. A cancelled plugin has `grace_ms` (default 5s) to return; after that the step is reported `canceled` and the plugin keeps its slot until it returns.
+  - Log `seq` starts at 1 per attempt and increases by one per entry. Unacknowledged batches are resent in order after a reconnect, so ingest must be idempotent.
+  - A finished result stays in memory and in the `agent.hello` `executions` list until `step.complete` is acknowledged or stale. A reconciliation `cancel` for a finished attempt discards it. The attempt's logs are dropped after the acknowledgement only when none is unsent. Delivery failures of one result (error answer, acknowledgement with neither `acknowledged` nor `stale`) back off per result (exponential, jittered, capped at 30s) without blocking other results; only transport errors end a delivery round.
+  - Acknowledged and discarded attempts are remembered with the cancel tombstones (15 minutes, bounded), so a late or retried `step.execute` for them is rejected as `already completed`.
+  - Memory bounds: outputs of one step are limited to 1 MiB (larger fails the step), error messages to 8 KiB, so `step.complete` always fits `MaxFrameSize`; at most 1024 unacknowledged results are kept, for at most 6 hours, oldest dropped first.
+  - Secret values live only in the executor's memory; masking covers log lines, progress, errors, string outputs, host key reports and the plugin logger (§9.4). Overlapping secrets are masked as the union of their matches. Values shorter than 4 bytes are not masked in text (they would destroy output); the step log gets one `System` line saying so, never the value. A secret split across two `Log` calls is not masked: plugins must log whole lines.
 - **Protocol versioning.** `agent.hello` carries `protocol: 1`. The controller supports N and N-1.
 
 ---

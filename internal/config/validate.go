@@ -75,6 +75,9 @@ func (c Config) validateAgent(add func(key, format string, args ...any)) {
 	if c.Agent.Slots < 0 {
 		add("agent.slots", "must be 0 (CPU count x 4) or more; got %d", c.Agent.Slots)
 	}
+	if c.Agent.SpoolMaxBytes < 0 {
+		add("agent.spool_max_bytes", "must be 0 (256 MiB) or more; got %d", c.Agent.SpoolMaxBytes)
+	}
 }
 
 // envName maps a dotted key to its environment variable.

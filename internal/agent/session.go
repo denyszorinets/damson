@@ -54,6 +54,9 @@ func (a *Agent) session(ctx context.Context, seq uint64) outcome {
 	s.peer = protocol.NewPeer(protocol.NewWSConn(ws), log)
 	s.peer.Handle(protocol.MethodAgentDrain, s.handleDrain)
 	s.peer.Handle(protocol.MethodAgentReconnect, s.handleReconnect)
+	s.peer.Handle(protocol.MethodStepExecute, a.exec.HandleExecute)
+	s.peer.Handle(protocol.MethodStepCancel, a.exec.HandleCancel)
+	s.peer.Handle(protocol.MethodLogAck, a.exec.HandleLogAck)
 
 	rctx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
@@ -70,6 +73,9 @@ func (a *Agent) session(ctx context.Context, seq uint64) outcome {
 		log.Info("agent.hello failed", "error", err)
 		return outcome{err: err, fatal: fatalHello(err)}
 	}
+	a.exec.Reconcile(resp.Reconciliation)
+	a.exec.Attach(s.peer, resp.Limits)
+	defer a.exec.Detach(s.peer)
 	a.connected.Store(true)
 	interval := a.cfg.HeartbeatInterval
 	if resp.HeartbeatIntervalMS > 0 {
@@ -174,7 +180,7 @@ func (s *session) hello(ctx context.Context, seq uint64) (protocol.HelloResponse
 		MaxConcurrent: cfg.Slots,
 		Capabilities:  cfg.capabilities(),
 		Manifests:     cfg.manifests(),
-		Executions:    []protocol.ExecutionState{},
+		Executions:    s.a.exec.States(),
 	}
 	var resp protocol.HelloResponse
 	if err := s.peer.Call(ctx, protocol.MethodAgentHello, req, &resp); err != nil {
@@ -190,8 +196,8 @@ func versionOr(v string) string {
 	return v
 }
 
-// handleDrain stops new work. No work exists before dispatch lands (M2); the
-// flag makes heartbeats report no free slots.
+// handleDrain stops new work: step.execute is rejected and heartbeats report
+// no free slots. Running steps finish.
 func (s *session) handleDrain(_ context.Context, p protocol.Params) (any, error) {
 	var d protocol.Drain
 	if err := p.Decode(&d); err != nil {
@@ -241,15 +247,12 @@ func (s *session) heartbeatLoop(ctx context.Context, interval time.Duration) {
 func (s *session) heartbeat(ctx context.Context) error {
 	cfg := &s.a.cfg
 	tel := cfg.Sampler.Sample()
-	free := cfg.Slots
-	if s.a.draining.Load() {
-		free = 0
-	}
 	ctx, cancel := context.WithTimeout(ctx, cfg.HelloTimeout)
 	defer cancel()
 	return s.peer.Notify(ctx, protocol.MethodAgentHeartbeat, protocol.Heartbeat{
-		RunningAttempts: []string{},
-		FreeSlots:       free,
+		RunningAttempts: s.a.exec.Running(),
+		FreeSlots:       s.a.exec.FreeSlots(),
+		SpoolBytes:      s.a.exec.SpoolBytes(),
 		CPUPercent:      tel.CPUPercent,
 		MemoryBytes:     tel.MemoryBytes,
 		Load1:           tel.Load1,
