@@ -727,6 +727,8 @@ Decide(spec JobVersionSpec, state RunState, now time.Time) -> []Action
 Action = CreateStepInstance | ScheduleExecution | SkipStep | CompleteGroup | CompleteRun | CancelExecution
 ```
 
+- Implemented as `(*engine.Engine).Decide(job, state, now) ([]Action, error)`; the `Engine` only holds the compiled-expression environment. The sequential subset (M2) additionally emits `StartRun` and `FailStep` (a step whose `when` or `with` expression failed to evaluate); `SkipStep` also creates the instance, with status `skipped` or `cancelled`.
+- A `when` that calls no status function is evaluated as `success() && (when)`, as in GitHub Actions; a step must call `failure()`, `always()` or `cancelled()` to run after a failure or cancel.
 - No I/O, fully deterministic, exhaustively table-tested, including golden tests over JSON fixtures.
 - All control-flow semantics in §5.3 live here and nowhere else.
 

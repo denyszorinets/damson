@@ -5,6 +5,7 @@ Reference
    :maxdepth: 1
 
    configuration
+   job-spec
    cli
    http-api
    protocol

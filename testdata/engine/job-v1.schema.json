@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/denyszorinets/damson/internal/engine/job",
+  "$defs": {
+    "Backoff": {
+      "properties": {
+        "initial": {
+          "type": "string"
+        },
+        "multiplier": {
+          "type": "number"
+        },
+        "max": {
+          "type": "string"
+        },
+        "jitter": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Concurrency": {
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "max": {
+          "type": "integer"
+        },
+        "policy": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Metadata": {
+      "properties": {
+        "project": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "project",
+        "name"
+      ]
+    },
+    "Retry": {
+      "properties": {
+        "max_attempts": {
+          "type": "integer"
+        },
+        "backoff": {
+          "$ref": "#/$defs/Backoff"
+        },
+        "retry_on": {
+          "type": "string"
+        },
+        "on_lost": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RunsOn": {
+      "properties": {
+        "pool": {
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Spec": {
+      "properties": {
+        "options": {
+          "type": "object"
+        },
+        "targets": {
+          "$ref": "#/$defs/Targets"
+        },
+        "concurrency": {
+          "$ref": "#/$defs/Concurrency"
+        },
+        "timeout": {
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array",
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "steps"
+      ]
+    },
+    "Step": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "plugin",
+            "group"
+          ]
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "with": {
+          "type": "object"
+        },
+        "timeout": {
+          "type": "string"
+        },
+        "when": {
+          "type": "string"
+        },
+        "continue_on_error": {
+          "type": "boolean"
+        },
+        "runs_on": {
+          "$ref": "#/$defs/RunsOn"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        },
+        "catch": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        },
+        "finally": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        },
+        "rethrow": {
+          "type": "boolean"
+        },
+        "for_each": {
+          "type": "string"
+        },
+        "max_parallel": {
+          "type": "integer"
+        },
+        "fail_threshold": {
+          "type": "integer"
+        },
+        "retry": {
+          "$ref": "#/$defs/Retry"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id"
+      ]
+    },
+    "Targets": {
+      "properties": {
+        "selector": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/Metadata"
+    },
+    "spec": {
+      "$ref": "#/$defs/Spec"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "title": "Damson job spec v1"
+}
