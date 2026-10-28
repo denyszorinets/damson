@@ -87,8 +87,8 @@ Package responsibilities
      - Wiring, HTTP server, dispatch loop, singleton duties (scheduler, reaper,
        retention), internal endpoints, controller registry.
    * - ``internal/agent``
-     - Connection management and reconnect, executor, log batcher, spool,
-       masker.
+     - Connection management and reconnect (:doc:`/reference/agent`), executor,
+       log batcher, spool, masker.
    * - ``internal/protocol``
      - JSON-RPC 2.0 over MessagePack framing, message types, versioning
        (N and N-1).

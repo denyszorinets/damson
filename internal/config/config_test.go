@@ -83,7 +83,7 @@ func TestLoad(t *testing.T) {
 		},
 		{
 			name: "agent bad url and slots", role: RoleAgent,
-			env:     []string{"DAMSON_AGENT__CONTROLLER_URL=http://x", "DAMSON_AGENT__TOKEN=t", "DAMSON_AGENT__SLOTS=0"},
+			env:     []string{"DAMSON_AGENT__CONTROLLER_URL=http://x", "DAMSON_AGENT__TOKEN=t", "DAMSON_AGENT__SLOTS=-1"},
 			wantErr: []string{"ws:// or wss://", "agent.slots"},
 		},
 		{
@@ -212,7 +212,7 @@ func TestErrorsDoNotLeakSecrets(t *testing.T) {
 		"DAMSON_AGENT__TOKEN=agent-tok-xyz",
 		"DAMSON_DATABASE__DRIVER=bogus",
 		"DAMSON_DATABASE__DSN=postgres://u:dsnpass@h/db",
-		"DAMSON_AGENT__SLOTS=0",
+		"DAMSON_AGENT__SLOTS=-1",
 	}
 	_, err := Load(RoleAgent, "", env)
 	if err == nil {

@@ -38,10 +38,17 @@ always does. Without it, a controller serves ``/healthz`` but reports
 ``/readyz`` 503 until the database is migrated. A database that cannot be
 opened exits with status 1.
 
-.. note::
+``agent`` connects to ``agent.controller_url`` with the pool token and keeps
+the connection alive (:doc:`agent`). It exits with status 1 when the
+controller refuses it in a way retrying cannot fix: an unknown or revoked
+token, a bad request, a pool conflict or an unsupported protocol version.
 
-   Until later M0 issues land, ``agent`` loads and validates configuration,
-   logs startup and waits for a signal; it does not connect yet.
+``dev`` also starts an agent in the same process. At startup it creates the
+``agent.pool`` pool (``default``) if missing, revokes the dev tokens of
+earlier runs, issues a fresh token and hands it straight to the agent over
+loopback. The token is never printed or logged. The agent appears connected
+a moment after the HTTP server starts; ``dev`` stops the agent before the
+controller on shutdown.
 
 .. _cli-admin:
 
