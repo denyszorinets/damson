@@ -47,7 +47,14 @@ written as a double underscore: ``agent.controller_url`` is
      - Allow plain ``ws://`` agent connections (also ``--insecure-dev``; always
        on for ``dev``). Development only: the pool token crosses the network
        in clear text. Without it the gateway refuses connections that are
-       neither TLS nor marked ``X-Forwarded-Proto: https`` by a proxy.
+       TLS (or, with ``controller.trust_forwarded_proto``, marked
+       ``X-Forwarded-Proto: https`` by a proxy).
+   * - ``controller.trust_forwarded_proto``
+     - controller, dev
+     - ``false``
+     - Honor ``X-Forwarded-Proto: https`` from a TLS-terminating proxy when
+       deciding whether an agent connection is secure. Enable only behind a
+       proxy that sets or strips the header; otherwise clients can forge it.
    * - ``controller.internal_url``
      - controller, dev
      - empty

@@ -24,12 +24,12 @@ type identity struct {
 }
 
 // secureTransport reports whether the request arrived over TLS, directly or
-// through a TLS-terminating proxy that says so.
-func secureTransport(r *http.Request) bool {
+// through a TLS-terminating proxy that says so and is trusted by config.
+func (g *Gateway) secureTransport(r *http.Request) bool {
 	if r.TLS != nil {
 		return true
 	}
-	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	return g.cfg.TrustForwardedProto && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 // authenticate validates the request before any upgrade. On failure it has
@@ -41,7 +41,7 @@ func (g *Gateway) authenticate(w http.ResponseWriter, r *http.Request) (identity
 		api.WriteProblem(w, r, http.StatusMethodNotAllowed, "urn:damson:problem:method-not-allowed", "use GET with a WebSocket upgrade")
 		return identity{}, false
 	}
-	if !g.cfg.InsecureDev && !secureTransport(r) {
+	if !g.cfg.InsecureDev && !g.secureTransport(r) {
 		api.WriteProblem(w, r, http.StatusForbidden, api.TypeForbidden,
 			"plain ws:// is not allowed; connect with wss:// (or run the controller with insecure_dev for development)")
 		return identity{}, false

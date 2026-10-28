@@ -26,6 +26,11 @@ const (
 	// CodeServerOverloaded is an implementation-defined server error (the
 	// -32000 to -32099 range): the peer has too many requests in flight.
 	CodeServerOverloaded = -32000
+	// Application codes (additive; a peer that does not know them treats them
+	// as generic errors).
+	CodeStaleSession        = -32001 // agent.hello: a newer session_seq owns the agent
+	CodePoolConflict        = -32002 // agent.hello: the agent id belongs to another pool
+	CodeUnsupportedProtocol = -32003 // agent.hello: protocol version is neither N nor N-1
 )
 
 // Frame errors.

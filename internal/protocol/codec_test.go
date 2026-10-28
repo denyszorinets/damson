@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/invopop/jsonschema"
+	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 )
@@ -259,5 +260,33 @@ func TestVersionNegotiation(t *testing.T) {
 	}
 	if !reflect.DeepEqual(Supported(), []int{1}) {
 		t.Fatalf("Supported() = %v", Supported())
+	}
+}
+
+func TestApplicationErrorCodes(t *testing.T) {
+	tests := []struct {
+		name string
+		code int
+		want int
+	}{
+		{"server overloaded", CodeServerOverloaded, -32000},
+		{"stale session", CodeStaleSession, -32001},
+		{"pool conflict", CodePoolConflict, -32002},
+		{"unsupported protocol", CodeUnsupportedProtocol, -32003},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.code != tt.want {
+				t.Fatalf("code = %d, want %d", tt.code, tt.want)
+			}
+			b, err := EncodeMessage(NewError(msgpack.RawMessage{0x01}, &RPCError{Code: tt.code, Message: "m"}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			m, err := DecodeMessage(b)
+			if err != nil || m.Error == nil || m.Error.Code != tt.want {
+				t.Fatalf("round trip = %+v, %v", m, err)
+			}
+		})
 	}
 }

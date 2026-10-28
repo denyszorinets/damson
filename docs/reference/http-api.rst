@@ -106,7 +106,8 @@ upgrade, and a failure is a problem+json response with no upgrade:
    * - Status
      - Cause
    * - ``403``
-     - Plain ``ws://`` without ``controller.insecure_dev`` (no TLS and no
+     - Plain ``ws://`` without ``controller.insecure_dev`` (no TLS and, unless
+       ``controller.trust_forwarded_proto`` is set, no
        ``X-Forwarded-Proto: https``).
    * - ``401``
      - ``Authorization: Bearer <pool token>`` missing, unknown or revoked

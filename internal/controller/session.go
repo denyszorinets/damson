@@ -22,6 +22,7 @@ type session struct {
 	log     *slog.Logger
 
 	mu        sync.Mutex
+	helloing  bool // a hello is in progress or done on this socket
 	helloed   bool // a hello succeeded; seq is valid
 	seq       uint64
 	telemetry json.RawMessage
@@ -82,6 +83,12 @@ func (s *session) redirty() {
 	s.mu.Lock()
 	s.dirty = true
 	s.mu.Unlock()
+}
+
+func (s *session) seqValue() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.seq
 }
 
 func (s *session) sessionSeq() (uint64, bool) {

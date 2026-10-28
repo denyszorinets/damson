@@ -67,8 +67,11 @@ type Config struct {
 	// InsecureDev allows plain ws:// connections (no TLS, no
 	// X-Forwarded-Proto: https). The pool token then travels in clear text.
 	InsecureDev bool
-	Clock       Clock
-	Logger      *slog.Logger
+	// TrustForwardedProto honors X-Forwarded-Proto: https from a trusted
+	// TLS-terminating proxy. Off by default: clients could forge the header.
+	TrustForwardedProto bool
+	Clock               Clock
+	Logger              *slog.Logger
 
 	// Zero values select the Default* constants.
 	HeartbeatInterval time.Duration

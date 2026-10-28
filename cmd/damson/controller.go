@@ -48,7 +48,7 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 	}
 	gw, err := controller.New(controller.Config{
 		Store: st, ControllerID: id, InternalURL: cfg.Controller.InternalURL,
-		InsecureDev: cfg.Controller.InsecureDev, Logger: log,
+		InsecureDev: cfg.Controller.InsecureDev, TrustForwardedProto: cfg.Controller.TrustForwardedProto, Logger: log,
 	})
 	if err != nil {
 		return fmt.Errorf("creating agent gateway: %w", err)

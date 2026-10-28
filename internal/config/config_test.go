@@ -51,9 +51,9 @@ func TestLoad(t *testing.T) {
 		},
 		{
 			name: "insecure_dev and internal_url from env", role: RoleController,
-			env: []string{"DAMSON_CONTROLLER__INSECURE_DEV=true", "DAMSON_CONTROLLER__INTERNAL_URL=http://c1:8080"},
+			env: []string{"DAMSON_CONTROLLER__INSECURE_DEV=true", "DAMSON_CONTROLLER__INTERNAL_URL=http://c1:8080", "DAMSON_CONTROLLER__TRUST_FORWARDED_PROTO=true"},
 			check: func(t *testing.T, c Config) {
-				if !c.Controller.InsecureDev || c.Controller.InternalURL != "http://c1:8080" {
+				if !c.Controller.InsecureDev || !c.Controller.TrustForwardedProto || c.Controller.InternalURL != "http://c1:8080" {
 					t.Fatalf("env not applied: %+v", c.Controller)
 				}
 			},

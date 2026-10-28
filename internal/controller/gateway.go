@@ -85,7 +85,7 @@ func (g *Gateway) Start(ctx context.Context) error {
 // Stop refuses new connections, tells every agent to reconnect elsewhere,
 // writes the last telemetry batch, closes the sockets, waits for them until
 // ctx expires and deregisters the controller instance. It is safe to call
-// without Start and more than once.
+// without Start; a second or concurrent call returns immediately.
 func (g *Gateway) Stop(ctx context.Context) error {
 	g.mu.Lock()
 	if !g.started || g.stopping {
@@ -180,7 +180,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request) {
 		g.log.Warn("websocket upgrade failed", "agent_id", id.agentID, "error", err)
 		return
 	}
-	g.touchToken(r.Context(), id)
+	g.touchToken(base, id)
 	s := g.newSession(id, protocol.NewWSConn(ws))
 	g.track(s, true)
 	defer g.track(s, false)
@@ -199,7 +199,9 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request) {
 	g.disconnect(s)
 }
 
-func (g *Gateway) touchToken(ctx context.Context, id identity) {
+func (g *Gateway) touchToken(base context.Context, id identity) {
+	ctx, cancel := context.WithTimeout(base, g.cfg.StoreTimeout)
+	defer cancel()
 	if err := g.cfg.Store.TouchPoolToken(ctx, id.tokenID, g.cfg.Clock.now()); err != nil {
 		g.log.Warn("recording pool token use", "token_id", id.tokenID, "error", err)
 	}

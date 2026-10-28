@@ -14,11 +14,17 @@ type registry struct {
 
 func newRegistry() *registry { return &registry{sessions: make(map[string]*session)} }
 
-// replace installs s and returns the session it displaced, if any.
-func (r *registry) replace(s *session) (old *session) {
+// replace installs s unless a session with a higher session_seq is already
+// registered for the agent; the comparison happens under the registry lock so
+// concurrent hellos converge on the highest seq. It returns the session that
+// lost (the displaced one, or s itself when not installed), or nil.
+func (r *registry) replace(s *session) (loser *session) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	old = r.sessions[s.agentID]
+	old := r.sessions[s.agentID]
+	if old != nil && old.seqValue() > s.seqValue() {
+		return s
+	}
 	r.sessions[s.agentID] = s
 	return old
 }

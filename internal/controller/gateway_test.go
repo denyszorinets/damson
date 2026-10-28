@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,7 +18,7 @@ import (
 
 func TestAuthRejectedBeforeUpgrade(t *testing.T) {
 	forEachBackend(t, func(t *testing.T, st store.Store) {
-		r := newRig(t, st, func(c *Config) { c.InsecureDev = false })
+		r := newRig(t, st, func(c *Config) { c.InsecureDev = false; c.TrustForwardedProto = true })
 		ctx := context.Background()
 
 		revoked, hash, _ := tokens.New()
@@ -74,9 +75,21 @@ func TestAuthRejectedBeforeUpgrade(t *testing.T) {
 	})
 }
 
-func TestForwardedHTTPSAllowedWithoutInsecureDev(t *testing.T) {
+func TestForwardedProtoIgnoredUnlessTrusted(t *testing.T) {
 	forEachBackend(t, func(t *testing.T, st store.Store) {
 		r := newRig(t, st, func(c *Config) { c.InsecureDev = false })
+		_, resp, err := r.tryDial("a1", http.Header{
+			"X-Forwarded-Proto": {"https"}, "Authorization": {"Bearer " + r.token}, "X-Damson-Agent-Id": {"a1"},
+		})
+		if err == nil || resp == nil || resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("forged X-Forwarded-Proto: status %v err %v, want 403", resp, err)
+		}
+	})
+}
+
+func TestForwardedHTTPSAllowedWhenTrusted(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		r := newRig(t, st, func(c *Config) { c.InsecureDev = false; c.TrustForwardedProto = true })
 		a, _, err := r.tryDial("a1", http.Header{
 			"X-Forwarded-Proto": {"https"}, "Authorization": {"Bearer " + r.token}, "X-Damson-Agent-Id": {"a1"},
 		})
@@ -134,8 +147,8 @@ func TestHelloRejections(t *testing.T) {
 			mod  func(*protocol.HelloRequest)
 			code int
 		}{
-			{"future protocol", func(h *protocol.HelloRequest) { h.Protocol = 2 }, protocol.CodeInvalidParams},
-			{"protocol zero", func(h *protocol.HelloRequest) { h.Protocol = 0 }, protocol.CodeInvalidParams},
+			{"future protocol", func(h *protocol.HelloRequest) { h.Protocol = 2 }, protocol.CodeUnsupportedProtocol},
+			{"protocol zero", func(h *protocol.HelloRequest) { h.Protocol = 0 }, protocol.CodeUnsupportedProtocol},
 			{"no session_seq", func(h *protocol.HelloRequest) { h.SessionSeq = 0 }, protocol.CodeInvalidParams},
 			{"no capacity", func(h *protocol.HelloRequest) { h.MaxConcurrent = 0 }, protocol.CodeInvalidParams},
 			{"wrong pool", func(h *protocol.HelloRequest) { h.Pool = "other" }, protocol.CodeInvalidParams},
@@ -203,7 +216,7 @@ func TestSupersedeOlderSocket(t *testing.T) {
 		stale := r.dial("agent-1")
 		_, err = stale.hello(defaultHello(1))
 		var re *protocol.RPCError
-		if !errors.As(err, &re) || !strings.Contains(re.Message, "stale") {
+		if !errors.As(err, &re) || re.Code != protocol.CodeStaleSession {
 			t.Fatalf("stale hello err = %v", err)
 		}
 		got, _ = st.GetAgent(context.Background(), "agent-1")
@@ -368,4 +381,87 @@ func TestTokenNeverLogged(t *testing.T) {
 func (r *rig) advanceAll() {
 	r.clock.advance(DefaultFlushInterval)
 	r.clock.advance(DefaultInstanceInterval)
+}
+
+func TestHelloPoolConflict(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		r := newRig(t, st)
+		first := r.dial("agent-1")
+		if _, err := first.hello(defaultHello(1)); err != nil {
+			t.Fatal(err)
+		}
+		ctx := context.Background()
+		other, err := st.CreatePool(ctx, "other", "", t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plain, hash, _ := tokens.New()
+		if _, err := st.CreatePoolToken(ctx, other.ID, "t", hash, t0); err != nil {
+			t.Fatal(err)
+		}
+		a, _, err := r.tryDial("agent-1", http.Header{"Authorization": {"Bearer " + plain}, "X-Damson-Agent-Id": {"agent-1"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := defaultHello(2)
+		req.Pool = "other"
+		_, err = a.hello(req)
+		var re *protocol.RPCError
+		if !errors.As(err, &re) || re.Code != protocol.CodePoolConflict {
+			t.Fatalf("err = %v, want CodePoolConflict", err)
+		}
+	})
+}
+
+func TestSecondHelloOnSocketRefused(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		r := newRig(t, st)
+		a := r.dial("agent-1")
+		if _, err := a.hello(defaultHello(1)); err != nil {
+			t.Fatal(err)
+		}
+		_, err := a.hello(defaultHello(2))
+		var re *protocol.RPCError
+		if !errors.As(err, &re) || re.Code != protocol.CodeInvalidRequest {
+			t.Fatalf("second hello err = %v", err)
+		}
+	})
+}
+
+// TestConcurrentHellosKeepHighestSeq races hellos for one agent on separate
+// sockets; whatever the interleaving, the registry and the database must end
+// on the highest session_seq. Run with -race.
+func TestConcurrentHellosKeepHighestSeq(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		r := newRig(t, st)
+		const n = 6
+		agents := make([]*agent, n)
+		for i := range agents {
+			agents[i] = r.dial("agent-1")
+		}
+		var wg sync.WaitGroup
+		for i, a := range agents {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, _ = a.hello(defaultHello(uint64(i + 1)))
+			}()
+		}
+		wg.Wait()
+		eventually(t, "only the highest session left", func() bool {
+			got, err := st.GetAgent(context.Background(), "agent-1")
+			if err != nil || got.SessionSeq != n || got.DisconnectedAt != nil {
+				return false
+			}
+			p, ok := r.gw.Peer("agent-1")
+			return ok && p == r.gw.reg.get("agent-1").peer && r.gw.reg.get("agent-1").seqValue() == n
+		})
+		for i, a := range agents[:n-1] {
+			select {
+			case <-a.runDone:
+			case <-time.After(3 * time.Second):
+				t.Fatalf("lower session %d stayed open", i+1)
+			}
+		}
+	})
 }

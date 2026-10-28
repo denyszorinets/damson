@@ -50,6 +50,9 @@ type Controller struct {
 	InsecureDev bool `koanf:"insecure_dev"`
 	// InternalURL is where other controllers reach this one (ARCHITECTURE 8.5).
 	InternalURL string `koanf:"internal_url"`
+	// TrustForwardedProto honors X-Forwarded-Proto: https from a TLS-terminating
+	// proxy when deciding whether an agent connection is secure.
+	TrustForwardedProto bool `koanf:"trust_forwarded_proto"`
 }
 
 // Agent configures the agent role.
@@ -83,15 +86,16 @@ func redact(s string) string {
 
 func defaults() map[string]any {
 	return map[string]any{
-		"log.level":               "info",
-		"database.driver":         DriverSQLite,
-		"database.dsn":            "file:damson.db",
-		"controller.listen":       ":8080",
-		"controller.insecure_dev": false,
-		"controller.internal_url": "",
-		"agent.controller_url":    "",
-		"agent.token":             "",
-		"agent.pool":              "default",
-		"agent.slots":             4,
+		"log.level":                        "info",
+		"database.driver":                  DriverSQLite,
+		"database.dsn":                     "file:damson.db",
+		"controller.listen":                ":8080",
+		"controller.insecure_dev":          false,
+		"controller.internal_url":          "",
+		"controller.trust_forwarded_proto": false,
+		"agent.controller_url":             "",
+		"agent.token":                      "",
+		"agent.pool":                       "default",
+		"agent.slots":                      4,
 	}
 }

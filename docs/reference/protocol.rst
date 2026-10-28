@@ -42,6 +42,14 @@ Error codes
      - Invalid params (returned by ``Params.Decode``)
    * - ``-32603``
      - Handler failed with an error that is not an ``*RPCError``
+   * - ``-32000``
+     - Server overloaded (too many requests in flight)
+   * - ``-32001``
+     - ``agent.hello`` refused: a newer ``session_seq`` owns the agent
+   * - ``-32002``
+     - ``agent.hello`` refused: the agent id belongs to another pool
+   * - ``-32003``
+     - ``agent.hello`` refused: unsupported protocol version
 
 Peer
 ----

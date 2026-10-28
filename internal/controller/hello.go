@@ -42,23 +42,31 @@ func (g *Gateway) handleHello(ctx context.Context, s *session, p protocol.Params
 		return nil, rpcErr(protocol.CodeServerOverloaded, "controller is shutting down; reconnect")
 	}
 	s.mu.Lock()
-	if s.helloed {
+	if s.helloing {
 		s.mu.Unlock()
-		return nil, rpcErr(protocol.CodeInvalidRequest, "agent.hello already completed on this connection")
+		return nil, rpcErr(protocol.CodeInvalidRequest, "agent.hello already received on this connection")
 	}
+	s.helloing = true
 	s.mu.Unlock()
 
 	now := g.cfg.Clock.now()
 	hello.ControllerID = g.cfg.ControllerID
 	if err := g.cfg.Store.UpsertAgentOnHello(ctx, hello, now); err != nil {
+		s.mu.Lock()
+		s.helloing = false // a refused hello may be retried; the socket is closed anyway
+		s.mu.Unlock()
 		return nil, g.helloStoreError(s, err)
 	}
 	s.mu.Lock()
 	s.helloed, s.seq, s.lastSeen = true, req.SessionSeq, now
 	s.mu.Unlock()
-	if old := g.reg.replace(s); old != nil {
-		old.log.Info("superseded by a newer socket for the same agent", "session_seq", req.SessionSeq)
-		_ = old.peer.Close()
+	if loser := g.reg.replace(s); loser != nil {
+		loser.log.Info("superseded by a newer socket for the same agent", "session_seq", req.SessionSeq)
+		if loser == s {
+			s.reject()
+			return nil, rpcErr(protocol.CodeStaleSession, "stale session_seq: a newer session owns this agent")
+		}
+		_ = loser.peer.Close()
 	}
 	s.log.Info("agent hello", "session_seq", req.SessionSeq, "protocol", hello.Protocol,
 		"agent_version", req.AgentVersion, "running_attempts", len(req.Executions))
@@ -75,7 +83,7 @@ func (g *Gateway) checkHello(s *session, req protocol.HelloRequest) (store.Agent
 	version, err := protocol.Negotiate(req.Protocol)
 	switch {
 	case err != nil:
-		return store.AgentHello{}, rpcErr(protocol.CodeInvalidParams, err.Error())
+		return store.AgentHello{}, rpcErr(protocol.CodeUnsupportedProtocol, err.Error())
 	case req.SessionSeq == 0:
 		return store.AgentHello{}, rpcErr(protocol.CodeInvalidParams, "session_seq must be at least 1")
 	case req.MaxConcurrent < 1:
@@ -102,11 +110,12 @@ func (g *Gateway) helloStoreError(s *session, err error) error {
 	switch {
 	case errors.Is(err, store.ErrStale):
 		s.log.Info("agent.hello rejected: stale session_seq")
-		return rpcErr(protocol.CodeInvalidRequest, "stale session_seq: a newer session owns this agent")
+		s.reject()
+		return rpcErr(protocol.CodeStaleSession, "stale session_seq: a newer session owns this agent")
 	case errors.Is(err, store.ErrConflict):
 		s.log.Warn("agent.hello rejected: agent id belongs to another pool")
 		s.reject()
-		return rpcErr(protocol.CodeInvalidRequest, "agent id is registered in another pool")
+		return rpcErr(protocol.CodePoolConflict, "agent id is registered in another pool")
 	default:
 		return err // generic internal error for the agent; logged by the peer
 	}
