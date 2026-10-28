@@ -14,7 +14,7 @@ Building
    $ make web          # npm ci + vite build into web/build
    $ make web-check    # prettier + eslint + svelte-check
    $ cd web && npm run dev      # Vite dev server with hot reload
-   $ cd web && npm run test:e2e # Playwright tests (builds and previews first)
+   $ cd web && npm run test:e2e # Playwright tests (builds the UI and runs damson dev)
 
 ``make check`` runs ``make web-check`` automatically when ``web/node_modules``
 exists, so Go-only contributors do not need Node.js.
@@ -70,3 +70,26 @@ Components and conventions
   ``web/openapi.json``; both generated files are excluded from prettier and
   eslint), and render schema-driven
   forms only through ``SchemaForm.svelte`` (CLAUDE.md, rule 10).
+
+Pages
+-----
+
+``/agents``
+   Lists agent pools (connected agents, free slots and capacity) and agents
+   (status, pool, free slots and capacity, CPU, memory, one-minute load, last
+   seen, labels). It reads ``GET /pools`` and ``GET /agents`` through the
+   generated client, following ``next_cursor`` across pages, and refreshes
+   every 5 seconds. ``lib/polling.ts`` skips ticks while the tab is hidden,
+   refreshes when it becomes visible again and stops on destroy. Loading
+   shows skeletons, an empty list shows a hint, and a problem+json error
+   (RFC 9457) is shown in an alert while the last good data stays visible.
+   Telemetry and free slots come from the agent's last heartbeat snapshot and
+   show ``-`` until the first one is stored.
+
+End-to-end tests
+----------------
+
+``web/playwright.config.ts`` builds the UI, builds the ``damson`` binary into a
+temporary directory and starts ``damson dev`` (controller plus one agent in one
+process, SQLite in a temporary directory) on ``127.0.0.1:4174``. The tests in
+``web/e2e`` run against that real API, so they need the Go toolchain.
