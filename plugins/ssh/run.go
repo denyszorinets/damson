@@ -34,7 +34,7 @@ func run(ctx context.Context, client *ssh.Client, in Input, call remoteCall, emi
 	if err != nil {
 		return runResult{}, ctxOr(ctx, pluginsdk.NewError(pluginsdk.KindConnection, "opening ssh session failed: "+err.Error(), err))
 	}
-	defer sess.Close()
+	defer func() { _ = sess.Close() }() // may already be closed by wait
 	if in.Pty {
 		modes := ssh.TerminalModes{ssh.ECHO: 0}
 		if err := sess.RequestPty("xterm", 24, 200, modes); err != nil {

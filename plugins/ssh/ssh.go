@@ -72,7 +72,7 @@ func execute(ctx context.Context, req pluginsdk.ExecRequest, emit pluginsdk.Emit
 	if err != nil {
 		return pluginsdk.Result{}, err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }() // may already be closed by run
 	logger(req).Debug("ssh connected", "node", node.Name, "host_key_policy", hk.policy)
 	reportHostKey(req, node, hk, emit)
 

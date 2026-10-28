@@ -168,7 +168,7 @@ func TestCancelAndTimeout(t *testing.T) {
 		time.AfterFunc(500*time.Millisecond, cancel)
 		start := time.Now()
 		o := plugintest.Exec(ctx, t, plug(), c)
-		requireKind(t, o, pluginsdk.KindCancelled)
+		_ = requireKind(t, o, pluginsdk.KindCancelled)
 		if d := time.Since(start); d > 10*time.Second {
 			t.Errorf("cancel took %s", d)
 		}
@@ -178,7 +178,7 @@ func TestCancelAndTimeout(t *testing.T) {
 		defer cancel()
 		start := time.Now()
 		o := plugintest.Exec(ctx, t, plug(), c)
-		requireKind(t, o, pluginsdk.KindTimeout)
+		_ = requireKind(t, o, pluginsdk.KindTimeout)
 		if d := time.Since(start); d > 10*time.Second {
 			t.Errorf("timeout took %s", d)
 		}
@@ -297,11 +297,11 @@ func TestCredentialOverrideAndNodeErrors(t *testing.T) {
 	requireOK(t, exec(t, c))
 
 	c = f.Case("unknown node", `{"command":"true","node":"nope"}`)
-	requireKind(t, exec(t, c), pluginsdk.KindValidation)
+	_ = requireKind(t, exec(t, c), pluginsdk.KindValidation)
 
 	c = f.Case("password", `{"command":"true"}`)
 	c.Bundle = map[string]map[string]string{sshtest.CredentialRef: {"username": "damson", "password": "pw"}}
-	requireKind(t, exec(t, c), pluginsdk.KindAuth) // fixture server has no password auth
+	_ = requireKind(t, exec(t, c), pluginsdk.KindAuth) // fixture server has no password auth
 }
 
 func TestUnreachable(t *testing.T) {
@@ -310,7 +310,7 @@ func TestUnreachable(t *testing.T) {
 	n := f.Node
 	f.Server.Close()
 	c.Nodes = map[string]pluginsdk.NodeInfo{sshtest.NodeName: n}
-	requireKind(t, exec(t, c), pluginsdk.KindConnection)
+	_ = requireKind(t, exec(t, c), pluginsdk.KindConnection)
 }
 
 // TestSecretsNeverLeak runs success and failure paths with a credential
@@ -366,7 +366,7 @@ func TestSecretsNeverLeak(t *testing.T) {
 			if tc.kind == "" {
 				requireOK(t, o)
 			} else {
-				requireKind(t, o, tc.kind)
+				_ = requireKind(t, o, tc.kind)
 			}
 			if leaked := plugintest.LeakedSecrets(secrets, o); len(leaked) > 0 {
 				t.Errorf("secrets leaked: %v", leaked)

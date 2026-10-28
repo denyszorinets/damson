@@ -11,6 +11,7 @@ import (
 
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+	gossh "golang.org/x/crypto/ssh"
 
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 	"github.com/denyszorinets/damson/pkg/pluginsdk/plugintest"
@@ -93,7 +94,7 @@ func (o *openssh) learnHostKey(t *testing.T) string {
 		out := exec(t, o.caseFor("tofu", `{"command":"true"}`, o.node))
 		if out.Result.Error == nil && out.Err == nil {
 			keys := out.HostKeys.Keys()
-			if len(keys) != 1 || keys[0].Node != sshtest.NodeName || !strings.HasPrefix(keys[0].Key, "ssh-") {
+			if len(keys) != 1 || keys[0].Node != sshtest.NodeName || !validAuthorizedKey(keys[0].Key) {
 				t.Fatalf("tofu reported %v, want one ssh host key for %s", keys, sshtest.NodeName)
 			}
 			return keys[0].Key
@@ -103,6 +104,13 @@ func (o *openssh) learnHostKey(t *testing.T) string {
 		}
 		time.Sleep(time.Second)
 	}
+}
+
+// validAuthorizedKey reports whether line is one public key in authorized_keys
+// format. The container may use any host key type (ed25519, ecdsa, rsa).
+func validAuthorizedKey(line string) bool {
+	_, _, _, rest, err := gossh.ParseAuthorizedKey([]byte(line))
+	return err == nil && len(rest) == 0
 }
 
 func TestIntegrationOpenSSH(t *testing.T) {
@@ -165,7 +173,7 @@ func TestIntegrationOpenSSH(t *testing.T) {
 			time.Sleep(200 * time.Millisecond)
 		}
 		cancel()
-		requireKind(t, <-done, pluginsdk.KindCancelled)
+		_ = requireKind(t, <-done, pluginsdk.KindCancelled)
 
 		deadline := time.Now().Add(10 * time.Second)
 		for {
@@ -184,7 +192,7 @@ func TestIntegrationOpenSSH(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		res := plugintest.Exec(ctx, t, plug(), o.caseFor("timeout", `{"command":"sleep 120"}`, strict))
-		requireKind(t, res, pluginsdk.KindTimeout)
+		_ = requireKind(t, res, pluginsdk.KindTimeout)
 	})
 
 	t.Run("strict host key mismatch", func(t *testing.T) {

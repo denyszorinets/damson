@@ -202,12 +202,12 @@ func (s *Server) acceptLoop() {
 
 func (s *Server) serve(c net.Conn) {
 	defer s.wg.Done()
-	defer c.Close()
+	defer func() { _ = c.Close() }() // best effort: the peer may have closed it
 	sc, chans, reqs, err := ssh.NewServerConn(c, s.cfg)
 	if err != nil {
 		return
 	}
-	defer sc.Close()
+	defer func() { _ = sc.Close() }()
 	go ssh.DiscardRequests(reqs)
 	var chWG sync.WaitGroup
 	for nc := range chans {
@@ -264,7 +264,7 @@ func signalName(sig syscall.Signal) string {
 // session serves one session channel: it collects env and pty requests, runs
 // the exec request with /bin/sh and reports the exit status.
 func (s *Server) session(ch ssh.Channel, reqs <-chan *ssh.Request) {
-	defer ch.Close()
+	defer func() { _ = ch.Close() }()
 	var env []string
 	var cmd *exec.Cmd
 	finished := make(chan struct{})
@@ -285,7 +285,7 @@ func (s *Server) session(ch ssh.Channel, reqs <-chan *ssh.Request) {
 				_ = req.Reply(false, nil)
 				continue
 			}
-			cmd = exec.Command("/bin/sh", "-c", m.Command)
+			cmd = exec.Command("/bin/sh", "-c", "exec "+m.Command)
 			cmd.Env = append(os.Environ(), env...)
 			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 			cmd.Stdin, cmd.Stdout, cmd.Stderr = ch, ch, ch.Stderr()
