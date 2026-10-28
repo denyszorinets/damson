@@ -11,6 +11,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/denyszorinets/damson/internal/agent"
 	"github.com/denyszorinets/damson/internal/api"
 	"github.com/denyszorinets/damson/internal/config"
 	"github.com/denyszorinets/damson/internal/controller"
@@ -24,8 +25,10 @@ const shutdownTimeout = 15 * time.Second
 
 // runController opens the store, optionally migrates it, serves the HTTP API
 // on the configured address and blocks until ctx is cancelled. It then shuts
-// down in reverse order: HTTP server first, then the store.
-func runController(ctx context.Context, cfg config.Config, log *slog.Logger, migrate bool) error {
+// down in reverse order: in-process agent (dev only), HTTP server, gateway,
+// then the store. With dev set it also starts an agent in this process,
+// connected to the gateway through a freshly provisioned pool token.
+func runController(ctx context.Context, cfg config.Config, log *slog.Logger, migrate, dev bool) error {
 	st, err := storefactory.Open(ctx, cfg.Database)
 	if err != nil {
 		return fmt.Errorf("opening store: %w", err)
@@ -72,19 +75,25 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 		defer cancel()
 		return errors.Join(err, gw.Stop(sctx))
 	}
-	var serveErr error
-	select {
-	case <-ctx.Done():
-		log.Info("stopping")
-	case serveErr = <-srv.Err():
-		log.Error("http server failed, stopping", "error", serveErr)
+	var devAgent *agent.Agent
+	if dev {
+		if devAgent, err = startDevAgent(ctx, st, cfg, srv.Addr(), log); err != nil {
+			sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
+			defer cancel()
+			if ctx.Err() != nil && errors.Is(err, context.Canceled) {
+				err = nil // shut down while provisioning: a clean stop
+			}
+			return errors.Join(err, srv.Stop(sctx), gw.Stop(sctx))
+		}
 	}
+	serveErr := awaitShutdown(ctx, log, srv.Err(), devAgent)
 
 	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
-	// Stop the listener first so no new agents arrive, then tell the connected
-	// ones to reconnect elsewhere and deregister (ARCHITECTURE 8.5).
-	return errors.Join(serveErr, srv.Stop(sctx), gw.Stop(sctx))
+	// Stop the dev agent and the listener first so no new agents arrive, then
+	// tell the connected ones to reconnect elsewhere and deregister
+	// (ARCHITECTURE 8.5).
+	return errors.Join(serveErr, stopDevAgent(sctx, devAgent, log), srv.Stop(sctx), gw.Stop(sctx))
 }
 
 // controllerID is the hostname plus a boot nonce, unique per process.
@@ -98,4 +107,26 @@ func controllerID() (string, error) {
 		return "", fmt.Errorf("generating controller id: %w", err)
 	}
 	return host + "-" + hex.EncodeToString(nonce[:]), nil
+}
+
+// awaitShutdown blocks until ctx is cancelled, the HTTP server fails or the
+// in-process dev agent (nil outside dev) ends fatally, and returns the error
+// that ended it, if any.
+func awaitShutdown(ctx context.Context, log *slog.Logger, srvErr <-chan error, devAgent *agent.Agent) error {
+	var agentDone <-chan struct{}
+	if devAgent != nil {
+		agentDone = devAgent.Done()
+	}
+	select {
+	case <-ctx.Done():
+		log.Info("stopping")
+		return nil
+	case err := <-srvErr:
+		log.Error("http server failed, stopping", "error", err)
+		return err
+	case <-agentDone:
+		err := fmt.Errorf("dev agent stopped: %w", devAgent.Err())
+		log.Error("dev agent ended, stopping", "error", err)
+		return err
+	}
 }

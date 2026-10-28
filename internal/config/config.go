@@ -60,7 +60,7 @@ type Agent struct {
 	ControllerURL string `koanf:"controller_url"` // ws:// or wss:// URL
 	Token         string `koanf:"token"`          // pool token; secret
 	Pool          string `koanf:"pool"`
-	Slots         int    `koanf:"slots"` // concurrent executions
+	Slots         int    `koanf:"slots"` // concurrent executions; 0 means CPU count x 4
 }
 
 // SlogLevel returns the configured level. Validate guarantees it parses.
@@ -96,6 +96,6 @@ func defaults() map[string]any {
 		"agent.controller_url":             "",
 		"agent.token":                      "",
 		"agent.pool":                       "default",
-		"agent.slots":                      4,
+		"agent.slots":                      0,
 	}
 }

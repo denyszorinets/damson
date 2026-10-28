@@ -72,8 +72,8 @@ func (c Config) validateAgent(add func(key, format string, args ...any)) {
 	if c.Agent.Pool == "" {
 		add("agent.pool", "must not be empty")
 	}
-	if c.Agent.Slots < 1 {
-		add("agent.slots", "must be at least 1; got %d", c.Agent.Slots)
+	if c.Agent.Slots < 0 {
+		add("agent.slots", "must be 0 (CPU count x 4) or more; got %d", c.Agent.Slots)
 	}
 }
 

@@ -1,5 +1,8 @@
 package protocol
 
+// ConnectPath is the controller's agent WebSocket endpoint (ARCHITECTURE 7.1).
+const ConnectPath = "/agent/v1/connect"
+
 // Method names of ARCHITECTURE.md section 7.2.
 const (
 	MethodAgentHello          = "agent.hello"           // A->C request

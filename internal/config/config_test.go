@@ -69,6 +69,28 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
+			name: "agent slots default to 0 (auto)", role: RoleAgent, env: agentEnv,
+			check: func(t *testing.T, c Config) {
+				if c.Agent.Slots != 0 {
+					t.Fatalf("slots = %d, want 0", c.Agent.Slots)
+				}
+			},
+		},
+		{
+			name: "agent slots 0 is valid", role: RoleAgent,
+			env: append([]string{"DAMSON_AGENT__SLOTS=0"}, agentEnv...),
+			check: func(t *testing.T, c Config) {
+				if c.Agent.Slots != 0 {
+					t.Fatalf("slots = %d, want 0", c.Agent.Slots)
+				}
+			},
+		},
+		{
+			name: "agent slots -1 is rejected", role: RoleAgent,
+			env:     append([]string{"DAMSON_AGENT__SLOTS=-1"}, agentEnv...),
+			wantErr: []string{"agent.slots"},
+		},
+		{
 			name: "agent from env with int coercion", role: RoleAgent,
 			env: append([]string{"DAMSON_AGENT__SLOTS=8"}, agentEnv...),
 			check: func(t *testing.T, c Config) {
@@ -83,7 +105,7 @@ func TestLoad(t *testing.T) {
 		},
 		{
 			name: "agent bad url and slots", role: RoleAgent,
-			env:     []string{"DAMSON_AGENT__CONTROLLER_URL=http://x", "DAMSON_AGENT__TOKEN=t", "DAMSON_AGENT__SLOTS=0"},
+			env:     []string{"DAMSON_AGENT__CONTROLLER_URL=http://x", "DAMSON_AGENT__TOKEN=t", "DAMSON_AGENT__SLOTS=-1"},
 			wantErr: []string{"ws:// or wss://", "agent.slots"},
 		},
 		{
@@ -212,7 +234,7 @@ func TestErrorsDoNotLeakSecrets(t *testing.T) {
 		"DAMSON_AGENT__TOKEN=agent-tok-xyz",
 		"DAMSON_DATABASE__DRIVER=bogus",
 		"DAMSON_DATABASE__DSN=postgres://u:dsnpass@h/db",
-		"DAMSON_AGENT__SLOTS=0",
+		"DAMSON_AGENT__SLOTS=-1",
 	}
 	_, err := Load(RoleAgent, "", env)
 	if err == nil {

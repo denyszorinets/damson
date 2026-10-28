@@ -8,3 +8,4 @@ Reference
    cli
    http-api
    protocol
+   agent
