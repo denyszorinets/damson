@@ -155,6 +155,35 @@ type LogEntry struct {
 	Line     string           `msgpack:"line" json:"line"`
 }
 
+const logEntryLen = 3
+
+// DecodeMsgpack reads the [ts, stream, line] array. Extra trailing elements
+// are skipped so a newer peer can append fields; fewer than three is an error.
+func (e *LogEntry) DecodeMsgpack(dec *msgpack.Decoder) error {
+	n, err := dec.DecodeArrayLen()
+	if err != nil {
+		return fmt.Errorf("decoding log entry: %w", err)
+	}
+	if n < logEntryLen {
+		return fmt.Errorf("decoding log entry: want at least %d elements, got %d", logEntryLen, n)
+	}
+	if err := dec.Decode(&e.TS); err != nil {
+		return fmt.Errorf("decoding log entry ts: %w", err)
+	}
+	if err := dec.Decode(&e.Stream); err != nil {
+		return fmt.Errorf("decoding log entry stream: %w", err)
+	}
+	if err := dec.Decode(&e.Line); err != nil {
+		return fmt.Errorf("decoding log entry line: %w", err)
+	}
+	for range n - logEntryLen {
+		if err := dec.Skip(); err != nil {
+			return fmt.Errorf("skipping log entry extra: %w", err)
+		}
+	}
+	return nil
+}
+
 // MarshalJSON writes the [ts, stream, line] array form.
 func (e LogEntry) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]any{e.TS, e.Stream, e.Line})
@@ -162,9 +191,12 @@ func (e LogEntry) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON reads the [ts, stream, line] array form.
 func (e *LogEntry) UnmarshalJSON(b []byte) error {
-	var a [3]json.RawMessage
+	var a []json.RawMessage
 	if err := json.Unmarshal(b, &a); err != nil {
 		return fmt.Errorf("decoding log entry: %w", err)
+	}
+	if len(a) < logEntryLen {
+		return fmt.Errorf("decoding log entry: want at least %d elements, got %d", logEntryLen, len(a))
 	}
 	if err := json.Unmarshal(a[0], &e.TS); err != nil {
 		return fmt.Errorf("decoding log entry ts: %w", err)
