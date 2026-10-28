@@ -78,8 +78,8 @@ Go test fails when ``web/openapi.json`` differs from the live document.
      - Pools ordered by name, ``items`` plus ``next_cursor``.
 
 Lists take ``limit`` (1 to 200, default 50) and ``cursor`` (the previous
-page's ``next_cursor``, empty on the last page). An invalid ``limit`` is a
-``422`` problem with an ``errors`` list.
+page's ``next_cursor``, opaque, empty on the last page). An invalid ``limit`` is a
+``422`` problem with an ``errors`` list; a malformed ``cursor`` is a ``400``.
 
 These endpoints are read-only and unauthenticated for now: authentication and
 authorization arrive in M8 (ARCHITECTURE section 12). Pool and pool token

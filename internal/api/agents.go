@@ -88,7 +88,11 @@ func registerAgents(api huma.API, ds DataStore) {
 		if ds == nil {
 			return nil, unavailable(ctx)
 		}
-		page, err := ds.ListAgents(ctx, in.Cursor, in.Limit)
+		cursor, err := decodeCursor(ctx, in.Cursor)
+		if err != nil {
+			return nil, err
+		}
+		page, err := ds.ListAgents(ctx, cursor, in.Limit)
 		if err != nil {
 			return nil, apiError(ctx, err)
 		}
@@ -97,7 +101,7 @@ func registerAgents(api huma.API, ds DataStore) {
 		for _, a := range page.Agents {
 			out.Body.Items = append(out.Body.Items, toAgentView(a))
 		}
-		out.Body.NextCursor = page.NextCursor
+		out.Body.NextCursor = encodeCursor(page.NextCursor)
 		return out, nil
 	})
 	huma.Register(api, huma.Operation{

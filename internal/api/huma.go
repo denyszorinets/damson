@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"sync"
 
@@ -58,6 +59,14 @@ func typeForStatus(status int) string {
 	switch {
 	case status == http.StatusNotFound:
 		return typeNotFound
+	case status == http.StatusUnauthorized:
+		return TypeUnauthorized
+	case status == http.StatusForbidden:
+		return TypeForbidden
+	case status == http.StatusConflict:
+		return typeConflict
+	case status == http.StatusTooManyRequests:
+		return typeRateLimited
 	case status == http.StatusMethodNotAllowed:
 		return typeMethod
 	case status == http.StatusUnprocessableEntity:
@@ -87,4 +96,27 @@ func newHuma(mux *http.ServeMux, ds DataStore) huma.API {
 // unavailable answers every typed endpoint when no store is configured.
 func unavailable(ctx context.Context) error {
 	return apiError(ctx, errUnavailable)
+}
+
+// encodeCursor makes a store keyset value opaque to clients.
+func encodeCursor(key string) string {
+	if key == "" {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(key))
+}
+
+// decodeCursor reverses encodeCursor. A cursor that is not valid base64url is
+// a 400 problem.
+func decodeCursor(ctx context.Context, c string) (string, error) {
+	if c == "" {
+		return "", nil
+	}
+	b, err := base64.RawURLEncoding.DecodeString(c)
+	if err != nil || len(b) == 0 {
+		p := newHumaError(http.StatusBadRequest, "invalid cursor").(*Problem)
+		p.RequestID = requestIDFromCtx(ctx)
+		return "", p
+	}
+	return string(b), nil
 }

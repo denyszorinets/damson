@@ -21,7 +21,8 @@ Jobs
        configuration in :repo:`.golangci.yml`, same as ``make lint``) and
        ``make test GOTESTFLAGS=-race`` (SQLite store).
    * - ``postgres``
-     - ``make test-pg GOTESTFLAGS=-v``: the store suite against PostgreSQL
+     - ``make test-pg GOTESTFLAGS=-v``: every ``integration``-tagged test
+       (store, api, controller, cmd) against PostgreSQL
        started by testcontainers through the runner's Docker daemon. Verbose,
        so a skipped or failing test is visible in the log.
    * - ``web``

@@ -3,6 +3,7 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -153,7 +154,7 @@ func TestV1Pools(t *testing.T) {
 		}
 		var p1, p2 pools
 		getJSON(t, h, "/api/v1/pools?limit=2", http.StatusOK, &p1)
-		if len(p1.Items) != 2 || p1.Items[0].Name != "alpha" || p1.Items[0].Description != "pool alpha" || p1.NextCursor != "beta" {
+		if len(p1.Items) != 2 || p1.Items[0].Name != "alpha" || p1.Items[0].Description != "pool alpha" || p1.NextCursor != base64.RawURLEncoding.EncodeToString([]byte("beta")) {
 			t.Fatalf("page 1 = %+v", p1)
 		}
 		getJSON(t, h, "/api/v1/pools?limit=2&cursor="+p1.NextCursor, http.StatusOK, &p2)
@@ -175,6 +176,8 @@ func TestV1Problems(t *testing.T) {
 			{"unknown agent", "/api/v1/agents/nope", 404, "urn:damson:problem:not-found", false},
 			{"limit too big", "/api/v1/agents?limit=1000", 422, "urn:damson:problem:validation", true},
 			{"limit zero", "/api/v1/pools?limit=0", 422, "urn:damson:problem:validation", true},
+			{"garbage agent cursor", "/api/v1/agents?cursor=!!!", 400, "urn:damson:problem:bad-request", false},
+			{"garbage pool cursor", "/api/v1/pools?cursor=%25%25", 400, "urn:damson:problem:bad-request", false},
 			{"unknown route", "/api/v1/nope", 404, "urn:damson:problem:not-found", false},
 		}
 		for _, tc := range tests {

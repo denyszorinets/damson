@@ -51,6 +51,7 @@ const (
 	typeMethod      = "urn:damson:problem:method-not-allowed"
 	typeInternal    = "urn:damson:problem:internal"
 	typeValidation  = "urn:damson:problem:validation"
+	typeRateLimited = "urn:damson:problem:rate-limited"
 	// TypeUnauthorized and TypeForbidden are used by components that mount
 	// their own handlers (the agent gateway) and answer before an upgrade.
 	TypeUnauthorized = "urn:damson:problem:unauthorized"
