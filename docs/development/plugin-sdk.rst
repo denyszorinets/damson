@@ -51,6 +51,13 @@ A plugin package exports one constructor and implements ``pluginsdk.Plugin``:
 - **Nodes:** ``ExecRequest.Nodes`` holds ``NodeInfo`` values named after the
   inventory node fields (``transport``, ``os``, ``attributes`` as
   ``map[string]any``, ``credential`` ref, ``host_key``, ``host_key_policy``).
+- **Host keys and config:** ``ExecRequest.HostKeys`` (a ``HostKeyReporter``,
+  may be nil) lets a plugin report the host key it observed on a node, in
+  ``authorized_keys`` format; the agent forwards it so the controller can store
+  it on the node (trust on first use). ``ExecRequest.Config`` carries operator
+  settings for the plugin (for example ``allow_insecure_host_keys`` for ``ssh``);
+  absent keys mean the safe default. Both were added in SDK 0.2.0 and are
+  optional, so existing plugins are unaffected.
 - ``Validate`` failures must be ``validation`` errors; they are never retried.
 
 Manifest
@@ -107,7 +114,9 @@ helper (temp ``WorkDir``) and the contract suite every plugin must pass:
   after a short delay. A plugin that ignores cancellation fails after
   ``Options.Timeout``.
 
-``plugintest.Exec`` recovers panics (reported as an ``internal`` error) and
+``plugintest.Case.Config`` is passed as ``ExecRequest.Config``, and
+``Outcome.HostKeys`` (a ``FakeHostKeys``) records the host keys a plugin
+reported. ``plugintest.Exec`` recovers panics (reported as an ``internal`` error) and
 records ``req.Logger`` output in ``Outcome.LogOutput``. ``FakeSecrets`` serves
 single values; ``FakeBundle`` serves whole credentials for ``ResolveFields``.
 

@@ -10,3 +10,4 @@ Reference
    http-api
    protocol
    agent
+   plugin-ssh
