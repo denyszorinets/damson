@@ -89,15 +89,138 @@ Go test fails when ``web/openapi.json`` differs from the live document.
        version; they receive no work). See :ref:`plugin-registry`.
    * - ``GET /api/v1/plugins/{name}``
      - One plugin with all known versions. ``404`` if unknown.
+   * - ``POST /api/v1/jobs/validate``
+     - Dry-run validation of ``{"spec": {...}}``. Always ``200`` with
+       ``valid``, ``errors`` and ``warnings`` (each ``{path, message}`` with a
+       spec path such as ``spec.steps[0].with.host``). Errors come from the
+       job schema and engine validation, then from checking each plugin
+       step's ``with`` against the input schema of the highest known version
+       of its plugin (``pluginreg.Lookup``). A plugin no connected agent or
+       built-in provides is a **warning**, not an error: its agents may not
+       be connected yet, and its input is not checked. A ``with`` value that
+       holds a ``${{ }}`` expression is not checked either (it is resolved,
+       then validated, at run time). The graph is added in M3.
+   * - ``POST /api/v1/jobs``
+     - ``{"name"?, "spec"}``. Validates like ``validate`` (errors are a
+       ``422`` with a ``location`` per problem; warnings come back in the
+       ``201`` body), resolves ``spec.metadata.project`` (``422`` if
+       unknown) and creates the job with version 1. ``name`` defaults to
+       ``spec.metadata.name`` and must equal it. ``409`` if the name is
+       taken in the project. The spec is stored byte for byte; the
+       ``checksum`` is the SHA-256 of its canonical form.
+   * - ``GET /api/v1/jobs``
+     - Jobs of a project (``project`` query, default ``default``), keyset
+       paged by id.
+   * - ``GET /api/v1/jobs/{id}``
+     - The job and its current version including ``spec``.
+   * - ``POST /api/v1/jobs/{id}/versions``
+     - ``{"spec", "expected_version"?}``. Appends an immutable version. It is a
+       compare-and-swap on ``current_version``: a stale ``expected_version``
+       is ``409`` (``urn:damson:problem:stale``). Omitting it means "the
+       version current when the request is handled". The spec must keep the
+       job's project and name (``422`` otherwise).
+   * - ``GET /api/v1/jobs/{id}/versions``
+     - Versions ascending, without ``spec``, paged.
+   * - ``GET /api/v1/jobs/{id}/versions/{v}``
+     - One version with its ``spec``.
+   * - ``POST /api/v1/jobs/{id}/runs``
+     - API trigger, optional body ``{"options"?, "version"?,
+       "concurrency_policy"?}`` (see :ref:`reference-trigger`). ``201`` with
+       the run and its step tree.
+   * - ``GET /api/v1/runs``
+     - Runs newest first, paged, filtered by ``job`` (job id) and
+       ``status`` (``pending``, ``running``, ``succeeded``, ``failed``,
+       ``canceled``). Items have no step tree.
+   * - ``GET /api/v1/runs/{id}``
+     - The run (``status``, ``trigger``, resolved ``options``, timestamps,
+       ``job_version``) with ``steps``: every step instance in creation
+       order with its resolved ``input`` (secret references only) and its
+       ``executions`` (attempt number, state, pool, agent, outputs, error).
+       The attempt id, which fences agent reports, is never exposed.
+   * - ``POST /api/v1/runs/{id}/cancel``
+     - Records the cancel request (``cancel_requested_at``); the orchestrator
+       cancels the run on its next advance. Idempotent: repeating it while
+       the run is active is ``200`` with the run. A run that already reached
+       a terminal status is ``409`` (``urn:damson:problem:conflict``).
+   * - ``GET /api/v1/runs/{id}/events``
+     - Server-sent events, see :ref:`reference-sse`.
+   * - ``GET /api/v1/executions/{id}``
+     - One execution with ``run_id``, ``step_path`` and ``plugin``.
+   * - ``GET /api/v1/executions/{id}/logs``
+     - Server-sent log stream, see :ref:`reference-sse`.
 
 Lists (except plugins) take ``limit`` (1 to 200, default 50) and ``cursor`` (the previous
 page's ``next_cursor``, opaque, empty on the last page). An invalid ``limit`` is a
 ``422`` problem with an ``errors`` list; a malformed ``cursor`` is a ``400``.
 
-These endpoints are read-only and unauthenticated for now: authentication and
-authorization arrive in M8 (ARCHITECTURE section 12). Pool and pool token
+All endpoints are **unauthenticated** for now: authentication and
+authorization arrive in M8 (ARCHITECTURE section 12), so anyone who can reach
+the listener can create jobs and trigger runs. Pool and pool token
 administration stays in the ``damson admin`` CLI until then. No endpoint
-returns a pool token or its hash.
+returns a pool token or its hash, a secret value or an attempt id.
+
+.. _reference-trigger:
+
+Triggering a run
+~~~~~~~~~~~~~~~~
+
+``POST /jobs/{id}/runs`` implements the trigger step of the run lifecycle
+(ARCHITECTURE section 8.3):
+
+#. The pinned version is the request's ``version`` or the job's current one.
+#. ``options`` get the ``default`` of every property of ``spec.options`` that
+   the caller omitted, then are validated against ``spec.options`` (JSON
+   Schema, with the same size limits and deny-all URL loader as plugin
+   schemas). Failures are a ``422`` listing ``options.<path>`` locations;
+   messages never repeat a submitted value. A job without ``spec.options``
+   accepts no options.
+#. ``concurrency_policy`` accepts ``queue`` (the default) until M3; ``skip``
+   and ``cancel_previous`` are a ``422``. ``spec.concurrency`` is still
+   rejected at authoring time.
+#. Target resolution is a stub until the inventory work.
+#. ``engine.Decide`` is called for the queued run. The step instances it
+   creates, with resolved input (secret references stay literal) and their
+   first executions, are inserted together with the run by one
+   ``CreateRun`` transaction. The run is ``pending``; the pool of an
+   execution is the step's ``runs_on.pool``, or ``default``.
+#. Enqueueing ``run.advance`` in the same transaction arrives with the
+   orchestrator (#53); until then nothing advances a pending run.
+
+Options are stored with the run and returned by the API. They must carry
+``secret://`` references, never secret values (ARCHITECTURE section 9).
+
+.. _reference-sse:
+
+Server-sent events
+~~~~~~~~~~~~~~~~~~
+
+Both streams answer ``text/event-stream`` after the target was checked
+(``404`` problem+json otherwise). A comment line (``: heartbeat``) is sent
+every 15 s so proxies keep idle streams open. Streams end when the client
+disconnects or after the final ``end`` event.
+
+``GET /runs/{id}/events`` sends ``snapshot`` (the full run, as
+``GET /runs/{id}``), then ``run`` (``{status, cancel_requested}``) and
+``step`` (``{path, lane, status, attempt, execution_id, state}``) whenever
+something changed, then ``end``. ``lane`` is the ``for_each`` lane and is
+empty before M3; ``attempt`` and ``state`` describe the latest execution. The
+server polls the database about once a second and compares states, so a
+change is delivered within that interval; a ``RunNotifier`` can later wake the
+stream earlier. Events carry numeric ids. The server cannot replay missed
+events: on reconnect (``Last-Event-ID``) it sends a fresh ``snapshot`` and
+continues the ids from the given value.
+
+``GET /executions/{id}/logs?after_seq=N`` sends, in order: stored chunks
+(``log`` events ``{seq, ts, stream, line}``, ``id`` = ``seq``), then the live
+tail, then ``end`` (``{state, last_seq}``) once the execution is terminal and
+every stored line was sent. ``Last-Event-ID`` takes precedence over
+``after_seq`` (browsers resend it on reconnect). A ``gap`` event
+``{seq_from, seq_to}`` reports a range that will never arrive: lines the
+agent declared lost when its spool overflowed, or a stored chunk whose object
+is missing. Streaming continues after a gap. Without a live tail (the
+controller's ring buffer, wired by the orchestrator) the stream polls the
+store for newly flushed chunks, which arrive up to the chunk flush interval
+late.
 
 Errors
 ------
@@ -121,9 +244,12 @@ handlers) that maps store sentinel errors:
    * - ``store.ErrStale``
      - 409
      - ``urn:damson:problem:stale``
-   * - invalid request (Huma validation)
+   * - invalid request (Huma validation, job spec or run options)
      - 422
      - ``urn:damson:problem:validation``
+   * - cancel of a finished run
+     - 409
+     - ``urn:damson:problem:conflict``
    * - database unavailable
      - 503
      - ``urn:damson:problem:unavailable``
@@ -143,7 +269,7 @@ Server behaviour
   ``status``, ``duration_ms`` and ``request_id``. Headers and bodies are never
   logged.
 * Timeouts: header read 10 s, request read 30 s, idle 2 min. There is no write
-  timeout because SSE streams will be long-lived.
+  timeout because SSE streams are long-lived.
 * On SIGINT or SIGTERM the listener closes and in-flight requests get 15 s to
   finish; then the store is closed.
 

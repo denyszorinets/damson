@@ -59,6 +59,23 @@ const (
 	TypeBadRequest   = "urn:damson:problem:bad-request"
 )
 
+// errRunFinished marks a cancel of a run that already reached a terminal
+// status.
+var errRunFinished = errors.New("run already finished")
+
+// invalidError is a request the API understood but rejects (422). Fields
+// locate each problem; they never carry request values.
+type invalidError struct {
+	detail string
+	fields []ProblemDetail
+}
+
+func (e *invalidError) Error() string { return e.detail }
+
+func invalid(detail string, fields ...ProblemDetail) error {
+	return &invalidError{detail: detail, fields: fields}
+}
+
 // errUnavailable marks a dependency (database) that cannot serve requests.
 var errUnavailable = errors.New("service unavailable")
 
@@ -66,6 +83,10 @@ var errUnavailable = errors.New("service unavailable")
 // unrecognized errors is deliberately generic: internals (DSNs, SQL) must not
 // reach clients.
 func problemFor(err error) Problem {
+	var inv *invalidError
+	if errors.As(err, &inv) {
+		return Problem{Type: typeValidation, Title: "Unprocessable Entity", Status: http.StatusUnprocessableEntity, Detail: inv.detail, Errors: inv.fields}
+	}
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return Problem{Type: typeNotFound, Title: "Not Found", Status: http.StatusNotFound, Detail: "the requested resource does not exist"}
@@ -73,6 +94,10 @@ func problemFor(err error) Problem {
 		return Problem{Type: typeConflict, Title: "Conflict", Status: http.StatusConflict, Detail: "the resource already exists"}
 	case errors.Is(err, store.ErrStale):
 		return Problem{Type: typeStale, Title: "Stale Resource", Status: http.StatusConflict, Detail: "the resource changed since it was read; reload and retry"}
+	case errors.Is(err, errRunFinished):
+		return Problem{Type: typeConflict, Title: "Conflict", Status: http.StatusConflict, Detail: "the run has already finished"}
+	case errors.Is(err, store.ErrInvalid):
+		return Problem{Type: typeValidation, Title: "Unprocessable Entity", Status: http.StatusUnprocessableEntity, Detail: "the request was rejected as invalid"}
 	case errors.Is(err, errUnavailable):
 		return Problem{Type: typeUnavailable, Title: "Service Unavailable", Status: http.StatusServiceUnavailable, Detail: "a required dependency is not available"}
 	default:

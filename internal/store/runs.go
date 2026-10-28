@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // RunStatus is the lifecycle state of a run.
@@ -115,6 +117,10 @@ type NewStepInstance struct {
 // NewRun describes a run, its step instances and their first executions,
 // created in one transaction.
 type NewRun struct {
+	// ID is optional; the store generates one when empty. A caller sets it
+	// when the id must be known before the insert (it feeds expressions that
+	// resolve step input, such as run.id).
+	ID             string
 	JobID          string
 	JobVersionID   string
 	Trigger        json.RawMessage
@@ -130,6 +136,12 @@ type StepUpdate struct {
 	Status         StepStatus
 	Outputs        json.RawMessage
 	Error          string
+}
+
+// RunFilter narrows QueryRuns; a zero field matches everything.
+type RunFilter struct {
+	JobID  string
+	Status RunStatus
 }
 
 // RunPage is one keyset page of runs, newest first.
@@ -155,6 +167,9 @@ type RunStore interface {
 	// ListRuns lists a job's runs newest first; cursor is the previous
 	// page's NextCursor ("" for the first page).
 	ListRuns(ctx context.Context, jobID, cursor string, limit int) (RunPage, error)
+	// QueryRuns is ListRuns across jobs: newest first, optionally filtered by
+	// job and status. The cursor is the previous page's NextCursor.
+	QueryRuns(ctx context.Context, f RunFilter, cursor string, limit int) (RunPage, error)
 	// GetStepInstance returns ErrNotFound if absent.
 	GetStepInstance(ctx context.Context, id string) (StepInstance, error)
 
@@ -187,6 +202,11 @@ type RunStore interface {
 func ValidateNewRun(nr NewRun) error {
 	if nr.JobID == "" || nr.JobVersionID == "" {
 		return fmt.Errorf("run needs a job and a job version: %w", ErrInvalid)
+	}
+	if nr.ID != "" {
+		if _, err := uuid.Parse(nr.ID); err != nil {
+			return fmt.Errorf("run id %q is not a uuid: %w", nr.ID, ErrInvalid)
+		}
 	}
 	if err := checkJSON("trigger", nr.Trigger); err != nil {
 		return err

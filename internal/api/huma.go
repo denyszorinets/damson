@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -21,6 +23,27 @@ type DataStore interface {
 	ListAgents(ctx context.Context, cursor string, limit int) (store.AgentPage, error)
 	GetAgent(ctx context.Context, id string) (store.Agent, error)
 	ListPools(ctx context.Context) ([]store.Pool, error)
+
+	GetProjectByName(ctx context.Context, name string) (store.Project, error)
+	ListProjects(ctx context.Context) ([]store.Project, error)
+	CreateJob(ctx context.Context, nj store.NewJob, now time.Time) (store.Job, store.JobVersion, error)
+	CreateJobVersion(ctx context.Context, jobID string, spec json.RawMessage, checksum string,
+		expectedCurrent int, now time.Time) (store.JobVersion, error)
+	GetJob(ctx context.Context, id string) (store.Job, error)
+	ListJobs(ctx context.Context, projectID, cursor string, limit int) (store.JobPage, error)
+	GetJobVersion(ctx context.Context, id string) (store.JobVersion, error)
+	GetJobVersionByNumber(ctx context.Context, jobID string, version int) (store.JobVersion, error)
+	ListJobVersions(ctx context.Context, jobID string, afterVersion, limit int) ([]store.JobVersion, error)
+
+	CreateRun(ctx context.Context, nr store.NewRun, now time.Time) (store.RunTree, error)
+	GetRun(ctx context.Context, id string) (store.Run, error)
+	GetRunTree(ctx context.Context, id string) (store.RunTree, error)
+	QueryRuns(ctx context.Context, f store.RunFilter, cursor string, limit int) (store.RunPage, error)
+	RequestCancel(ctx context.Context, runID string, now time.Time) (store.Run, error)
+	GetStepInstance(ctx context.Context, id string) (store.StepInstance, error)
+	GetExecution(ctx context.Context, id string) (store.Execution, error)
+	ListLogChunks(ctx context.Context, executionID string, fromSeq, toSeq int64, limit int) ([]store.LogChunk, error)
+	GetLogData(ctx context.Context, key string) ([]byte, error)
 }
 
 // setErrorModel points Huma's own errors (request validation, 4xx) at
@@ -79,7 +102,7 @@ func typeForStatus(status int) string {
 }
 
 // newHuma registers the typed API on mux under APIPrefix.
-func newHuma(mux *http.ServeMux, ds DataStore, pc PluginCatalog) huma.API {
+func newHuma(mux *http.ServeMux, d deps) huma.API {
 	installErrorModel()
 	cfg := huma.DefaultConfig("Damson API", "1")
 	cfg.Info.Description = "Damson controller HTTP API (ARCHITECTURE section 14)."
@@ -88,9 +111,12 @@ func newHuma(mux *http.ServeMux, ds DataStore, pc PluginCatalog) huma.API {
 	cfg.SchemasPath = ""
 	cfg.CreateHooks = nil // no $schema link headers or fields
 	api := humago.NewWithPrefix(mux, APIPrefix, cfg)
-	registerAgents(api, ds)
-	registerPools(api, ds)
-	registerPlugins(api, pc)
+	registerAgents(api, d.ds)
+	registerPools(api, d.ds)
+	registerPlugins(api, d.plugins)
+	registerJobs(api, d)
+	registerRuns(api, d)
+	registerExecutions(api, d)
 	return api
 }
 

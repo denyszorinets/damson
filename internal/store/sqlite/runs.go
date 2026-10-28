@@ -76,9 +76,11 @@ func (s *Store) CreateRun(ctx context.Context, nr store.NewRun, now time.Time) (
 	if err != nil {
 		return store.RunTree{}, err
 	}
-	id, err := store.NewID()
-	if err != nil {
-		return store.RunTree{}, err
+	id := nr.ID
+	if id == "" {
+		if id, err = store.NewID(); err != nil {
+			return store.RunTree{}, err
+		}
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -271,6 +273,31 @@ func (s *Store) ListRuns(ctx context.Context, jobID, cursor string, limit int) (
 	rows, err := s.q.ListRunsBefore(ctx, gen.ListRunsBeforeParams{JobID: jobID, BeforeID: cursor, RowLimit: int64(limit) + 1})
 	if err != nil {
 		return store.RunPage{}, fmt.Errorf("listing runs: %w", err)
+	}
+	more := len(rows) > limit
+	if more {
+		rows = rows[:limit]
+	}
+	page := store.RunPage{Runs: make([]store.Run, 0, len(rows))}
+	for _, r := range rows {
+		run, err := toRun(r)
+		if err != nil {
+			return store.RunPage{}, err
+		}
+		page.Runs = append(page.Runs, run)
+	}
+	if more {
+		page.NextCursor = page.Runs[len(page.Runs)-1].ID
+	}
+	return page, nil
+}
+
+// QueryRuns implements store.RunStore.
+func (s *Store) QueryRuns(ctx context.Context, f store.RunFilter, cursor string, limit int) (store.RunPage, error) {
+	limit = store.ClampLimit(limit)
+	rows, err := s.q.QueryRunsBefore(ctx, gen.QueryRunsBeforeParams{JobID: f.JobID, Status: string(f.Status), BeforeID: cursor, RowLimit: int64(limit) + 1})
+	if err != nil {
+		return store.RunPage{}, fmt.Errorf("querying runs: %w", err)
 	}
 	more := len(rows) > limit
 	if more {

@@ -50,6 +50,8 @@ func Run(t *testing.T, f Factory) {
 		{"StepInstanceCAS", testStepInstanceCAS},
 		{"RequestCancel", testRequestCancel},
 		{"ListRuns", testListRuns},
+		{"QueryRuns", testQueryRuns},
+		{"CreateRunWithID", testCreateRunWithID},
 		{"ClaimExecutions", testClaim},
 		{"ClaimConcurrent", testClaimConcurrent},
 		{"ExecutionLifecycle", testExecutionLifecycle},

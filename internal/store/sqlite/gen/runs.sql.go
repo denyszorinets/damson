@@ -241,6 +241,67 @@ func (q *Queries) ListStepInstancesByRun(ctx context.Context, runID string) ([]S
 	return items, nil
 }
 
+const queryRunsBefore = `-- name: QueryRunsBefore :many
+SELECT id, job_id, job_version_id, trigger, options, status, version, cancel_requested_at,
+       concurrency_key, created_at, started_at, finished_at
+FROM runs
+WHERE (?1 = '' OR job_id = ?1)
+  AND (?2 = '' OR status = ?2)
+  AND (?3 = '' OR id < ?3)
+ORDER BY id DESC
+LIMIT ?4
+`
+
+type QueryRunsBeforeParams struct {
+	JobID    interface{}
+	Status   interface{}
+	BeforeID interface{}
+	RowLimit int64
+}
+
+// Empty job_id, status and before_id select every job, every status and the
+// newest page.
+func (q *Queries) QueryRunsBefore(ctx context.Context, arg QueryRunsBeforeParams) ([]Run, error) {
+	rows, err := q.db.QueryContext(ctx, queryRunsBefore,
+		arg.JobID,
+		arg.Status,
+		arg.BeforeID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Run
+	for rows.Next() {
+		var i Run
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.JobVersionID,
+			&i.Trigger,
+			&i.Options,
+			&i.Status,
+			&i.Version,
+			&i.CancelRequestedAt,
+			&i.ConcurrencyKey,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.FinishedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const requestRunCancelCAS = `-- name: RequestRunCancelCAS :execrows
 UPDATE runs SET cancel_requested_at = ?1, version = version + 1
 WHERE id = ?2 AND cancel_requested_at IS NULL
