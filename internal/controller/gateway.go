@@ -75,9 +75,13 @@ func (g *Gateway) Start(ctx context.Context) error {
 	var loopCtx context.Context
 	loopCtx, g.loops = context.WithCancel(g.base)
 	g.started = true
+	// Tickers are created here, before the loops start, so a tick fired as soon
+	// as Start returns is never lost.
+	instT := g.cfg.Clock.ticker(g.cfg.InstanceInterval)
+	flushT := g.cfg.Clock.ticker(g.cfg.FlushInterval)
 	g.loopWG.Add(2)
-	go func() { defer g.loopWG.Done(); g.instanceLoop(loopCtx) }()
-	go func() { defer g.loopWG.Done(); g.flushLoop(loopCtx) }()
+	go func() { defer g.loopWG.Done(); g.instanceLoop(loopCtx, instT) }()
+	go func() { defer g.loopWG.Done(); g.flushLoop(loopCtx, flushT) }()
 	g.log.Info("agent gateway started", "controller_id", g.cfg.ControllerID, "insecure_dev", g.cfg.InsecureDev)
 	return nil
 }
