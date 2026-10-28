@@ -44,6 +44,9 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	if err != nil {
 		return nil, errors.New("opening postgres: invalid dsn")
 	}
+	// Migrations hold one connection for an advisory lock and need a second
+	// for River's migrator: a pool of one would deadlock.
+	cfg.MaxConns = max(cfg.MaxConns, 2)
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("opening postgres pool: %w", err)

@@ -17,28 +17,42 @@ import (
 const riverLockKey int64 = 0x44414d534f4e5231 // "DAMSONR1"
 
 // RiverUpPostgres applies River's migrations (its own schema, tracked in
-// river_migration) to the database behind pool, in one transaction that holds
-// a transaction-scoped advisory lock: one connection, and the lock disappears
-// with the transaction even if something fails. Safe to call concurrently from
+// river_migration) to the database behind pool. Safe to call concurrently from
 // several controllers and idempotent (ADR-0010).
+//
+// The advisory lock is session scoped and River's migrator takes a second
+// connection from the pool, so the pool needs at least two (postgres.Open
+// guarantees it). River deprecates running its migrations inside one
+// transaction, so a transaction-scoped lock is not an option. If the unlock
+// fails, the connection is closed instead of returned to the pool: closing the
+// session releases the lock, so it can never stay held by a pooled connection.
 func RiverUpPostgres(ctx context.Context, pool *pgxpool.Pool) error {
-	tx, err := pool.Begin(ctx)
+	conn, err := pool.Acquire(ctx)
 	if err != nil {
-		return fmt.Errorf("beginning river migration: %w", err)
+		return fmt.Errorf("acquiring river migration connection: %w", err)
 	}
-	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", riverLockKey); err != nil {
+	released := false
+	defer func() {
+		if !released {
+			conn.Release()
+		}
+	}()
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", riverLockKey); err != nil {
 		return fmt.Errorf("locking river migrations: %w", err)
 	}
+	defer func() {
+		// A fresh context: ctx may be cancelled.
+		if _, err := conn.Exec(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock($1)", riverLockKey); err != nil {
+			released = true
+			_ = conn.Hijack().Close(context.WithoutCancel(ctx)) // ending the session drops the lock
+		}
+	}()
 	m, err := rivermigrate.New(riverpgxv5.New(pool), nil)
 	if err != nil {
 		return fmt.Errorf("creating river migrator: %w", err)
 	}
-	if _, err := m.MigrateTx(ctx, tx, rivermigrate.DirectionUp, nil); err != nil {
+	if _, err := m.Migrate(ctx, rivermigrate.DirectionUp, nil); err != nil {
 		return fmt.Errorf("applying river postgres migrations: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("committing river migrations: %w", err)
 	}
 	return nil
 }

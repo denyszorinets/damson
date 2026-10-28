@@ -107,7 +107,7 @@ func (a *Advancer) Start(ctx context.Context) error {
 	if a.started {
 		return errors.New("advance: already started")
 	}
-	// River treats cancelling the start context as an abrupt stop, which would
+	// River treats canceling the start context as an abrupt stop, which would
 	// defeat the graceful drain Stop promises: give it a context that outlives ctx.
 	if err := a.q.start(context.WithoutCancel(ctx)); err != nil {
 		return fmt.Errorf("starting run.advance workers: %w", err)
