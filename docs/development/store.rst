@@ -95,6 +95,82 @@ pass ``now`` explicitly, so the store never reads the clock.
    ``id``, ``internal_url``, ``started_at``, ``last_seen``. Register is an
    upsert; heartbeat and delete return ``ErrNotFound`` for an unknown id.
 
+Run model tables (migration 00003)
+----------------------------------
+
+Migration ``00003_runs`` adds the M2 domain model (ARCHITECTURE sections 4,
+7.3, 8.3 and 10). Ids are UUIDv7 from Go; callers pass ``now``. The interfaces
+are ``JobStore``, ``RunStore``, ``ExecutionStore`` and ``LogStore``
+(``internal/store/{jobs,runs,executions,logs}.go``), all part of ``Store``.
+
+``projects``
+   ``id``, ``name`` (unique). One row is seeded: ``store.DefaultProjectID`` /
+   ``default``. The project tree arrives with access control.
+
+``jobs`` and ``job_versions``
+   A job has a unique ``(project_id, name)``, ``managed_by`` (``ui``,
+   ``files:<source>``, ``git:<source>``) and ``current_version``. A version is
+   immutable: ``spec`` is stored as text (also on Postgres) so the bytes match
+   ``checksum`` exactly. ``CreateJob`` writes the job and version 1 in one
+   transaction; ``CreateJobVersion`` is a CAS on ``current_version``
+   (``ErrStale``).
+
+``runs``
+   ``job_version_id`` pins one version. ``trigger`` and ``options`` are JSON
+   (secret refs only), ``status`` is ``pending|running|succeeded|failed|canceled``,
+   ``version`` is the optimistic-concurrency counter, ``cancel_requested_at``
+   and ``concurrency_key`` serve cancel and the concurrency policy.
+
+``step_instances``
+   ``(run_id, path)`` is unique; ``path`` is stable (``main/step-id``).
+   ``kind`` is ``step`` or ``group``; ``input`` is the resolved plugin input
+   **without secret values** (the store cannot check this; the resolver owns
+   it). ``UpdateStepInstance`` is a CAS on ``status``.
+
+``executions``
+   One attempt of a step: ``(step_instance_id, attempt_no)`` is unique and
+   ``attempt_id`` (the fencing token) is globally unique. ``state`` is
+   ``queued|dispatched|running|succeeded|failed|canceled|timed_out|lost``.
+   ``agent_id`` and ``controller_id`` have no foreign keys. A partial index on
+   queued rows serves the dispatch claim, and one on dispatched and running
+   rows serves the reaper.
+
+``log_chunks`` and ``log_chunks_data``
+   The manifest (``execution_id``, ``seq_from``/``seq_to``, ``backend``,
+   ``object_key``, ``bytes``, ``ts_first``/``ts_last``) and the bytes of the
+   default ``db`` LogStore (``object_key`` to blob).
+
+Advance primitives
+~~~~~~~~~~~~~~~~~~
+
+``UpdateRunStatus``, ``AddStepInstances``, ``ScheduleExecution`` and
+``RequestCancel`` each compare ``runs.version`` and bump it, so an advance
+built on a stale read returns ``ErrStale`` and must reload. ``CreateRun``
+inserts the run, its step instances and the first executions in one
+transaction. Applying a whole batch of engine actions in one transaction is
+future work on top of these.
+
+Dispatch, leases and fencing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``ClaimExecutions`` selects queued, due executions of one pool in
+``priority, scheduled_at`` order and moves them to ``dispatched`` with the
+agent, controller, a **new** ``attempt_id`` and a lease, in one transaction.
+Postgres selects with ``FOR UPDATE SKIP LOCKED`` (``queries/postgres``); SQLite
+relies on its immediate write transactions (``queries/sqlite``). Every later
+transition (``MarkExecutionRunning``, ``CompleteExecution``,
+``RequeueExecution``, ``InsertLogChunk``) carries the ``attempt_id`` and the
+expected state in its ``WHERE``. A mismatch changes nothing and returns
+``ErrStale``; an unknown execution returns ``ErrNotFound``. ``InsertLogChunk``
+fences with a no-op write to the execution row first, so the attempt cannot be
+rotated between the check and the insert. ``RenewLeases`` renews only attempts
+owned by the calling controller and returns the ids it renewed. ``ExpireLeases``
+(the reaper) marks overdue dispatched or running executions ``lost`` and
+returns them; a lost attempt can no longer complete or renew.
+
+``DeleteLogDataPrefix`` matches with ``substr`` (not ``LIKE``, which is
+case-insensitive on SQLite) and rejects an empty prefix.
+
 Add a migration by creating the next ``NNNNN_name.sql`` in **both** directories
 with ``-- +goose Up`` and ``-- +goose Down`` sections, then run ``make gen``.
 

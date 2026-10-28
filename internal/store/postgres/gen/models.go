@@ -38,10 +38,68 @@ type ControllerInstance struct {
 	LastSeen    pgtype.Timestamptz
 }
 
+type Execution struct {
+	ID             string
+	RunID          string
+	StepInstanceID string
+	AttemptNo      int32
+	AttemptID      string
+	State          string
+	ScheduledAt    pgtype.Timestamptz
+	Priority       int32
+	Pool           string
+	AgentID        pgtype.Text
+	ControllerID   pgtype.Text
+	LeaseExpiresAt pgtype.Timestamptz
+	Outputs        []byte
+	Error          string
+	CreatedAt      pgtype.Timestamptz
+	StartedAt      pgtype.Timestamptz
+	FinishedAt     pgtype.Timestamptz
+}
+
 type InstanceSetting struct {
 	SettingKey   string
 	SettingValue string
 	Version      int64
+}
+
+type Job struct {
+	ID             string
+	ProjectID      string
+	Name           string
+	ManagedBy      string
+	CurrentVersion int32
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+type JobVersion struct {
+	ID        string
+	JobID     string
+	Version   int32
+	Spec      string
+	Checksum  string
+	CreatedAt pgtype.Timestamptz
+}
+
+type LogChunk struct {
+	ID          string
+	ExecutionID string
+	SeqFrom     int64
+	SeqTo       int64
+	Backend     string
+	ObjectKey   string
+	Bytes       int64
+	TsFirst     pgtype.Timestamptz
+	TsLast      pgtype.Timestamptz
+	CreatedAt   pgtype.Timestamptz
+}
+
+type LogChunksDatum struct {
+	ObjectKey string
+	Data      []byte
+	CreatedAt pgtype.Timestamptz
 }
 
 type PoolToken struct {
@@ -52,4 +110,40 @@ type PoolToken struct {
 	CreatedAt  pgtype.Timestamptz
 	LastUsedAt pgtype.Timestamptz
 	RevokedAt  pgtype.Timestamptz
+}
+
+type Project struct {
+	ID        string
+	Name      string
+	CreatedAt pgtype.Timestamptz
+}
+
+type Run struct {
+	ID                string
+	JobID             string
+	JobVersionID      string
+	Trigger           []byte
+	Options           []byte
+	Status            string
+	Version           int64
+	CancelRequestedAt pgtype.Timestamptz
+	ConcurrencyKey    string
+	CreatedAt         pgtype.Timestamptz
+	StartedAt         pgtype.Timestamptz
+	FinishedAt        pgtype.Timestamptz
+}
+
+type StepInstance struct {
+	ID         string
+	RunID      string
+	Path       string
+	Kind       string
+	Plugin     string
+	Input      []byte
+	Status     string
+	Outputs    []byte
+	Error      string
+	CreatedAt  pgtype.Timestamptz
+	StartedAt  pgtype.Timestamptz
+	FinishedAt pgtype.Timestamptz
 }

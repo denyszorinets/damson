@@ -38,10 +38,68 @@ type ControllerInstance struct {
 	LastSeen    string
 }
 
+type Execution struct {
+	ID             string
+	RunID          string
+	StepInstanceID string
+	AttemptNo      int64
+	AttemptID      string
+	State          string
+	ScheduledAt    string
+	Priority       int64
+	Pool           string
+	AgentID        sql.NullString
+	ControllerID   sql.NullString
+	LeaseExpiresAt sql.NullString
+	Outputs        string
+	Error          string
+	CreatedAt      string
+	StartedAt      sql.NullString
+	FinishedAt     sql.NullString
+}
+
 type InstanceSetting struct {
 	SettingKey   string
 	SettingValue string
 	Version      int64
+}
+
+type Job struct {
+	ID             string
+	ProjectID      string
+	Name           string
+	ManagedBy      string
+	CurrentVersion int64
+	CreatedAt      string
+	UpdatedAt      string
+}
+
+type JobVersion struct {
+	ID        string
+	JobID     string
+	Version   int64
+	Spec      string
+	Checksum  string
+	CreatedAt string
+}
+
+type LogChunk struct {
+	ID          string
+	ExecutionID string
+	SeqFrom     int64
+	SeqTo       int64
+	Backend     string
+	ObjectKey   string
+	Bytes       int64
+	TsFirst     string
+	TsLast      string
+	CreatedAt   string
+}
+
+type LogChunksDatum struct {
+	ObjectKey string
+	Data      []byte
+	CreatedAt string
 }
 
 type PoolToken struct {
@@ -52,4 +110,40 @@ type PoolToken struct {
 	CreatedAt  string
 	LastUsedAt sql.NullString
 	RevokedAt  sql.NullString
+}
+
+type Project struct {
+	ID        string
+	Name      string
+	CreatedAt string
+}
+
+type Run struct {
+	ID                string
+	JobID             string
+	JobVersionID      string
+	Trigger           string
+	Options           string
+	Status            string
+	Version           int64
+	CancelRequestedAt sql.NullString
+	ConcurrencyKey    string
+	CreatedAt         string
+	StartedAt         sql.NullString
+	FinishedAt        sql.NullString
+}
+
+type StepInstance struct {
+	ID         string
+	RunID      string
+	Path       string
+	Kind       string
+	Plugin     string
+	Input      string
+	Status     string
+	Outputs    string
+	Error      string
+	CreatedAt  string
+	StartedAt  sql.NullString
+	FinishedAt sql.NullString
 }

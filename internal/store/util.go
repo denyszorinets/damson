@@ -83,3 +83,15 @@ func DecodeJSON(b []byte, v any) error {
 	}
 	return nil
 }
+
+// JSONOrEmpty validates raw and returns it, or {} when empty. Invalid JSON is
+// ErrInvalid.
+func JSONOrEmpty(raw json.RawMessage) ([]byte, error) {
+	if len(raw) == 0 {
+		return []byte("{}"), nil
+	}
+	if !json.Valid(raw) {
+		return nil, fmt.Errorf("column value is not valid json: %w", ErrInvalid)
+	}
+	return raw, nil
+}
