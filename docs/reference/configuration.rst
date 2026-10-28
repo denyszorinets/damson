@@ -74,8 +74,9 @@ written as a double underscore: ``agent.controller_url`` is
      - Agent pool name.
    * - ``agent.slots``
      - agent
-     - ``4``
-     - Concurrent executions, at least 1.
+     - ``0``
+     - Concurrent executions (``max_concurrent`` in ``agent.hello``).
+       ``0`` means the CPU count times four; otherwise at least 1.
 
 Example:
 

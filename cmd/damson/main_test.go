@@ -28,7 +28,7 @@ func TestRun(t *testing.T) {
 		{
 			name: "agent redacts token", cancel: true, wantCode: exitOK, wantErr: `"starting"`, readyLog: `"starting"`,
 			args: []string{"agent"},
-			env:  []string{"DAMSON_AGENT__CONTROLLER_URL=ws://h", "DAMSON_AGENT__TOKEN=topsecret"},
+			env:  []string{"DAMSON_AGENT__CONTROLLER_URL=ws://127.0.0.1:1", "DAMSON_AGENT__TOKEN=topsecret"},
 		},
 		{name: "bad flag", args: []string{"agent", "-bogus"}, wantCode: exitUsage},
 	}

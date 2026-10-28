@@ -10,7 +10,7 @@ import (
 )
 
 // ConnectPath is the agent endpoint (ARCHITECTURE 7.1).
-const ConnectPath = "/agent/v1/connect"
+const ConnectPath = protocol.ConnectPath
 
 // Defaults for Config zero values.
 const (

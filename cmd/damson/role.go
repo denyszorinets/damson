@@ -19,8 +19,8 @@ func runVersion(stdout io.Writer) int {
 }
 
 // runRole loads config for the role, logs startup, and blocks until ctx is
-// cancelled. Controller and dev serve the HTTP API; the agent only waits until
-// its transport lands in a later issue.
+// cancelled. Controller and dev serve the HTTP API (dev also runs an agent in
+// the same process); the agent connects to the controller.
 func runRole(ctx context.Context, name string, args []string, stderr io.Writer, environ []string) int {
 	fs := flag.NewFlagSet("damson "+name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -43,15 +43,18 @@ func runRole(ctx context.Context, name string, args []string, stderr io.Writer, 
 	log := logging.New(stderr, cfg.SlogLevel(), name)
 	log.Info("starting", "version", version.Version, "config", slog.AnyValue(cfg.Redacted()))
 	if name == string(config.RoleAgent) {
-		<-ctx.Done()
-		log.Info("stopping")
+		if err := runAgent(ctx, cfg, log); err != nil {
+			fmt.Fprintf(stderr, "damson agent: %v\n", err)
+			return exitError
+		}
+		log.Info("stopped")
 		return exitOK
 	}
 	if *insecureDev || name == string(config.RoleDev) {
 		cfg.Controller.InsecureDev = true // dev serves plain ws:// on loopback
 	}
 	migrate := *autoMigrate || name == string(config.RoleDev)
-	if err := runController(ctx, cfg, log, migrate); err != nil {
+	if err := runController(ctx, cfg, log, migrate, name == string(config.RoleDev)); err != nil {
 		fmt.Fprintf(stderr, "damson %s: %v\n", name, err)
 		return exitError
 	}
