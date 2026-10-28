@@ -70,6 +70,10 @@ error saying so.
    * - ``damson admin token revoke <token-id>``
      - Revoke a token. A revoked token can no longer authenticate.
 
+``damson admin help`` (also ``-h`` or ``--help``) prints the list of resources
+and actions to stdout and exits 0. Running ``damson admin`` with missing or
+unknown arguments prints the same text to stderr and exits 2.
+
 ``token create`` prints the plaintext token **exactly once** on stdout (the bare
 token, or a JSON object with ``--json``) and a reminder to store it on stderr.
 Only its SHA-256 hash is stored, so a lost token cannot be recovered; create a

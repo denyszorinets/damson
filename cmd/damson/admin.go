@@ -43,15 +43,17 @@ type adminCmd struct {
 type adminAction struct {
 	// flags lists the flag names the action accepts beyond --config/--json.
 	flags []string
-	nargs int
-	run   func(ctx context.Context, st store.Store, c adminCmd, now time.Time) error
+	// required lists flags that must be non-empty.
+	required []string
+	nargs    int
+	run      func(ctx context.Context, st store.Store, c adminCmd, now time.Time) error
 }
 
 var adminActions = map[string]adminAction{
 	"pool create":  {flags: []string{"description"}, nargs: 1, run: poolCreate},
 	"pool list":    {run: poolList},
-	"token create": {flags: []string{"pool", "name"}, run: tokenCreate},
-	"token list":   {flags: []string{"pool"}, run: tokenList},
+	"token create": {flags: []string{"pool", "name"}, required: []string{"pool", "name"}, run: tokenCreate},
+	"token list":   {flags: []string{"pool"}, required: []string{"pool"}, run: tokenList},
 	"token revoke": {nargs: 1, run: tokenRevoke},
 }
 
@@ -95,7 +97,7 @@ func runAdmin(ctx context.Context, args []string, stdout, stderr io.Writer, envi
 		return exitUsage
 	}
 	c.args = pos
-	if err := checkUsage(key, act, c); err != nil {
+	if err := checkUsage(act, c); err != nil {
 		fmt.Fprintf(stderr, "damson admin %s: %v\n", key, err)
 		return exitUsage
 	}
@@ -121,7 +123,7 @@ func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
 	}
 }
 
-func checkUsage(key string, act adminAction, c adminCmd) error {
+func checkUsage(act adminAction, c adminCmd) error {
 	if len(c.args) != act.nargs {
 		return fmt.Errorf("expected %d argument(s), got %d", act.nargs, len(c.args))
 	}
@@ -130,11 +132,11 @@ func checkUsage(key string, act adminAction, c adminCmd) error {
 			return errors.New("empty argument")
 		}
 	}
-	if (key == "token create" || key == "token list") && strings.TrimSpace(c.pool) == "" {
-		return errors.New("--pool is required")
-	}
-	if key == "token create" && strings.TrimSpace(c.name) == "" {
-		return errors.New("--name is required")
+	vals := map[string]string{"pool": c.pool, "name": c.name, "description": c.desc}
+	for _, f := range act.required {
+		if strings.TrimSpace(vals[f]) == "" {
+			return fmt.Errorf("--%s is required", f)
+		}
 	}
 	return nil
 }
@@ -225,15 +227,19 @@ func tokenCreate(ctx context.Context, st store.Store, c adminCmd, now time.Time)
 	if err != nil {
 		return fmt.Errorf("creating token: %w", err)
 	}
-	// The hint goes to stderr so stdout stays the bare token for scripts.
-	fmt.Fprintln(c.stderr, "Store this token now: it is shown only once and cannot be retrieved later.")
 	if c.json {
-		return writeJSON(c.stdout, struct {
+		err = writeJSON(c.stdout, struct {
 			tokenJSON
 			Token string `json:"token"`
 		}{toTokenJSON(t), plain})
+	} else {
+		_, err = fmt.Fprintln(c.stdout, plain)
 	}
-	fmt.Fprintln(c.stdout, plain)
+	if err != nil {
+		return fmt.Errorf("writing token: %w", err)
+	}
+	// The hint goes to stderr so stdout stays the bare token for scripts.
+	fmt.Fprintln(c.stderr, "Store this token now: it is shown only once and cannot be retrieved later.")
 	return nil
 }
 

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -15,7 +17,17 @@ import (
 	"go.uber.org/goleak"
 )
 
-func TestMain(m *testing.M) { goleak.VerifyTestMain(m) }
+func TestMain(m *testing.M) {
+	code := m.Run()
+	stopPostgres()
+	if code == 0 {
+		if err := goleak.Find(); err != nil {
+			fmt.Fprintf(os.Stderr, "goleak: %v\n", err)
+			code = 1
+		}
+	}
+	os.Exit(code)
+}
 
 // ctrlEnv points a controller or dev run at a temp SQLite file and a free port.
 func ctrlEnv(t *testing.T) []string {
