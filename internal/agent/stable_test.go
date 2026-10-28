@@ -16,12 +16,14 @@ type stabilityClock struct {
 	ds       []time.Duration
 	interval time.Duration
 	stable   bool
+	up       chan struct{} // one send per session whose stability timer exists
 }
 
 func (s *stabilityClock) clock() Clock {
 	return Clock{NewTimer: func(d time.Duration) Timer {
 		c := make(chan time.Time, 1)
 		if d == s.interval {
+			defer func() { s.up <- struct{}{} }()
 			if s.stable {
 				c <- time.Time{}
 			}
@@ -59,23 +61,32 @@ func TestBackoffResetsOnlyAfterStableSession(t *testing.T) {
 			forEachBackend(t, func(t *testing.T, st store.Store) {
 				f := newFixture(t, st)
 				f.ctl.restartWith(interval)
-				sc := &stabilityClock{interval: interval, stable: tt.stable}
+				sc := &stabilityClock{interval: interval, stable: tt.stable, up: make(chan struct{}, 1000)}
 				f.agent("agent-1", func(c *Config) {
 					c.Clock, c.Rand = sc.clock(), func() float64 { return 1 }
 					c.BackoffBase, c.BackoffMax = DefaultBackoffBase, DefaultBackoffMax
 				})
 				stop := make(chan struct{})
 				done := make(chan struct{})
-				go func() { // drop each session as soon as it is established
+				go func() { // drop each session once it is established
 					defer close(done)
 					for {
+						// The stability timer is created right after hello; dropping
+						// earlier would fail the hello and never count as stable.
 						select {
 						case <-stop:
 							return
-						case <-time.After(time.Millisecond):
+						case <-sc.up:
 						}
-						if p, ok := f.ctl.gw.Peer("agent-1"); ok {
-							_ = p.Close()
+						for n := len(sc.delays()); len(sc.delays()) == n; {
+							select {
+							case <-stop:
+								return
+							case <-time.After(time.Millisecond):
+							}
+							if p, ok := f.ctl.gw.Peer("agent-1"); ok {
+								_ = p.Close()
+							}
 						}
 					}
 				}()
