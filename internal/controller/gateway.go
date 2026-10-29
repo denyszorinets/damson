@@ -28,6 +28,7 @@ type Gateway struct {
 	stopping bool
 	handlers sync.WaitGroup        // upgraded connections
 	open     map[*session]struct{} // every upgraded socket, helloed or not
+	hooks    []SessionHook         // set before Start, read-only after
 
 	base   context.Context // lives until the end of Stop; owns the sockets
 	cancel context.CancelFunc
@@ -43,6 +44,18 @@ func New(cfg Config) (*Gateway, error) {
 	return &Gateway{cfg: cfg, log: cfg.Logger, reg: newRegistry(), open: make(map[*session]struct{})}, nil
 }
 
+// AddHook registers a component that installs its handlers on every agent
+// socket. It must be called before Start.
+func (g *Gateway) AddHook(h SessionHook) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.started {
+		return errors.New("controller: AddHook after Start")
+	}
+	g.hooks = append(g.hooks, h)
+	return nil
+}
+
 // Handler serves ConnectPath.
 func (g *Gateway) Handler() http.Handler { return http.HandlerFunc(g.serve) }
 
@@ -56,6 +69,43 @@ func (g *Gateway) Peer(agentID string) (*protocol.Peer, bool) {
 		return nil, false
 	}
 	return s.peer, true
+}
+
+// AgentView is a connected agent as the dispatcher sees it.
+type AgentView struct {
+	ID   string
+	Pool string // pool name
+	// Free is the number of slots the controller may still fill.
+	Free int
+	// Running are the attempts listed by the latest heartbeat.
+	Running []string
+	Peer    *protocol.Peer
+}
+
+// Agents returns a snapshot of the agents with a live, helloed socket.
+func (g *Gateway) Agents() []AgentView {
+	all := g.reg.all()
+	out := make([]AgentView, len(all))
+	for i, s := range all {
+		out[i] = s.dispatchView()
+	}
+	return out
+}
+
+// Reserve takes up to n free slots of an agent and returns how many it took;
+// Release gives back the ones that were not used.
+func (g *Gateway) Reserve(agentID string, n int) int {
+	if s := g.reg.get(agentID); s != nil {
+		return s.reserve(n)
+	}
+	return 0
+}
+
+// Release returns n reserved slots.
+func (g *Gateway) Release(agentID string, n int) {
+	if s := g.reg.get(agentID); s != nil {
+		s.release(n)
+	}
 }
 
 // Start registers the controller instance and launches the background loops.

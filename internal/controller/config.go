@@ -68,6 +68,14 @@ type PluginSink interface {
 	RemoveAgent(id string)
 }
 
+// SessionHook installs the handlers of one more component on every agent
+// socket (log.append, step.complete), next to the gateway's own. It runs when
+// the socket is created, before any message is read. Add hooks with
+// Gateway.AddHook before Start.
+type SessionHook interface {
+	Register(peer *protocol.Peer, agentID string)
+}
+
 // Config configures a Gateway.
 type Config struct {
 	Store store.Store

@@ -60,6 +60,8 @@ func Run(t *testing.T, f Factory) {
 		{"CompleteConcurrent", testCompleteConcurrent},
 		{"RequeueExecution", testRequeue},
 		{"Leases", testLeases},
+		{"TxCompleteExecution", testTxCompleteExecution},
+		{"TxExpireLeases", testTxExpireLeases},
 		{"LogChunks", testLogChunks},
 		{"LogData", testLogData},
 		{"ClaimMultiPool", testClaimMultiPool},

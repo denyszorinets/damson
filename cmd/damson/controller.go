@@ -15,7 +15,6 @@ import (
 	"github.com/denyszorinets/damson/internal/api"
 	"github.com/denyszorinets/damson/internal/config"
 	"github.com/denyszorinets/damson/internal/controller"
-	"github.com/denyszorinets/damson/internal/controller/advance"
 	"github.com/denyszorinets/damson/internal/pluginreg"
 	"github.com/denyszorinets/damson/internal/store/storefactory"
 	"github.com/denyszorinets/damson/internal/webui"
@@ -64,7 +63,7 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 	if err != nil {
 		return fmt.Errorf("creating agent gateway: %w", err)
 	}
-	var adv *advance.Advancer
+	var orch *orchestration
 	// An unmigrated database has no agent tables: keep serving health
 	// endpoints, but leave the gateway stopped (it answers 503) until the
 	// operator migrates and restarts.
@@ -72,13 +71,10 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 		return fmt.Errorf("reading migration version: %w", err)
 	} else if v == 0 {
 		log.Warn("database is not migrated; agent gateway and run.advance disabled (run with --auto-migrate)")
-	} else if err := gw.Start(ctx); err != nil {
+	} else if orch, err = startOrchestration(ctx, st, gw, plugins, id, log); err != nil {
 		return err
-	} else if adv, err = startAdvancer(ctx, st, log); err != nil {
-		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
-		defer cancel()
-		return errors.Join(err, gw.Stop(sctx))
 	}
+	adv := orch.advancer()
 	apiCfg := api.Config{
 		Addr: cfg.Controller.Listen, Store: st, Data: st, Plugins: plugins, UI: webui.Handler(web.Build()), Logger: log,
 		Mounts: map[string]http.Handler{controller.ConnectPath: gw.Handler()},
@@ -90,7 +86,7 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 	if err := srv.Start(ctx); err != nil {
 		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 		defer cancel()
-		return errors.Join(err, stopAdvancer(sctx, adv), gw.Stop(sctx))
+		return errors.Join(err, orch.stop(sctx))
 	}
 	var devAgent *agent.Agent
 	if dev {
@@ -100,7 +96,7 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 			if ctx.Err() != nil && errors.Is(err, context.Canceled) {
 				err = nil // shut down while provisioning: a clean stop
 			}
-			return errors.Join(err, srv.Stop(sctx), stopAdvancer(sctx, adv), gw.Stop(sctx))
+			return errors.Join(err, srv.Stop(sctx), orch.stop(sctx))
 		}
 	}
 	serveErr := awaitShutdown(ctx, log, srv.Err(), devAgent)
@@ -110,7 +106,7 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 	// Stop the dev agent and the listener first so no new agents arrive, then
 	// tell the connected ones to reconnect elsewhere and deregister
 	// (ARCHITECTURE 8.5).
-	return errors.Join(serveErr, stopDevAgent(sctx, devAgent, log), srv.Stop(sctx), stopAdvancer(sctx, adv), gw.Stop(sctx))
+	return errors.Join(serveErr, stopDevAgent(sctx, devAgent, log), srv.Stop(sctx), orch.stop(sctx))
 }
 
 // controllerID is the hostname plus a boot nonce, unique per process.

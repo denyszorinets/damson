@@ -166,10 +166,15 @@ func (t *txn) finishStep(ctx context.Context, stepID string, status store.StepSt
 // a lost version race: ErrStale is reserved for the runs.version CAS, which is
 // the only thing a reload of the run can fix.
 func (t *txn) finishStepFrom(ctx context.Context, stepID string, status store.StepStatus, reason string, now time.Time, expected ...store.StepStatus) error {
+	return t.finishStepWith(ctx, stepID, status, "{}", reason, now, expected...)
+}
+
+// finishStepWith is finishStepFrom with the step's outputs (a JSON object).
+func (t *txn) finishStepWith(ctx context.Context, stepID string, status store.StepStatus, outputs, reason string, now time.Time, expected ...store.StepStatus) error {
 	_, finished := store.Stamps(nil, nil, false, true, now)
 	for _, from := range expected {
 		n, err := t.q.UpdateStepInstanceCAS(ctx, gen.UpdateStepInstanceCASParams{
-			Status: string(status), Outputs: "{}", Error: reason, FinishedAt: tsOpt(finished),
+			Status: string(status), Outputs: outputs, Error: reason, FinishedAt: tsOpt(finished),
 			ID: stepID, ExpectedStatus: string(from),
 		})
 		if err != nil {

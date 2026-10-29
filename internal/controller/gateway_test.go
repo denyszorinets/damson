@@ -465,3 +465,45 @@ func TestConcurrentHellosKeepHighestSeq(t *testing.T) {
 		}
 	})
 }
+
+// A finished result of the current attempt continues, so a reconnect does not
+// throw it away; running, unknown and foreign attempts are cancelled.
+func TestHelloContinuesFinishedCurrentAttempt(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		ctx := context.Background()
+		r := newRig(t, st)
+		first := r.dial("agent-1")
+		if _, err := first.hello(defaultHello(1)); err != nil {
+			t.Fatal(err)
+		}
+		_, jv, err := st.CreateJob(ctx, store.NewJob{ProjectID: store.DefaultProjectID, Name: "j", Checksum: "s",
+			Spec: []byte(`{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"j"},"spec":{"steps":[{"id":"s1","plugin":"demo"}]}}`)}, t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.CreateRun(ctx, store.NewRun{JobID: jv.JobID, JobVersionID: jv.ID,
+			Steps: []store.NewStepInstance{{Path: "s1", Plugin: "demo", Execution: &store.NewExecution{Pool: "default", ScheduledAt: t0}}}}, t0); err != nil {
+			t.Fatal(err)
+		}
+		got, err := st.ClaimExecutions(ctx, store.ClaimParams{AgentID: "agent-1", ControllerID: "ctl-1", Pools: []string{"default"}, Limit: 1, LeaseTTL: time.Minute}, t0)
+		if err != nil || len(got) != 1 {
+			t.Fatalf("claim = %v, %v", got, err)
+		}
+		cur := got[0].AttemptID
+
+		second := r.dial("agent-1")
+		req := defaultHello(2)
+		req.Executions = []protocol.ExecutionState{
+			{AttemptID: cur, State: protocol.ExecFinished},
+			{AttemptID: "unknown", State: protocol.ExecFinished},
+		}
+		resp, err := second.hello(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []protocol.Reconciliation{{AttemptID: cur, Action: protocol.ActionContinue}, {AttemptID: "unknown", Action: protocol.ActionCancel}}
+		if len(resp.Reconciliation) != 2 || resp.Reconciliation[0] != want[0] || resp.Reconciliation[1] != want[1] {
+			t.Fatalf("reconciliation = %+v; want %+v", resp.Reconciliation, want)
+		}
+	})
+}

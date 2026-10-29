@@ -61,6 +61,7 @@ func (g *Gateway) handleHello(ctx context.Context, s *session, p protocol.Params
 	}
 	s.mu.Lock()
 	s.helloed, s.seq, s.lastSeen = true, req.SessionSeq, now
+	s.free = req.MaxConcurrent
 	s.mu.Unlock()
 	prep := g.preparePlugins(s, req)
 	if loser := g.reg.replace(s, func() { g.commitPlugins(prep) }); loser != nil {
@@ -77,7 +78,7 @@ func (g *Gateway) handleHello(ctx context.Context, s *session, p protocol.Params
 		Protocol:            hello.Protocol,
 		HeartbeatIntervalMS: int(g.cfg.HeartbeatInterval.Milliseconds()),
 		Limits:              limits(),
-		Reconciliation:      reconcile(req.Executions),
+		Reconciliation:      g.reconcile(ctx, s, req.Executions),
 	}, nil
 }
 
@@ -124,16 +125,28 @@ func (g *Gateway) helloStoreError(s *session, err error) error {
 	}
 }
 
-// reconcile decides the fate of attempts the agent still knows about. No
-// executions exist before M2 dispatch lands, so every reported attempt is
-// unknown to the controller and is told to cancel (fencing: not current).
-func reconcile(execs []protocol.ExecutionState) []protocol.Reconciliation {
+// reconcile decides the fate of attempts the agent still knows about. A
+// finished result that is still the current attempt of an execution owned by
+// this agent continues, so the agent redelivers step.complete and the result
+// is not lost to a reconnect. Everything else is told to cancel (fencing: not
+// current); running attempts are cancelled until adoption on reconnect
+// lands (issue #60).
+func (g *Gateway) reconcile(ctx context.Context, s *session, execs []protocol.ExecutionState) []protocol.Reconciliation {
 	if len(execs) == 0 {
 		return nil
 	}
 	out := make([]protocol.Reconciliation, len(execs))
 	for i, e := range execs {
 		out[i] = protocol.Reconciliation{AttemptID: e.AttemptID, Action: protocol.ActionCancel}
+		if e.State != protocol.ExecFinished {
+			continue
+		}
+		sctx, cancel := context.WithTimeout(ctx, g.cfg.StoreTimeout)
+		ex, err := g.cfg.Store.GetExecutionByAttempt(sctx, e.AttemptID)
+		cancel()
+		if err == nil && ex.AgentID == s.agentID && !ex.State.Terminal() {
+			out[i].Action = protocol.ActionContinue
+		}
 	}
 	return out
 }

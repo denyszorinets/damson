@@ -28,6 +28,15 @@ type Tx interface {
 	// version cannot be swallowed by one still running. ErrNotFound if the run
 	// is absent, ErrStale if it is terminal.
 	TouchRun(ctx context.Context, runID string) (int64, error)
+	// CompleteExecution is the fenced completion of an attempt (see
+	// ExecutionStore.CompleteExecution) that also moves its step instance to
+	// the matching terminal status and bumps runs.version, all in this
+	// transaction, so a completed attempt can never leave its step pending
+	// (ARCHITECTURE 8.3 "Complete"). A finished run is left alone.
+	CompleteExecution(ctx context.Context, c Completion, now time.Time) (Execution, error)
+	// ExpireLeases is ExecutionStore.ExpireLeases with the same step and run
+	// effects as CompleteExecution: each lost attempt fails its step.
+	ExpireLeases(ctx context.Context, now time.Time, limit int) ([]Execution, error)
 	// Native returns the driver transaction (pgx.Tx on Postgres, *sql.Tx on
 	// SQLite) so River can InsertTx on it. Only the queue adapter uses it.
 	Native() any
@@ -150,4 +159,22 @@ func AdvanceRunStatus(cur Run, a Advance, now time.Time) (status RunStatus, star
 	}
 	started, finished = Stamps(cur.StartedAt, cur.FinishedAt, status == RunRunning || status.Terminal(), status.Terminal(), now)
 	return status, started, finished, status != cur.Status
+}
+
+// StepOutcome maps a finished attempt to the status and error text of its
+// step instance. M3 retries will make some failures non-terminal for the
+// step; until then a finished attempt finishes the step.
+func StepOutcome(ex Execution) (StepStatus, string) {
+	switch ex.State {
+	case ExecSucceeded:
+		return StepSucceeded, ""
+	case ExecCanceled:
+		return StepCanceled, ex.Error
+	default: // failed, timed_out, lost
+		reason := ex.Error
+		if reason == "" {
+			reason = string(ex.State)
+		}
+		return StepFailed, reason
+	}
 }

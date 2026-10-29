@@ -78,7 +78,13 @@ func (t *fakeTx) RequestCancel(context.Context, string, time.Time) (store.Run, e
 }
 func (t *fakeTx) GetRun(context.Context, string) (store.Run, error) { return store.Run{}, nil }
 func (t *fakeTx) TouchRun(context.Context, string) (int64, error)   { return 0, nil }
-func (t *fakeTx) Native() any                                       { return nil }
+func (t *fakeTx) CompleteExecution(context.Context, store.Completion, time.Time) (store.Execution, error) {
+	return store.Execution{}, nil
+}
+func (t *fakeTx) ExpireLeases(context.Context, time.Time, int) ([]store.Execution, error) {
+	return nil, nil
+}
+func (t *fakeTx) Native() any { return nil }
 
 func newEngine(t *testing.T) *engine.Engine {
 	t.Helper()
