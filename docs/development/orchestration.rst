@@ -3,8 +3,8 @@ Orchestration: run.advance
 
 ``internal/controller/advance`` implements steps 1, 2, 5 and 6 of the run
 lifecycle (ARCHITECTURE section 8.3) on River (ADR-0010). Dispatch, the
-``step.complete`` handler, lease renewal and the reaper are separate (#53,
-slice 53c). Dispatch is not a River job.
+``step.complete`` handler, lease renewal and the reaper are separate; see
+:doc:`dispatch`. Dispatch is not a River job.
 
 Components
 ----------
@@ -55,7 +55,7 @@ Action mapping
   cancels its step in the same transaction, then enqueues another advance
   because no agent report will). A dispatched or running execution is
   cancelled by its owning controller, which sees ``runs.cancel_requested_at``
-  (slice 53c); there is nothing to write, and so no version bump.
+  (``step.cancel`` dispatch is not implemented yet); there is nothing to write, and so no version bump.
 * The execution pool is the step's ``runs_on.pool`` from the spec, else
   ``default``; priority is 0. ``Timeout`` is not stored: the dispatcher
   re-reads it from the spec. Target resolution and labels come with the

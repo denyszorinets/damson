@@ -96,8 +96,8 @@ Idempotency and fencing at the store
   in a bounded LRU. It is only a hint to save queries: the chunk insert is the
   authoritative fence. Before another attempt's buffer is replaced, the store
   is asked which attempt is current, so a late batch of a superseded attempt
-  cannot discard the current attempt's lines. Dispatch should call
-  ``Invalidate`` when it rotates an attempt to close the remaining window.
+  cannot discard the current attempt's lines. Dispatch calls
+  ``Invalidate`` when it requeues (and so supersedes) an attempt to close the remaining window.
 
 Gaps are not stored inside chunks: a declared ``gap_to`` range (or a hole) is
 simply a range of sequence numbers covered by no ``log_chunks`` row. The stored
@@ -119,7 +119,7 @@ a subscriber: a subscriber whose queue (replay size plus
 the client reconnects with ``after_seq``. The channel also closes on context
 cancellation, ``Finish`` and ``Stop``.
 
-Wiring (used by the dispatch and completion work)
+Wiring (see :doc:`dispatch`)
 -------------------------------------------------
 
 .. code-block:: go
@@ -144,7 +144,7 @@ Wiring (used by the dispatch and completion work)
 ``agent.heartbeat`` handlers. ``Finish`` flushes, releases the ring buffer and
 closes subscribers; on error the state is kept so the caller can retry.
 ``Invalidate(attemptID)`` drops the cached lookup of an attempt; dispatch calls
-it when it moves an execution to a new attempt.
+it when it requeues an execution, which supersedes the attempt.
 
 Logs for an execution that is already terminal are still accepted as long as
 the attempt id matches: a resend after the final ``step.complete`` must be

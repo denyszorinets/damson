@@ -348,8 +348,11 @@ Behaviour
   agent row ordered by ``session_seq`` (a stale ``session_seq`` is refused).
   A newer socket for the same agent supersedes and closes the older one. The
   response carries ``heartbeat_interval_ms`` (10000), the limits and a
-  reconciliation list; until dispatch exists (M2) every reported attempt is
-  unknown and answered ``cancel``. A refused hello is answered with a
+  reconciliation list: a ``finished`` attempt that is
+  still the current attempt of an execution owned by the agent is answered
+  ``continue`` (the agent redelivers ``step.complete``); everything else,
+  including running attempts, is answered ``cancel`` (adoption on reconnect is
+  issue #60, M3). A refused hello is answered with a
   JSON-RPC error and the socket is closed.
 * ``agent.heartbeat``: kept in memory only. Every 10 seconds one batched
   write updates ``last_seen`` and the telemetry snapshot of every agent that

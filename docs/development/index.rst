@@ -11,6 +11,7 @@ How to contribute to Damson.
    documentation
    store
    orchestration
+   dispatch
    plugin-sdk
    agent
    controller-logs

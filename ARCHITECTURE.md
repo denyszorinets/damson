@@ -710,13 +710,13 @@ The `secrets` member is the only place secret values cross the wire. The Go type
   - The **reaper** marks expired leases as `lost`.
 - **Reconnect.** The agent reconnects with exponential backoff (1s → 30s, full jitter) and keeps executing during the gap.
   - On reconnect, `agent.hello` lists the running and finished-but-unacked attempts.
-  - The controller takes ownership (`controller_id`), renews leases, and replies continue or cancel for each.
+  - The controller takes ownership (`controller_id`) and replies continue or cancel for each. It answers `continue` for a `finished` attempt that is still the current attempt of an execution owned by that agent (the agent redelivers `step.complete`). Everything else, including running attempts, is answered `cancel` until adoption on reconnect (issue #60, M3), so a reconnect currently cancels running steps.
   - Ownership is ordered by `session_seq` (a per-process connection counter sent in `agent.hello`), not wall clocks: only a hello with a strictly higher `session_seq` takes over the agent row.
 - **Log buffering.** The agent keeps unacked log batches in memory, bounded at 32 MiB, then spills to a bounded local spool file (256 MiB default).
   - If the spool overflows, the oldest unacked batches are dropped. The hub replaces them in its queue by one placeholder that is sent as `log.append` with `seq_from` = first dropped seq, `gap_to` = last dropped seq minus one, and a `System` log line carrying the last dropped seq, so no seq is lost and acks stay contiguous. The placeholder lives in the hub, so it is delivered even after the attempt's pipe has closed.
   - The spool file is unlinked right after creation (stale `damson-spool-*` files from a crashed agent are swept at start) and holds masked job output in plaintext, mode 0600.
   - The spool is best-effort: an agent crash loses unacked logs. That is an accepted trade-off of stateless agents.
-- **Capacity.** The agent advertises `max_concurrent` (default: CPU count × 4). The controller never dispatches beyond the free slots reported.
+- **Capacity.** The agent advertises `max_concurrent` (default: CPU count × 4). The free-slot count is a soft in-memory value seeded by `agent.hello` and refreshed by heartbeats. It can briefly exceed reality, and the agent's "no free slot" rejection (the execution is requeued) is the authority, so "never dispatches beyond free slots" is best effort.
 - **Execution on the agent.** Pinned behavior of the agent executor (`internal/agent`); no message changes.
   - `step.execute` is accepted only for a built-in plugin with exactly the requested name and version and a free slot; otherwise it is rejected with a reason. A repeated execute for a known attempt is accepted without running twice.
   - A `step.cancel` for an attempt the agent does not hold leaves a tombstone (15 minutes, bounded), so a `step.execute` that overtakes or follows it is rejected. A cancelled plugin has `grace_ms` (default 5s) to return; after that the step is reported `canceled` and the plugin keeps its slot until it returns.
@@ -769,7 +769,7 @@ Action = CreateStepInstance | ScheduleExecution | SkipStep | CompleteGroup | Com
    - A periodic sweep (default 1m, any controller) re-enqueues every `pending` or `running` run as a safety net for crash windows and runs created before the queue existed.
 3. **Dispatch** (every controller, for its own sockets):
    - A loop wakes on a notify hint or every 1s.
-   - Claims queued, due Executions that match the pool, labels, and capabilities of its connected agents with free slots:
+   - Claims queued, due Executions that match the pool of its connected agents with free slots. The claim filters by pool only; plugin and capability matching happens after the claim:
      ```sql
      UPDATE executions SET state='dispatched', agent_id=$1, controller_id=$2, attempt_id=$3,
             lease_expires_at=now()+interval '60s'
@@ -780,7 +780,10 @@ Action = CreateStepInstance | ScheduleExecution | SkipStep | CompleteGroup | Com
      RETURNING ...
      ```
    - Then resolves secrets (§9) and sends `step.execute`.
-   - If the agent rejects or the send fails, the Execution is CAS'd back to `queued`.
+   - An execution claimed by an agent that cannot run it is requeued with a 5s delay. Known limitation: incapable agents in the pool churn it.
+   - Definite failures (agent rejected, plugin unresolved) CAS the Execution back to `queued` at once.
+   - Delivery is at-most-once on an ambiguous send. If `step.execute` times out or the socket closes after the write, the controller sends `step.cancel` for the attempt and requeues only if the cancel is answered. Otherwise the execution stays `dispatched` and the lease reaper marks it `lost` (the agent also tombstones a cancelled attempt, so a late execute is rejected).
+   - Dispatch rounds run per agent, asynchronously, with one in flight per agent. After a transport failure the rest of that agent's claimed batch is requeued immediately.
 4. **Running:** logs flow (§10), and heartbeats renew leases.
 5. **Complete:** `step.complete`, then a CAS on `attempt_id` to set the terminal state and store outputs and error, then enqueue `run.advance`. The agent gets its ack after the commit.
 6. **Retry:** the engine schedules a new Execution with `scheduled_at = now + backoff` and a new attempt_id.
@@ -798,6 +801,8 @@ Action = CreateStepInstance | ScheduleExecution | SkipStep | CompleteGroup | Com
   - **reaper** (expired leases → `lost`; dead `controller_instances` cleanup)
   - **retention** (old runs, logs, audit; per-project policy)
 - Each duty is idempotent, so a brief double-leader overlap during failover is harmless.
+- Until the M3 leader lease, the reaper runs on every controller. This is safe because expiry is a CAS per execution on `attempt_id` and lease. Lease expiry is judged with each controller's own clock, so the fastest clock decides; keep controller clocks in sync.
+- Reaper and complete transactions touch rows in a fixed order: step rows first, then each distinct run once, sorted by run id.
 
 ### 8.5 Controller registry and cross-controller routing
 

@@ -28,12 +28,20 @@ type session struct {
 	telemetry json.RawMessage
 	lastSeen  time.Time
 	dirty     bool
+	// free and running are the dispatcher's view: soft state from the hello
+	// and the latest heartbeat, minus slots reserved since. The agent's
+	// "no free slot" rejection is the authority, so drift only costs a requeue.
+	free    int
+	running []string
 }
 
 func (g *Gateway) newSession(id identity, conn protocol.Conn) *session {
 	log := g.log.With("agent_id", id.agentID, "pool_id", id.pool.ID)
 	s := &session{agentID: id.agentID, pool: id.pool, log: log}
 	s.peer = protocol.NewPeer(conn, log)
+	for _, h := range g.hooks {
+		h.Register(s.peer, id.agentID)
+	}
 	s.peer.Handle(protocol.MethodAgentHello, func(ctx context.Context, p protocol.Params) (any, error) {
 		return g.handleHello(ctx, s, p)
 	})
@@ -64,7 +72,30 @@ func (s *session) recordHeartbeat(hb protocol.Heartbeat, at time.Time) error {
 		return nil
 	}
 	s.telemetry, s.lastSeen, s.dirty = raw, at, true
+	s.free, s.running = max(hb.FreeSlots, 0), hb.RunningAttempts
 	return nil
+}
+
+// reserve takes up to n free slots and returns how many it took.
+func (s *session) reserve(n int) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n = max(min(n, s.free), 0)
+	s.free -= n
+	return n
+}
+
+// release returns n slots, for a claim that was not sent.
+func (s *session) release(n int) {
+	s.mu.Lock()
+	s.free += n
+	s.mu.Unlock()
+}
+
+func (s *session) dispatchView() AgentView {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return AgentView{ID: s.agentID, Pool: s.pool.Name, Free: s.free, Running: append([]string(nil), s.running...), Peer: s.peer}
 }
 
 // takeTouch returns the pending batch row and clears the dirty flag.
