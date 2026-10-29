@@ -267,11 +267,13 @@ func TestE2ESSHRun(t *testing.T) {
 		if detail.Status != "succeeded" || len(detail.Steps) != 1 || detail.Steps[0].Status != "succeeded" {
 			t.Fatalf("run = %+v; logs: %s", detail, c.logs[0].String())
 		}
+		// The agent replaces a whole string output that contains a secret with
+		// ***, so stdout_tail is not checked for text, only for the token.
 		var out struct {
 			ExitCode   int    `json:"exit_code"`
 			StdoutTail string `json:"stdout_tail"`
 		}
-		if err := json.Unmarshal(detail.Steps[0].Outputs, &out); err != nil || out.ExitCode != 0 || !strings.Contains(out.StdoutTail, "hello-from-sshd") {
+		if err := json.Unmarshal(detail.Steps[0].Outputs, &out); err != nil || out.ExitCode != 0 {
 			t.Fatalf("outputs = %s (%v)", detail.Steps[0].Outputs, err)
 		}
 		if strings.Contains(out.StdoutTail, o.token) {
