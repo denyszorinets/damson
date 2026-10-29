@@ -55,7 +55,10 @@ changes nothing. Otherwise, in one transaction:
   status, on which the engine's ``waitOn`` relies);
 * ``runs.version`` is bumped and a River ``run.advance`` job is enqueued.
 
-The agent is acknowledged after the commit.
+The agent is acknowledged after the commit. After the commit the dispatcher also
+asks the log ingest to ``Finish`` the execution (``Config.Finish``), so its
+buffered lines are flushed and readers of the finished execution see them at
+once instead of after the periodic flush.
 
 Lease renewal
 -------------

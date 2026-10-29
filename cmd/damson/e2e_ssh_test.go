@@ -280,7 +280,14 @@ func TestE2ESSHRun(t *testing.T) {
 			t.Fatal("the secret reached the step outputs unmasked")
 		}
 
-		lines := c.sseLines(t, detail.Steps[0].Executions[0].ID)
+		// The stream of a finished execution ends at once; the lines are there
+		// as soon as the completion flushed them, so poll briefly.
+		var lines string
+		for end := time.Now().Add(15 * time.Second); time.Now().Before(end); time.Sleep(300 * time.Millisecond) {
+			if lines = c.sseLines(t, detail.Steps[0].Executions[0].ID); strings.Contains(lines, "t=***") {
+				break
+			}
+		}
 		if !strings.Contains(lines, "hello-from-sshd") || !strings.Contains(lines, "t=***") {
 			t.Fatalf("log = %s", lines)
 		}

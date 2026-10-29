@@ -50,7 +50,7 @@ func startOrchestration(ctx context.Context, st store.Store, gw *controller.Gate
 		return nil, fmt.Errorf("creating log ingest: %w", err)
 	}
 	dcfg := dispatch.Config{
-		Store: st, Agents: gw, Plugins: plugins, Advance: adv, ControllerID: controllerID, Logger: log, Invalidate: ing.Invalidate,
+		Store: st, Agents: gw, Plugins: plugins, Advance: adv, ControllerID: controllerID, Logger: log, Invalidate: ing.Invalidate, Finish: ing.Finish,
 	}
 	if devNodes != nil { // a nil *File must not become a non-nil interface
 		dcfg.Nodes, dcfg.Secrets = devNodes, devNodes

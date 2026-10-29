@@ -104,7 +104,7 @@ func startClusterLog(t *testing.T, st store.Store, spec string, log *slog.Logger
 	if err != nil {
 		t.Fatal(err)
 	}
-	ing, err := logs.New(logs.Config{Store: st, Logger: log, FlushInterval: 50 * time.Millisecond, CheckInterval: 20 * time.Millisecond,
+	ing, err := logs.New(logs.Config{Store: st, Logger: log, FlushInterval: time.Hour, CheckInterval: 20 * time.Millisecond,
 		Acks: func(ctx context.Context, id string, ack protocol.LogAck) error {
 			p, ok := gw.Peer(id)
 			if !ok {
@@ -117,7 +117,7 @@ func startClusterLog(t *testing.T, st store.Store, spec string, log *slog.Logger
 	}
 	dcfg := dispatch.Config{
 		Store: st, Agents: gw, Plugins: reg, Advance: adv, ControllerID: "ctl-1", Logger: log,
-		DispatchInterval: 20 * time.Millisecond, RenewInterval: 50 * time.Millisecond, ReapInterval: 50 * time.Millisecond,
+		Finish: ing.Finish, DispatchInterval: 20 * time.Millisecond, RenewInterval: 50 * time.Millisecond, ReapInterval: 50 * time.Millisecond,
 	}
 	for _, o := range opts {
 		o(&dcfg)

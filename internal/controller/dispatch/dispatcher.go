@@ -63,6 +63,10 @@ type Config struct {
 	// Invalidate drops a cached attempt lookup (logs.Ingest.Invalidate). It is
 	// called for the attempt of an execution that was requeued. Optional.
 	Invalidate func(attemptID string)
+	// Finish flushes the logs of an execution that completed and releases its
+	// live tail (logs.Ingest.Finish). Called after the completion commits;
+	// a failure is logged and left to the ingest's own flush loop. Optional.
+	Finish func(ctx context.Context, executionID string) error
 
 	// Zero values select the Default* constants.
 	DispatchInterval time.Duration
