@@ -49,9 +49,13 @@ type Enqueuer interface {
 
 // Config configures a Dispatcher.
 type Config struct {
-	Store        Store
-	Agents       Agents
-	Plugins      Resolver
+	Store   Store
+	Agents  Agents
+	Plugins Resolver
+	// Nodes and Secrets fill the nodes and secret bundle of step.execute.
+	// Both are optional: without them a step gets neither (ADR-0034 until M4).
+	Nodes        NodeSource
+	Secrets      SecretSource
 	Advance      Enqueuer
 	ControllerID string
 	Now          func() time.Time

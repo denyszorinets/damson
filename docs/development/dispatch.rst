@@ -92,7 +92,9 @@ Not yet implemented
 -------------------
 
 * Step timeout (``timeout_ms``).
-* Secrets bundle and nodes in ``step.execute`` (M4).
+* Real inventory and secret store behind the nodes and secrets bundle of
+  ``step.execute`` (M4). Until then only the dev-only ``--dev-nodes`` file
+  serves them (ADR-0034, see :doc:`/reference/cli`).
 * A notify hint for dispatch (the 1 s poll is the only trigger).
 * ``step.cancel`` dispatch for running executions.
 * Adoption on reconnect (issue #60, M3): ``agent.hello`` answers ``continue``

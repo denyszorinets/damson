@@ -863,6 +863,7 @@ type SecretStore interface {
 - The bundle is sent inside `step.execute` over TLS.
 - It is never persisted by the controller (only refs are stored) and never written to disk by the agent, except as short-lived 0600 credential files that Ansible requires, on tmpfs when available.
 - The agent drops the bundle when the execution ends.
+- In M2 the refs can be served by the dev-only `--dev-nodes` file instead of the secret store (ADR-0034); M4 replaces it.
 
 ### 9.4 Masking
 
@@ -893,6 +894,8 @@ type SecretStore interface {
 ---
 
 ## 11. Inventory API
+
+Until M4, the dev-only `--dev-nodes` file stands in for inventory (ADR-0034).
 
 Inventory is maintained by external systems (for example a ServiceNow CMDB sync running elsewhere). Damson only exposes an API.
 
@@ -1192,7 +1195,7 @@ testdata/                   # spec fixtures, golden files
 | M1 | Agent link | WS + MessagePack JSON-RPC, pool tokens, hello/heartbeat/telemetry, reconnect; agents page |
 | M2 | First run end to end | Job spec v1 (linear), `ssh` plugin built on the public SDK, plugin registry from agent manifests, dispatch with leases and fencing, live logs (db log store), run page, API trigger |
 | M3 | Engine complete + HA | `when`, groups, try/catch/finally, retries/backoff, timeouts, cancel, `for_each` lanes; multi-controller on Postgres; reaper/leader leases; cross-controller tail; job and run graph (`BuildGraph` + Svelte Flow view with live status); **chaos test green** |
-| M4 | Secrets + inventory | db secret backend, delivery, masking; inventory API including source sync; targets/selectors; host key policies |
+| M4 | Secrets + inventory | db secret backend, delivery, masking; inventory API including source sync; targets/selectors; host key policies; replaces the M2 dev-only `devnodes` sources (ADR-0034) |
 | M5 | Transfer + WinRM + plugin tooling | `transfer` (SFTP/SCP/FTP/FTPS/S3, copy/move, verify), `winrm`; `damson build --with`, `examples/plugins/hello`, `damson plugin new/run/validate` |
 | M6 | Ansible, Buildah, Helm | Shared git checkout; Ansible inventory and callback events; Buildah build and push with digest output; Helm upgrade/rollback/status; `damson-agent` and `damson-agent-build` images; build → deploy example job |
 | M7 | Triggers | Schedules, webhooks, service accounts and tokens, run dialog from options |

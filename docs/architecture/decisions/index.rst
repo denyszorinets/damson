@@ -117,6 +117,9 @@ change nothing until accepted.
    * - 0033
      - :doc:`0033-blueoak-licensed-dev-only-tooling-dependencies`
      - Accepted
+   * - 0034
+     - :doc:`0034-dev-only-inline-nodes-and-secrets`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -154,3 +157,4 @@ change nothing until accepted.
    0031-manual-approval-steps-and-notifications
    0032-runtime-loaded-plugins
    0033-blueoak-licensed-dev-only-tooling-dependencies
+   0034-dev-only-inline-nodes-and-secrets

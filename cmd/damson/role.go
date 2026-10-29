@@ -27,10 +27,16 @@ func runRole(ctx context.Context, name string, args []string, stderr io.Writer, 
 	cfgPath := fs.String("config", "", "path to a TOML config file (or set "+config.EnvConfigFile+")")
 	autoMigrate := fs.Bool("auto-migrate", false, "apply pending database migrations at start (always on for dev; ignored by agent)")
 	insecureDev := fs.Bool("insecure-dev", false, "allow plain ws:// agent connections (development only; or set controller.insecure_dev)")
+	devNodes := fs.String("dev-nodes", "", "JSON file with dev-only nodes and secret files (dev, or controller with insecure-dev; ADR-0034)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
 		}
+		return exitUsage
+	}
+
+	if *devNodes != "" && name == string(config.RoleAgent) {
+		fmt.Fprintln(stderr, "damson agent: --dev-nodes is a controller option")
 		return exitUsage
 	}
 
@@ -53,8 +59,12 @@ func runRole(ctx context.Context, name string, args []string, stderr io.Writer, 
 	if *insecureDev || name == string(config.RoleDev) {
 		cfg.Controller.InsecureDev = true // dev serves plain ws:// on loopback
 	}
+	if *devNodes != "" && !cfg.Controller.InsecureDev {
+		fmt.Fprintf(stderr, "damson %s: --dev-nodes needs --insecure-dev (development only)\n", name)
+		return exitUsage
+	}
 	migrate := *autoMigrate || name == string(config.RoleDev)
-	if err := runController(ctx, cfg, log, migrate, name == string(config.RoleDev)); err != nil {
+	if err := runController(ctx, cfg, log, migrate, name == string(config.RoleDev), *devNodes); err != nil {
 		fmt.Fprintf(stderr, "damson %s: %v\n", name, err)
 		return exitError
 	}
