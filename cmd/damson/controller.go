@@ -31,7 +31,7 @@ const shutdownTimeout = 15 * time.Second
 // down in reverse order: in-process agent (dev only), HTTP server, gateway,
 // then the store. With dev set it also starts an agent in this process,
 // connected to the gateway through a freshly provisioned pool token.
-func runController(ctx context.Context, cfg config.Config, log *slog.Logger, migrate, dev bool) error {
+func runController(ctx context.Context, cfg config.Config, log *slog.Logger, migrate, dev bool, devNodesPath string) error {
 	st, err := storefactory.Open(ctx, cfg.Database)
 	if err != nil {
 		return fmt.Errorf("opening store: %w", err)
@@ -48,6 +48,10 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 		log.Info("migrations applied")
 	}
 
+	devNodes, err := loadDevNodes(devNodesPath, log)
+	if err != nil {
+		return err
+	}
 	id, err := controllerID()
 	if err != nil {
 		return err
@@ -71,7 +75,7 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 		return fmt.Errorf("reading migration version: %w", err)
 	} else if v == 0 {
 		log.Warn("database is not migrated; agent gateway and run.advance disabled (run with --auto-migrate)")
-	} else if orch, err = startOrchestration(ctx, st, gw, plugins, id, log); err != nil {
+	} else if orch, err = startOrchestration(ctx, st, gw, plugins, id, devNodes, log); err != nil {
 		return err
 	}
 	adv := orch.advancer()

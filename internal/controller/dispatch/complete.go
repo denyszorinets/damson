@@ -58,7 +58,19 @@ func (d *Dispatcher) Complete(ctx context.Context, agentID string, m protocol.St
 	case err != nil:
 		return protocol.StepCompleteAck{}, fmt.Errorf("completing execution: %w", err)
 	}
+	d.finishLogs(ctx, ex)
 	return protocol.StepCompleteAck{Acknowledged: true}, nil
+}
+
+// finishLogs flushes the execution's buffered log lines so that readers of a
+// finished execution see them without waiting for the periodic flush.
+func (d *Dispatcher) finishLogs(ctx context.Context, ex store.Execution) {
+	if d.cfg.Finish == nil {
+		return
+	}
+	if err := d.cfg.Finish(ctx, ex.ID); err != nil {
+		d.log.Warn("flushing logs of a completed execution", "run_id", ex.RunID, "execution_id", ex.ID, "attempt_id", ex.AttemptID, "error", err)
+	}
 }
 
 func completion(m protocol.StepComplete) (store.Completion, error) {

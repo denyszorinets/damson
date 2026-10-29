@@ -94,6 +94,13 @@ func (d *Dispatcher) dispatchAgent(ctx context.Context, a controller.AgentView) 
 func (d *Dispatcher) send(ctx context.Context, a controller.AgentView, ex store.Execution) bool {
 	log := d.log.With("run_id", ex.RunID, "execution_id", ex.ID, "attempt_id", ex.AttemptID, "agent_id", a.ID)
 	req, err := d.buildRequest(ctx, a, ex)
+	defer wipe(req.Secrets)
+	var perm *permanent
+	if errors.As(err, &perm) {
+		log.Warn("execution cannot be sent: failing it", "error", err)
+		d.failDispatched(ctx, a, ex, err)
+		return true
+	}
 	if err != nil {
 		log.Warn("execution cannot be sent to this agent", "error", err)
 		d.requeue(ctx, a, ex, d.cfg.Now().Add(retryIncapable), log)
@@ -151,10 +158,39 @@ func (d *Dispatcher) buildRequest(ctx context.Context, a controller.AgentView, e
 			return protocol.StepExecute{}, fmt.Errorf("decoding step input: %w", err)
 		}
 	}
+	nodes, bundle, err := d.resolveTargets(ctx, ex.RunID, res.Manifest, input)
+	if err != nil {
+		return protocol.StepExecute{}, err
+	}
 	return protocol.StepExecute{
 		AttemptID: ex.AttemptID, ExecutionID: ex.ID, StepPath: step.Path,
 		PluginName: res.Manifest.Name, PluginVersion: res.Manifest.Version, Input: input,
+		Nodes: nodes, Secrets: bundle,
 	}, nil
+}
+
+// failDispatched ends a claimed execution that can never be sent (an unknown
+// node or secret): it fails under its attempt_id and wakes the run. The
+// message names the node or ref, never a value.
+func (d *Dispatcher) failDispatched(ctx context.Context, a controller.AgentView, ex store.Execution, cause error) {
+	d.cfg.Agents.Release(a.ID, 1)
+	if d.cfg.Invalidate != nil {
+		d.cfg.Invalidate(ex.AttemptID)
+	}
+	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), d.cfg.CallTimeout)
+	defer cancel()
+	err := d.cfg.Store.WithTx(fctx, func(tx store.Tx) error {
+		_, err := tx.CompleteExecution(fctx, store.Completion{
+			ExecutionID: ex.ID, AttemptID: ex.AttemptID, State: store.ExecFailed, Error: cause.Error(),
+		}, d.cfg.Now())
+		if err != nil {
+			return err
+		}
+		return d.cfg.Advance.Enqueue(fctx, tx, ex.RunID)
+	})
+	if err != nil && !errors.Is(err, store.ErrStale) {
+		d.log.Error("failing an unsendable execution", "execution_id", ex.ID, "error", err)
+	}
 }
 
 // requeue puts a dispatched execution back in the queue (fenced) and returns

@@ -55,7 +55,10 @@ changes nothing. Otherwise, in one transaction:
   status, on which the engine's ``waitOn`` relies);
 * ``runs.version`` is bumped and a River ``run.advance`` job is enqueued.
 
-The agent is acknowledged after the commit.
+The agent is acknowledged after the commit. After the commit the dispatcher also
+asks the log ingest to ``Finish`` the execution (``Config.Finish``), so its
+buffered lines are flushed and readers of the finished execution see them at
+once instead of after the periodic flush.
 
 Lease renewal
 -------------
@@ -92,7 +95,9 @@ Not yet implemented
 -------------------
 
 * Step timeout (``timeout_ms``).
-* Secrets bundle and nodes in ``step.execute`` (M4).
+* Real inventory and secret store behind the nodes and secrets bundle of
+  ``step.execute`` (M4). Until then only the dev-only ``--dev-nodes`` file
+  serves them (ADR-0034, see :doc:`/reference/cli`).
 * A notify hint for dispatch (the 1 s poll is the only trigger).
 * ``step.cancel`` dispatch for running executions.
 * Adoption on reconnect (issue #60, M3): ``agent.hello`` answers ``continue``

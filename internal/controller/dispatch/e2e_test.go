@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -67,9 +68,12 @@ type cluster struct {
 }
 
 func startCluster(t *testing.T, st store.Store, spec string, opts ...func(*dispatch.Config)) *cluster {
+	return startClusterLog(t, st, spec, slog.New(slog.DiscardHandler), opts...)
+}
+
+func startClusterLog(t *testing.T, st store.Store, spec string, log *slog.Logger, opts ...func(*dispatch.Config)) *cluster {
 	t.Helper()
 	ctx := context.Background()
-	log := slog.New(slog.DiscardHandler)
 	pool, err := st.CreatePool(ctx, "default", "", t0)
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +104,7 @@ func startCluster(t *testing.T, st store.Store, spec string, opts ...func(*dispa
 	if err != nil {
 		t.Fatal(err)
 	}
-	ing, err := logs.New(logs.Config{Store: st, Logger: log, FlushInterval: 50 * time.Millisecond, CheckInterval: 20 * time.Millisecond,
+	ing, err := logs.New(logs.Config{Store: st, Logger: log, FlushInterval: time.Hour, CheckInterval: 20 * time.Millisecond,
 		Acks: func(ctx context.Context, id string, ack protocol.LogAck) error {
 			p, ok := gw.Peer(id)
 			if !ok {
@@ -113,7 +117,7 @@ func startCluster(t *testing.T, st store.Store, spec string, opts ...func(*dispa
 	}
 	dcfg := dispatch.Config{
 		Store: st, Agents: gw, Plugins: reg, Advance: adv, ControllerID: "ctl-1", Logger: log,
-		DispatchInterval: 20 * time.Millisecond, RenewInterval: 50 * time.Millisecond, ReapInterval: 50 * time.Millisecond,
+		Finish: ing.Finish, DispatchInterval: 20 * time.Millisecond, RenewInterval: 50 * time.Millisecond, ReapInterval: 50 * time.Millisecond,
 	}
 	for _, o := range opts {
 		o(&dcfg)
@@ -147,7 +151,7 @@ func startCluster(t *testing.T, st store.Store, spec string, opts ...func(*dispa
 
 	ag, err := agent.New(agent.Config{
 		ControllerURL: "ws" + strings.TrimPrefix(srv.URL, "http"), Token: plain, AgentID: "agent-1",
-		Pool: "default", Slots: 2, Plugins: []pluginsdk.Plugin{demoPlugin{}}, Logger: log, HeartbeatInterval: 50 * time.Millisecond,
+		Pool: "default", Slots: 2, Plugins: []pluginsdk.Plugin{demoPlugin{}, nodePlugin{}}, Logger: log, HeartbeatInterval: 50 * time.Millisecond,
 		ExecConfig: agent.ExecConfig{SpoolDir: t.TempDir(), WorkRoot: t.TempDir(), LogFlushInterval: 10 * time.Millisecond, CompleteRetry: 50 * time.Millisecond},
 	})
 	if err != nil {
@@ -173,12 +177,16 @@ func startCluster(t *testing.T, st store.Store, spec string, opts ...func(*dispa
 func (c *cluster) trigger(word string) string { return c.triggerPlugin("demo", word) }
 
 func (c *cluster) triggerPlugin(plugin, word string) string {
+	return c.triggerInput(plugin, `{"word":"`+word+`"}`)
+}
+
+func (c *cluster) triggerInput(plugin, input string) string {
 	c.t.Helper()
 	var id string
 	err := c.st.WithTx(context.Background(), func(tx store.Tx) error {
 		tree, err := tx.CreateRun(context.Background(), store.NewRun{
 			JobID: c.jv.JobID, JobVersionID: c.jv.ID, Trigger: json.RawMessage(`{"type":"manual"}`), Options: json.RawMessage(`{}`),
-			Steps: []store.NewStepInstance{{Path: "s1", Plugin: plugin, Input: json.RawMessage(`{"word":"` + word + `"}`),
+			Steps: []store.NewStepInstance{{Path: "s1", Plugin: plugin, Input: json.RawMessage(input),
 				Execution: &store.NewExecution{Pool: advance.DefaultPool, ScheduledAt: time.Now()}}},
 		}, time.Now())
 		if err != nil {
@@ -209,4 +217,36 @@ func (c *cluster) waitRun(id string, want store.RunStatus) store.RunTree {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+}
+
+// nodePlugin is a single-node plugin that logs what it received, so a test can
+// see the node and the resolved secrets arrive on the agent.
+type nodePlugin struct{}
+
+func (nodePlugin) Manifest() pluginsdk.Manifest {
+	return pluginsdk.Manifest{
+		Name: "nodedemo", Version: "1.0.0", Title: "nodedemo", TargetMode: pluginsdk.TargetSingleNode,
+		InputSchema: pluginsdk.MustSchemaFor[struct{}](), OutputSchema: pluginsdk.MustSchemaFor[struct{}](),
+	}
+}
+
+func (nodePlugin) Validate(context.Context, json.RawMessage) error { return nil }
+
+func (nodePlugin) Execute(_ context.Context, req pluginsdk.ExecRequest, emit pluginsdk.Emitter) (pluginsdk.Result, error) {
+	var in struct{ Node, Token string }
+	_ = json.Unmarshal(req.Input, &in)
+	node, ok := req.Nodes[in.Node]
+	if !ok {
+		return pluginsdk.Result{Error: &pluginsdk.StepError{Message: "node missing"}}, nil
+	}
+	cred, err := req.Secrets.ResolveFields(node.Credential)
+	if err != nil {
+		return pluginsdk.Result{Error: &pluginsdk.StepError{Message: "credential missing"}}, nil
+	}
+	tok, err := req.Secrets.Resolve(in.Token)
+	if err != nil {
+		return pluginsdk.Result{Error: &pluginsdk.StepError{Message: "token missing"}}, nil
+	}
+	emit.Log(pluginsdk.Stdout, "node "+node.Address+" user "+cred["username"]+" token-len "+strconv.Itoa(len(tok)))
+	return pluginsdk.Result{Outputs: json.RawMessage(`{}`)}, nil
 }

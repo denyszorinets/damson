@@ -49,9 +49,13 @@ type Enqueuer interface {
 
 // Config configures a Dispatcher.
 type Config struct {
-	Store        Store
-	Agents       Agents
-	Plugins      Resolver
+	Store   Store
+	Agents  Agents
+	Plugins Resolver
+	// Nodes and Secrets fill the nodes and secret bundle of step.execute.
+	// Both are optional: without them a step gets neither (ADR-0034 until M4).
+	Nodes        NodeSource
+	Secrets      SecretSource
 	Advance      Enqueuer
 	ControllerID string
 	Now          func() time.Time
@@ -59,6 +63,10 @@ type Config struct {
 	// Invalidate drops a cached attempt lookup (logs.Ingest.Invalidate). It is
 	// called for the attempt of an execution that was requeued. Optional.
 	Invalidate func(attemptID string)
+	// Finish flushes the logs of an execution that completed and releases its
+	// live tail (logs.Ingest.Finish). Called after the completion commits;
+	// a failure is logged and left to the ingest's own flush loop. Optional.
+	Finish func(ctx context.Context, executionID string) error
 
 	// Zero values select the Default* constants.
 	DispatchInterval time.Duration

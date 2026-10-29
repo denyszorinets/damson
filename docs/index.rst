@@ -20,6 +20,12 @@ available controller tier. PostgreSQL is the only required infrastructure.
 
       Projects, jobs, runs, agents, plugins, secrets and access.
 
+   .. grid-item-card:: Tutorial
+      :link: tutorial/index
+      :link-type: doc
+
+      Run a job over ssh end to end on a development setup.
+
    .. grid-item-card:: Architecture
       :link: architecture/index
       :link-type: doc
@@ -49,6 +55,7 @@ available controller tier. PostgreSQL is the only required infrastructure.
    :maxdepth: 2
 
    concepts/index
+   tutorial/index
    architecture/index
    reference/index
    development/index

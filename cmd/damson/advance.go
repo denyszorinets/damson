@@ -10,6 +10,7 @@ import (
 	"github.com/denyszorinets/damson/internal/controller/advance"
 	"github.com/denyszorinets/damson/internal/controller/dispatch"
 	"github.com/denyszorinets/damson/internal/controller/logs"
+	"github.com/denyszorinets/damson/internal/devnodes"
 	"github.com/denyszorinets/damson/internal/engine"
 	"github.com/denyszorinets/damson/internal/expr"
 	"github.com/denyszorinets/damson/internal/pluginreg"
@@ -29,7 +30,7 @@ type orchestration struct {
 // startOrchestration builds the components on the migrated store, hooks log
 // ingest and step.complete into the gateway and starts everything. Agents are
 // accepted last, once every handler exists.
-func startOrchestration(ctx context.Context, st store.Store, gw *controller.Gateway, plugins *pluginreg.Registry, controllerID string, log *slog.Logger) (*orchestration, error) {
+func startOrchestration(ctx context.Context, st store.Store, gw *controller.Gateway, plugins *pluginreg.Registry, controllerID string, devNodes *devnodes.File, log *slog.Logger) (*orchestration, error) {
 	eng, err := engine.New(expr.Limits{})
 	if err != nil {
 		return nil, fmt.Errorf("building engine: %w", err)
@@ -48,9 +49,13 @@ func startOrchestration(ctx context.Context, st store.Store, gw *controller.Gate
 	if err != nil {
 		return nil, fmt.Errorf("creating log ingest: %w", err)
 	}
-	disp, err := dispatch.New(dispatch.Config{
-		Store: st, Agents: gw, Plugins: plugins, Advance: adv, ControllerID: controllerID, Logger: log, Invalidate: ing.Invalidate,
-	})
+	dcfg := dispatch.Config{
+		Store: st, Agents: gw, Plugins: plugins, Advance: adv, ControllerID: controllerID, Logger: log, Invalidate: ing.Invalidate, Finish: ing.Finish,
+	}
+	if devNodes != nil { // a nil *File must not become a non-nil interface
+		dcfg.Nodes, dcfg.Secrets = devNodes, devNodes
+	}
+	disp, err := dispatch.New(dcfg)
 	if err != nil {
 		return nil, fmt.Errorf("creating dispatcher: %w", err)
 	}
@@ -90,4 +95,18 @@ func (o *orchestration) stop(ctx context.Context) error {
 		return nil
 	}
 	return errors.Join(o.disp.Stop(ctx), o.gw.Stop(ctx), o.logs.Stop(ctx), o.adv.Stop(ctx))
+}
+
+// loadDevNodes loads the --dev-nodes file, or returns nil without a path. It
+// warns loudly: the file replaces inventory and secret authorization (ADR-0034).
+func loadDevNodes(path string, log *slog.Logger) (*devnodes.File, error) {
+	if path == "" {
+		return nil, nil
+	}
+	f, err := devnodes.Load(path)
+	if err != nil {
+		return nil, fmt.Errorf("loading --dev-nodes: %w", err)
+	}
+	log.Warn("dev nodes: no inventory, no secret authorization; development only", "path", path, "nodes", f.Names())
+	return f, nil
 }

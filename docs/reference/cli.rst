@@ -50,6 +50,53 @@ loopback. The token is never printed or logged. The agent appears connected
 a moment after the HTTP server starts; ``dev`` stops the agent before the
 controller on shutdown.
 
+.. _cli-dev-nodes:
+
+Dev-only nodes and secrets
+--------------------------
+
+``--dev-nodes <file>`` loads inline nodes and secret files from a JSON file so
+that ``ssh`` steps can run before inventory and the secret store exist (M4;
+:doc:`/architecture/decisions/0034-dev-only-inline-nodes-and-secrets`). It is a
+flag only: there is no config key and no environment variable. ``dev`` accepts
+it; ``controller`` accepts it only with ``--insecure-dev``; ``agent`` rejects
+it (usage error, exit 2). A file that cannot be loaded fails startup with exit
+status 1. Startup logs a WARN naming the file path and the node names.
+
+.. code-block:: json
+
+   {
+     "version": 1,
+     "nodes": {
+       "sshd": {
+         "address": "127.0.0.1",
+         "port": 2222,
+         "transport": "ssh",
+         "os": "linux",
+         "attributes": {},
+         "credential": "secret://dev/sshd",
+         "host_key": "ssh-ed25519 AAAA...",
+         "host_key_policy": "strict"
+       }
+     },
+     "secrets": {
+       "secret://dev/sshd": {"username": "demo", "private_key_file": "/abs/path/id_ed25519"},
+       "secret://dev/token": {"value_file": "/abs/path/token.txt"}
+     }
+   }
+
+- ``version`` must be ``1``. Unknown fields are rejected.
+- A node has ``address``, ``port`` (default 22), ``transport``, ``os``,
+  ``attributes``, ``credential`` (a ref under ``secrets``), ``host_key`` and
+  ``host_key_policy`` (``strict``, ``tofu`` or ``insecure``). No handler stores
+  ``tofu`` host keys yet; use ``strict`` with a pinned ``host_key``.
+- A secret is keyed by its ref without ``#field``. ``username`` may be inline.
+  Every other field is given as ``<field>_file``, an absolute path. Secret
+  values come only from files, which must be regular, mode 0600 or stricter and
+  at most 64 KiB. They are read at every dispatch and never cached.
+- A step referencing an unknown node or ref fails permanently; the message
+  names only the node or ref.
+
 .. _cli-admin:
 
 Admin commands
