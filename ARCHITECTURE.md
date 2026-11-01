@@ -1183,6 +1183,7 @@ testdata/                   # spec fixtures, golden files
   - every run reaches a terminal state
   - no execution completes twice
   - logs are contiguous or show explicit gaps
+  - **First slice (`make chaos`, `internal/chaos`, build tag `chaos`, Postgres only, CI job `chaos`):** two in-process controllers built by `internal/controller/node` on one database, agents behind a routable load balancer that can sever or reroute them. Scenarios: an agent moves to another controller mid-step (adopted, never lost, runs and completes once), and a result finished while disconnected is redelivered to another controller and applied once. Random kills of controllers and agents, the 3x5x200 soak and killing Postgres come later.
 - **UI:** Playwright smoke tests for login (mock OIDC), triggering a run, and watching logs.
 
 ---

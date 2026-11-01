@@ -25,6 +25,10 @@ Jobs
        (store, api, controller, cmd) against PostgreSQL
        started by testcontainers through the runner's Docker daemon. Verbose,
        so a skipped or failing test is visible in the log.
+   * - ``chaos``
+     - ``make chaos GOTESTFLAGS=-v``: the HA chaos tests (``internal/chaos``,
+       build tag ``chaos``, ``-race``). Several in-process controllers on one
+       PostgreSQL; agents are moved between them or cut off mid-step.
    * - ``integration``
      - ``make test-integration GOTESTFLAGS=-v``: non-Postgres
        ``integration``-tagged tests (currently ``plugins/ssh`` against an
