@@ -88,8 +88,11 @@ Gateway hooks
 The gateway exposes ``SessionHook`` / ``AddHook``: log ingest and the
 dispatcher install their handlers per socket. ``Agents()``, ``Reserve()`` and
 ``Release()`` let the dispatcher list connected agents and hold their slots.
-``startOrchestration`` in ``cmd/damson`` wires advance, log ingest, the
-dispatcher and the gateway, and starts the gateway last.
+``node.Start`` in ``internal/controller/node`` wires the gateway, advance, log
+ingest, the dispatcher and the HTTP API in that order, with the production hook
+and stop order. ``cmd/damson`` and the HA chaos test both run it; ``node.Timing``
+shortens the background intervals for tests, and ``Timing.LeaseTTL`` is the one
+lease length used for dispatch and for adoption on reconnect.
 
 Adoption on reconnect
 ---------------------

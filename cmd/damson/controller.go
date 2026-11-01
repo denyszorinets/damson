@@ -7,14 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"time"
 
 	"github.com/denyszorinets/damson/internal/agent"
-	"github.com/denyszorinets/damson/internal/api"
 	"github.com/denyszorinets/damson/internal/config"
-	"github.com/denyszorinets/damson/internal/controller"
+	"github.com/denyszorinets/damson/internal/controller/node"
 	"github.com/denyszorinets/damson/internal/pluginreg"
 	"github.com/denyszorinets/damson/internal/store/storefactory"
 	"github.com/denyszorinets/damson/internal/webui"
@@ -60,37 +58,19 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 	if err != nil {
 		return err
 	}
-	gw, err := controller.New(controller.Config{
-		Store: st, Plugins: plugins, ControllerID: id, InternalURL: cfg.Controller.InternalURL,
-		InsecureDev: cfg.Controller.InsecureDev, TrustForwardedProto: cfg.Controller.TrustForwardedProto, Logger: log,
+	n, err := node.Start(ctx, node.Config{
+		Store: st, ControllerID: id, InternalURL: cfg.Controller.InternalURL, Plugins: plugins, DevNodes: devNodes,
+		InsecureDev: cfg.Controller.InsecureDev, TrustForwardedProto: cfg.Controller.TrustForwardedProto,
+		Addr: cfg.Controller.Listen, UI: webui.Handler(web.Build()), Logger: log,
 	})
 	if err != nil {
-		return fmt.Errorf("creating agent gateway: %w", err)
-	}
-	var orch *orchestration
-	// An unmigrated database has no agent tables: keep serving health
-	// endpoints, but leave the gateway stopped (it answers 503) until the
-	// operator migrates and restarts.
-	if v, err := st.MigrationVersion(ctx); err != nil {
-		return fmt.Errorf("reading migration version: %w", err)
-	} else if v == 0 {
-		log.Warn("database is not migrated; agent gateway and run.advance disabled (run with --auto-migrate)")
-	} else if orch, err = startOrchestration(ctx, st, gw, plugins, id, devNodes, log); err != nil {
 		return err
 	}
-	adv := orch.advancer()
-	apiCfg := api.Config{
-		Addr: cfg.Controller.Listen, Store: st, Data: st, Plugins: plugins, UI: webui.Handler(web.Build()), Logger: log,
-		Mounts: map[string]http.Handler{controller.ConnectPath: gw.Handler()},
-	}
-	if adv != nil {
-		apiCfg.Advance, apiCfg.RunNotify = adv, adv.Hub()
-	}
-	srv := api.NewServer(apiCfg)
-	if err := srv.Start(ctx); err != nil {
+	srv := n.Server()
+	if err := n.Listen(ctx); err != nil {
 		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 		defer cancel()
-		return errors.Join(err, orch.stop(sctx))
+		return errors.Join(err, n.Stop(sctx))
 	}
 	var devAgent *agent.Agent
 	if dev {
@@ -100,7 +80,7 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 			if ctx.Err() != nil && errors.Is(err, context.Canceled) {
 				err = nil // shut down while provisioning: a clean stop
 			}
-			return errors.Join(err, srv.Stop(sctx), orch.stop(sctx))
+			return errors.Join(err, n.Stop(sctx))
 		}
 	}
 	serveErr := awaitShutdown(ctx, log, srv.Err(), devAgent)
@@ -110,7 +90,7 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 	// Stop the dev agent and the listener first so no new agents arrive, then
 	// tell the connected ones to reconnect elsewhere and deregister
 	// (ARCHITECTURE 8.5).
-	return errors.Join(serveErr, stopDevAgent(sctx, devAgent, log), srv.Stop(sctx), orch.stop(sctx))
+	return errors.Join(serveErr, stopDevAgent(sctx, devAgent, log), n.Stop(sctx))
 }
 
 // controllerID is the hostname plus a boot nonce, unique per process.
