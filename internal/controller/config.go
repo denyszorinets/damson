@@ -21,6 +21,7 @@ const (
 	DefaultHelloTimeout      = 10 * time.Second // upgrade to agent.hello
 	DefaultReconnectJitter   = 5 * time.Second  // agent.reconnect jitter bound
 	DefaultStoreTimeout      = 5 * time.Second  // bound on one background store call
+	DefaultLeaseTTL          = time.Minute      // lease given to attempts adopted on reconnect (matches dispatch.DefaultLeaseTTL)
 	logBatchBytes            = 64 * 1024
 	logBatchIntervalMS       = 200
 	maxAgentIDLen            = 128
@@ -102,6 +103,7 @@ type Config struct {
 	HelloTimeout      time.Duration
 	ReconnectJitter   time.Duration
 	StoreTimeout      time.Duration
+	LeaseTTL          time.Duration
 }
 
 var (
@@ -129,6 +131,7 @@ func (c *Config) applyDefaults() error {
 		{&c.HelloTimeout, DefaultHelloTimeout},
 		{&c.ReconnectJitter, DefaultReconnectJitter},
 		{&c.StoreTimeout, DefaultStoreTimeout},
+		{&c.LeaseTTL, DefaultLeaseTTL},
 	} {
 		if *d.v <= 0 {
 			*d.v = d.d

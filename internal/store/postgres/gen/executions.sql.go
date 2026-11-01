@@ -11,6 +11,58 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const adoptExecutions = `-- name: AdoptExecutions :many
+UPDATE executions SET controller_id = $1, lease_expires_at = CASE
+    WHEN lease_expires_at IS NULL OR lease_expires_at < $2::timestamptz
+    THEN $2::timestamptz ELSE lease_expires_at END
+WHERE attempt_id = ANY($3::text[]) AND agent_id = $4
+  AND state IN ('dispatched', 'running')
+  AND EXISTS (SELECT 1 FROM agents WHERE agents.id = $4 AND agents.controller_id = $1
+              AND agents.session_seq = $5 FOR SHARE)
+RETURNING attempt_id
+`
+
+type AdoptExecutionsParams struct {
+	ControllerID   pgtype.Text
+	LeaseExpiresAt pgtype.Timestamptz
+	AttemptIds     []string
+	AgentID        pgtype.Text
+	SessionSeq     int64
+}
+
+// AdoptExecutions moves live attempts of one agent to the controller that now
+// owns the agent session. The EXISTS is the fence: it matches only while the
+// agents row still names this controller at this session_seq, so a newer
+// session (any controller) makes the adoption a no-op. FOR SHARE makes READ
+// COMMITTED re-read the newest agents row after waiting on an execution lock
+// and holds off a concurrent hello (an update of the agents row) until commit.
+// Monotonic lease.
+func (q *Queries) AdoptExecutions(ctx context.Context, arg AdoptExecutionsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, adoptExecutions,
+		arg.ControllerID,
+		arg.LeaseExpiresAt,
+		arg.AttemptIds,
+		arg.AgentID,
+		arg.SessionSeq,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var attempt_id string
+		if err := rows.Scan(&attempt_id); err != nil {
+			return nil, err
+		}
+		items = append(items, attempt_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const cancelQueuedExecutionCAS = `-- name: CancelQueuedExecutionCAS :execrows
 UPDATE executions SET state = 'canceled', finished_at = $1, error = $2
 WHERE id = $3 AND run_id = $4 AND state = 'queued'

@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/denyszorinets/damson/internal/pluginreg"
@@ -74,11 +75,16 @@ func (g *Gateway) handleHello(ctx context.Context, s *session, p protocol.Params
 	}
 	s.log.Info("agent hello", "session_seq", req.SessionSeq, "protocol", hello.Protocol,
 		"agent_version", req.AgentVersion, "running_attempts", len(req.Executions))
+	recs, err := g.reconcile(ctx, s, req.SessionSeq, req.Executions)
+	if err != nil {
+		s.reject()      // do not leave a half-finished session dispatchable
+		return nil, err // the agent reconnects and retries; nothing was cancelled
+	}
 	return protocol.HelloResponse{
 		Protocol:            hello.Protocol,
 		HeartbeatIntervalMS: int(g.cfg.HeartbeatInterval.Milliseconds()),
 		Limits:              limits(),
-		Reconciliation:      g.reconcile(ctx, s, req.Executions),
+		Reconciliation:      recs,
 	}, nil
 }
 
@@ -125,30 +131,39 @@ func (g *Gateway) helloStoreError(s *session, err error) error {
 	}
 }
 
-// reconcile decides the fate of attempts the agent still knows about. A
-// finished result that is still the current attempt of an execution owned by
-// this agent continues, so the agent redelivers step.complete and the result
-// is not lost to a reconnect. Everything else is told to cancel (fencing: not
-// current); running attempts are cancelled until adoption on reconnect
-// lands (issue #60).
-func (g *Gateway) reconcile(ctx context.Context, s *session, execs []protocol.ExecutionState) []protocol.Reconciliation {
+// reconcile decides the fate of attempts the agent still knows about. An
+// attempt that is the current attempt of a non-terminal execution of this
+// agent is adopted (controller_id and lease move here, fenced on this
+// session_seq) and continues: a running one keeps running, a finished one is
+// redelivered by the agent as step.complete. Everything else is told to
+// cancel (fencing: not current). A store failure fails the hello and the
+// agent retries, so a database blip never cancels running steps.
+func (g *Gateway) reconcile(ctx context.Context, s *session, seq uint64, execs []protocol.ExecutionState) ([]protocol.Reconciliation, error) {
 	if len(execs) == 0 {
-		return nil
+		return nil, nil
+	}
+	ids := make([]string, len(execs))
+	for i, e := range execs {
+		ids[i] = e.AttemptID
+	}
+	sctx, cancel := context.WithTimeout(ctx, g.cfg.StoreTimeout)
+	defer cancel()
+	adopted, err := g.cfg.Store.AdoptExecutions(sctx, g.cfg.ControllerID, s.agentID, seq, ids, g.cfg.Clock.now().Add(g.cfg.LeaseTTL))
+	if err != nil {
+		return nil, fmt.Errorf("adopting executions: %w", err)
+	}
+	won := make(map[string]bool, len(adopted))
+	for _, id := range adopted {
+		won[id] = true
 	}
 	out := make([]protocol.Reconciliation, len(execs))
 	for i, e := range execs {
 		out[i] = protocol.Reconciliation{AttemptID: e.AttemptID, Action: protocol.ActionCancel}
-		if e.State != protocol.ExecFinished {
-			continue
-		}
-		sctx, cancel := context.WithTimeout(ctx, g.cfg.StoreTimeout)
-		ex, err := g.cfg.Store.GetExecutionByAttempt(sctx, e.AttemptID)
-		cancel()
-		if err == nil && ex.AgentID == s.agentID && !ex.State.Terminal() {
+		if won[e.AttemptID] {
 			out[i].Action = protocol.ActionContinue
 		}
 	}
-	return out
+	return out, nil
 }
 
 // handleHeartbeat records the snapshot in memory; the database write is

@@ -185,6 +185,35 @@ func (s *Store) RenewLeases(ctx context.Context, controllerID string, attemptIDs
 	return renewed, nil
 }
 
+// AdoptExecutions implements store.ExecutionStore.
+func (s *Store) AdoptExecutions(ctx context.Context, controllerID, agentID string, sessionSeq uint64, attemptIDs []string, leaseExpiresAt time.Time) ([]string, error) {
+	if len(attemptIDs) == 0 {
+		return nil, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("beginning adoption: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	q := s.q.WithTx(tx)
+	adopted := make([]string, 0, len(attemptIDs))
+	for start := 0; start < len(attemptIDs); start += renewChunk {
+		end := min(start+renewChunk, len(attemptIDs))
+		got, err := q.AdoptExecutions(ctx, gen.AdoptExecutionsParams{
+			ControllerID: nullStr(controllerID), MAX: fmtTime(leaseExpiresAt), AttemptIds: attemptIDs[start:end],
+			AgentID: nullStr(agentID), ID: agentID, ControllerID_2: nullStr(controllerID), SessionSeq: int64(sessionSeq),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("adopting executions of agent %q: %w", agentID, err)
+		}
+		adopted = append(adopted, got...)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("committing adoption: %w", err)
+	}
+	return adopted, nil
+}
+
 // ExpireLeases implements store.ExecutionStore.
 func (s *Store) ExpireLeases(ctx context.Context, now time.Time, limit int) ([]store.Execution, error) {
 	tx, err := s.db.BeginTx(ctx, nil)

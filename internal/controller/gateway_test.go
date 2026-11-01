@@ -467,7 +467,7 @@ func TestConcurrentHellosKeepHighestSeq(t *testing.T) {
 }
 
 // A finished result of the current attempt continues, so a reconnect does not
-// throw it away; running, unknown and foreign attempts are cancelled.
+// throw it away; unknown and foreign attempts are cancelled.
 func TestHelloContinuesFinishedCurrentAttempt(t *testing.T) {
 	forEachBackend(t, func(t *testing.T, st store.Store) {
 		ctx := context.Background()
@@ -504,6 +504,80 @@ func TestHelloContinuesFinishedCurrentAttempt(t *testing.T) {
 		want := []protocol.Reconciliation{{AttemptID: cur, Action: protocol.ActionContinue}, {AttemptID: "unknown", Action: protocol.ActionCancel}}
 		if len(resp.Reconciliation) != 2 || resp.Reconciliation[0] != want[0] || resp.Reconciliation[1] != want[1] {
 			t.Fatalf("reconciliation = %+v; want %+v", resp.Reconciliation, want)
+		}
+	})
+}
+
+// A running attempt claimed by another controller is adopted when its agent
+// reconnects here: the hello continues it and the row moves to this
+// controller. An attempt claimed for another agent is cancelled and untouched.
+func TestHelloAdoptsRunningAttempt(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		ctx := context.Background()
+		r := newRig(t, st)
+		_, jv, err := st.CreateJob(ctx, store.NewJob{ProjectID: store.DefaultProjectID, Name: "j", Checksum: "s",
+			Spec: []byte(`{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"j"},"spec":{"steps":[{"id":"s1","plugin":"demo"}]}}`)}, t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		step := func(path string) store.NewStepInstance {
+			return store.NewStepInstance{Path: path, Plugin: "demo", Execution: &store.NewExecution{Pool: "default", ScheduledAt: t0}}
+		}
+		if _, err := st.CreateRun(ctx, store.NewRun{JobID: jv.JobID, JobVersionID: jv.ID, Steps: []store.NewStepInstance{step("s1"), step("s2")}}, t0); err != nil {
+			t.Fatal(err)
+		}
+		claim := func(agent string) store.Execution {
+			got, err := st.ClaimExecutions(ctx, store.ClaimParams{AgentID: agent, ControllerID: "other-ctl", Pools: []string{"default"}, Limit: 1, LeaseTTL: time.Minute}, t0)
+			if err != nil || len(got) != 1 {
+				t.Fatalf("claim = %v, %v", got, err)
+			}
+			if err := st.MarkExecutionRunning(ctx, got[0].ID, got[0].AttemptID, t0); err != nil {
+				t.Fatal(err)
+			}
+			return got[0]
+		}
+		mine, foreign := claim("agent-1"), claim("agent-2")
+
+		a := r.dial("agent-1")
+		req := defaultHello(1)
+		req.Executions = []protocol.ExecutionState{
+			{AttemptID: mine.AttemptID, State: protocol.ExecRunning},
+			{AttemptID: foreign.AttemptID, State: protocol.ExecRunning},
+		}
+		resp, err := a.hello(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []protocol.Reconciliation{{AttemptID: mine.AttemptID, Action: protocol.ActionContinue}, {AttemptID: foreign.AttemptID, Action: protocol.ActionCancel}}
+		if len(resp.Reconciliation) != 2 || resp.Reconciliation[0] != want[0] || resp.Reconciliation[1] != want[1] {
+			t.Fatalf("reconciliation = %+v; want %+v", resp.Reconciliation, want)
+		}
+		if got, _ := st.GetExecution(ctx, mine.ID); got.ControllerID != r.gw.cfg.ControllerID {
+			t.Errorf("controller_id = %q; want %q", got.ControllerID, r.gw.cfg.ControllerID)
+		}
+		if got, _ := st.GetExecution(ctx, foreign.ID); got.ControllerID != "other-ctl" {
+			t.Errorf("foreign execution adopted: controller_id = %q", got.ControllerID)
+		}
+	})
+}
+
+type failingAdopt struct{ store.Store }
+
+func (failingAdopt) AdoptExecutions(context.Context, string, string, uint64, []string, time.Time) ([]string, error) {
+	return nil, errors.New("database unavailable")
+}
+
+// A store failure during reconciliation fails the hello instead of answering
+// cancel for running steps.
+func TestHelloStoreFailureDoesNotCancel(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		r := newRig(t, failingAdopt{st})
+		a := r.dial("agent-1")
+		req := defaultHello(1)
+		req.Executions = []protocol.ExecutionState{{AttemptID: "att-1", State: protocol.ExecRunning}}
+		resp, err := a.hello(req)
+		if err == nil {
+			t.Fatalf("hello succeeded with reconciliation %+v; want an error", resp.Reconciliation)
 		}
 	})
 }

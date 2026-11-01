@@ -91,6 +91,19 @@ dispatcher install their handlers per socket. ``Agents()``, ``Reserve()`` and
 ``startOrchestration`` in ``cmd/damson`` wires advance, log ingest, the
 dispatcher and the gateway, and starts the gateway last.
 
+Adoption on reconnect
+---------------------
+
+``agent.hello`` reconciliation answers ``continue`` for a ``finished`` attempt
+that is still current and owned by the agent (it redelivers ``step.complete``)
+and for a ``dispatched`` or ``running`` attempt of the agent. All of them are
+adopted by the controller in one call to ``ExecutionStore.AdoptExecutions``. The adoption moves
+``controller_id`` and extends the lease by ``Config.LeaseTTL``, in one
+statement that also checks the agent row still names this controller at this
+``session_seq``; a newer session makes it a no-op and the attempt is answered
+``cancel``. Other controllers' ``RenewLeases`` no longer match, so the old
+controller cannot keep the lease alive. Any store error fails the hello.
+
 Not yet implemented
 -------------------
 
@@ -100,8 +113,4 @@ Not yet implemented
   serves them (ADR-0034, see :doc:`/reference/cli`).
 * A notify hint for dispatch (the 1 s poll is the only trigger).
 * ``step.cancel`` dispatch for running executions.
-* Adoption on reconnect (issue #60, M3): ``agent.hello`` answers ``continue``
-  only for a ``finished`` attempt that is still current and owned by the
-  agent (it redelivers ``step.complete``); running attempts are answered
-  ``cancel``, so a reconnect cancels running steps.
 * Retries (M3).

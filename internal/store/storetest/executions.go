@@ -359,6 +359,91 @@ func testLeases(t *testing.T, s store.Store) {
 	}
 }
 
+func testAdoptExecutions(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	pool := mustPool(t, s, "adopt")
+	h := hello("agent-1", pool.ID, "ctrl-1")
+	if err := s.UpsertAgentOnHello(ctx, h, t0); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, s, "j", store.NewStepInstance{Path: "a", Execution: execSpec("default")},
+		store.NewStepInstance{Path: "b", Execution: execSpec("default")}, store.NewStepInstance{Path: "c", Execution: execSpec("default")})
+	got := claim(t, s, "default", 3)
+	if len(got) != 3 {
+		t.Fatalf("claimed %d; want 3", len(got))
+	}
+	a, b, c := got[0], got[1], got[2]
+	if err := s.MarkExecutionRunning(ctx, a.ID, a.AttemptID, claimNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CompleteExecution(ctx, store.Completion{ExecutionID: c.ID, AttemptID: c.AttemptID, State: store.ExecSucceeded}, claimNow); err != nil {
+		t.Fatal(err)
+	}
+
+	// The agent reconnects to ctrl-2 with a higher session_seq.
+	h2 := hello("agent-1", pool.ID, "ctrl-2")
+	h2.SessionSeq = 2
+	if err := s.UpsertAgentOnHello(ctx, h2, claimNow); err != nil {
+		t.Fatal(err)
+	}
+	lease := claimNow.Add(5 * time.Minute)
+	ids := []string{a.AttemptID, b.AttemptID, c.AttemptID, "unknown-attempt"}
+
+	// Fenced on the agent row: the old session, the old controller and a
+	// foreign agent adopt nothing.
+	for name, call := range map[string]func() ([]string, error){
+		"old session":    func() ([]string, error) { return s.AdoptExecutions(ctx, "ctrl-2", "agent-1", 1, ids, lease) },
+		"old controller": func() ([]string, error) { return s.AdoptExecutions(ctx, "ctrl-1", "agent-1", 2, ids, lease) },
+		"other agent":    func() ([]string, error) { return s.AdoptExecutions(ctx, "ctrl-2", "agent-2", 2, ids, lease) },
+		"no attempts":    func() ([]string, error) { return s.AdoptExecutions(ctx, "ctrl-2", "agent-1", 2, nil, lease) },
+	} {
+		if n, err := call(); err != nil || len(n) != 0 {
+			t.Fatalf("adopt (%s) = %v, %v; want none", name, n, err)
+		}
+	}
+	if ex := mustState(t, s, a.ID, store.ExecRunning); ex.ControllerID != "ctrl-1" {
+		t.Fatalf("controller_id = %q after fenced adoptions; want ctrl-1", ex.ControllerID)
+	}
+
+	// Live attempts of the agent move; terminal and unknown ones do not.
+	adopted, err := s.AdoptExecutions(ctx, "ctrl-2", "agent-1", 2, ids, lease)
+	if err != nil || len(adopted) != 2 {
+		t.Fatalf("AdoptExecutions = %v, %v; want a and b", adopted, err)
+	}
+	for _, e := range []store.Execution{a, b} {
+		if got, _ := s.GetExecution(ctx, e.ID); got.ControllerID != "ctrl-2" || !got.LeaseExpiresAt.Equal(lease) {
+			t.Fatalf("after adopt: controller %q lease %v; want ctrl-2 %v", got.ControllerID, got.LeaseExpiresAt, lease)
+		}
+	}
+	if got, _ := s.GetExecution(ctx, c.ID); got.ControllerID != "ctrl-1" {
+		t.Fatalf("terminal execution adopted: controller %q", got.ControllerID)
+	}
+
+	// The new owner renews; the old one no longer can. A shorter lease never
+	// shortens, and adopting again is idempotent.
+	if n, _ := s.RenewLeases(ctx, "ctrl-1", []string{a.AttemptID}, lease); len(n) != 0 {
+		t.Fatalf("old controller renewed %v after adoption", n)
+	}
+	if n, err := s.RenewLeases(ctx, "ctrl-2", []string{a.AttemptID}, lease.Add(time.Minute)); err != nil || len(n) != 1 {
+		t.Fatalf("new controller renew = %v, %v", n, err)
+	}
+	if again, err := s.AdoptExecutions(ctx, "ctrl-2", "agent-1", 2, []string{a.AttemptID}, claimNow); err != nil || len(again) != 1 {
+		t.Fatalf("re-adopt = %v, %v", again, err)
+	}
+	if got, _ := s.GetExecution(ctx, a.ID); !got.LeaseExpiresAt.Equal(lease.Add(time.Minute)) {
+		t.Fatalf("lease shortened to %v by re-adopt", got.LeaseExpiresAt)
+	}
+
+	// A reaped attempt is never adopted.
+	if lost, err := s.ExpireLeases(ctx, lease.Add(time.Hour), 10); err != nil || len(lost) != 2 {
+		t.Fatalf("ExpireLeases = %v, %v; want a and b", lost, err)
+	}
+	if n, err := s.AdoptExecutions(ctx, "ctrl-2", "agent-1", 2, ids, lease.Add(2*time.Hour)); err != nil || len(n) != 0 {
+		t.Fatalf("adopt after reaping = %v, %v; want none", n, err)
+	}
+}
+
 func testClaimMultiPool(t *testing.T, s store.Store) {
 	migrated(t, s)
 	step := func(path, pool string, prio int) store.NewStepInstance {
