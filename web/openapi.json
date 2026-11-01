@@ -523,7 +523,7 @@
         "additionalProperties": false,
         "properties": {
           "agents": {
-            "description": "Connected agents running this version.",
+            "description": "Live agents (on any controller) running this version.",
             "items": {
               "$ref": "#/components/schemas/PluginProvider"
             },
@@ -567,7 +567,7 @@
             "type": "object"
           },
           "pools": {
-            "description": "Pools with at least one connected agent running this version.",
+            "description": "Pools with at least one live agent (on any controller) running this version.",
             "items": {
               "type": "string"
             },

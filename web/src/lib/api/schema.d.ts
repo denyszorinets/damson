@@ -469,7 +469,7 @@ export interface components {
             pool: string;
         };
         PluginVersion: {
-            /** @description Connected agents running this version. */
+            /** @description Live agents (on any controller) running this version. */
             agents: components["schemas"]["PluginProvider"][] | null;
             /** @description The controller links this exact manifest itself. */
             builtin: boolean;
@@ -487,7 +487,7 @@ export interface components {
             output_schema: {
                 [key: string]: unknown;
             };
-            /** @description Pools with at least one connected agent running this version. */
+            /** @description Pools with at least one live agent (on any controller) running this version. */
             pools: string[] | null;
             /** @description Agent capabilities needed, such as bin:git. */
             requires: string[] | null;

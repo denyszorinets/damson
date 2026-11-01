@@ -129,7 +129,9 @@ func (g *Gateway) Start(ctx context.Context) error {
 	// as Start returns is never lost.
 	instT := g.cfg.Clock.ticker(g.cfg.InstanceInterval)
 	flushT := g.cfg.Clock.ticker(g.cfg.FlushInterval)
-	g.loopWG.Add(2)
+	syncT := g.cfg.Clock.ticker(g.cfg.PluginSyncInterval)
+	g.loopWG.Add(3)
+	go func() { defer g.loopWG.Done(); g.pluginSyncLoop(loopCtx, syncT) }()
 	go func() { defer g.loopWG.Done(); g.instanceLoop(loopCtx, instT) }()
 	go func() { defer g.loopWG.Done(); g.flushLoop(loopCtx, flushT) }()
 	g.log.Info("agent gateway started", "controller_id", g.cfg.ControllerID, "insecure_dev", g.cfg.InsecureDev)

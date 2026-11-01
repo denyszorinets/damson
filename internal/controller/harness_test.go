@@ -143,6 +143,36 @@ func newRig(t *testing.T, st store.Store, opts ...rigOpt) *rig {
 	return r
 }
 
+// newPeerRig starts a second controller on the same store, pool and clock as
+// first. Its agents are dialed with first's token.
+func newPeerRig(t *testing.T, first *rig, id string, opts ...rigOpt) *rig {
+	t.Helper()
+	r := &rig{t: t, st: first.st, clock: first.clock, logs: &syncBuf{}, pool: first.pool, token: first.token}
+	cfg := Config{
+		Store: r.st, ControllerID: id, InternalURL: "http://" + id + ":8080", InsecureDev: true,
+		Clock: r.clock.Clock(), Logger: slog.New(slog.NewJSONHandler(r.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		HelloTimeout: 2 * time.Second, ReconnectJitter: 1500 * time.Millisecond,
+	}
+	for _, o := range opts {
+		o(&cfg)
+	}
+	var err error
+	if r.gw, err = New(cfg); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	mux.Handle(ConnectPath, r.gw.Handler())
+	r.srv = httptest.NewServer(mux)
+	if err := r.gw.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		r.stop()
+		r.srv.Close()
+	})
+	return r
+}
+
 func (r *rig) stop() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

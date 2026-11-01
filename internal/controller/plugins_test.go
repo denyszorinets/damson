@@ -1,9 +1,14 @@
 package controller
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/denyszorinets/damson/internal/pluginreg"
 	"github.com/denyszorinets/damson/internal/protocol"
@@ -107,4 +112,137 @@ func TestConcurrentHellosKeepHighestSeqPlugins(t *testing.T) {
 				s != nil && s.seqValue() == n
 		})
 	})
+}
+
+func pluginNames(reg *pluginreg.Registry) []string {
+	var out []string
+	for _, p := range reg.List() {
+		out = append(out, p.Name)
+	}
+	return out
+}
+
+type failingPlugins struct {
+	store.Store
+	fail *atomic.Bool
+}
+
+func (f failingPlugins) ListLivePluginProviders(ctx context.Context, after time.Time) ([]store.LivePluginProvider, error) {
+	if f.fail.Load() {
+		return nil, errors.New("database unavailable")
+	}
+	return f.Store.ListLivePluginProviders(ctx, after)
+}
+
+func newSyncer() *pluginSyncer { return &pluginSyncer{known: map[manifestKey]*pluginreg.Entry{}} }
+
+// Plugins reported to one controller become known to the other through the
+// store, and are dropped again on disconnect or when the agent stops being
+// seen (a crashed controller). The sync is driven directly, with a clock that
+// only moves where the test says so.
+func TestPluginsSyncAcrossControllers(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		ctx := context.Background()
+		reg1, _ := pluginreg.New(nil, nil)
+		reg2, _ := pluginreg.New(nil, nil)
+		r1 := newRig(t, st, func(c *Config) { c.Plugins = reg1 })
+		r2 := newPeerRig(t, r1, "ctl-2", func(c *Config) { c.Plugins = reg2 })
+		sy := newSyncer()
+		sync2 := func() { r2.gw.syncPlugins(ctx, sy) }
+
+		a := r1.dial("agent-1")
+		if _, err := a.hello(helloWithManifests(1, pManifest("1.0.0", "bin:git"))); err != nil {
+			t.Fatal(err)
+		}
+		sync2()
+		res, err := reg2.Resolve("demo@1", pluginreg.Filter{Pool: "default"})
+		if err != nil || len(res.Agents) != 1 || res.Agents[0].AgentID != "agent-1" || res.Agents[0].Pool != "default" {
+			t.Fatalf("ctl-2 resolve = %+v, %v", res, err)
+		}
+		if _, err := reg2.Lookup("demo@1"); err != nil {
+			t.Fatalf("ctl-2 lookup: %v", err)
+		}
+
+		// A store failure keeps the previous view.
+		fail := &atomic.Bool{}
+		fail.Store(true)
+		r3 := newPeerRig(t, r1, "ctl-3", func(c *Config) { c.Store = failingPlugins{st, fail}; c.Plugins = reg2 })
+		r3.gw.syncPlugins(ctx, newSyncer())
+		if got := pluginNames(reg2); len(got) != 1 {
+			t.Fatalf("view after a failed sync = %v; want it kept", got)
+		}
+
+		// A disconnect on ctl-1 removes it from ctl-2's view, with no clock
+		// movement: the agent is still inside the live window.
+		a.close()
+		eventually(t, "ctl-2 drops demo after disconnect", func() bool {
+			sync2()
+			return len(pluginNames(reg2)) == 0
+		})
+
+		// An agent that is never touched again (controller crash) ages out.
+		b := r1.dial("agent-2")
+		if _, err := b.hello(helloWithManifests(1, pManifest("1.0.0"))); err != nil {
+			t.Fatal(err)
+		}
+		sync2()
+		if got := pluginNames(reg2); len(got) != 1 {
+			t.Fatalf("ctl-2 view = %v; want demo", got)
+		}
+		r2.clock.advance(r2.gw.cfg.liveWindow() + time.Second)
+		sync2()
+		if got := pluginNames(reg2); len(got) != 0 {
+			t.Fatalf("ctl-2 view = %v; the unseen agent should have aged out", got)
+		}
+		if got := pluginNames(reg1); len(got) != 1 {
+			t.Fatalf("ctl-1 lost its own agent's plugin: %v", got)
+		}
+	})
+}
+
+type manifestRows []store.PluginManifest
+
+func (m manifestRows) ListPluginManifests(context.Context) ([]store.PluginManifest, error) {
+	return m, nil
+}
+func (manifestRows) ListLivePluginProviders(context.Context, time.Time) ([]store.LivePluginProvider, error) {
+	return nil, nil
+}
+func (manifestRows) DeleteOrphanPluginManifests(context.Context, time.Time) (int, error) {
+	return 0, nil
+}
+
+type nopLog struct{}
+
+func (nopLog) Warn(string, ...any) {}
+
+// A stored manifest that fails validation is left out; valid ones stay.
+func TestPluginSyncSkipsInvalidStoredManifest(t *testing.T) {
+	reg, _ := pluginreg.New(nil, nil)
+	good := pManifest("1.0.0")
+	sum, err := good.Checksum()
+	if err != nil {
+		t.Fatal(err)
+	}
+	goodJSON, _ := json.Marshal(good)
+	bad := pManifest("nope") // not semver
+	badJSON, _ := json.Marshal(bad)
+	rows := manifestRows{
+		{Name: "demo", Version: "1.0.0", Checksum: sum, Manifest: goodJSON},
+		{Name: "demo", Version: "nope", Checksum: "x", Manifest: badJSON},
+		{Name: "junk", Version: "1.0.0", Checksum: "y", Manifest: []byte(`"not an object"`)},
+	}
+	sy := newSyncer()
+	if err := sy.load(context.Background(), rows, reg, nopLog{}); err != nil {
+		t.Fatal(err)
+	}
+	prov := []store.LivePluginProvider{
+		{AgentID: "a", Pool: "p", Name: "demo", Version: "1.0.0", Checksum: sum},
+		{AgentID: "a", Pool: "p", Name: "demo", Version: "nope", Checksum: "x"},
+		{AgentID: "a", Pool: "p", Name: "junk", Version: "1.0.0", Checksum: "y"},
+	}
+	got := sy.agents(prov)
+	if len(got) != 1 || len(got[0].Entries) != 1 || got[0].Entries[0].Manifest.Version != "1.0.0" {
+		t.Fatalf("agents = %+v; want only the valid manifest", got)
+	}
 }

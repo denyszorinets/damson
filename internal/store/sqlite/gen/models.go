@@ -24,6 +24,13 @@ type Agent struct {
 	DisconnectedAt sql.NullString
 }
 
+type AgentPlugin struct {
+	AgentID  string
+	Name     string
+	Version  string
+	Checksum string
+}
+
 type AgentPool struct {
 	ID          string
 	Name        string
@@ -99,6 +106,14 @@ type LogChunk struct {
 type LogChunksDatum struct {
 	ObjectKey string
 	Data      []byte
+	CreatedAt string
+}
+
+type PluginManifest struct {
+	Name      string
+	Version   string
+	Checksum  string
+	Manifest  string
 	CreatedAt string
 }
 

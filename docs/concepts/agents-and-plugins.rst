@@ -73,11 +73,16 @@ manifests of the built-in plugins, which the controller links itself, so their
 schemas are known with no agent connected, and the manifests every connected
 agent sent in ``agent.hello``. The registry is a derived cache, not durable
 state: the gateway adds an agent's manifests after a successful hello and drops
-them when that agent's socket ends, and a restarted controller rebuilds it as
-agents reconnect. It therefore describes the agents connected to *this*
-controller. ARCHITECTURE section 6 also names a ``plugin_manifests`` table; it
-is deferred until several controllers must share one view (M3, HA), because
-nothing before then needs a manifest the controller has not seen live.
+them when that agent's socket ends. The manifests are also stored in the
+``plugin_manifests`` table (one row per name, version and checksum) and linked
+to the agent in ``agent_plugins``, in the hello transaction. Every few seconds
+each controller reads the plugins of live agents connected to the *other*
+controllers and merges them in, so any controller can validate, resolve and
+list. An agent counts as live while it is owned by a controller, not
+disconnected and seen within twice the heartbeat plus flush intervals (40 s at defaults), so the
+agents of a crashed controller age out. A controller that starts while agents are
+live on other controllers learns their plugins at once; its own agents
+reconnect first.
 
 * **Deduplication.** Manifests are keyed by name, version and checksum; many
   agents reporting the same manifest are one entry with many providers.
@@ -103,10 +108,13 @@ nothing before then needs a manifest the controller has not seen live.
 * **Limits.** A manifest input schema is bounded in size and nesting depth
   and must compile (reference cycles are refused); an oversized step input is
   rejected. The compiled-schema cache is bounded and never stores failures.
-* **Several controllers.** With more than one controller each sees only the
-  manifests of its own agents until the ``plugin_manifests`` table lands
-  (issue #63, M3). After a controller restart, plugins that exist only in
-  custom agent binaries are unknown until their agents reconnect.
+* **Several controllers.** Resolution is cluster-wide: an unpinned reference
+  resolves to the highest version on eligible agents of any controller. If
+  that agent belongs to another controller, the execution is requeued until
+  that controller claims it. The view of other controllers lags by up to one
+  sync interval (7 s), plus the liveness window after a crash. The
+  checksum stored with a manifest is used as is and is part of the storage
+  contract. Manifests no agent references are swept after an hour.
 * **Input validation.** Before dispatch the resolved step input is validated
   against the manifest ``input_schema`` (the agent's own ``Validate`` still
   runs later). Errors name the field path and the rule, never an input value

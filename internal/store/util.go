@@ -21,6 +21,17 @@ func ValidateHello(h AgentHello) error {
 	if h.PoolID == "" {
 		return fmt.Errorf("hello for agent %q: empty pool id: %w", h.ID, ErrInvalid)
 	}
+	seen := make(map[[2]string]bool, len(h.Plugins))
+	for _, m := range h.Plugins {
+		if err := ValidatePluginManifest(m); err != nil {
+			return fmt.Errorf("hello for agent %q: %w", h.ID, err)
+		}
+		k := [2]string{m.Name, m.Version}
+		if seen[k] {
+			return fmt.Errorf("hello for agent %q: plugin %s@%s repeated: %w", h.ID, m.Name, m.Version, ErrInvalid)
+		}
+		seen[k] = true
+	}
 	return nil
 }
 

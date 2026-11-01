@@ -46,6 +46,7 @@ type Store interface {
 
 	PoolStore
 	AgentStore
+	PluginStore
 	ControllerStore
 	JobStore
 	RunStore

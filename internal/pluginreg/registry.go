@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
@@ -34,6 +35,20 @@ type agentRec struct {
 	mans     map[pluginKey]pluginsdk.Manifest
 }
 
+// Entry is one accepted manifest with the checksum it was stored under.
+type Entry struct {
+	Manifest pluginsdk.Manifest
+	Checksum string
+}
+
+// RemoteAgent is an agent connected to another controller, read back from the
+// store. Its checksums are the stored ones, never recomputed here.
+type RemoteAgent struct {
+	ID, Pool string
+	Caps     []string
+	Entries  []Entry
+}
+
 // Prepared is an agent record built by Prepare, ready for a cheap Commit.
 type Prepared struct{ rec *agentRec }
 
@@ -49,8 +64,9 @@ type Registry struct {
 	builtins    map[pluginKey]builtinRec // immutable after New
 	builtinTop  map[string]string        // builtin name -> highest builtin version
 	mu          sync.RWMutex
-	agents      map[string]*agentRec
-	cache       map[string]*Plugin // derived view; nil when stale
+	agents      map[string]*agentRec // agents connected to this controller
+	remote      map[string]*agentRec // agents of other controllers, from the store
+	cache       map[string]*Plugin   // derived view; nil when stale
 	vmu         sync.Mutex
 	validators  map[string]*schemaEntry // by checksum, bounded
 	maxEntryCap int
@@ -68,6 +84,7 @@ func New(builtins []pluginsdk.Manifest, log *slog.Logger) (*Registry, error) {
 		builtins:    make(map[pluginKey]builtinRec, len(builtins)),
 		builtinTop:  make(map[string]string),
 		agents:      make(map[string]*agentRec),
+		remote:      make(map[string]*agentRec),
 		validators:  make(map[string]*schemaEntry),
 		maxEntryCap: maxCompiledSchemas,
 	}
@@ -93,6 +110,61 @@ func checked(m pluginsdk.Manifest) (string, error) {
 		return "", err
 	}
 	return m.Checksum()
+}
+
+// Entries returns the accepted manifests with their checksums, sorted by
+// name and version, for persisting.
+func (p *Prepared) Entries() []Entry {
+	out := make([]Entry, 0, len(p.rec.sums))
+	for k, sum := range p.rec.sums {
+		out = append(out, Entry{Manifest: p.rec.mans[k], Checksum: sum})
+	}
+	slices.SortFunc(out, func(a, b Entry) int {
+		if c := strings.Compare(a.Manifest.Name, b.Manifest.Name); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Manifest.Version, b.Manifest.Version)
+	})
+	return out
+}
+
+// ValidateEntry reports whether a stored manifest is acceptable: valid, with
+// input schema within bounds that compiles. SetRemote trusts its callers to
+// have filtered with it.
+func (r *Registry) ValidateEntry(e Entry) error {
+	if err := e.Manifest.Validate(); err != nil {
+		return err
+	}
+	_, err := r.schemaFor(e.Manifest, e.Checksum)
+	return err
+}
+
+// SetRemote replaces the view of agents connected to other controllers. An
+// agent id that is also connected here is ignored: the local record wins.
+// Unlike Prepare it does not warn about shadowed built-ins; the controller
+// that owns the agent already did.
+func (r *Registry) SetRemote(agents []RemoteAgent) {
+	remote := make(map[string]*agentRec, len(agents))
+	for _, a := range agents {
+		rec := &agentRec{
+			id: a.ID, pool: a.Pool,
+			caps: make(map[string]struct{}, len(a.Caps)),
+			sums: make(map[pluginKey]string, len(a.Entries)),
+			mans: make(map[pluginKey]pluginsdk.Manifest, len(a.Entries)),
+		}
+		for _, c := range a.Caps {
+			rec.caps[c] = struct{}{}
+		}
+		for _, e := range a.Entries {
+			k := pluginKey{e.Manifest.Name, e.Manifest.Version}
+			rec.sums[k], rec.mans[k] = e.Checksum, e.Manifest
+		}
+		remote[a.ID] = rec
+	}
+	r.mu.Lock()
+	r.remote = remote
+	r.cache = nil
+	r.mu.Unlock()
 }
 
 // Prepare validates and checksums an agent's manifests without touching the
