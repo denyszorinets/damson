@@ -46,6 +46,20 @@ type controllerNode struct {
 	st   store.Store
 	node *node.Node
 	srv  *httptest.Server
+	once sync.Once
+}
+
+// stop shuts the controller down gracefully, once; the test cleanup calls it
+// too, so a scenario may stop a controller itself.
+func (cn *controllerNode) stop() error {
+	var err error
+	cn.once.Do(func() {
+		sctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		cn.srv.Close()
+		err = cn.node.Stop(sctx)
+	})
+	return err
 }
 
 // Cluster is N controllers on one Postgres database, plus routable agents.
@@ -117,12 +131,7 @@ func (c *Cluster) startController(st store.Store, id string) *controllerNode {
 		c.t.Fatal(err)
 	}
 	cn := &controllerNode{id: id, st: st, node: n, srv: httptest.NewServer(n.Handler())}
-	c.t.Cleanup(func() {
-		sctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		cn.srv.Close()
-		_ = n.Stop(sctx)
-	})
+	c.t.Cleanup(func() { _ = cn.stop() })
 	c.lb.targets[id] = strings.TrimPrefix(cn.srv.URL, "http://")
 	return cn
 }
