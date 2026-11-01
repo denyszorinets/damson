@@ -10,7 +10,7 @@ import (
 // instanceIDs lists the registered controller instances.
 func (c *Cluster) instanceIDs() map[string]bool {
 	c.t.Helper()
-	list, err := c.ctls[1].st.ListControllerInstances(context.Background())
+	list, err := c.read.ListControllerInstances(context.Background())
 	if err != nil {
 		c.t.Fatal(err)
 	}

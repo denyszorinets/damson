@@ -69,30 +69,57 @@ type Cluster struct {
 	lb    *lb
 	token string
 	jv    store.JobVersion
+	dsn   string
+	read  *postgres.Store // assertions read through it, whatever happens to the controllers' stores
 }
 
-// newCluster starts n controllers (ids ctl-0, ctl-1, ...) on a fresh database
+// newCluster starts n controllers (ids ctl-A, ctl-B, ...) on a fresh database
 // with pool "default" and one job.
 func newCluster(t *testing.T, n int) *Cluster {
 	t.Helper()
-	ctx := context.Background()
-	dsn := newPGDatabase(t)
-	c := &Cluster{t: t, lb: newLB()}
-	for i := range n {
-		st, err := postgres.Open(ctx, dsn)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = st.Close() })
-		if i == 0 {
-			if err := st.Migrate(ctx); err != nil {
-				t.Fatal(err)
-			}
-			c.seed(st)
-		}
-		c.ctls = append(c.ctls, c.startController(st, "ctl-"+string(rune('A'+i))))
+	c := newEmptyCluster(t)
+	for range n {
+		c.addController(timing, nil)
 	}
 	return c
+}
+
+// newEmptyCluster migrates a fresh database and seeds it; the test adds
+// controllers with addController.
+func newEmptyCluster(t *testing.T) *Cluster {
+	t.Helper()
+	ctx := context.Background()
+	c := &Cluster{t: t, lb: newLB(), dsn: newPGDatabase(t)}
+	rd, err := postgres.Open(ctx, c.dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = rd.Close() })
+	if err := rd.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	c.read = rd
+	c.seed(rd)
+	return c
+}
+
+// addController starts the next controller (ctl-A, ctl-B, ...) with the given
+// timing. wrap, if set, puts a decorator around its store; the decorator must
+// keep the embedded store's Pool method so the queue still finds Postgres.
+func (c *Cluster) addController(tm node.Timing, wrap func(*postgres.Store) store.Store) *controllerNode {
+	c.t.Helper()
+	pg, err := postgres.Open(context.Background(), c.dsn)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	c.t.Cleanup(func() { _ = pg.Close() })
+	var st store.Store = pg
+	if wrap != nil {
+		st = wrap(pg)
+	}
+	cn := c.startController(st, "ctl-"+string(rune('A'+len(c.ctls))), tm)
+	c.ctls = append(c.ctls, cn)
+	return cn
 }
 
 func (c *Cluster) seed(st store.Store) {
@@ -116,7 +143,7 @@ func (c *Cluster) seed(st store.Store) {
 	}
 }
 
-func (c *Cluster) startController(st store.Store, id string) *controllerNode {
+func (c *Cluster) startController(st store.Store, id string, tm node.Timing) *controllerNode {
 	c.t.Helper()
 	log := slog.New(slog.DiscardHandler)
 	reg, err := pluginreg.New(nil, log)
@@ -125,7 +152,7 @@ func (c *Cluster) startController(st store.Store, id string) *controllerNode {
 	}
 	n, err := node.Start(context.Background(), node.Config{
 		Store: st, ControllerID: id, InternalURL: "http://" + id + ":8080", Plugins: reg, InsecureDev: true,
-		Timing: timing, Logger: log,
+		Timing: tm, Logger: log,
 	})
 	if err != nil {
 		c.t.Fatal(err)
@@ -201,7 +228,7 @@ func eventually(t *testing.T, what string, cond func() bool) {
 
 // step returns the first step instance of the run at path, with its executions.
 func (c *Cluster) step(runID, path string) (store.StepNode, bool) {
-	tree, err := c.ctls[0].st.GetRunTree(context.Background(), runID)
+	tree, err := c.read.GetRunTree(context.Background(), runID)
 	if err != nil {
 		c.t.Fatal(err)
 	}

@@ -93,13 +93,13 @@ func TestPluginRegistryConsistentAcrossControllers(t *testing.T) {
 	// Triggered through A, which has no agent for beta.
 	runID := c.triggerPlugin(0, "beta")
 	eventually(t, "run to finish", func() bool {
-		tree, err := c.ctls[0].st.GetRunTree(context.Background(), runID)
+		tree, err := c.read.GetRunTree(context.Background(), runID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return tree.Status.Terminal()
 	})
-	tree, _ := c.ctls[0].st.GetRunTree(context.Background(), runID)
+	tree, _ := c.read.GetRunTree(context.Background(), runID)
 	if tree.Status != store.RunSucceeded || beta.runs.Load() != 1 || alpha.runs.Load() != 0 {
 		t.Fatalf("status %s, beta ran %d, alpha ran %d; want succeeded, 1, 0", tree.Status, beta.runs.Load(), alpha.runs.Load())
 	}
