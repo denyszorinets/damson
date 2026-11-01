@@ -29,6 +29,7 @@ import (
 // component's default; tests shorten them.
 type Timing struct {
 	Heartbeat, Flush, PluginSync time.Duration // gateway
+	ReconnectJitter              time.Duration // gateway: bound of the agent.reconnect delay
 	Dispatch, Renew, Reap        time.Duration // dispatcher
 	LeaseTTL                     time.Duration // dispatcher and adoption on reconnect
 	AdvancePoll, AdvanceSweep    time.Duration // run.advance
@@ -76,7 +77,7 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	gw, err := controller.New(controller.Config{
 		Store: cfg.Store, Plugins: cfg.Plugins, ControllerID: cfg.ControllerID, InternalURL: cfg.InternalURL,
 		InsecureDev: cfg.InsecureDev, TrustForwardedProto: cfg.TrustForwardedProto, Logger: cfg.Logger,
-		HeartbeatInterval: t.Heartbeat, FlushInterval: t.Flush, PluginSyncInterval: t.PluginSync, LeaseTTL: t.LeaseTTL,
+		HeartbeatInterval: t.Heartbeat, FlushInterval: t.Flush, PluginSyncInterval: t.PluginSync, LeaseTTL: t.LeaseTTL, ReconnectJitter: t.ReconnectJitter,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating agent gateway: %w", err)
