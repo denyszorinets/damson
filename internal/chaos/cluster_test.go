@@ -28,7 +28,7 @@ import (
 // Short intervals so a scenario takes seconds. LeaseTTL stays well above the
 // worst reconnect time, so "the step was not lost" is a real assertion.
 var timing = node.Timing{
-	Heartbeat: 50 * time.Millisecond, Flush: 50 * time.Millisecond, PluginSync: 100 * time.Millisecond,
+	Heartbeat: 50 * time.Millisecond, Flush: 50 * time.Millisecond, PluginSync: 100 * time.Millisecond, ReconnectJitter: 200 * time.Millisecond,
 	Dispatch: 20 * time.Millisecond, Renew: 50 * time.Millisecond, Reap: 50 * time.Millisecond,
 	LeaseTTL: 1500 * time.Millisecond, AdvancePoll: 20 * time.Millisecond, AdvanceSweep: 500 * time.Millisecond,
 }
