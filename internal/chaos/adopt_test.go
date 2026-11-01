@@ -32,7 +32,7 @@ func (c *Cluster) waitSucceeded(runID string) store.RunTree {
 	var tree store.RunTree
 	eventually(c.t, "run to finish", func() bool {
 		var err error
-		if tree, err = c.ctls[0].st.GetRunTree(context.Background(), runID); err != nil {
+		if tree, err = c.read.GetRunTree(context.Background(), runID); err != nil {
 			c.t.Fatal(err)
 		}
 		return tree.Status.Terminal()
@@ -74,7 +74,7 @@ func assertExactlyOnce(t *testing.T, c *Cluster, runID, attemptID string, gp *ga
 	}
 	finished := tree.Steps[0].Executions[0].FinishedAt
 	time.Sleep(500 * time.Millisecond) // several redelivery rounds
-	after, err := c.ctls[0].st.GetRunTree(context.Background(), runID)
+	after, err := c.read.GetRunTree(context.Background(), runID)
 	if err != nil {
 		t.Fatal(err)
 	}

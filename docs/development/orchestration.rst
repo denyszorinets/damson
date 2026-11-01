@@ -84,14 +84,30 @@ CAS and reloads.
 Safety-net sweep
 ----------------
 
-Every ``SweepInterval`` (default 5 minutes, any controller) ``Sweep`` enqueues
-an advance for every ``pending`` or ``running`` run, in batches. Uniqueness
-makes it cheap when a job is already waiting; a run that is just waiting for an
-agent still costs one no-op job per interval and controller (a finished job no
-longer blocks a new one at the same version), which is why the interval is
-long. It covers runs inserted before the queue existed and any crash window.
+At start and then every ``SweepInterval`` (default 1 minute, any controller)
+``Sweep`` enqueues an advance for every ``pending`` or ``running`` run, in
+batches. Uniqueness makes it cheap when a job is already waiting; a run that is
+just waiting for an agent still costs one no-op job per interval and
+controller (a finished job no longer blocks a new one at the same version). It
+covers runs inserted before the queue existed and any crash window.
 Duplicates are harmless, so correctness needs no leader lease; the leader-only
 sweep of ARCHITECTURE 8.4 (M3) will remove the per-controller multiplication.
+
+A sweep job carries a *sweep epoch* (the current time cut to the interval) in
+its args, so its unique key is ``(run_id, version, epoch)``. This is what
+recovers a controller crash in the middle of an advance: River leaves the dead
+controller's job ``running`` and the run version does not change, so a sweep
+job without the epoch would collapse into it and the run would wait for
+River's rescuer. With the epoch the run moves again within one sweep interval.
+Sweeps of one interval, on any controller, still collapse into each other, and
+event jobs keep their old args (the field is omitted when zero). With sweeping
+disabled (a negative interval) a hand-made ``Sweep`` call uses epoch 0.
+
+River is configured with ``JobTimeout`` 1 minute (an advance is a few queries)
+and ``RescueStuckJobsAfter`` 2 minutes, and jobs have ``MaxAttempts`` 5. The
+rescuer only clears rows a crashed controller stranded; it is not what
+recovers the run. A job discarded after five failures is replaced by the next
+sweep.
 
 Permanent errors
 ----------------

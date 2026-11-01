@@ -44,7 +44,7 @@ type Config struct {
 }
 
 // DefaultSweepInterval is the safety-net sweep period.
-const DefaultSweepInterval = 5 * time.Minute
+const DefaultSweepInterval = time.Minute
 
 // queue is the dialect-specific River client behind an Advancer.
 type queue interface {
@@ -149,11 +149,16 @@ func (a *Advancer) Stop(ctx context.Context) error {
 // The job is unique per (run, version); see Args.InsertOpts. A caller whose
 // own writes do not bump runs.version must call tx.TouchRun first.
 func (a *Advancer) Enqueue(ctx context.Context, tx store.Tx, runID string) error {
+	return a.enqueue(ctx, tx, runID, 0)
+}
+
+// enqueue is Enqueue with the sweep epoch of the job (0 for an event).
+func (a *Advancer) enqueue(ctx context.Context, tx store.Tx, runID string, sweep int64) error {
 	run, err := tx.GetRun(ctx, runID)
 	if err != nil {
 		return fmt.Errorf("reading run %s to enqueue: %w", runID, err)
 	}
-	if err := a.q.insert(ctx, tx, Args{RunID: runID, Version: run.Version}); err != nil {
+	if err := a.q.insert(ctx, tx, Args{RunID: runID, Version: run.Version, Sweep: sweep}); err != nil {
 		return fmt.Errorf("enqueueing run.advance for %s: %w", runID, err)
 	}
 	return nil
@@ -209,6 +214,14 @@ func newQueue(cfg Config, c *core, log *slog.Logger) (queue, error) {
 			Queues:            map[string]river.QueueConfig{QueueName: {MaxWorkers: n}},
 			FetchPollInterval: poll,
 			FetchCooldown:     min(poll, 100*time.Millisecond),
+			// An advance is a few queries; a minute leaves room for the largest
+			// supported run. The rescuer only clears rows a crashed controller
+			// stranded in "running": the sweep epoch (see Args.InsertOpts) is
+			// what gets the run moving again. River rejects a rescue time below
+			// the job timeout; the extra minute covers clock skew between the
+			// River leader and the database.
+			JobTimeout:           time.Minute,
+			RescueStuckJobsAfter: 2 * time.Minute,
 		}
 	}
 	switch s := cfg.Store.(type) {

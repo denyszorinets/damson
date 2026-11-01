@@ -766,7 +766,8 @@ Action = CreateStepInstance | ScheduleExecution | SkipStep | CompleteGroup | Com
    - Call `Decide`.
    - Apply actions transactionally, with optimistic concurrency on `runs.version`.
    - River uniqueness is by `(run_id, runs.version)`: identical enqueues collapse, but an enqueue after a state change is kept even while an advance is running. River cannot exclude `running` from the unique states, and a job keyed on `run_id` alone would swallow a wake-up that arrives after the running advance read its state. Every event that must wake a run bumps `runs.version` in its own transaction (`Tx.TouchRun`), and the advance applies with a CAS on that version, so concurrent advancement is safe and a lost wake-up is impossible.
-   - A periodic sweep (default 1m, any controller) re-enqueues every `pending` or `running` run as a safety net for crash windows and runs created before the queue existed.
+   - A periodic sweep (default 1m, any controller, and once at start) re-enqueues every `pending` or `running` run as a safety net for crash windows and runs created before the queue existed.
+   - A sweep job is unique by `(run_id, runs.version, sweep epoch)`, the epoch being the time cut to the sweep interval. A controller that dies mid-advance leaves its job `running` at an unchanged version; the sweep's job has a key of its own and is not swallowed, so the run moves again within one sweep interval. River's rescuer (`JobTimeout` 1m, `RescueStuckJobsAfter` 2m) only clears the stranded rows, and `MaxAttempts` is 5.
 3. **Dispatch** (every controller, for its own sockets):
    - A loop wakes on a notify hint or every 1s.
    - Claims queued, due Executions that match the pool of its connected agents with free slots. The claim filters by pool only; plugin and capability matching happens after the claim:
