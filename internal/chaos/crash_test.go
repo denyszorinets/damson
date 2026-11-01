@@ -43,6 +43,30 @@ func (g *gatedStore) GetRunTree(ctx context.Context, id string) (store.RunTree, 
 	return tree, nil
 }
 
+// runningAdvanceJobs returns the ids of the run's run.advance jobs in state
+// running.
+func (c *Cluster) runningAdvanceJobs(runID string) []int64 {
+	c.t.Helper()
+	rows, err := c.read.Pool().Query(context.Background(),
+		"SELECT id FROM river_job WHERE kind = 'run.advance' AND args->>'run_id' = $1 AND state = 'running' ORDER BY id", runID)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			c.t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		c.t.Fatal(err)
+	}
+	return ids
+}
+
 // advanceJobState is the state of a River run.advance job.
 func (c *Cluster) advanceJobState(id int64) string {
 	c.t.Helper()
@@ -78,22 +102,10 @@ func TestRunAdvancesAfterControllerDiesMidAdvance(t *testing.T) {
 		t.Fatal("timed out waiting for A to start the advance after s1")
 	}
 
-	var stranded int64
-	rows, err := c.read.Pool().Query(context.Background(),
-		"SELECT id FROM river_job WHERE kind = 'run.advance' AND args->>'run_id' = $1 AND state = 'running'", runID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for rows.Next() {
-		if stranded != 0 {
-			t.Fatal("more than one running advance job for the run")
-		}
-		if err := rows.Scan(&stranded); err != nil {
-			t.Fatal(err)
-		}
-	}
-	rows.Close()
-	if stranded == 0 {
+	// Every advance of the run that reached the gate is a job a crash strands
+	// (the completion and the log flush may each have bumped the version).
+	stranded := c.runningAdvanceJobs(runID)
+	if len(stranded) == 0 {
 		t.Fatal("no running advance job for the run")
 	}
 
@@ -109,7 +121,9 @@ func TestRunAdvancesAfterControllerDiesMidAdvance(t *testing.T) {
 	c.lb.route("ag1", "ctl-B")
 
 	assertExactlyOnce(t, c, runID, first.AttemptID, gp)
-	if state := c.advanceJobState(stranded); state != "running" {
-		t.Fatalf("stranded job %d is %s; want it still running (the sweep recovered the run, not the rescuer)", stranded, state)
+	for _, id := range stranded {
+		if state := c.advanceJobState(id); state != "running" {
+			t.Fatalf("stranded job %d is %s; want it still running (the sweep recovered the run, not the rescuer)", id, state)
+		}
 	}
 }
