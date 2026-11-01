@@ -8,7 +8,6 @@ import (
 
 	"github.com/denyszorinets/damson/internal/pluginreg"
 	"github.com/denyszorinets/damson/internal/store"
-	"github.com/denyszorinets/damson/pkg/pluginsdk"
 )
 
 // liveWindow is how long an agent may stay unseen before its plugins stop
@@ -127,10 +126,9 @@ func (sy *pluginSyncer) load(ctx context.Context, st store.PluginStore, sink Plu
 			next[k] = e
 			continue
 		}
-		var m pluginsdk.Manifest
 		e := pluginreg.Entry{Checksum: r.Checksum}
-		if err := json.Unmarshal(r.Manifest, &m); err == nil {
-			e.Manifest = m
+		err := json.Unmarshal(r.Manifest, &e.Manifest)
+		if err == nil {
 			err = sink.ValidateEntry(e)
 		}
 		if err != nil {

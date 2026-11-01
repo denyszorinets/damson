@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -197,4 +198,51 @@ func TestPluginsSyncAcrossControllers(t *testing.T) {
 			t.Fatalf("ctl-1 lost its own agent's plugin: %v", got)
 		}
 	})
+}
+
+type manifestRows []store.PluginManifest
+
+func (m manifestRows) ListPluginManifests(context.Context) ([]store.PluginManifest, error) {
+	return m, nil
+}
+func (manifestRows) ListLivePluginProviders(context.Context, time.Time) ([]store.LivePluginProvider, error) {
+	return nil, nil
+}
+func (manifestRows) DeleteOrphanPluginManifests(context.Context, time.Time) (int, error) {
+	return 0, nil
+}
+
+type nopLog struct{}
+
+func (nopLog) Warn(string, ...any) {}
+
+// A stored manifest that fails validation is left out; valid ones stay.
+func TestPluginSyncSkipsInvalidStoredManifest(t *testing.T) {
+	reg, _ := pluginreg.New(nil, nil)
+	good := pManifest("1.0.0")
+	sum, err := good.Checksum()
+	if err != nil {
+		t.Fatal(err)
+	}
+	goodJSON, _ := json.Marshal(good)
+	bad := pManifest("nope") // not semver
+	badJSON, _ := json.Marshal(bad)
+	rows := manifestRows{
+		{Name: "demo", Version: "1.0.0", Checksum: sum, Manifest: goodJSON},
+		{Name: "demo", Version: "nope", Checksum: "x", Manifest: badJSON},
+		{Name: "junk", Version: "1.0.0", Checksum: "y", Manifest: []byte(`"not an object"`)},
+	}
+	sy := newSyncer()
+	if err := sy.load(context.Background(), rows, reg, nopLog{}); err != nil {
+		t.Fatal(err)
+	}
+	prov := []store.LivePluginProvider{
+		{AgentID: "a", Pool: "p", Name: "demo", Version: "1.0.0", Checksum: sum},
+		{AgentID: "a", Pool: "p", Name: "demo", Version: "nope", Checksum: "x"},
+		{AgentID: "a", Pool: "p", Name: "junk", Version: "1.0.0", Checksum: "y"},
+	}
+	got := sy.agents(prov)
+	if len(got) != 1 || len(got[0].Entries) != 1 || got[0].Entries[0].Manifest.Version != "1.0.0" {
+		t.Fatalf("agents = %+v; want only the valid manifest", got)
+	}
 }
