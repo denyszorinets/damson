@@ -50,8 +50,8 @@ type PluginVersion struct {
 	Requires     []string         `json:"requires" doc:"Agent capabilities needed, such as bin:git."`
 	TargetMode   string           `json:"target_mode" enum:"none,single_node,inventory"`
 	Builtin      bool             `json:"builtin" doc:"The controller links this exact manifest itself."`
-	Pools        []string         `json:"pools" doc:"Pools with at least one connected agent running this version."`
-	Agents       []PluginProvider `json:"agents" doc:"Connected agents running this version."`
+	Pools        []string         `json:"pools" doc:"Pools with at least one live agent (on any controller) running this version."`
+	Agents       []PluginProvider `json:"agents" doc:"Live agents (on any controller) running this version."`
 	Conflicts    []PluginConflict `json:"conflicts" doc:"Agents reporting a different manifest for this version; empty when consistent."`
 }
 

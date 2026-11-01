@@ -89,11 +89,19 @@ func (r *Registry) build() map[string]*Plugin {
 	for k, b := range r.builtins {
 		get(k, b.sum, b.man).Builtin = true
 	}
-	for _, a := range r.agents {
+	add := func(a *agentRec) {
 		for k, sum := range a.sums {
 			v := get(k, sum, a.mans[k])
 			v.Agents = append(v.Agents, Provider{AgentID: a.id, Pool: a.pool})
 			v.caps[a.id] = a.caps
+		}
+	}
+	for _, a := range r.agents {
+		add(a)
+	}
+	for id, a := range r.remote {
+		if _, local := r.agents[id]; !local {
+			add(a)
 		}
 	}
 	out := map[string]*Plugin{}

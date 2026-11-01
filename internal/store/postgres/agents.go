@@ -33,7 +33,13 @@ func (s *Store) UpsertAgentOnHello(ctx context.Context, h store.AgentHello, now 
 	if err != nil {
 		return err
 	}
-	n, err := s.q.UpsertAgent(ctx, gen.UpsertAgentParams{
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("beginning hello of agent %q: %w", h.ID, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := s.q.WithTx(tx)
+	n, err := q.UpsertAgent(ctx, gen.UpsertAgentParams{
 		ID: h.ID, PoolID: h.PoolID, Version: h.Version, Protocol: int32(h.Protocol),
 		Labels: labels, Capabilities: caps, Capacity: int32(h.Capacity),
 		Telemetry: store.ObjectOrEmpty(h.Telemetry), ControllerID: text(h.ControllerID),
@@ -45,10 +51,17 @@ func (s *Store) UpsertAgentOnHello(ctx context.Context, h store.AgentHello, now 
 	if err != nil {
 		return fmt.Errorf("upserting agent %q: %w", h.ID, err)
 	}
-	if n > 0 {
-		return nil
+	if n == 0 {
+		_ = tx.Rollback(ctx)
+		return s.explainRejectedHello(ctx, h)
 	}
-	return s.explainRejectedHello(ctx, h)
+	if err := replaceAgentPlugins(ctx, q, h, now); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing hello of agent %q: %w", h.ID, err)
+	}
+	return nil
 }
 
 // explainRejectedHello classifies a hello that changed no row.

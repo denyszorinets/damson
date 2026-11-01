@@ -15,16 +15,17 @@ const ConnectPath = protocol.ConnectPath
 
 // Defaults for Config zero values.
 const (
-	DefaultHeartbeatInterval = 10 * time.Second // told to agents in the hello response
-	DefaultFlushInterval     = 10 * time.Second // telemetry batch write
-	DefaultInstanceInterval  = 5 * time.Second  // controller_instances heartbeat
-	DefaultHelloTimeout      = 10 * time.Second // upgrade to agent.hello
-	DefaultReconnectJitter   = 5 * time.Second  // agent.reconnect jitter bound
-	DefaultStoreTimeout      = 5 * time.Second  // bound on one background store call
-	DefaultLeaseTTL          = time.Minute      // lease given to attempts adopted on reconnect (matches dispatch.DefaultLeaseTTL)
-	logBatchBytes            = 64 * 1024
-	logBatchIntervalMS       = 200
-	maxAgentIDLen            = 128
+	DefaultHeartbeatInterval  = 10 * time.Second // told to agents in the hello response
+	DefaultFlushInterval      = 10 * time.Second // telemetry batch write
+	DefaultInstanceInterval   = 5 * time.Second  // controller_instances heartbeat
+	DefaultPluginSyncInterval = 7 * time.Second  // refresh of other controllers' plugin manifests
+	DefaultHelloTimeout       = 10 * time.Second // upgrade to agent.hello
+	DefaultReconnectJitter    = 5 * time.Second  // agent.reconnect jitter bound
+	DefaultStoreTimeout       = 5 * time.Second  // bound on one background store call
+	DefaultLeaseTTL           = time.Minute      // lease given to attempts adopted on reconnect (matches dispatch.DefaultLeaseTTL)
+	logBatchBytes             = 64 * 1024
+	logBatchIntervalMS        = 200
+	maxAgentIDLen             = 128
 )
 
 // Ticker is the part of time.Ticker the gateway uses.
@@ -67,6 +68,11 @@ type PluginSink interface {
 	Prepare(pluginreg.AgentInfo) (*pluginreg.Prepared, error)
 	Commit(*pluginreg.Prepared)
 	RemoveAgent(id string)
+	// ValidateEntry and SetRemote serve the plugin sync: manifests of agents
+	// on other controllers, read back from the store, are validated once and
+	// installed as a whole.
+	ValidateEntry(pluginreg.Entry) error
+	SetRemote([]pluginreg.RemoteAgent)
 }
 
 // SessionHook installs the handlers of one more component on every agent
@@ -97,13 +103,14 @@ type Config struct {
 	Logger              *slog.Logger
 
 	// Zero values select the Default* constants.
-	HeartbeatInterval time.Duration
-	FlushInterval     time.Duration
-	InstanceInterval  time.Duration
-	HelloTimeout      time.Duration
-	ReconnectJitter   time.Duration
-	StoreTimeout      time.Duration
-	LeaseTTL          time.Duration
+	HeartbeatInterval  time.Duration
+	FlushInterval      time.Duration
+	InstanceInterval   time.Duration
+	PluginSyncInterval time.Duration
+	HelloTimeout       time.Duration
+	ReconnectJitter    time.Duration
+	StoreTimeout       time.Duration
+	LeaseTTL           time.Duration
 }
 
 var (
@@ -128,6 +135,7 @@ func (c *Config) applyDefaults() error {
 		{&c.HeartbeatInterval, DefaultHeartbeatInterval},
 		{&c.FlushInterval, DefaultFlushInterval},
 		{&c.InstanceInterval, DefaultInstanceInterval},
+		{&c.PluginSyncInterval, DefaultPluginSyncInterval},
 		{&c.HelloTimeout, DefaultHelloTimeout},
 		{&c.ReconnectJitter, DefaultReconnectJitter},
 		{&c.StoreTimeout, DefaultStoreTimeout},

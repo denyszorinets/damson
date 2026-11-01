@@ -77,6 +77,9 @@ type AgentHello struct {
 	Telemetry    json.RawMessage // may be empty
 	ControllerID string          // the controller accepting the socket
 	SessionSeq   uint64          // per-agent-process connection counter from agent.hello
+	// Plugins are the agent's accepted manifests. The agent's set is
+	// replaced by this one in the hello transaction.
+	Plugins []PluginManifest
 }
 
 // AgentTouch is one batched heartbeat write.
@@ -101,6 +104,8 @@ type AgentStore interface {
 	// stored one. It returns ErrInvalid for an empty ControllerID or PoolID,
 	// ErrNotFound if the pool is absent, ErrConflict if the agent exists in
 	// a different pool, and ErrStale if the stored session is as new or newer.
+	// The agent row and its plugin set are written in one transaction, so a
+	// refused hello changes nothing.
 	UpsertAgentOnHello(ctx context.Context, h AgentHello, now time.Time) error
 	// BatchTouchAgents updates last_seen and telemetry in one transaction,
 	// only for agents still owned by controllerID at the touch's SessionSeq

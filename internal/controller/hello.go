@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -54,7 +55,12 @@ func (g *Gateway) handleHello(ctx context.Context, s *session, p protocol.Params
 
 	now := g.cfg.Clock.now()
 	hello.ControllerID = g.cfg.ControllerID
-	if err := g.cfg.Store.UpsertAgentOnHello(ctx, hello, now); err != nil {
+	prep := g.preparePlugins(s, req) // pure CPU; its accepted manifests are stored with the hello
+	var err error
+	if hello.Plugins, err = pluginRows(prep); err != nil {
+		return nil, fmt.Errorf("encoding plugin manifests: %w", err)
+	}
+	if err = g.cfg.Store.UpsertAgentOnHello(ctx, hello, now); err != nil {
 		s.mu.Lock()
 		s.helloing = false // a refused hello may be retried; the socket is closed anyway
 		s.mu.Unlock()
@@ -64,7 +70,6 @@ func (g *Gateway) handleHello(ctx context.Context, s *session, p protocol.Params
 	s.helloed, s.seq, s.lastSeen = true, req.SessionSeq, now
 	s.free = req.MaxConcurrent
 	s.mu.Unlock()
-	prep := g.preparePlugins(s, req)
 	if loser := g.reg.replace(s, func() { g.commitPlugins(prep) }); loser != nil {
 		loser.log.Info("superseded by a newer socket for the same agent", "session_seq", req.SessionSeq)
 		if loser == s {
@@ -197,6 +202,23 @@ func (g *Gateway) preparePlugins(s *session, req protocol.HelloRequest) *pluginr
 		s.log.Warn("plugin manifests rejected", "error", err)
 	}
 	return prep
+}
+
+// pluginRows encodes the accepted manifests for the store.
+func pluginRows(prep *pluginreg.Prepared) ([]store.PluginManifest, error) {
+	if prep == nil {
+		return nil, nil
+	}
+	entries := prep.Entries()
+	out := make([]store.PluginManifest, len(entries))
+	for i, e := range entries {
+		raw, err := json.Marshal(e.Manifest)
+		if err != nil {
+			return nil, fmt.Errorf("manifest %s@%s: %w", e.Manifest.Name, e.Manifest.Version, err)
+		}
+		out[i] = store.PluginManifest{Name: e.Manifest.Name, Version: e.Manifest.Version, Checksum: e.Checksum, Manifest: raw}
+	}
+	return out, nil
 }
 
 // commitPlugins runs under the session-registry lock and must stay cheap.

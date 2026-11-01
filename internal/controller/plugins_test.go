@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/denyszorinets/damson/internal/pluginreg"
 	"github.com/denyszorinets/damson/internal/protocol"
@@ -106,5 +107,68 @@ func TestConcurrentHellosKeepHighestSeqPlugins(t *testing.T) {
 			return ok && len(p.Versions) == 1 && p.Versions[0].Manifest.Version == fmt.Sprintf("1.%d.0", n) &&
 				s != nil && s.seqValue() == n
 		})
+	})
+}
+
+func pluginNames(reg *pluginreg.Registry) []string {
+	var out []string
+	for _, p := range reg.List() {
+		out = append(out, p.Name)
+	}
+	return out
+}
+
+// Plugins reported to one controller become known to the other through the
+// store, and are dropped again on disconnect or when the agent stops being
+// seen (a crashed controller).
+func TestPluginsSyncAcrossControllers(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		reg1, _ := pluginreg.New(nil, nil)
+		reg2, _ := pluginreg.New(nil, nil)
+		r1 := newRig(t, st, func(c *Config) { c.Plugins = reg1 })
+		r2 := newPeerRig(t, r1, "ctl-2", func(c *Config) { c.Plugins = reg2 })
+		tick := func() { r2.clock.advance(DefaultPluginSyncInterval) }
+
+		a := r1.dial("agent-1")
+		if _, err := a.hello(helloWithManifests(1, pManifest("1.0.0", "bin:git"))); err != nil {
+			t.Fatal(err)
+		}
+		eventually(t, "ctl-2 learns demo", func() bool {
+			tick()
+			return len(pluginNames(reg2)) == 1
+		})
+		res, err := reg2.Resolve("demo@1", pluginreg.Filter{Pool: "default"})
+		if err != nil || len(res.Agents) != 1 || res.Agents[0].AgentID != "agent-1" || res.Agents[0].Pool != "default" {
+			t.Fatalf("ctl-2 resolve = %+v, %v", res, err)
+		}
+		if _, err := reg2.Lookup("demo@1"); err != nil {
+			t.Fatalf("ctl-2 lookup: %v", err)
+		}
+
+		// A disconnect on ctl-1 removes it from ctl-2's view.
+		a.close()
+		eventually(t, "ctl-2 drops demo after disconnect", func() bool {
+			tick()
+			return len(pluginNames(reg2)) == 0
+		})
+
+		// An agent that is never touched again (controller crash) ages out.
+		b := r1.dial("agent-2")
+		if _, err := b.hello(helloWithManifests(1, pManifest("1.0.0"))); err != nil {
+			t.Fatal(err)
+		}
+		eventually(t, "ctl-2 learns demo again", func() bool {
+			tick()
+			return len(pluginNames(reg2)) == 1
+		})
+		r2.clock.advance(time.Duration(liveWindowFlushes)*DefaultFlushInterval + time.Second)
+		tick()
+		eventually(t, "ctl-2 drops the unseen agent", func() bool {
+			tick()
+			return len(pluginNames(reg2)) == 0
+		})
+		if got := pluginNames(reg1); len(got) != 1 {
+			t.Fatalf("ctl-1 lost its own agent's plugin: %v", got)
+		}
 	})
 }
