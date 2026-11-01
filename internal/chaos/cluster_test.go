@@ -162,14 +162,17 @@ func (c *Cluster) addAgent(name string, idx int, plugins ...pluginsdk.Plugin) *a
 }
 
 // trigger creates a run through controller idx the way the API does.
-func (c *Cluster) trigger(idx int) string {
+func (c *Cluster) trigger(idx int) string { return c.triggerPlugin(idx, "gate") }
+
+// triggerPlugin is trigger with step s1 running the given plugin.
+func (c *Cluster) triggerPlugin(idx int, plugin string) string {
 	c.t.Helper()
 	ctl := c.ctls[idx]
 	var id string
 	err := ctl.st.WithTx(context.Background(), func(tx store.Tx) error {
 		tree, err := tx.CreateRun(context.Background(), store.NewRun{
 			JobID: c.jv.JobID, JobVersionID: c.jv.ID, Trigger: json.RawMessage(`{"type":"manual"}`), Options: json.RawMessage(`{}`),
-			Steps: []store.NewStepInstance{{Path: "s1", Plugin: "gate", Input: json.RawMessage(`{"word":"one"}`),
+			Steps: []store.NewStepInstance{{Path: "s1", Plugin: plugin, Input: json.RawMessage(`{"word":"one"}`),
 				Execution: &store.NewExecution{Pool: advance.DefaultPool, ScheduledAt: time.Now()}}},
 		}, time.Now())
 		if err != nil {
