@@ -350,9 +350,11 @@ Behaviour
   response carries ``heartbeat_interval_ms`` (10000), the limits and a
   reconciliation list: a ``finished`` attempt that is
   still the current attempt of an execution owned by the agent is answered
-  ``continue`` (the agent redelivers ``step.complete``); everything else,
-  including running attempts, is answered ``cancel`` (adoption on reconnect is
-  issue #60, M3). A refused hello is answered with a
+  ``continue`` (the agent redelivers ``step.complete``); a running attempt of
+  the agent is adopted by this controller (``controller_id`` and lease move,
+  fenced on ``session_seq``) and answered ``continue``; everything else is
+  answered ``cancel``. A store failure fails the hello, so the agent
+  reconnects instead of losing steps. A refused hello is answered with a
   JSON-RPC error and the socket is closed.
 * ``agent.heartbeat``: kept in memory only. Every 10 seconds one batched
   write updates ``last_seen`` and the telemetry snapshot of every agent that

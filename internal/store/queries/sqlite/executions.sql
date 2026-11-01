@@ -21,6 +21,18 @@ WHERE attempt_id IN (sqlc.slice(attempt_ids)) AND controller_id = ?
   AND state IN ('dispatched', 'running')
 RETURNING attempt_id;
 
+-- AdoptExecutions moves live attempts of one agent to the controller that now
+-- owns the agent session. The EXISTS is the fence: it matches only while the
+-- agents row still names this controller at this session_seq. Plain ?
+-- parameters (sqlc.slice and numbered parameters do not combine); the order is
+-- controller, lease, attempts, agent, then the fence's agent, controller, seq.
+-- name: AdoptExecutions :many
+UPDATE executions SET controller_id = ?, lease_expires_at = max(lease_expires_at, ?)
+WHERE attempt_id IN (sqlc.slice(attempt_ids)) AND agent_id = ?
+  AND state IN ('dispatched', 'running')
+  AND EXISTS (SELECT 1 FROM agents WHERE agents.id = ? AND agents.controller_id = ? AND agents.session_seq = ?)
+RETURNING attempt_id;
+
 -- LockExecutionAttempt is a no-op write that fences the transaction: it
 -- matches only while attempt_id is current. SQLite serializes writers.
 -- name: LockExecutionAttempt :execrows

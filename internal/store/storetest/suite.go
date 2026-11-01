@@ -65,6 +65,7 @@ func Run(t *testing.T, f Factory) {
 		{"LogChunks", testLogChunks},
 		{"LogData", testLogData},
 		{"ClaimMultiPool", testClaimMultiPool},
+		{"AdoptExecutions", testAdoptExecutions},
 		{"TerminalRunRejectsAdvance", testTerminalRunRejectsAdvance},
 		{"JSONColumns", testJSONColumns},
 		{"LeaseRaces", testLeaseRaces},

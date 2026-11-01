@@ -101,6 +101,14 @@ type ExecutionStore interface {
 	// by controllerID, and returns the ids of those attempts. The rest are
 	// stale, with no error.
 	RenewLeases(ctx context.Context, controllerID string, attemptIDs []string, leaseExpiresAt time.Time) ([]string, error)
+	// AdoptExecutions makes controllerID the owner of the agent's live
+	// (dispatched or running) attempts among attemptIDs and extends their
+	// leases to leaseExpiresAt, for the takeover after an agent reconnects to
+	// another controller. It is fenced on the agent row: it applies only
+	// while the agent is owned by controllerID at sessionSeq, so a newer
+	// session turns it into a no-op. It returns the adopted attempt ids; the
+	// rest (other agent, terminal, unknown) are skipped without error.
+	AdoptExecutions(ctx context.Context, controllerID, agentID string, sessionSeq uint64, attemptIDs []string, leaseExpiresAt time.Time) ([]string, error)
 	// ExpireLeases marks up to limit dispatched or running executions whose
 	// lease ended before now as lost, and returns them (the reaper).
 	ExpireLeases(ctx context.Context, now time.Time, limit int) ([]Execution, error)

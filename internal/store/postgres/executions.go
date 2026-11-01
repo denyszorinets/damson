@@ -156,6 +156,21 @@ func (s *Store) RenewLeases(ctx context.Context, controllerID string, attemptIDs
 	return renewed, nil
 }
 
+// AdoptExecutions implements store.ExecutionStore.
+func (s *Store) AdoptExecutions(ctx context.Context, controllerID, agentID string, sessionSeq uint64, attemptIDs []string, leaseExpiresAt time.Time) ([]string, error) {
+	if len(attemptIDs) == 0 {
+		return nil, nil
+	}
+	adopted, err := s.q.AdoptExecutions(ctx, gen.AdoptExecutionsParams{
+		ControllerID: text(controllerID), LeaseExpiresAt: ts(leaseExpiresAt), AttemptIds: attemptIDs,
+		AgentID: text(agentID), SessionSeq: int64(sessionSeq),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("adopting executions of agent %q: %w", agentID, err)
+	}
+	return adopted, nil
+}
+
 // ExpireLeases implements store.ExecutionStore.
 func (s *Store) ExpireLeases(ctx context.Context, now time.Time, limit int) ([]store.Execution, error) {
 	tx, err := s.pool.Begin(ctx)

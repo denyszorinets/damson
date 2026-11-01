@@ -11,6 +11,68 @@ import (
 	"strings"
 )
 
+const adoptExecutions = `-- name: AdoptExecutions :many
+UPDATE executions SET controller_id = ?, lease_expires_at = max(lease_expires_at, ?)
+WHERE attempt_id IN (/*SLICE:attempt_ids*/?) AND agent_id = ?
+  AND state IN ('dispatched', 'running')
+  AND EXISTS (SELECT 1 FROM agents WHERE agents.id = ? AND agents.controller_id = ? AND agents.session_seq = ?)
+RETURNING attempt_id
+`
+
+type AdoptExecutionsParams struct {
+	ControllerID   sql.NullString
+	MAX            interface{}
+	AttemptIds     []string
+	AgentID        sql.NullString
+	ID             string
+	ControllerID_2 sql.NullString
+	SessionSeq     int64
+}
+
+// AdoptExecutions moves live attempts of one agent to the controller that now
+// owns the agent session. The EXISTS is the fence: it matches only while the
+// agents row still names this controller at this session_seq. Plain ?
+// parameters (sqlc.slice and numbered parameters do not combine); the order is
+// controller, lease, attempts, agent, then the fence's agent, controller, seq.
+func (q *Queries) AdoptExecutions(ctx context.Context, arg AdoptExecutionsParams) ([]string, error) {
+	query := adoptExecutions
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.ControllerID)
+	queryParams = append(queryParams, arg.MAX)
+	if len(arg.AttemptIds) > 0 {
+		for _, v := range arg.AttemptIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:attempt_ids*/?", strings.Repeat(",?", len(arg.AttemptIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:attempt_ids*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.AgentID)
+	queryParams = append(queryParams, arg.ID)
+	queryParams = append(queryParams, arg.ControllerID_2)
+	queryParams = append(queryParams, arg.SessionSeq)
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var attempt_id string
+		if err := rows.Scan(&attempt_id); err != nil {
+			return nil, err
+		}
+		items = append(items, attempt_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const cancelQueuedExecutionCAS = `-- name: CancelQueuedExecutionCAS :execrows
 UPDATE executions SET state = 'canceled', finished_at = ?1, error = ?2
 WHERE id = ?3 AND run_id = ?4 AND state = 'queued'
