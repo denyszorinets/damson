@@ -68,6 +68,29 @@ jobs:
             echo "Postgres suite did not run (no PASS lines)"; exit 1
           fi
 
+  chaos:
+    name: HA chaos tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Chaos tests (PostgreSQL via testcontainers)
+        run: |
+          set -o pipefail
+          if [ -n "${DAMSON_SKIP_POSTGRES:-}" ]; then
+            echo "DAMSON_SKIP_POSTGRES must not be set in CI"; exit 1
+          fi
+          make chaos GOTESTFLAGS=-v 2>&1 | tee chaos-test.log
+          if grep -q -e '--- SKIP' chaos-test.log; then
+            echo "Chaos suite skipped tests"; exit 1
+          fi
+          if ! grep -q -e '--- PASS' chaos-test.log; then
+            echo "Chaos suite did not run (no PASS lines)"; exit 1
+          fi
+
   integration:
     name: Integration tests (sshd container)
     runs-on: ubuntu-latest

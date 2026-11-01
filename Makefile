@@ -9,7 +9,7 @@ GOPKGS   := $(shell go list ./... | grep -v /web/node_modules/)
 GOTESTFLAGS ?=
 SPHINX   := cd $(DOCS_DIR) && uv run --frozen
 
-.PHONY: test-integration plugin-contract build test test-pg gen vet fmt-check lint check docs docs-serve docs-check web web-check
+.PHONY: chaos test-integration plugin-contract build test test-pg gen vet fmt-check lint check docs docs-serve docs-check web web-check
 
 build: ## Build the damson binary into bin/damson
 	go build -ldflags "$(LDFLAGS)" -o bin/damson ./cmd/damson
@@ -22,6 +22,9 @@ PGPKGS := ./internal/store/... ./internal/api/... ./internal/controller/... ./in
 
 test-pg: ## Integration tests against Postgres: store, api, controller, cmd (testcontainers; DAMSON_TEST_POSTGRES_DSN reuses a server; fails without Docker unless DAMSON_SKIP_POSTGRES=1)
 	go test $(GOTESTFLAGS) -tags integration -count=1 $(PGPKGS)
+
+chaos: ## HA chaos tests: several in-process controllers on one Postgres, agents moved and cut off (testcontainers; DAMSON_TEST_POSTGRES_DSN reuses a server)
+	go test $(GOTESTFLAGS) -tags chaos -race -count=1 -timeout 10m ./internal/chaos/...
 
 # Packages with `//go:build integration` tests that do not use Postgres (they need Docker for other containers).
 TESTINTPKGS := ./plugins/ssh/...
