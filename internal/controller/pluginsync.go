@@ -11,10 +11,12 @@ import (
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 )
 
-// liveWindowFlushes is how many flush intervals an agent may stay silent
-// before its plugins stop counting: an agent of a crashed controller is no
-// longer touched, so it ages out without any cleanup duty.
-const liveWindowFlushes = 3
+// liveWindow is how long an agent may stay unseen before its plugins stop
+// counting: an agent of a crashed controller is no longer touched, so it ages
+// out without any cleanup duty. last_seen is the heartbeat's arrival time and
+// reaches the database up to one flush later, so the window covers two rounds
+// of both intervals (it also absorbs some clock skew between controllers).
+func (c Config) liveWindow() time.Duration { return 2 * (c.HeartbeatInterval + c.FlushInterval) }
 
 // manifestKey identifies a stored manifest.
 type manifestKey struct{ name, version, checksum string }
@@ -34,9 +36,9 @@ type pluginSyncer struct {
 	lastSweep time.Time
 }
 
-// pluginSyncLoop refreshes the remote view once at start, so a restarted
-// controller knows custom plugins before their agents reconnect, then on
-// every tick.
+// pluginSyncLoop refreshes the remote view once at start, so a controller
+// that starts while its agents are live on other controllers knows their
+// custom plugins immediately, then on every tick.
 func (g *Gateway) pluginSyncLoop(ctx context.Context, t Ticker) {
 	defer t.Stop()
 	sy := &pluginSyncer{known: map[manifestKey]*pluginreg.Entry{}}
@@ -59,7 +61,7 @@ func (g *Gateway) syncPlugins(ctx context.Context, sy *pluginSyncer) {
 	}
 	sctx, cancel := context.WithTimeout(ctx, g.cfg.StoreTimeout)
 	defer cancel()
-	seenAfter := g.cfg.Clock.now().Add(-liveWindowFlushes * g.cfg.FlushInterval)
+	seenAfter := g.cfg.Clock.now().Add(-g.cfg.liveWindow())
 	providers, err := g.cfg.Store.ListLivePluginProviders(sctx, seenAfter)
 	if err != nil {
 		if ctx.Err() == nil {

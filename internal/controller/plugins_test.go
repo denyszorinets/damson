@@ -1,8 +1,11 @@
 package controller
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -118,25 +121,39 @@ func pluginNames(reg *pluginreg.Registry) []string {
 	return out
 }
 
+type failingPlugins struct {
+	store.Store
+	fail *atomic.Bool
+}
+
+func (f failingPlugins) ListLivePluginProviders(ctx context.Context, after time.Time) ([]store.LivePluginProvider, error) {
+	if f.fail.Load() {
+		return nil, errors.New("database unavailable")
+	}
+	return f.Store.ListLivePluginProviders(ctx, after)
+}
+
+func newSyncer() *pluginSyncer { return &pluginSyncer{known: map[manifestKey]*pluginreg.Entry{}} }
+
 // Plugins reported to one controller become known to the other through the
 // store, and are dropped again on disconnect or when the agent stops being
-// seen (a crashed controller).
+// seen (a crashed controller). The sync is driven directly, with a clock that
+// only moves where the test says so.
 func TestPluginsSyncAcrossControllers(t *testing.T) {
 	forEachBackend(t, func(t *testing.T, st store.Store) {
+		ctx := context.Background()
 		reg1, _ := pluginreg.New(nil, nil)
 		reg2, _ := pluginreg.New(nil, nil)
 		r1 := newRig(t, st, func(c *Config) { c.Plugins = reg1 })
 		r2 := newPeerRig(t, r1, "ctl-2", func(c *Config) { c.Plugins = reg2 })
-		tick := func() { r2.clock.advance(DefaultPluginSyncInterval) }
+		sy := newSyncer()
+		sync2 := func() { r2.gw.syncPlugins(ctx, sy) }
 
 		a := r1.dial("agent-1")
 		if _, err := a.hello(helloWithManifests(1, pManifest("1.0.0", "bin:git"))); err != nil {
 			t.Fatal(err)
 		}
-		eventually(t, "ctl-2 learns demo", func() bool {
-			tick()
-			return len(pluginNames(reg2)) == 1
-		})
+		sync2()
 		res, err := reg2.Resolve("demo@1", pluginreg.Filter{Pool: "default"})
 		if err != nil || len(res.Agents) != 1 || res.Agents[0].AgentID != "agent-1" || res.Agents[0].Pool != "default" {
 			t.Fatalf("ctl-2 resolve = %+v, %v", res, err)
@@ -145,10 +162,20 @@ func TestPluginsSyncAcrossControllers(t *testing.T) {
 			t.Fatalf("ctl-2 lookup: %v", err)
 		}
 
-		// A disconnect on ctl-1 removes it from ctl-2's view.
+		// A store failure keeps the previous view.
+		fail := &atomic.Bool{}
+		fail.Store(true)
+		r3 := newPeerRig(t, r1, "ctl-3", func(c *Config) { c.Store = failingPlugins{st, fail}; c.Plugins = reg2 })
+		r3.gw.syncPlugins(ctx, newSyncer())
+		if got := pluginNames(reg2); len(got) != 1 {
+			t.Fatalf("view after a failed sync = %v; want it kept", got)
+		}
+
+		// A disconnect on ctl-1 removes it from ctl-2's view, with no clock
+		// movement: the agent is still inside the live window.
 		a.close()
 		eventually(t, "ctl-2 drops demo after disconnect", func() bool {
-			tick()
+			sync2()
 			return len(pluginNames(reg2)) == 0
 		})
 
@@ -157,16 +184,15 @@ func TestPluginsSyncAcrossControllers(t *testing.T) {
 		if _, err := b.hello(helloWithManifests(1, pManifest("1.0.0"))); err != nil {
 			t.Fatal(err)
 		}
-		eventually(t, "ctl-2 learns demo again", func() bool {
-			tick()
-			return len(pluginNames(reg2)) == 1
-		})
-		r2.clock.advance(time.Duration(liveWindowFlushes)*DefaultFlushInterval + time.Second)
-		tick()
-		eventually(t, "ctl-2 drops the unseen agent", func() bool {
-			tick()
-			return len(pluginNames(reg2)) == 0
-		})
+		sync2()
+		if got := pluginNames(reg2); len(got) != 1 {
+			t.Fatalf("ctl-2 view = %v; want demo", got)
+		}
+		r2.clock.advance(r2.gw.cfg.liveWindow() + time.Second)
+		sync2()
+		if got := pluginNames(reg2); len(got) != 0 {
+			t.Fatalf("ctl-2 view = %v; the unseen agent should have aged out", got)
+		}
 		if got := pluginNames(reg1); len(got) != 1 {
 			t.Fatalf("ctl-1 lost its own agent's plugin: %v", got)
 		}

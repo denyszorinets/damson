@@ -39,8 +39,9 @@ type PluginStore interface {
 	// distinct versions only, so it stays small.
 	ListPluginManifests(ctx context.Context) ([]PluginManifest, error)
 	// DeleteOrphanPluginManifests removes manifests created before olderThan
-	// that no agent references, and returns how many. The age guard keeps it
-	// from racing a concurrent hello that has just inserted one.
+	// that no agent references, and returns how many. The age guard, with the
+	// refresh of created_at on every link, keeps it from racing a concurrent
+	// hello.
 	DeleteOrphanPluginManifests(ctx context.Context, olderThan time.Time) (int, error)
 }
 

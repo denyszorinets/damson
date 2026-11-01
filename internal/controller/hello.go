@@ -58,6 +58,7 @@ func (g *Gateway) handleHello(ctx context.Context, s *session, p protocol.Params
 	prep := g.preparePlugins(s, req) // pure CPU; its accepted manifests are stored with the hello
 	var err error
 	if hello.Plugins, err = pluginRows(prep); err != nil {
+		s.reject()
 		return nil, fmt.Errorf("encoding plugin manifests: %w", err)
 	}
 	if err = g.cfg.Store.UpsertAgentOnHello(ctx, hello, now); err != nil {

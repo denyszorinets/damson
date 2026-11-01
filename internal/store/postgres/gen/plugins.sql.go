@@ -60,7 +60,8 @@ func (q *Queries) InsertAgentPlugin(ctx context.Context, arg InsertAgentPluginPa
 const insertPluginManifest = `-- name: InsertPluginManifest :exec
 INSERT INTO plugin_manifests (name, version, checksum, manifest, created_at)
 VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (name, version, checksum) DO NOTHING
+ON CONFLICT (name, version, checksum) DO UPDATE SET created_at = excluded.created_at
+WHERE plugin_manifests.created_at < excluded.created_at
 `
 
 type InsertPluginManifestParams struct {
@@ -71,6 +72,10 @@ type InsertPluginManifestParams struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+// A repeated link refreshes created_at: the DO UPDATE locks the row, so a
+// concurrent orphan sweep either sees the new timestamp or loses on the
+// foreign key instead of the hello. Hellos insert in name, version order, so
+// their locks are taken in a consistent order.
 func (q *Queries) InsertPluginManifest(ctx context.Context, arg InsertPluginManifestParams) error {
 	_, err := q.db.Exec(ctx, insertPluginManifest,
 		arg.Name,

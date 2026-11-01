@@ -79,9 +79,10 @@ to the agent in ``agent_plugins``, in the hello transaction. Every few seconds
 each controller reads the plugins of live agents connected to the *other*
 controllers and merges them in, so any controller can validate, resolve and
 list. An agent counts as live while it is owned by a controller, not
-disconnected and seen within three telemetry flush intervals (30 s), so the
-agents of a crashed controller age out. A restarted controller learns custom
-plugins from the table at start.
+disconnected and seen within twice the heartbeat plus flush intervals (40 s at defaults), so the
+agents of a crashed controller age out. A controller that starts while agents are
+live on other controllers learns their plugins at once; its own agents
+reconnect first.
 
 * **Deduplication.** Manifests are keyed by name, version and checksum; many
   agents reporting the same manifest are one entry with many providers.
@@ -111,7 +112,7 @@ plugins from the table at start.
   resolves to the highest version on eligible agents of any controller. If
   that agent belongs to another controller, the execution is requeued until
   that controller claims it. The view of other controllers lags by up to one
-  sync interval (7 s), plus the 30 s liveness window after a crash. The
+  sync interval (7 s), plus the liveness window after a crash. The
   checksum stored with a manifest is used as is and is part of the storage
   contract. Manifests no agent references are swept after an hour.
 * **Input validation.** Before dispatch the resolved step input is validated

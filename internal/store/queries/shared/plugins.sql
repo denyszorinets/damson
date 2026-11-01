@@ -1,7 +1,12 @@
+-- A repeated link refreshes created_at: the DO UPDATE locks the row, so a
+-- concurrent orphan sweep either sees the new timestamp or loses on the
+-- foreign key instead of the hello. Hellos insert in name, version order, so
+-- their locks are taken in a consistent order.
 -- name: InsertPluginManifest :exec
 INSERT INTO plugin_manifests (name, version, checksum, manifest, created_at)
 VALUES (sqlc.arg(name), sqlc.arg(version), sqlc.arg(checksum), sqlc.arg(manifest), sqlc.arg(created_at))
-ON CONFLICT (name, version, checksum) DO NOTHING;
+ON CONFLICT (name, version, checksum) DO UPDATE SET created_at = excluded.created_at
+WHERE plugin_manifests.created_at < excluded.created_at;
 
 -- name: DeleteAgentPlugins :exec
 DELETE FROM agent_plugins WHERE agent_id = sqlc.arg(agent_id);

@@ -114,4 +114,23 @@ func testPluginManifests(t *testing.T, s store.Store) {
 	if err != nil || n != 1 { // a2 still links hello@1.0.0; a1 dropped other@2.0.0
 		t.Fatalf("sweep = %d, %v; want the unreferenced other@2.0.0 only", n, err)
 	}
+
+	// Linking a manifest again refreshes it, so a sweep that would have
+	// removed the orphan leaves it alone.
+	h := func(seq uint64, at time.Duration, ps ...store.PluginManifest) {
+		t.Helper()
+		if err := s.UpsertAgentOnHello(ctx, helloWith("a4", pool.ID, "c1", seq, ps...), t0.Add(at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h(1, 2*time.Hour, pm("again", "1.0.0", "r")) // created at +2h
+	h(2, 2*time.Hour)                            // orphaned
+	h(3, 3*time.Hour, pm("again", "1.0.0", "r")) // linked again at +3h
+	h(4, 3*time.Hour)                            // orphaned again
+	if n, err := s.DeleteOrphanPluginManifests(ctx, t0.Add(2*time.Hour+30*time.Minute)); err != nil || n != 0 {
+		t.Fatalf("sweep of a re-linked manifest = %d, %v; want 0", n, err)
+	}
+	if n, err := s.DeleteOrphanPluginManifests(ctx, t0.Add(4*time.Hour)); err != nil || n != 1 {
+		t.Fatalf("sweep later = %d, %v; want 1", n, err)
+	}
 }
