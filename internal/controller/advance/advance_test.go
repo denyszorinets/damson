@@ -382,3 +382,49 @@ func TestStepErrorRoundTrip(t *testing.T) {
 		t.Errorf("text error = %+v", got)
 	}
 }
+
+// The engine's per-attempt timeout reaches the execution row (the agent
+// enforces it), for a first and for a later attempt.
+func TestScheduleCarriesTimeout(t *testing.T) {
+	var adv store.Advance
+	created := map[string]int{"first": 0}
+	adv.NewSteps = []store.AdvanceStep{{Path: "first"}}
+	to := engine.Duration(30 * time.Second)
+	for _, path := range []string{"first", "later"} {
+		if err := schedule(&adv, created, engine.ScheduleExecution{Path: path, Attempt: 1, ScheduledAt: t0, Timeout: to}, &engine.Job{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := adv.NewSteps[0].Execution.Timeout; got != 30*time.Second {
+		t.Fatalf("new step execution timeout = %v; want 30s", got)
+	}
+	if got := adv.NewAttempts[0].Timeout; got != 30*time.Second {
+		t.Fatalf("attempt execution timeout = %v; want 30s", got)
+	}
+}
+
+// The path from an agent's timed_out report to the engine's error.kind: the
+// store's step error text, read back by the advance state builder.
+func TestTimedOutCompletionReachesEngineAsKindTimeout(t *testing.T) {
+	ex := store.Execution{State: store.ExecTimedOut, Error: store.StepErrorText("timeout", "step timed out")}
+	status, text := store.StepOutcome(ex)
+	if status != store.StepFailed {
+		t.Fatalf("step status = %s; want failed", status)
+	}
+	inst, err := stepState(store.StepNode{StepInstance: store.StepInstance{Path: "s1", Status: status, Error: text, Outputs: []byte("{}")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.Error == nil || inst.Error.Kind != "timeout" || inst.Error.Message != "step timed out" {
+		t.Fatalf("engine sees error %+v; want kind timeout", inst.Error)
+	}
+	// The reaper's plain text gets its kind from the state.
+	_, lostText := store.StepOutcome(store.Execution{State: store.ExecLost, Error: "lease expired"})
+	lost, err := stepState(store.StepNode{StepInstance: store.StepInstance{Path: "s1", Status: store.StepFailed, Error: lostText, Outputs: []byte("{}")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lost.Error == nil || lost.Error.Kind != "lost" {
+		t.Fatalf("engine sees error %+v for a lost attempt; want kind lost", lost.Error)
+	}
+}

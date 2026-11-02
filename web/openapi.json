@@ -117,6 +117,11 @@
             "type": "integer"
           },
           "error": {
+            "description": "Error message of a failed, timed out, lost or canceled attempt.",
+            "type": "string"
+          },
+          "error_kind": {
+            "description": "Machine-readable kind of the error, such as timeout, lost, cancelled or a plugin error code.",
             "type": "string"
           },
           "finished_at": {
@@ -173,6 +178,11 @@
             "type": "integer"
           },
           "error": {
+            "description": "Error message of a failed, timed out, lost or canceled attempt.",
+            "type": "string"
+          },
+          "error_kind": {
+            "description": "Machine-readable kind of the error, such as timeout, lost, cancelled or a plugin error code.",
             "type": "string"
           },
           "finished_at": {
@@ -843,6 +853,11 @@
             "type": "string"
           },
           "error": {
+            "description": "Error message of a failed or canceled step.",
+            "type": "string"
+          },
+          "error_kind": {
+            "description": "Machine-readable kind of the error, such as timeout, lost or a plugin error code.",
             "type": "string"
           },
           "executions": {

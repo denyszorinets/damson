@@ -1,0 +1,19 @@
+[
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "input": {
+      "command": "echo timed out",
+      "node": "ops"
+    },
+    "path": "on-timeout",
+    "plugin": "ssh",
+    "step_id": "on-timeout",
+    "type": "create_step_instance"
+  },
+  {
+    "attempt": 1,
+    "path": "on-timeout",
+    "scheduled_at": "2026-03-01T10:05:00Z",
+    "type": "schedule_execution"
+  }
+]

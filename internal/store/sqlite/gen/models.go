@@ -64,6 +64,7 @@ type Execution struct {
 	StartedAt         sql.NullString
 	FinishedAt        sql.NullString
 	CancelRequestedAt sql.NullString
+	TimeoutMs         int64
 }
 
 type InstanceSetting struct {

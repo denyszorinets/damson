@@ -67,6 +67,8 @@ func Run(t *testing.T, f Factory) {
 		{"ClaimMultiPool", testClaimMultiPool},
 		{"AdoptExecutions", testAdoptExecutions},
 		{"CancelFlag", testCancelFlag},
+		{"ExecutionTimeout", testExecutionTimeout},
+		{"StepErrorKinds", testStepErrorKinds},
 		{"PluginManifests", testPluginManifests},
 		{"TerminalRunRejectsAdvance", testTerminalRunRejectsAdvance},
 		{"JSONColumns", testJSONColumns},

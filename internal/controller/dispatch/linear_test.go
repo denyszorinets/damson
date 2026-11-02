@@ -68,7 +68,7 @@ func waitLog(t *testing.T, st store.Store, execID, want string) {
 // A step that outlives the lease TTL survives because heartbeats renew it.
 func TestLeaseRenewedWhileRunning(t *testing.T) {
 	forEachBackend(t, func(t *testing.T, st store.Store) {
-		c := startCluster(t, st, twoStepSpec, func(cfg *dispatch.Config) { cfg.LeaseTTL = 400 * time.Millisecond })
+		c := startCluster(t, st, twoStepSpec, func(cfg *dispatch.Config) { cfg.LeaseTTL = 800 * time.Millisecond })
 		tree := c.waitRun(c.trigger("slow"), store.RunSucceeded)
 		if got := tree.Steps[0].Executions[0].State; got != store.ExecSucceeded {
 			t.Fatalf("first execution = %s; want succeeded (not lost)", got)

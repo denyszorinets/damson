@@ -1,0 +1,14 @@
+{
+  "job_file": "job-step-timeout.json",
+  "now": "2026-03-01T10:00:00Z",
+  "state": {
+    "id": "run-1",
+    "status": "pending",
+    "trigger": "manual",
+    "job": {
+      "name": "step-timeout",
+      "project": "default",
+      "version": "1"
+    }
+  }
+}

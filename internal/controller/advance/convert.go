@@ -3,6 +3,7 @@ package advance
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/denyszorinets/damson/internal/engine"
 	"github.com/denyszorinets/damson/internal/store"
@@ -23,8 +24,8 @@ const DefaultPool = "default"
 //     already dispatched is cancelled by its owning controller, which sees
 //     runs.cancel_requested_at (slice 53c), so there is nothing to write;
 //   - the execution pool is runs_on.pool of the step in the job spec, else
-//     DefaultPool; priority is 0; ScheduleExecution.Timeout is not stored,
-//     the dispatcher re-reads it from the spec.
+//     DefaultPool; priority is 0; ScheduleExecution.Timeout is stored on the
+//     execution and sent to the agent, which enforces it.
 func toAdvance(acts []engine.Action, tree store.RunTree, job *engine.Job) (store.Advance, error) {
 	var adv store.Advance
 	created := map[string]int{} // path -> index in adv.NewSteps
@@ -63,7 +64,7 @@ func toAdvance(acts []engine.Action, tree store.RunTree, job *engine.Job) (store
 
 func schedule(adv *store.Advance, created map[string]int, a engine.ScheduleExecution, job *engine.Job) error {
 	pool := poolFor(job, a.Path)
-	ne := store.NewExecution{Pool: pool, ScheduledAt: a.ScheduledAt}
+	ne := store.NewExecution{Pool: pool, ScheduledAt: a.ScheduledAt, Timeout: time.Duration(a.Timeout)}
 	if i, ok := created[a.Path]; ok {
 		if adv.NewSteps[i].Execution != nil {
 			return fmt.Errorf("step %q scheduled twice in one advance", a.Path)

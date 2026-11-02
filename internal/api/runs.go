@@ -24,7 +24,8 @@ type Execution struct {
 	StartedAt   *time.Time      `json:"started_at,omitempty"`
 	FinishedAt  *time.Time      `json:"finished_at,omitempty"`
 	Outputs     json.RawMessage `json:"outputs,omitempty"`
-	Error       string          `json:"error,omitempty"`
+	Error       string          `json:"error,omitempty" doc:"Error message of a failed, timed out, lost or canceled attempt."`
+	ErrorKind   string          `json:"error_kind,omitempty" doc:"Machine-readable kind of the error, such as timeout, lost, cancelled or a plugin error code."`
 }
 
 // Step is a step instance with its executions, oldest attempt first.
@@ -36,7 +37,8 @@ type Step struct {
 	Input      json.RawMessage `json:"input,omitempty" doc:"Resolved plugin input; holds secret:// references, never secret values."`
 	Status     string          `json:"status" enum:"pending,running,succeeded,failed,skipped,canceled"`
 	Outputs    json.RawMessage `json:"outputs,omitempty"`
-	Error      string          `json:"error,omitempty"`
+	Error      string          `json:"error,omitempty" doc:"Error message of a failed or canceled step."`
+	ErrorKind  string          `json:"error_kind,omitempty" doc:"Machine-readable kind of the error, such as timeout, lost or a plugin error code."`
 	CreatedAt  time.Time       `json:"created_at"`
 	StartedAt  *time.Time      `json:"started_at,omitempty"`
 	FinishedAt *time.Time      `json:"finished_at,omitempty"`
@@ -81,17 +83,32 @@ func toRun(r store.Run) Run {
 }
 
 func toExecution(e store.Execution) Execution {
-	return Execution{
+	_, msg := store.SplitStepError(e.Error)
+	out := Execution{
 		ID: e.ID, Attempt: e.AttemptNo, State: string(e.State), Pool: e.Pool, AgentID: e.AgentID,
 		ScheduledAt: e.ScheduledAt, StartedAt: e.StartedAt, FinishedAt: e.FinishedAt,
-		Outputs: rawJSON(e.Outputs), Error: e.Error,
+		Outputs: rawJSON(e.Outputs), Error: msg,
 	}
+	if e.State.Terminal() && e.State != store.ExecSucceeded {
+		out.ErrorKind = store.ErrorKindOf(e)
+	}
+	return out
 }
 
 func toStep(n store.StepNode) Step {
+	kind, msg := store.SplitStepError(n.Error)
+	if kind == "" && msg != "" { // plain text: the kind the engine assigns it
+		switch n.Status {
+		case store.StepFailed:
+			kind = store.ErrKindError
+		case store.StepCanceled:
+			kind = store.ErrKindCancelled
+		}
+	}
 	s := Step{
+		Error: msg, ErrorKind: kind,
 		ID: n.ID, Path: n.Path, Kind: n.Kind, Plugin: n.Plugin, Input: rawJSON(n.Input), Status: string(n.Status),
-		Outputs: rawJSON(n.Outputs), Error: n.Error, CreatedAt: n.CreatedAt, StartedAt: n.StartedAt, FinishedAt: n.FinishedAt,
+		Outputs: rawJSON(n.Outputs), CreatedAt: n.CreatedAt, StartedAt: n.StartedAt, FinishedAt: n.FinishedAt,
 		Executions: make([]Execution, 0, len(n.Executions)),
 	}
 	for _, e := range n.Executions {

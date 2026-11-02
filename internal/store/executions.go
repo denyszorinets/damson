@@ -60,6 +60,8 @@ type Execution struct {
 	// attempt that must stop; the owning controller sends step.cancel. A
 	// queued execution never has it.
 	CancelRequestedAt *time.Time
+	// Timeout is the per-attempt step timeout, 0 for none.
+	Timeout time.Duration
 }
 
 // ClaimParams selects queued executions for one connected agent.
