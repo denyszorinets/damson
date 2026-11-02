@@ -122,8 +122,9 @@ type ExecutionStore interface {
 	// is changed in that case. ErrInvalid for a non-reportable state.
 	CompleteExecution(ctx context.Context, c Completion, now time.Time) (Execution, error)
 	// ListCancelRequested returns up to limit dispatched or running attempts
-	// owned by controllerID that run.advance flagged for cancellation, in id order.
-	ListCancelRequested(ctx context.Context, controllerID string, limit int) ([]Execution, error)
+	// owned by controllerID that run.advance flagged for cancellation, in id
+	// order, after afterID (pass "" for the first page).
+	ListCancelRequested(ctx context.Context, controllerID, afterID string, limit int) ([]Execution, error)
 	// RequeueExecution moves dispatched back to queued (agent rejected or
 	// the send failed), clearing ownership. Fenced like CompleteExecution. A
 	// flagged attempt (CancelRequestedAt) is not requeued: ErrStale, and the

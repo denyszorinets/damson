@@ -343,17 +343,18 @@ SELECT id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at
        agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
 FROM executions
 WHERE controller_id = ?1 AND state IN ('dispatched', 'running')
-  AND cancel_requested_at IS NOT NULL
-ORDER BY id LIMIT ?2
+  AND cancel_requested_at IS NOT NULL AND id > ?2
+ORDER BY id LIMIT ?3
 `
 
 type ListCancelRequestedParams struct {
 	ControllerID sql.NullString
+	AfterID      string
 	RowLimit     int64
 }
 
 func (q *Queries) ListCancelRequested(ctx context.Context, arg ListCancelRequestedParams) ([]Execution, error) {
-	rows, err := q.db.QueryContext(ctx, listCancelRequested, arg.ControllerID, arg.RowLimit)
+	rows, err := q.db.QueryContext(ctx, listCancelRequested, arg.ControllerID, arg.AfterID, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}

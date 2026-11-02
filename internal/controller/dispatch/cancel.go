@@ -8,7 +8,7 @@ import (
 	"github.com/denyszorinets/damson/internal/store"
 )
 
-// cancelBatch bounds the flagged attempts one poll reads.
+// cancelBatch is the page size of the flagged-attempt query.
 const cancelBatch = 500
 
 // cancelOnce sends step.cancel for the dispatched or running attempts of this
@@ -18,9 +18,7 @@ const cancelBatch = 500
 // settles the attempt. Each agent is served by its own goroutine so a half-open
 // socket delays only itself.
 func (d *Dispatcher) cancelOnce(ctx context.Context) {
-	rctx, cancel := context.WithTimeout(ctx, d.cfg.CallTimeout)
-	rows, err := d.cfg.Store.ListCancelRequested(rctx, d.cfg.ControllerID, cancelBatch)
-	cancel()
+	rows, err := d.listFlagged(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
 			d.log.Error("listing executions to cancel", "error", err)
@@ -39,15 +37,40 @@ func (d *Dispatcher) cancelOnce(ctx context.Context) {
 	}
 	for _, a := range d.cfg.Agents.Agents() {
 		exs := byAgent[a.ID]
-		if len(exs) == 0 || a.Peer == nil || !d.begin("cancel/"+a.ID) {
+		if len(exs) == 0 || a.Peer == nil || !d.begin(cancelKey(a.ID)) {
 			continue
 		}
 		d.wg.Add(1)
 		go func() {
 			defer d.wg.Done()
-			defer d.end("cancel/" + a.ID)
+			defer d.end(cancelKey(a.ID))
 			d.cancelAgent(ctx, a, exs)
 		}()
+	}
+}
+
+// cancelKey is the busy-map key of an agent's cancel round. The NUL byte keeps
+// it apart from the dispatch key, which is a valid agent id.
+func cancelKey(agentID string) string { return "\x00cancel/" + agentID }
+
+// listFlagged reads all flagged attempts of this controller, page by page:
+// answered ones stay flagged until the agent reports, so a single page could
+// hide the later ones behind them.
+func (d *Dispatcher) listFlagged(ctx context.Context) ([]store.Execution, error) {
+	var all []store.Execution
+	after := ""
+	for {
+		rctx, cancel := context.WithTimeout(ctx, d.cfg.CallTimeout)
+		page, err := d.cfg.Store.ListCancelRequested(rctx, d.cfg.ControllerID, after, cancelBatch)
+		cancel()
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page...)
+		if len(page) < cancelBatch {
+			return all, nil
+		}
+		after = page[len(page)-1].ID
 	}
 }
 

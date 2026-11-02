@@ -218,6 +218,9 @@ func (d *Dispatcher) requeue(ctx context.Context, a controller.AgentView, ex sto
 // cancelUndelivered ends a flagged attempt that never ran. It is a no-op for
 // an attempt that is not flagged or no longer dispatched.
 func (d *Dispatcher) cancelUndelivered(ctx context.Context, ex store.Execution, log *slog.Logger) {
+	// Its own deadline: the requeue may have spent its own waiting for a lock.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), d.cfg.CallTimeout)
+	defer cancel()
 	err := d.cfg.Store.WithTx(ctx, func(tx store.Tx) error {
 		if _, err := tx.CancelUndelivered(ctx, ex.ID, ex.AttemptID, d.cfg.Now()); err != nil {
 			return err

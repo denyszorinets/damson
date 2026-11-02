@@ -196,21 +196,30 @@ func (t *txn) cancelQueued(ctx context.Context, runID, executionID string, now t
 		return fmt.Errorf("execution %q is not in run %q: %w", executionID, runID, store.ErrNotFound)
 	}
 	_, finished := store.Stamps(nil, nil, false, true, now)
-	n, err := t.q.CancelQueuedExecutionCAS(ctx, gen.CancelQueuedExecutionCASParams{
-		FinishedAt: tsOpt(finished), Error: "run cancelled", ID: executionID, RunID: runID,
-	})
-	if err != nil {
-		return fmt.Errorf("canceling execution %q: %w", executionID, err)
-	}
-	if n == 0 {
-		// Claimed since the advance read it (or already past queued): flag it
-		// so the owning controller stops it. No effect on a terminal one.
-		if _, err := t.q.RequestExecutionCancelCAS(ctx, gen.RequestExecutionCancelCASParams{Now: ts(now), ID: executionID, RunID: runID}); err != nil {
+	// The execution may be claimed, or requeued by the dispatcher, between
+	// the two statements (READ COMMITTED sees each commit), so each attempt
+	// re-reads its row: queued is cancelled outright, claimed is flagged, and
+	// a miss on both means it moved in between: look once more. A miss after
+	// that means it is finished.
+	for range 2 {
+		n, err := t.q.CancelQueuedExecutionCAS(ctx, gen.CancelQueuedExecutionCASParams{
+			FinishedAt: tsOpt(finished), Error: "run cancelled", ID: executionID, RunID: runID,
+		})
+		if err != nil {
+			return fmt.Errorf("canceling execution %q: %w", executionID, err)
+		}
+		if n > 0 {
+			return t.finishStepFrom(ctx, ex.StepInstanceID, store.StepCanceled, "run cancelled", now, store.StepPending, store.StepRunning)
+		}
+		n, err = t.q.RequestExecutionCancelCAS(ctx, gen.RequestExecutionCancelCASParams{Now: ts(now), ID: executionID, RunID: runID})
+		if err != nil {
 			return fmt.Errorf("flagging execution %q for cancellation: %w", executionID, err)
 		}
-		return nil
+		if n > 0 {
+			return nil
+		}
 	}
-	return t.finishStepFrom(ctx, ex.StepInstanceID, store.StepCanceled, "run cancelled", now, store.StepPending, store.StepRunning)
+	return nil
 }
 
 // ListActiveRunIDs implements store.RunStore.

@@ -80,5 +80,5 @@ SELECT id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at
        agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
 FROM executions
 WHERE controller_id = sqlc.arg(controller_id) AND state IN ('dispatched', 'running')
-  AND cancel_requested_at IS NOT NULL
+  AND cancel_requested_at IS NOT NULL AND id > sqlc.arg(after_id)
 ORDER BY id LIMIT sqlc.arg(row_limit);

@@ -235,8 +235,8 @@ func (s *Store) RequeueExecution(ctx context.Context, executionID, attemptID str
 }
 
 // ListCancelRequested implements store.ExecutionStore.
-func (s *Store) ListCancelRequested(ctx context.Context, controllerID string, limit int) ([]store.Execution, error) {
-	rows, err := s.q.ListCancelRequested(ctx, gen.ListCancelRequestedParams{ControllerID: text(controllerID), RowLimit: int32(store.ClampLimit(limit))})
+func (s *Store) ListCancelRequested(ctx context.Context, controllerID, afterID string, limit int) ([]store.Execution, error) {
+	rows, err := s.q.ListCancelRequested(ctx, gen.ListCancelRequestedParams{ControllerID: text(controllerID), AfterID: afterID, RowLimit: int32(store.ClampLimit(limit))})
 	if err != nil {
 		return nil, fmt.Errorf("listing executions to cancel: %w", err)
 	}

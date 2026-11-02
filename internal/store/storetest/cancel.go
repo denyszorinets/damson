@@ -79,11 +79,11 @@ func testCancelFlag(t *testing.T, s store.Store) {
 		}
 
 		// Only the owning controller lists it.
-		mine, err := s.ListCancelRequested(ctx, "ctrl-1", 10)
+		mine, err := s.ListCancelRequested(ctx, "ctrl-1", "", 10)
 		if err != nil || len(mine) != 1 || mine[0].ID != ex.ID {
 			t.Fatalf("ListCancelRequested(ctrl-1) = %+v, %v; want the flagged execution", mine, err)
 		}
-		if other, err := s.ListCancelRequested(ctx, "ctrl-2", 10); err != nil || len(other) != 0 {
+		if other, err := s.ListCancelRequested(ctx, "ctrl-2", "", 10); err != nil || len(other) != 0 {
 			t.Fatalf("ListCancelRequested(ctrl-2) = %+v, %v; want none", other, err)
 		}
 
@@ -120,7 +120,7 @@ func testCancelFlag(t *testing.T, s store.Store) {
 		if after := runVersion(t, s, ex.RunID); after != before+1 {
 			t.Fatalf("run version = %d; want %d (the run must wake)", after, before+1)
 		}
-		if left, _ := s.ListCancelRequested(ctx, "ctrl-1", 10); len(left) != 0 {
+		if left, _ := s.ListCancelRequested(ctx, "ctrl-1", "", 10); len(left) != 0 {
 			t.Fatalf("a canceled execution is still listed: %+v", left)
 		}
 		requireNoQueuedFlag(t, s, ex.RunID)
