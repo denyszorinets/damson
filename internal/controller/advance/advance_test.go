@@ -398,7 +398,7 @@ func TestScheduleCarriesTimeout(t *testing.T) {
 	if got := adv.NewSteps[0].Execution.Timeout; got != 30*time.Second {
 		t.Fatalf("new step execution timeout = %v; want 30s", got)
 	}
-	if got := adv.NewAttempts[0].NewExecution.Timeout; got != 30*time.Second {
+	if got := adv.NewAttempts[0].Timeout; got != 30*time.Second {
 		t.Fatalf("attempt execution timeout = %v; want 30s", got)
 	}
 }
