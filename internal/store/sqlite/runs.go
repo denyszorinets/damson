@@ -27,7 +27,7 @@ func toRun(r gen.Run) (store.Run, error) {
 	out := store.Run{
 		ID: r.ID, JobID: r.JobID, JobVersionID: r.JobVersionID, Trigger: json.RawMessage(r.Trigger),
 		Options: json.RawMessage(r.Options), Status: store.RunStatus(r.Status), Version: r.Version,
-		ConcurrencyKey: r.ConcurrencyKey,
+		ConcurrencyKey: r.ConcurrencyKey, CancelReason: r.CancelReason,
 	}
 	var err error
 	if out.CreatedAt, err = parseTime(r.CreatedAt); err != nil {

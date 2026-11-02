@@ -705,6 +705,13 @@
       "Run": {
         "additionalProperties": false,
         "properties": {
+          "cancel_reason": {
+            "description": "Why the cancel was requested; absent for a user or API cancel, timeout for the job-level timeout.",
+            "enum": [
+              "timeout"
+            ],
+            "type": "string"
+          },
           "cancel_requested_at": {
             "format": "date-time",
             "type": "string"
@@ -760,6 +767,13 @@
       "RunDetail": {
         "additionalProperties": false,
         "properties": {
+          "cancel_reason": {
+            "description": "Why the cancel was requested; absent for a user or API cancel, timeout for the job-level timeout.",
+            "enum": [
+              "timeout"
+            ],
+            "type": "string"
+          },
           "cancel_requested_at": {
             "format": "date-time",
             "type": "string"

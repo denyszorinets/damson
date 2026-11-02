@@ -352,3 +352,26 @@ func TestResolveInputSecretRefsStayLiteral(t *testing.T) {
 		t.Fatal("secrets must not be addressable from expressions")
 	}
 }
+
+func TestFinalStatus(t *testing.T) {
+	tests := []struct {
+		failed, anyCancelled, timedOut bool
+		want                           RunStatus
+	}{
+		{false, false, false, RunSucceeded},
+		{true, false, false, RunFailed},
+		{false, true, false, RunCancelled},
+		{true, true, false, RunCancelled},
+		// A job timeout is a failure when it cost anything, not a cancel.
+		{false, true, true, RunFailed},
+		{true, false, true, RunFailed},
+		{true, true, true, RunFailed},
+		// Every step still succeeded: the reported outcome wins.
+		{false, false, true, RunSucceeded},
+	}
+	for _, tc := range tests {
+		if got := finalStatus(tc.failed, tc.anyCancelled, tc.timedOut); got != tc.want {
+			t.Errorf("finalStatus(failed=%v, cancelled=%v, timedOut=%v) = %s; want %s", tc.failed, tc.anyCancelled, tc.timedOut, got, tc.want)
+		}
+	}
+}

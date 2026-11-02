@@ -3,6 +3,7 @@ package storetest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -110,6 +111,81 @@ func testStepErrorKinds(t *testing.T, s store.Store) {
 		st := mustStep(t, s, ex.StepInstanceID)
 		if kind, _ := store.SplitStepError(st.Error); kind != store.ErrKindLost {
 			t.Fatalf("step error = %q; want kind lost", st.Error)
+		}
+	})
+}
+
+func testRunCancelInAdvance(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	at := claimNow.Add(time.Minute)
+
+	apply := func(runID string, version int64, a store.Advance) (store.Run, error) {
+		var run store.Run
+		err := withTx(t, s, func(tx store.Tx) error {
+			var err error
+			run, err = tx.ApplyAdvance(ctx, runID, version, a, at)
+			return err
+		})
+		return run, err
+	}
+
+	t.Run("the timeout is a sticky cancel with a reason", func(t *testing.T) {
+		_, tree := mustRun(t, s, "timeout-run")
+		ver := runVersion(t, s, tree.ID)
+		run, err := apply(tree.ID, ver, store.Advance{CancelRun: store.CancelReasonTimeout})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.CancelRequestedAt == nil || !run.CancelRequestedAt.Equal(at) || run.CancelReason != store.CancelReasonTimeout || run.Version != ver+1 {
+			t.Fatalf("run = %+v; want cancelled at %v with reason timeout, version %d", run, at, ver+1)
+		}
+		// A user cancel after the timeout is refused as already requested.
+		err = withTx(t, s, func(tx store.Tx) error { _, err := tx.RequestCancel(ctx, tree.ID, at); return err })
+		if !errors.Is(err, store.ErrStale) {
+			t.Fatalf("RequestCancel after a timeout = %v; want ErrStale", err)
+		}
+		if got, _ := s.GetRun(ctx, tree.ID); got.CancelReason != store.CancelReasonTimeout {
+			t.Fatalf("reason after a user cancel = %q; want it kept", got.CancelReason)
+		}
+	})
+
+	t.Run("a user cancel that commits first wins", func(t *testing.T) {
+		_, tree := mustRun(t, s, "timeout-vs-user")
+		ver := runVersion(t, s, tree.ID)
+		err := withTx(t, s, func(tx store.Tx) error { _, err := tx.RequestCancel(ctx, tree.ID, at); return err })
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The advance read the run at ver, before the user cancel: it loses the
+		// version CAS, so the timeout is not recorded over the user's cancel.
+		if _, err := apply(tree.ID, ver, store.Advance{CancelRun: store.CancelReasonTimeout}); !errors.Is(err, store.ErrStale) {
+			t.Fatalf("timeout advance after a user cancel = %v; want ErrStale", err)
+		}
+		if got, _ := s.GetRun(ctx, tree.ID); got.CancelReason != "" {
+			t.Fatalf("reason = %q; want the user cancel's empty reason", got.CancelReason)
+		}
+	})
+
+	t.Run("timeout and finish in one advance", func(t *testing.T) {
+		// The deadline passed with nothing left to cancel: the same advance
+		// records the timeout and finishes the run. The finish moves the run
+		// to a terminal status first; the reason must still be recorded.
+		_, tree := mustRun(t, s, "timeout-and-finish")
+		ver := runVersion(t, s, tree.ID)
+		run, err := apply(tree.ID, ver, store.Advance{CancelRun: store.CancelReasonTimeout, Finish: store.RunFailed})
+		if err != nil {
+			t.Fatalf("timeout and finish in one advance: %v", err)
+		}
+		if run.Status != store.RunFailed || run.CancelReason != store.CancelReasonTimeout || run.CancelRequestedAt == nil || run.Version != ver+1 {
+			t.Fatalf("run = %+v; want failed, cancelled by timeout, version %d", run, ver+1)
+		}
+	})
+
+	t.Run("an unknown reason is invalid", func(t *testing.T) {
+		_, tree := mustRun(t, s, "timeout-bad")
+		if _, err := apply(tree.ID, runVersion(t, s, tree.ID), store.Advance{CancelRun: "nope"}); !errors.Is(err, store.ErrInvalid) {
+			t.Fatalf("unknown reason = %v; want ErrInvalid", err)
 		}
 	})
 }

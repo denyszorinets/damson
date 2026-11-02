@@ -148,6 +148,7 @@ type Run struct {
 	CreatedAt         pgtype.Timestamptz
 	StartedAt         pgtype.Timestamptz
 	FinishedAt        pgtype.Timestamptz
+	CancelReason      string
 }
 
 type StepInstance struct {

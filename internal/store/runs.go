@@ -61,11 +61,18 @@ type Run struct {
 	Status            RunStatus
 	Version           int64
 	CancelRequestedAt *time.Time
-	ConcurrencyKey    string
-	CreatedAt         time.Time
-	StartedAt         *time.Time
-	FinishedAt        *time.Time
+	// CancelReason is why the cancel was requested: "" for a user or API
+	// request, CancelReasonTimeout for the job-level timeout.
+	CancelReason   string
+	ConcurrencyKey string
+	CreatedAt      time.Time
+	StartedAt      *time.Time
+	FinishedAt     *time.Time
 }
+
+// CancelReasonTimeout is Run.CancelReason of a run the job-level timeout
+// cancelled.
+const CancelReasonTimeout = "timeout"
 
 // StepInstance is one logical step of a run, addressed by its stable Path.
 // Input is the resolved plugin input and must hold secret refs only, never

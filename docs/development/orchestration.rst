@@ -114,6 +114,24 @@ rescuer only clears rows a crashed controller stranded; it is not what
 recovers the run. A job discarded after five failures is replaced by the next
 sweep.
 
+Job timeout
+-----------
+
+``spec.timeout`` is decided by the engine (ADR-0035): once ``runs.started_at +
+timeout`` has passed and no cancel was requested, ``Decide`` emits
+``TimeoutRun`` and treats the run as cancelling in the same call. ``toAdvance``
+maps it to ``Advance.CancelRun``, which the store applies inside the advance's
+version CAS as ``cancel_requested_at`` with ``cancel_reason`` ``timeout``; the
+executions are flagged in the same transaction and the advance enqueues itself
+once more, as for any cancel.
+
+When the run starts, ``ScheduleWake`` becomes a River job scheduled for the
+deadline, inserted in the same transaction (``Args.Wake`` is the deadline in
+milliseconds, version 0, so its unique key meets no other job's). A worker that
+runs it before the controller's clock reaches the deadline returns
+``river.JobSnooze``, which does not count as an attempt. If the wake job is
+lost, the sweep times the run out within one interval.
+
 Permanent errors
 ----------------
 

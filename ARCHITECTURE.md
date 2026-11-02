@@ -266,7 +266,7 @@ The spec is JSON; it is the canonical format stored in the database. YAML may be
 | `type: "group"` | A container with `steps`, optional `catch`, `finally`, `rethrow`, `for_each`, `max_parallel`, `fail_threshold` |
 | `when` | A CEL condition. The default is `success()` (all previous steps in scope succeeded or were handled). If the expression calls any status function (`success()`, `failure()`, `always()`, `cancelled()`), the implicit `success()` is off; otherwise it is evaluated as `success() && (when)`. |
 | `continue_on_error` | A failure is recorded but does not fail the enclosing scope. |
-| `timeout` | Per attempt, a Go duration. The engine stores it on the execution; the **agent enforces** it (a context deadline from `timeout_ms` in `step.execute`, started when the agent accepts the execute and kept across reconnects), so it works while the agent is cut off from its controller. A timed-out attempt reports `timed_out` with error kind `timeout`; the engine sees a failed step whose `error.kind` is `timeout` (retry, catch and `continue_on_error` react to that). Whichever of the deadline and a `step.cancel` cancels the context first decides `timed_out` or `canceled`. The job-level `timeout` covers the whole run. |
+| `timeout` | Per attempt, a Go duration (ADR-0035). The engine stores it on the execution; the **agent enforces** it (a context deadline from `timeout_ms` in `step.execute`, started when the agent accepts the execute and kept across reconnects), so it works while the agent is cut off from its controller. A timed-out attempt reports `timed_out` with error kind `timeout`; the engine sees a failed step whose `error.kind` is `timeout` (retry, catch and `continue_on_error` react to that). Whichever of the deadline and a `step.cancel` cancels the context first decides `timed_out` or `canceled`. The job-level `timeout` covers the whole run from its start (§5.3 rule 9). |
 | `retry` | `max_attempts`, `backoff{initial, multiplier, max, jitter}`, `retry_on` (CEL over `error`), `on_lost` (bool) |
 | `runs_on` | Optional agent selection: `{ "pool": "dc1", "labels": {...} }`. The default is the pool of the target node, or any pool. |
 
@@ -291,6 +291,7 @@ The engine evaluates these rules deterministically:
    - `failure()`: something previous in scope failed.
    - `always()`: always true.
    - `cancelled()`: the run has been cancelled.
+9. **Job timeout** (`spec.timeout`, ADR-0035). The deadline is `runs.started_at + timeout`. When it has passed and no cancel was requested, `Decide` emits `TimeoutRun` and treats the run as cancelling from that instant; the store records `cancel_requested_at` with `cancel_reason = 'timeout'` inside the advance's version CAS (a user cancel that commits first wins). The ordinary cancel rules then apply: running attempts are cancelled, pending steps are cancelled as `job timed out`, and only `always()` and `cancelled()` steps still run (the timeout itself does not trigger `failure()` handlers; a step that really failed still does). The run is `failed` if any step failed or was cancelled, `succeeded` if every step still succeeded. When the run starts the engine also emits `ScheduleWake{deadline}`.
 
 ### 5.4 Expressions and data passing
 
@@ -745,7 +746,7 @@ The `secrets` member is the only place secret values cross the wire. The Go type
 
 ```
 Decide(spec JobVersionSpec, state RunState, now time.Time) -> []Action
-Action = CreateStepInstance | ScheduleExecution | SkipStep | CompleteGroup | CompleteRun | CancelExecution
+Action = CreateStepInstance | ScheduleExecution | SkipStep | CompleteGroup | CompleteRun | CancelExecution | TimeoutRun | ScheduleWake
 ```
 
 - Implemented as `(*engine.Engine).Decide(job, state, now) ([]Action, error)`; the `Engine` only holds the compiled-expression environment. The sequential subset (M2) additionally emits `StartRun` and `FailStep` (a step whose `when` or `with` expression failed to evaluate); `SkipStep` also creates the instance, with status `skipped` or `cancelled`.
@@ -768,6 +769,7 @@ Action = CreateStepInstance | ScheduleExecution | SkipStep | CompleteGroup | Com
    - Apply actions transactionally, with optimistic concurrency on `runs.version`.
    - River uniqueness is by `(run_id, runs.version)`: identical enqueues collapse, but an enqueue after a state change is kept even while an advance is running. River cannot exclude `running` from the unique states, and a job keyed on `run_id` alone would swallow a wake-up that arrives after the running advance read its state. Every event that must wake a run bumps `runs.version` in its own transaction (`Tx.TouchRun`), and the advance applies with a CAS on that version, so concurrent advancement is safe and a lost wake-up is impossible.
    - A periodic sweep (default 1m, any controller, and once at start) re-enqueues every `pending` or `running` run as a safety net for crash windows and runs created before the queue existed.
+   - A River job scheduled for the job-level timeout's deadline (`ScheduleWake`, args `wake` = the deadline in ms, version 0) is queued in the transaction that starts the run. A worker that runs it before its own clock reaches the deadline snoozes (a snooze is not an attempt). If it is lost, the sweep times the run out within one interval.
    - A sweep job is unique by `(run_id, runs.version, sweep epoch)`, the epoch being the time cut to the sweep interval. A controller that dies mid-advance leaves its job `running` at an unchanged version; the sweep's job has a key of its own and is not swallowed, so the run moves again within one sweep interval. River's rescuer (`JobTimeout` 1m, `RescueStuckJobsAfter` 2m) only clears the stranded rows, and `MaxAttempts` is 5.
 3. **Dispatch** (every controller, for its own sockets):
    - A loop wakes on a notify hint or every 1s.
@@ -790,7 +792,7 @@ Action = CreateStepInstance | ScheduleExecution | SkipStep | CompleteGroup | Com
 5. **Complete:** `step.complete`, then a CAS on `attempt_id` to set the terminal state and store outputs and error, then enqueue `run.advance`. The agent gets its ack after the commit. An error the agent reports is stored on the execution as `{"kind", "message"}` JSON (kind = the agent's error code, which is `timeout` for `timed_out`), the shape of the engine's own `FailStep`. The step's error always carries a kind (`StepOutcome`): the stored one, else one derived from the final state (`timeout`, `lost` for an expired lease, `error`), so `error.kind` and `retry_on` can match it. Execution errors written as plain text (lease reaper, queued cancel, an unsendable execution) and older rows still read: their kind comes from the state. The API shows `error` (the message) and `error_kind` separately.
 6. **Retry:** the engine schedules a new Execution with `scheduled_at = now + backoff` and a new attempt_id.
 7. **Cancel:**
-   - Set `runs.cancel_requested_at`.
+   - Set `runs.cancel_requested_at` (and `runs.cancel_reason`: empty for a user or API cancel, `timeout` for the job-level timeout, which `run.advance` records itself).
    - `run.advance` marks pending steps as cancelled. A queued Execution becomes `canceled` with its step. A `dispatched` or `running` one is flagged (`executions.cancel_requested_at`, not fenced by `attempt_id`, because a claim between the advance's read and its apply rotates it) and the engine stops emitting the cancel once the flag is visible. A queued row never carries the flag.
    - For flagged Executions, the owning controller (`executions.controller_id`) sends `step.cancel` with `grace_ms` (default 5s). The hint is delivered via `LISTEN/NOTIFY` (Postgres) plus a 2s poll fallback. Controllers skip agents that have no socket to them: after the agent reconnects the controller that adopts it sends the cancel, and if it never returns the lease reaper settles the attempt.
    - The agent's `step.complete` is applied as reported through the normal fenced path: `canceled` ends the step and the run; a plugin that finished anyway reports `succeeded` and is applied as such.

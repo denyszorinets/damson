@@ -54,6 +54,7 @@ type Run struct {
 	Trigger           json.RawMessage `json:"trigger,omitempty"`
 	Options           json.RawMessage `json:"options,omitempty" doc:"Resolved options with defaults applied; secrets appear as secret:// references only."`
 	CancelRequestedAt *time.Time      `json:"cancel_requested_at,omitempty"`
+	CancelReason      string          `json:"cancel_reason,omitempty" enum:"timeout" doc:"Why the cancel was requested; absent for a user or API cancel, timeout for the job-level timeout."`
 	ConcurrencyKey    string          `json:"concurrency_key,omitempty"`
 	CreatedAt         time.Time       `json:"created_at"`
 	StartedAt         *time.Time      `json:"started_at,omitempty"`
@@ -77,7 +78,7 @@ func rawJSON(b json.RawMessage) json.RawMessage {
 func toRun(r store.Run) Run {
 	return Run{
 		ID: r.ID, JobID: r.JobID, JobVersionID: r.JobVersionID, Status: string(r.Status),
-		Trigger: rawJSON(r.Trigger), Options: rawJSON(r.Options), CancelRequestedAt: r.CancelRequestedAt,
+		Trigger: rawJSON(r.Trigger), Options: rawJSON(r.Options), CancelRequestedAt: r.CancelRequestedAt, CancelReason: r.CancelReason,
 		ConcurrencyKey: r.ConcurrencyKey, CreatedAt: r.CreatedAt, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt,
 	}
 }

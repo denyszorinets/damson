@@ -27,6 +27,7 @@ func buildState(tree store.RunTree, meta jobMeta) (engine.RunState, error) {
 		Job:               engine.JobInfo{Name: meta.Name, Project: meta.Project, Version: strconv.Itoa(meta.Version)},
 		StartedAt:         tree.StartedAt,
 		CancelRequestedAt: tree.CancelRequestedAt,
+		CancelReason:      tree.CancelReason,
 	}
 	var trigger struct {
 		Type string `json:"type"`

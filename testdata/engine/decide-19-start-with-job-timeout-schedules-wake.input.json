@@ -1,0 +1,14 @@
+{
+  "job_file": "job-job-timeout.json",
+  "now": "2026-03-01T10:00:00Z",
+  "state": {
+    "id": "run-1",
+    "status": "queued",
+    "trigger": "manual",
+    "job": {
+      "name": "job-timeout",
+      "project": "default",
+      "version": "1"
+    }
+  }
+}

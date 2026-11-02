@@ -31,7 +31,7 @@ func (q *Queries) BumpRunVersionCAS(ctx context.Context, arg BumpRunVersionCASPa
 
 const getRun = `-- name: GetRun :one
 SELECT id, job_id, job_version_id, trigger, options, status, version, cancel_requested_at,
-       concurrency_key, created_at, started_at, finished_at
+       concurrency_key, created_at, started_at, finished_at, cancel_reason
 FROM runs WHERE id = ?1
 `
 
@@ -51,6 +51,7 @@ func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
 		&i.CreatedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.CancelReason,
 	)
 	return i, err
 }
@@ -216,7 +217,7 @@ func (q *Queries) ListActiveRunIDs(ctx context.Context, arg ListActiveRunIDsPara
 
 const listRunsBefore = `-- name: ListRunsBefore :many
 SELECT id, job_id, job_version_id, trigger, options, status, version, cancel_requested_at,
-       concurrency_key, created_at, started_at, finished_at
+       concurrency_key, created_at, started_at, finished_at, cancel_reason
 FROM runs
 WHERE job_id = ?1 AND (?2 = '' OR id < ?2)
 ORDER BY id DESC
@@ -252,6 +253,7 @@ func (q *Queries) ListRunsBefore(ctx context.Context, arg ListRunsBeforeParams) 
 			&i.CreatedAt,
 			&i.StartedAt,
 			&i.FinishedAt,
+			&i.CancelReason,
 		); err != nil {
 			return nil, err
 		}
@@ -309,7 +311,7 @@ func (q *Queries) ListStepInstancesByRun(ctx context.Context, runID string) ([]S
 
 const queryRunsBefore = `-- name: QueryRunsBefore :many
 SELECT id, job_id, job_version_id, trigger, options, status, version, cancel_requested_at,
-       concurrency_key, created_at, started_at, finished_at
+       concurrency_key, created_at, started_at, finished_at, cancel_reason
 FROM runs
 WHERE (?1 = '' OR job_id = ?1)
   AND (?2 = '' OR status = ?2)
@@ -354,6 +356,7 @@ func (q *Queries) QueryRunsBefore(ctx context.Context, arg QueryRunsBeforeParams
 			&i.CreatedAt,
 			&i.StartedAt,
 			&i.FinishedAt,
+			&i.CancelReason,
 		); err != nil {
 			return nil, err
 		}
@@ -381,6 +384,31 @@ type RequestRunCancelCASParams struct {
 
 func (q *Queries) RequestRunCancelCAS(ctx context.Context, arg RequestRunCancelCASParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, requestRunCancelCAS, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const requestRunCancelInAdvance = `-- name: RequestRunCancelInAdvance :execrows
+UPDATE runs SET cancel_requested_at = ?1, cancel_reason = ?2
+WHERE id = ?3 AND cancel_requested_at IS NULL
+`
+
+type RequestRunCancelInAdvanceParams struct {
+	Now    sql.NullString
+	Reason string
+	ID     string
+}
+
+// The job-level timeout, applied by run.advance inside its own version CAS
+// (which bumps the version), so this does not bump it again. It does not
+// filter on status: the same advance may also have finished the run (the
+// deadline passed with nothing left to cancel), and the timeout is still
+// recorded as the reason. A concurrent user cancel bumps the version, so after
+// a successful version CAS the cancel is always still unset.
+func (q *Queries) RequestRunCancelInAdvance(ctx context.Context, arg RequestRunCancelInAdvanceParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, requestRunCancelInAdvance, arg.Now, arg.Reason, arg.ID)
 	if err != nil {
 		return 0, err
 	}

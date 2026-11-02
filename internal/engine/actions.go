@@ -74,6 +74,22 @@ type CancelExecution struct {
 	AttemptID   string `json:"attempt_id"`
 }
 
+// TimeoutRun records that the job-level timeout expired: the store sets
+// runs.cancel_requested_at with reason "timeout" in the same transaction. The
+// same Decide cancels the in-flight attempts, so the run then follows the
+// ordinary cancel path (executions flagged, pending steps cancelled, always()
+// and cancelled() steps still run).
+type TimeoutRun struct {
+	At time.Time `json:"at"`
+}
+
+// ScheduleWake asks for a run.advance at At, when the job-level timeout
+// expires. It is emitted once, with StartRun; if the wake is lost the sweep
+// still times the run out.
+type ScheduleWake struct {
+	At time.Time `json:"at"`
+}
+
 // CompleteRun finishes the run with its final status.
 type CompleteRun struct {
 	Status     RunStatus `json:"status"`
@@ -87,6 +103,8 @@ func (ScheduleExecution) ActionType() string  { return "schedule_execution" }
 func (SkipStep) ActionType() string           { return "skip_step" }
 func (FailStep) ActionType() string           { return "fail_step" }
 func (CancelExecution) ActionType() string    { return "cancel_execution" }
+func (TimeoutRun) ActionType() string         { return "timeout_run" }
+func (ScheduleWake) ActionType() string       { return "schedule_wake" }
 func (CompleteRun) ActionType() string        { return "complete_run" }
 
 // MarshalActions renders actions as a JSON array of objects, each with a

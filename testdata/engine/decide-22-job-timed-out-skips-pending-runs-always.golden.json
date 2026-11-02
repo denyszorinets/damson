@@ -1,0 +1,26 @@
+[
+  {
+    "path": "b",
+    "reason": "job timed out",
+    "status": "cancelled",
+    "step_id": "b",
+    "type": "skip_step"
+  },
+  {
+    "created_at": "2026-03-01T10:10:05Z",
+    "input": {
+      "command": "cleanup",
+      "node": "n"
+    },
+    "path": "cleanup",
+    "plugin": "ssh",
+    "step_id": "cleanup",
+    "type": "create_step_instance"
+  },
+  {
+    "attempt": 1,
+    "path": "cleanup",
+    "scheduled_at": "2026-03-01T10:10:05Z",
+    "type": "schedule_execution"
+  }
+]

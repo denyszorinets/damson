@@ -69,6 +69,7 @@ func Run(t *testing.T, f Factory) {
 		{"CancelFlag", testCancelFlag},
 		{"ExecutionTimeout", testExecutionTimeout},
 		{"StepErrorKinds", testStepErrorKinds},
+		{"RunCancelInAdvance", testRunCancelInAdvance},
 		{"PluginManifests", testPluginManifests},
 		{"TerminalRunRejectsAdvance", testTerminalRunRejectsAdvance},
 		{"JSONColumns", testJSONColumns},

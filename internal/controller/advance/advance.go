@@ -40,7 +40,9 @@ type core struct {
 	now     func() time.Time
 	log     *slog.Logger
 	enqueue func(ctx context.Context, tx store.Tx, runID string) error
-	notify  func(runID string)
+	// wake schedules the job-level timeout wake-up (nil: none, in tests).
+	wake   func(ctx context.Context, tx store.Tx, runID string, at time.Time) error
+	notify func(runID string)
 }
 
 // advance runs one load-decide-apply cycle for runID, reloading when the
@@ -86,7 +88,7 @@ func (c *core) once(ctx context.Context, runID string) (changed bool, err error)
 	if err != nil {
 		return false, &permanentError{fmt.Errorf("deciding run %s: %w", runID, err)}
 	}
-	adv, err := toAdvance(acts, tree, job)
+	adv, wakeAt, err := toAdvance(acts, tree, job)
 	if err != nil {
 		return false, &permanentError{err}
 	}
@@ -97,10 +99,17 @@ func (c *core) once(ctx context.Context, runID string) (changed bool, err error)
 		if _, err := tx.ApplyAdvance(ctx, runID, tree.Version, adv, now); err != nil {
 			return err
 		}
+		// The job-level timeout's wake-up is queued with the start of the run.
+		if !wakeAt.IsZero() && c.wake != nil {
+			if err := c.wake(ctx, tx, runID, wakeAt); err != nil {
+				return err
+			}
+		}
 		// A cancelled queued execution finishes its step without any agent
 		// report, so nothing else would wake the run: advance again. (For a
-		// flagged one the second advance is empty.)
-		if len(adv.Cancel) > 0 {
+		// flagged one the second advance is empty.) The same goes for the
+		// job timeout, whose cancel is recorded in this advance.
+		if len(adv.Cancel) > 0 || adv.CancelRun != "" {
 			return c.enqueue(ctx, tx, runID)
 		}
 		return nil

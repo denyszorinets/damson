@@ -50,7 +50,9 @@ const DefaultSweepInterval = time.Minute
 type queue interface {
 	start(ctx context.Context) error
 	stop(ctx context.Context) error
-	insert(ctx context.Context, tx store.Tx, a Args) error
+	// insert queues a job in the caller's transaction; a non-zero scheduledAt
+	// delays it until then.
+	insert(ctx context.Context, tx store.Tx, a Args, scheduledAt time.Time) error
 }
 
 // Advancer owns the River client that runs run.advance jobs. Start launches
@@ -87,7 +89,7 @@ func New(cfg Config) (*Advancer, error) {
 	if now == nil {
 		now = time.Now
 	}
-	a.core = &core{st: cfg.Store, eng: cfg.Engine, now: now, log: a.log, enqueue: a.Enqueue, notify: a.hub.Notify}
+	a.core = &core{st: cfg.Store, eng: cfg.Engine, now: now, log: a.log, enqueue: a.Enqueue, wake: a.enqueueWake, notify: a.hub.Notify}
 	q, err := newQueue(cfg, a.core, a.log)
 	if err != nil {
 		return nil, err
@@ -158,8 +160,19 @@ func (a *Advancer) enqueue(ctx context.Context, tx store.Tx, runID string, sweep
 	if err != nil {
 		return fmt.Errorf("reading run %s to enqueue: %w", runID, err)
 	}
-	if err := a.q.insert(ctx, tx, Args{RunID: runID, Version: run.Version, Sweep: sweep}); err != nil {
+	if err := a.q.insert(ctx, tx, Args{RunID: runID, Version: run.Version, Sweep: sweep}, time.Time{}); err != nil {
 		return fmt.Errorf("enqueueing run.advance for %s: %w", runID, err)
+	}
+	return nil
+}
+
+// enqueueWake schedules a run.advance for the moment the job-level timeout
+// expires, in the caller's transaction (the one that starts the run, so the
+// wake cannot be lost without the start). The job is unique per deadline.
+func (a *Advancer) enqueueWake(ctx context.Context, tx store.Tx, runID string, at time.Time) error {
+	wake := (at.UnixNano() + int64(time.Millisecond) - 1) / int64(time.Millisecond) // rounded up to a whole ms
+	if err := a.q.insert(ctx, tx, Args{RunID: runID, Wake: wake}, time.UnixMilli(wake)); err != nil {
+		return fmt.Errorf("scheduling the timeout wake for %s: %w", runID, err)
 	}
 	return nil
 }
@@ -179,6 +192,15 @@ type worker struct {
 // Work implements river.Worker. Failures that retrying cannot fix cancel the
 // job; everything else is retried by River with backoff.
 func (w *worker) Work(ctx context.Context, job *river.Job[Args]) error {
+	// A wake job exists to run at the job timeout's deadline. River's clock
+	// is the database's, which can run ahead of this controller's: an early
+	// run would find nothing to do and the wake would be spent, so snooze
+	// (which does not count as an attempt) until the deadline is reached.
+	if wake := job.Args.Wake; wake != 0 {
+		if now := w.core.now(); now.Before(time.UnixMilli(wake)) {
+			return river.JobSnooze(time.UnixMilli(wake).Sub(now))
+		}
+	}
 	err := w.core.advance(ctx, job.Args.RunID)
 	var perm *permanentError
 	switch {
@@ -267,11 +289,15 @@ func (r *riverQueue[T]) stop(ctx context.Context) error {
 	return nil
 }
 
-func (r *riverQueue[T]) insert(ctx context.Context, tx store.Tx, a Args) error {
+func (r *riverQueue[T]) insert(ctx context.Context, tx store.Tx, a Args, scheduledAt time.Time) error {
 	native, ok := r.unwrap(tx.Native())
 	if !ok {
 		return fmt.Errorf("transaction %T does not belong to this queue's database", tx.Native())
 	}
-	_, err := r.client.InsertTx(ctx, native, a, nil)
+	var opts *river.InsertOpts
+	if !scheduledAt.IsZero() {
+		opts = &river.InsertOpts{ScheduledAt: scheduledAt}
+	}
+	_, err := r.client.InsertTx(ctx, native, a, opts)
 	return err
 }
