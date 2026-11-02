@@ -158,7 +158,7 @@ func ValidateAdvance(a Advance) error {
 			return fmt.Errorf("advance settle needs a step path and an attempt number from 1: %w", ErrInvalid)
 		}
 		if settled[se.Path] {
-			return fmt.Errorf("duplicate advance settle of step %q: %w", se.Path, ErrConflict)
+			return fmt.Errorf("duplicate advance settle of step %q: %w", se.Path, ErrInvalid)
 		}
 		settled[se.Path] = true
 	}
@@ -171,7 +171,7 @@ func ValidateAdvance(a Advance) error {
 			return fmt.Errorf("step %q is both settled and given a new attempt: %w", at.Path, ErrInvalid)
 		}
 		if scheduled[at.Path] {
-			return fmt.Errorf("duplicate advance attempt for step %q: %w", at.Path, ErrConflict)
+			return fmt.Errorf("duplicate advance attempt for step %q: %w", at.Path, ErrInvalid)
 		}
 		scheduled[at.Path] = true
 		if err := ValidateNewExecution(at.NewExecution); err != nil {

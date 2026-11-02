@@ -82,8 +82,8 @@ func startClusterLog(t *testing.T, st store.Store, spec string, log *slog.Logger
 }
 
 // startClusterPlugins is startCluster with extra plugins linked into the agent.
-func startClusterPlugins(t *testing.T, st store.Store, spec string, extra ...pluginsdk.Plugin) *cluster {
-	return startClusterWith(t, st, spec, slog.New(slog.DiscardHandler), extra)
+func startClusterPlugins(t *testing.T, st store.Store, spec string, extra []pluginsdk.Plugin, opts ...func(*dispatch.Config)) *cluster {
+	return startClusterWith(t, st, spec, slog.New(slog.DiscardHandler), extra, opts...)
 }
 
 func startClusterWith(t *testing.T, st store.Store, spec string, log *slog.Logger, extra []pluginsdk.Plugin, opts ...func(*dispatch.Config)) *cluster {

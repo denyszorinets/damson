@@ -128,7 +128,10 @@ Negative
 - ``error.exit_code`` is never set for an agent failure until the protocol
   carries it (issue #95); use ``has(error.exit_code)`` in ``retry_on``
   meanwhile.
-- During a rolling upgrade a controller without this change waits on a pending
-  step whose latest attempt failed (an empty advance); a new controller picks
-  it up through the sweep within one interval. Completions handled by an old
-  controller still finish the step, without a retry.
+- During a rolling upgrade a controller without this change treats ``retry`` as
+  a reserved field: it cannot parse a job that uses it, and fails the run. Do
+  not create or run jobs with ``retry`` until every controller runs this
+  version. For jobs without ``retry`` an old controller waits on a pending step
+  whose latest attempt failed (an empty advance), and a new controller picks it
+  up through the sweep within one interval; completions an old controller
+  handles still finish the step.

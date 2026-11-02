@@ -29,8 +29,16 @@ func (c *core) fillIdempotent(ctx context.Context, state *engine.RunState, job *
 		Version    string `json:"version"`
 		Idempotent bool   `json:"idempotent"`
 	}
+	names := map[string]bool{}
+	for _, ref := range refs {
+		name, _, _ := strings.Cut(ref, "@")
+		names[name] = true
+	}
 	var ms []manifest
 	for _, r := range rows {
+		if !names[r.Name] {
+			continue // decode only the manifests of plugins we are asked about
+		}
 		var m manifest
 		if err := json.Unmarshal(r.Manifest, &m); err != nil {
 			continue // a manifest we cannot read proves nothing

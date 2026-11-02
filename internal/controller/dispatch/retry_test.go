@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/denyszorinets/damson/internal/controller/dispatch"
 	"github.com/denyszorinets/damson/internal/store"
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 )
@@ -56,7 +57,7 @@ func retrySpec(maxAttempts int) string {
 func TestRetryFlakyStepSucceedsOnThirdAttempt(t *testing.T) {
 	forEachBackend(t, func(t *testing.T, st store.Store) {
 		fp := &flakyPlugin{fail: 2}
-		c := startClusterPlugins(t, st, retrySpec(5), fp)
+		c := startClusterPlugins(t, st, retrySpec(5), []pluginsdk.Plugin{fp})
 		id := c.triggerPlugin("flaky", "x")
 
 		tree := c.waitRun(id, store.RunSucceeded)
@@ -95,7 +96,7 @@ func TestRetryFlakyStepSucceedsOnThirdAttempt(t *testing.T) {
 func TestRetryExhaustedFailsStep(t *testing.T) {
 	forEachBackend(t, func(t *testing.T, st store.Store) {
 		fp := &flakyPlugin{fail: 100}
-		c := startClusterPlugins(t, st, retrySpec(3), fp)
+		c := startClusterPlugins(t, st, retrySpec(3), []pluginsdk.Plugin{fp})
 		id := c.triggerPlugin("flaky", "x")
 
 		tree := c.waitRun(id, store.RunFailed)
@@ -124,7 +125,7 @@ func TestCancelDuringRetryWait(t *testing.T) {
 		spec := `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"lin"},
 "spec":{"steps":[{"id":"s1","plugin":"flaky","retry":{"max_attempts":5,"backoff":{"initial":"30s","jitter":0}}}]}}`
 		fp := &flakyPlugin{fail: 100}
-		c := startClusterPlugins(t, st, spec, fp)
+		c := startClusterPlugins(t, st, spec, []pluginsdk.Plugin{fp})
 		id := c.triggerPlugin("flaky", "x")
 		deadline := time.Now().Add(20 * time.Second)
 		for {
@@ -149,4 +150,80 @@ func TestCancelDuringRetryWait(t *testing.T) {
 			t.Fatalf("plugin ran %d times; want only the first attempt", fp.callCount())
 		}
 	})
+}
+
+// lostPlugin blocks its first call (the agent keeps running it while the
+// controller loses its lease) and succeeds on later calls. Its manifest says
+// whether it is idempotent.
+type lostPlugin struct {
+	idempotent bool
+	release    chan struct{}
+
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *lostPlugin) Manifest() pluginsdk.Manifest {
+	return pluginsdk.Manifest{
+		Name: "lostp", Version: "1.0.0", Title: "lostp", TargetMode: pluginsdk.TargetNone, Idempotent: p.idempotent,
+		InputSchema: pluginsdk.MustSchemaFor[struct{}](), OutputSchema: pluginsdk.MustSchemaFor[struct{}](),
+	}
+}
+
+func (p *lostPlugin) Validate(context.Context, json.RawMessage) error { return nil }
+
+func (p *lostPlugin) Execute(ctx context.Context, _ pluginsdk.ExecRequest, _ pluginsdk.Emitter) (pluginsdk.Result, error) {
+	p.mu.Lock()
+	p.calls++
+	n := p.calls
+	p.mu.Unlock()
+	if n == 1 {
+		select {
+		case <-p.release:
+		case <-ctx.Done():
+		}
+		return pluginsdk.Result{Error: &pluginsdk.StepError{Message: "stopped"}}, nil
+	}
+	return pluginsdk.Result{Outputs: json.RawMessage(`{}`)}, nil
+}
+
+// A lost attempt (its lease expires because nothing renews it) is retried when
+// the plugin's manifest says it is idempotent, and fails the step with kind
+// lost when it is not, with retry.on_lost unset in both cases.
+func TestLostAttemptRetriedOnlyForIdempotentPlugin(t *testing.T) {
+	spec := `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"lin"},
+"spec":{"steps":[{"id":"s1","plugin":"lostp","retry":{"max_attempts":3,"backoff":{"initial":"20ms","jitter":0}}}]}}`
+	for _, idempotent := range []bool{true, false} {
+		name := map[bool]string{true: "idempotent", false: "not idempotent"}[idempotent]
+		t.Run(name, func(t *testing.T) {
+			forEachBackend(t, func(t *testing.T, st store.Store) {
+				lp := &lostPlugin{idempotent: idempotent, release: make(chan struct{})}
+				t.Cleanup(func() { close(lp.release) })
+				// A short lease that nothing renews: the reaper marks attempt 1 lost
+				// while the agent still runs it.
+				c := startClusterPlugins(t, st, spec, []pluginsdk.Plugin{lp}, func(cfg *dispatch.Config) {
+					cfg.LeaseTTL = 300 * time.Millisecond
+					cfg.RenewInterval = time.Hour
+				})
+				id := c.triggerPlugin("lostp", "x")
+
+				if idempotent {
+					tree := c.waitRun(id, store.RunSucceeded)
+					s1 := tree.Steps[0]
+					if len(s1.Executions) != 2 || s1.Executions[0].State != store.ExecLost || s1.Executions[1].State != store.ExecSucceeded {
+						t.Fatalf("attempts = %+v; want lost then succeeded", s1.Executions)
+					}
+					return
+				}
+				tree := c.waitRun(id, store.RunFailed)
+				s1 := tree.Steps[0]
+				if len(s1.Executions) != 1 || s1.Executions[0].State != store.ExecLost || s1.Status != store.StepFailed {
+					t.Fatalf("s1 = %s with %+v; want failed after one lost attempt", s1.Status, s1.Executions)
+				}
+				if kind, _ := store.SplitStepError(s1.Error); kind != store.ErrKindLost {
+					t.Fatalf("step error = %q; want kind lost", s1.Error)
+				}
+			})
+		})
+	}
 }
