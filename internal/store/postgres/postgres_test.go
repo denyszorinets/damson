@@ -215,6 +215,7 @@ func TestIdleInTransactionIsTerminated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() { _ = tx.Rollback(ctx) }() // hands the connection back, or Close would wait for it
 	if _, err := tx.Exec(ctx, "SELECT 1"); err != nil {
 		t.Fatal(err)
 	}
