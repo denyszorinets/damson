@@ -46,7 +46,7 @@ fmt-check: ## Fail if any Go file is not gofmt-formatted
 	if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 
 lint: ## golangci-lint (config in .golangci.yml); fails if not installed
-	golangci-lint run $(GOPKGS)
+	golangci-lint run ./...
 
 check: fmt-check vet lint-maybe test web-check-maybe ## gofmt, vet, golangci-lint and tests (SQLite), plus web lint and typecheck when web/node_modules exists; Postgres tests are in test-pg
 

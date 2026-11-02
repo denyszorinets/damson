@@ -168,6 +168,42 @@ update
 stuff
 ```
 
+## Before Every Push (local gate)
+
+CI is the last check, not the first. Run the same checks locally and fix every failure **before** `git push`, every time, including follow-up pushes on a PR that is already open. A push that CI then rejects for lint, formatting, a failing test or stale generated code is a process failure.
+
+One-time setup: install the CI linter (the version pinned in `.github/workflows/ci.yml`; it is a dev tool, not a module dependency):
+
+```bash
+GOBIN=$HOME/go/bin go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+export PATH=$HOME/go/bin:$PATH
+golangci-lint version        # must print 2.15.0
+```
+
+Without it `make check` prints `SKIPPED lint` and the gate is not passed.
+
+The gate, in order:
+
+```bash
+gofmt -l cmd internal pkg plugins                  # must print nothing
+go vet ./...
+go vet -tags integration ./...                     # Postgres and sshd tests compile
+go vet -tags chaos ./internal/chaos/               # when anything near the HA harness changed
+golangci-lint run ./...                            # 0 issues (make lint)
+go test -race -count=1 <packages you touched>      # the narrowest first
+make check                                         # everything above plus all SQLite tests and web checks
+make docs-check                                    # when docs/, ARCHITECTURE.md or an ADR changed
+make gen && git status --short                     # when queries, API types, the job spec or plugin schemas changed: commit the generated output
+```
+
+Rules:
+
+- A new or changed test must have been run, and passing, on this machine. Run it with `-race` when it starts goroutines.
+- A test that fails here is fixed before the push. Do not push and "see what CI says".
+- Postgres (`make test-pg`) and the chaos suite (`make chaos`) need Docker, which may not exist locally. Then say so in the PR and let CI run them; still run `go vet -tags integration ./...` and `go vet -tags chaos ./internal/chaos/` so they compile.
+- A CI failure that the gate should have caught is fixed together with a note of why the gate missed it (a missing step goes into this list).
+- Never lower a lint rule or skip a test to get through the gate.
+
 ## If Push Fails or the Branch Is Behind
 
 If code has already been committed and pushing reveals that the remote/develop history has moved or the branch needs synchronization, use rebase.
@@ -440,6 +476,8 @@ For a normal GitHub task, follow this sequence:
         ↓
 10. Commit
         ↓
+10a. Local gate: lint, vet, tests (see "Before Every Push")
+        ↓
 11. Push feature branch
         ↓
 12. Create PR → develop
@@ -473,6 +511,7 @@ For a normal GitHub task, follow this sequence:
 16. Never bypass required GitHub review or branch protection.
 17. Keep GitHub ticket, branch, commit, and PR associated with the same piece of work.
 18. Never add `Co-Authored-By: Claude` trailers or "Generated with Claude Code" lines to commits or PRs.
+19. Never push before the local gate passes (see "Before Every Push"): lint, vet and the tests you touched run locally first.
 
 ## Standing Autonomy (granted by the maintainer, 2026-10-28)
 
