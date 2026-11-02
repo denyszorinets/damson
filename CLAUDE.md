@@ -105,7 +105,7 @@ The main session runs `sonnet` (`.claude/settings.json`) and is the **code write
 1. Restate the slice and its acceptance criteria. Read the relevant ARCHITECTURE sections. For a "When unsure" topic ARCHITECTURE does not settle, get a decision from `architect` first.
 2. Write or adjust tests first for the engine, store, and protocol logic.
 3. Implement the smallest change that passes.
-4. Have `toolcaller` run `make check` (and `make test-pg` if the store changed) and report failures.
+4. Run the local gate yourself before every push (`gitflow` skill, "Before Every Push"): gofmt, `go vet` (also `-tags integration` and `-tags chaos`), `golangci-lint run ./...` (install v2.15.0 once), the tests you touched with `-race`, `make check`, `make docs-check` when docs changed. Have `toolcaller` run `make test-pg` (store changes) and watch CI; it does not replace the gate.
 5. Review your own diff against the hard rules; for risky areas (see Agent team) have `architect` review it, and fix what it finds.
 6. Have `docs-writer` update docs (ARCHITECTURE, ADRs, the milestone line) in the same change.
 7. Open the PR; have `toolcaller` watch CI and, once green, merge it (autonomy rules above).
