@@ -75,8 +75,13 @@ type RunState struct {
 	CancelRequestedAt *time.Time `json:"cancel_requested_at,omitempty"`
 	// CancelReason is why the cancel was requested: "" for a user or API
 	// request, CancelReasonTimeout for the job-level timeout.
-	CancelReason string              `json:"cancel_reason,omitempty"`
-	Steps        []StepInstanceState `json:"steps,omitempty"`
+	CancelReason string `json:"cancel_reason,omitempty"`
+	// IdempotentPlugins says, per `plugin` string as written in the spec,
+	// whether the plugin declares itself idempotent. The advance fills it only
+	// when a step's latest attempt was lost (it decides whether that attempt
+	// may be retried); a plugin without a stored manifest is not idempotent.
+	IdempotentPlugins map[string]bool     `json:"idempotent_plugins,omitempty"`
+	Steps             []StepInstanceState `json:"steps,omitempty"`
 }
 
 // JobInfo is the job identity exposed to expressions as `job`.
@@ -103,10 +108,15 @@ type StepInstanceState struct {
 
 // ExecutionView is the view of one Execution (attempt).
 type ExecutionView struct {
-	ID              string    `json:"id"`
-	AttemptID       string    `json:"attempt_id"`
+	ID        string `json:"id"`
+	AttemptID string `json:"attempt_id"`
+	// Attempt is the attempt number, from 1.
+	Attempt         int       `json:"attempt,omitempty"`
 	State           ExecState `json:"state"`
 	CancelRequested bool      `json:"cancel_requested,omitempty"`
+	// Error and FinishedAt are set for a terminal attempt that failed.
+	Error      *StepError `json:"error,omitempty"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
 }
 
 // StepError describes why a step failed.

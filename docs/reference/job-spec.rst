@@ -71,6 +71,20 @@ Document layout
    * - ``steps[].with``
      - Plugin input. Any string may contain ``${{ }}`` expressions; they are
        compile-checked at validation time.
+   * - ``steps[].retry``
+     - Plugin steps only (:doc:`/architecture/decisions/0036-retry-semantics`).
+       ``max_attempts`` is required (1 to 100, counts the first attempt).
+       ``backoff``: ``initial`` (default ``1s``), ``multiplier`` (1 to 10,
+       default 2), ``max`` (default ``5m``, at most 24h) and ``jitter`` (a
+       fraction, 0 to 1, default 0.2: the delay is shortened by up to that
+       share). ``retry_on`` is a CEL condition over ``error`` (``kind``,
+       ``message``; ``exit_code`` is not delivered yet, use
+       ``has(error.exit_code)``), default ``error.kind in ['connection',
+       'timeout', 'lost']``. ``on_lost`` (optional boolean): unset retries a
+       lost attempt only for an idempotent plugin, ``true`` always,
+       ``false`` never. Nothing is retried once the run is being cancelled
+       (a user cancel or the job timeout), and a step without ``retry`` runs
+       once.
    * - ``steps[].timeout``
      - Per attempt, Go duration. Stored on the execution and enforced by the
        agent (a deadline that starts when it accepts the step). A timed-out
@@ -88,8 +102,8 @@ Reserved fields (rejected for now)
 These fields are part of the schema so that M3 extends the model instead of
 reshaping it, but validation rejects them with ``<path> is not supported yet``:
 ``spec.concurrency``, ``type: "group"``, and on steps ``steps``, ``catch``,
-``finally``, ``rethrow``, ``for_each``, ``max_parallel``, ``fail_threshold``
-and ``retry``.
+``finally``, ``rethrow``, ``for_each``, ``max_parallel`` and
+``fail_threshold``.
 
 Control flow (sequential)
 -------------------------

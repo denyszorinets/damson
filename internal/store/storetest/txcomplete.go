@@ -102,8 +102,9 @@ func testTxExpireLeases(t *testing.T, s store.Store) {
 		t.Fatalf("ExpireLeases = %v, %v; want the claimed execution", lost, err)
 	}
 	mustState(t, s, ex.ID, store.ExecLost)
-	if st := mustStep(t, s, ex.StepInstanceID); st.Status != store.StepFailed || st.Error == "" {
-		t.Fatalf("step = %s %q; want failed with a reason", st.Status, st.Error)
+	// A lost attempt leaves its step pending: the engine retries or settles it.
+	if st := mustStep(t, s, ex.StepInstanceID); st.Status.Terminal() {
+		t.Fatalf("step = %s after a lost attempt; want it left open for the engine", st.Status)
 	}
 	if after := runVersion(t, s, ex.RunID); after != before+1 {
 		t.Fatalf("run version = %d; want %d", after, before+1)

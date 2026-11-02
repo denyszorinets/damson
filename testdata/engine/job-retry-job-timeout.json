@@ -1,0 +1,29 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "retry-job-timeout"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "flaky",
+        "plugin": "ssh",
+        "with": {
+          "node": "n",
+          "command": "flaky"
+        },
+        "retry": {
+          "max_attempts": 5,
+          "backoff": {
+            "initial": "30s",
+            "multiplier": 1,
+            "jitter": 0
+          }
+        }
+      }
+    ],
+    "timeout": "1m"
+  }
+}

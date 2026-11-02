@@ -75,16 +75,30 @@ func (s AdvanceStep) StatusOrDefault() StepStatus {
 	return s.Status
 }
 
-// AdvanceAttempt schedules a further attempt for an existing step instance.
+// AdvanceAttempt schedules attempt number Attempt for an existing step
+// instance: the first (when it has none yet) or a retry. The store applies it
+// only if the step is still pending or running and its latest attempt is
+// number Attempt-1 and finished; otherwise ErrConflict, so a duplicated or
+// stale decision cannot create an attempt twice.
 type AdvanceAttempt struct {
-	Path string
+	Path    string
+	Attempt int
 	NewExecution
+}
+
+// AdvanceSettle finishes a step instance from the outcome of its attempt
+// number Attempt, once the engine decided not to retry it (StepOutcome gives
+// the status and error). The attempt must be the latest and finished, and the
+// step still pending or running; otherwise ErrConflict.
+type AdvanceSettle struct {
+	Path    string
+	Attempt int
 }
 
 // Advance is the dialect-neutral change set of one run.advance, applied by
 // Tx.ApplyAdvance in this order: the run row (start or finish, and the version
-// check) first, then the run cancel, new steps, new attempts and execution
-// cancellations.
+// check) first, then the run cancel, new steps, settled steps, new attempts and
+// execution cancellations.
 type Advance struct {
 	// Start moves a pending run to running.
 	Start bool
@@ -94,7 +108,9 @@ type Advance struct {
 	CancelRun string
 	// NewSteps are created in order.
 	NewSteps []AdvanceStep
-	// NewAttempts add an attempt to a step instance that has none yet.
+	// Settle finishes steps whose failed attempt is not retried.
+	Settle []AdvanceSettle
+	// NewAttempts add an attempt (the first, or a retry) to a step instance.
 	NewAttempts []AdvanceAttempt
 	// Cancel lists execution ids to cancel. A queued execution and its step
 	// instance move to canceled in the same transaction. One that was claimed
@@ -109,7 +125,7 @@ type Advance struct {
 
 // Empty reports whether applying a would change nothing.
 func (a Advance) Empty() bool {
-	return !a.Start && a.CancelRun == "" && len(a.NewSteps) == 0 && len(a.NewAttempts) == 0 && len(a.Cancel) == 0 && a.Finish == ""
+	return !a.Start && a.CancelRun == "" && len(a.NewSteps) == 0 && len(a.Settle) == 0 && len(a.NewAttempts) == 0 && len(a.Cancel) == 0 && a.Finish == ""
 }
 
 // ValidateAdvance rejects change sets the store cannot apply, before any I/O.
@@ -136,15 +152,42 @@ func ValidateAdvance(a Advance) error {
 			return err
 		}
 	}
-	for _, at := range a.NewAttempts {
-		if at.Path == "" {
-			return fmt.Errorf("advance attempt needs a step path: %w", ErrInvalid)
+	settled := map[string]bool{}
+	for _, se := range a.Settle {
+		if se.Path == "" || se.Attempt < 1 {
+			return fmt.Errorf("advance settle needs a step path and an attempt number from 1: %w", ErrInvalid)
 		}
+		if settled[se.Path] {
+			return fmt.Errorf("duplicate advance settle of step %q: %w", se.Path, ErrInvalid)
+		}
+		settled[se.Path] = true
+	}
+	scheduled := map[string]bool{}
+	for _, at := range a.NewAttempts {
+		if at.Path == "" || at.Attempt < 1 {
+			return fmt.Errorf("advance attempt needs a step path and an attempt number from 1: %w", ErrInvalid)
+		}
+		if settled[at.Path] {
+			return fmt.Errorf("step %q is both settled and given a new attempt: %w", at.Path, ErrInvalid)
+		}
+		if scheduled[at.Path] {
+			return fmt.Errorf("duplicate advance attempt for step %q: %w", at.Path, ErrInvalid)
+		}
+		scheduled[at.Path] = true
 		if err := ValidateNewExecution(at.NewExecution); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// SettlesOnCompletion reports whether the store finishes a step in the
+// transaction that records the end of an attempt in this state. A succeeded or
+// canceled attempt has nothing left to decide. A failed, timed out or lost one
+// leaves the step pending: the engine decides whether to retry it or to
+// settle it (Advance.Settle).
+func SettlesOnCompletion(s ExecutionState) bool {
+	return s == ExecSucceeded || s == ExecCanceled
 }
 
 func validateAdvanceStep(st AdvanceStep) error {
@@ -179,8 +222,9 @@ func AdvanceRunStatus(cur Run, a Advance, now time.Time) (status RunStatus, star
 }
 
 // StepOutcome maps a finished attempt to the status and error text of its
-// step instance. M3 retries will make some failures non-terminal for the
-// step; until then a finished attempt finishes the step.
+// step instance. It is used when the step is settled: at once for a succeeded
+// or canceled attempt, and for a failed, timed out or lost one when the engine
+// decides not to retry it (Advance.Settle).
 func StepOutcome(ex Execution) (StepStatus, string) {
 	switch ex.State {
 	case ExecSucceeded:

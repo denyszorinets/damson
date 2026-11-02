@@ -31,6 +31,7 @@ type advanceStore interface {
 	GetJob(ctx context.Context, id string) (store.Job, error)
 	GetJobVersion(ctx context.Context, id string) (store.JobVersion, error)
 	ListProjects(ctx context.Context) ([]store.Project, error)
+	ListPluginManifests(ctx context.Context) ([]store.PluginManifest, error)
 }
 
 // core is the advance logic without River, so it is testable on its own.
@@ -84,6 +85,9 @@ func (c *core) once(ctx context.Context, runID string) (changed bool, err error)
 	if err != nil {
 		return false, &permanentError{err}
 	}
+	if err := c.fillIdempotent(ctx, &state, job); err != nil {
+		return false, err
+	}
 	acts, err := c.eng.Decide(job, state, now)
 	if err != nil {
 		return false, &permanentError{fmt.Errorf("deciding run %s: %w", runID, err)}
@@ -108,8 +112,10 @@ func (c *core) once(ctx context.Context, runID string) (changed bool, err error)
 		// A cancelled queued execution finishes its step without any agent
 		// report, so nothing else would wake the run: advance again. (For a
 		// flagged one the second advance is empty.) The same goes for the
-		// job timeout, whose cancel is recorded in this advance.
-		if len(adv.Cancel) > 0 || adv.CancelRun != "" {
+		// job timeout, whose cancel is recorded in this advance, and for a
+		// settled step: the Decide that settles it waits, and the next one
+		// reads the finished step.
+		if len(adv.Cancel) > 0 || adv.CancelRun != "" || len(adv.Settle) > 0 {
 			return c.enqueue(ctx, tx, runID)
 		}
 		return nil

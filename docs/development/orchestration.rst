@@ -114,6 +114,24 @@ rescuer only clears rows a crashed controller stranded; it is not what
 recovers the run. A job discarded after five failures is replaced by the next
 sweep.
 
+Retries
+-------
+
+A failed, timed-out or lost attempt leaves its step pending (the store settles
+a step on completion only for ``succeeded`` and ``canceled`` attempts). The
+engine's ``attend`` looks at the latest attempt of every open step and either
+emits ``ScheduleExecution`` for attempt n+1 or ``SettleStep``
+(:doc:`/architecture/decisions/0036-retry-semantics`). ``toAdvance`` maps them to
+``Advance.NewAttempts`` (with ``Attempt``) and ``Advance.Settle``; the store
+checks the sequence (the new attempt must follow a finished one, a settle must
+name the latest finished attempt) and answers ``ErrConflict`` otherwise. A
+settle re-enqueues the advance, because the Decide that emits it waits.
+
+``buildState`` gives the engine each attempt's number, error (the stored kind,
+or one derived from its state) and ``finished_at``, which is the base of the
+backoff. ``IdempotentPlugins`` is filled from the stored manifests only when a
+step's latest attempt was lost (``fillIdempotent``).
+
 Job timeout
 -----------
 

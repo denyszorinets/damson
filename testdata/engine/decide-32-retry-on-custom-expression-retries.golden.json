@@ -1,0 +1,8 @@
+[
+  {
+    "attempt": 2,
+    "path": "flaky",
+    "scheduled_at": "2026-03-01T10:00:15Z",
+    "type": "schedule_execution"
+  }
+]

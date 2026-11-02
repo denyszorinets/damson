@@ -81,7 +81,16 @@ func TestParseInvalid(t *testing.T) {
 		{"empty runs_on", mutate(t, `"runs_on": { "pool": "dc1", "labels": { "arch": "amd64" } }`, `"runs_on": {}`), "spec.steps[0].runs_on", "pool or labels"},
 		// Reserved for M3: parsed, but rejected with a clear error.
 		{"group reserved", mutate(t, installStep, `"id": "install", "type": "group",`), "spec.steps[1].type", "not supported yet"},
-		{"retry reserved", mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 3},`), "spec.steps[0].retry", "not supported yet"},
+		{"retry without max_attempts", mutate(t, `"timeout": "10m",`, `"retry": {},`), "spec.steps[0].retry", "max_attempts"},
+		{"retry max_attempts too high", mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 101},`), "spec.steps[0].retry.max_attempts", "maximum"},
+		{"retry bad initial", mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 3, "backoff": {"initial": "soon"}},`), "spec.steps[0].retry.backoff.initial", "duration"},
+		{"retry negative max", mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 3, "backoff": {"max": "-1s"}},`), "spec.steps[0].retry.backoff.max", "positive"},
+		{"retry delay over a day", mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 3, "backoff": {"max": "25h"}},`), "spec.steps[0].retry.backoff.max", "at most"},
+		{"retry max below initial", mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 3, "backoff": {"initial": "10s", "max": "5s"}},`), "spec.steps[0].retry.backoff.max", "less than"},
+		{"retry multiplier below 1", mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 3, "backoff": {"multiplier": 0.5}},`), "spec.steps[0].retry.backoff.multiplier", "minimum"},
+		{"retry multiplier above 10", mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 3, "backoff": {"multiplier": 11}},`), "spec.steps[0].retry.backoff.multiplier", "maximum"},
+		{"retry jitter above 1", mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 3, "backoff": {"jitter": 1.5}},`), "spec.steps[0].retry.backoff.jitter", "maximum"},
+		{"retry_on syntax", mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 3, "retry_on": "error.kind =="},`), "spec.steps[0].retry.retry_on", "invalid expression"},
 		{"for_each reserved", mutate(t, `"timeout": "10m",`, `"for_each": "targets",`), "spec.steps[0].for_each", "not supported yet"},
 		{"catch reserved", mutate(t, `"timeout": "10m",`, `"catch": [{"id":"c","plugin":"ssh"}],`), "spec.steps[0].catch", "not supported yet"},
 		{"finally reserved", mutate(t, `"timeout": "10m",`, `"finally": [{"id":"c","plugin":"ssh"}],`), "spec.steps[0].finally", "not supported yet"},
@@ -203,5 +212,17 @@ func TestSchemaGolden(t *testing.T) {
 	}
 	if string(got) != string(want) {
 		t.Fatal("job-v1.schema.json is stale; run `make gen`")
+	}
+}
+
+func TestParseValidRetry(t *testing.T) {
+	doc := mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 5, "backoff": {"initial": "2s", "multiplier": 3, "max": "1m", "jitter": 0}, "retry_on": "error.kind == 'connection' || error.message.contains('reset')", "on_lost": false},`)
+	job, err := Parse(doc)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	r := job.Spec.Steps[0].Retry
+	if r == nil || r.MaxAttempts != 5 || r.OnLost == nil || *r.OnLost || r.Backoff == nil || *r.Backoff.Jitter != 0 || *r.Backoff.Multiplier != 3 {
+		t.Fatalf("retry = %+v", r)
 	}
 }

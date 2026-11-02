@@ -127,20 +127,13 @@ func (t *txn) applySteps(ctx context.Context, runID string, a store.Advance, now
 			return err
 		}
 	}
+	for _, se := range a.Settle {
+		if err := t.settle(ctx, runID, se, now); err != nil {
+			return err
+		}
+	}
 	for _, at := range a.NewAttempts {
-		step, err := t.q.GetStepInstanceByPath(ctx, gen.GetStepInstanceByPathParams{RunID: runID, Path: at.Path})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("step %q in run %q: %w", at.Path, runID, store.ErrNotFound)
-		}
-		if err != nil {
-			return fmt.Errorf("getting step %q: %w", at.Path, err)
-		}
-		if _, err := t.q.LatestAttempt(ctx, step.ID); err == nil {
-			return fmt.Errorf("step %q already has an attempt: %w", at.Path, store.ErrConflict)
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("reading latest attempt of step %q: %w", at.Path, err)
-		}
-		if _, err := insertExecution(ctx, t.q, runID, step.ID, 1, at.NewExecution, now); err != nil {
+		if err := t.addAttempt(ctx, runID, at, now); err != nil {
 			return err
 		}
 	}
@@ -238,4 +231,61 @@ func (s *Store) ListActiveRunIDs(ctx context.Context, afterID string, limit int)
 		return nil, fmt.Errorf("listing active runs: %w", err)
 	}
 	return ids, nil
+}
+
+// addAttempt schedules attempt at.Attempt of a step: the first, or the retry
+// that follows a finished attempt. The step must still be open and the latest
+// attempt must be the one before it and finished; the insert's unique
+// (step, attempt number) is the last guard against a duplicated decision.
+func (t *txn) addAttempt(ctx context.Context, runID string, at store.AdvanceAttempt, now time.Time) error {
+	step, err := t.q.GetStepInstanceByPath(ctx, gen.GetStepInstanceByPathParams{RunID: runID, Path: at.Path})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("step %q in run %q: %w", at.Path, runID, store.ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("getting step %q: %w", at.Path, err)
+	}
+	if st := store.StepStatus(step.Status); st != store.StepPending && st != store.StepRunning {
+		return fmt.Errorf("step %q is %s and takes no new attempt: %w", at.Path, st, store.ErrConflict)
+	}
+	latest, err := t.q.LatestAttempt(ctx, step.ID)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		if at.Attempt != 1 {
+			return fmt.Errorf("step %q has no attempt, so attempt %d cannot follow: %w", at.Path, at.Attempt, store.ErrConflict)
+		}
+	case err != nil:
+		return fmt.Errorf("reading latest attempt of step %q: %w", at.Path, err)
+	case int(latest.AttemptNo) != at.Attempt-1 || !store.ExecutionState(latest.State).Terminal():
+		return fmt.Errorf("step %q: attempt %d does not follow a finished attempt %d (latest is %d, %s): %w",
+			at.Path, at.Attempt, at.Attempt-1, latest.AttemptNo, latest.State, store.ErrConflict)
+	}
+	_, err = insertExecution(ctx, t.q, runID, step.ID, at.Attempt, at.NewExecution, now)
+	return err
+}
+
+// settle finishes a step from the outcome of its latest attempt. A miss is
+// ErrConflict, never swallowed: the decision was made on a state that no
+// longer holds.
+func (t *txn) settle(ctx context.Context, runID string, se store.AdvanceSettle, now time.Time) error {
+	step, err := t.q.GetStepInstanceByPath(ctx, gen.GetStepInstanceByPathParams{RunID: runID, Path: se.Path})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("step %q in run %q: %w", se.Path, runID, store.ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("getting step %q: %w", se.Path, err)
+	}
+	latest, err := t.q.LatestAttempt(ctx, step.ID)
+	if err != nil {
+		return fmt.Errorf("reading latest attempt of step %q: %w", se.Path, err)
+	}
+	if int(latest.AttemptNo) != se.Attempt || !store.ExecutionState(latest.State).Terminal() {
+		return fmt.Errorf("step %q: attempt %d is not the latest finished attempt (latest is %d, %s): %w",
+			se.Path, se.Attempt, latest.AttemptNo, latest.State, store.ErrConflict)
+	}
+	row, err := t.q.GetExecutionByStepAttempt(ctx, gen.GetExecutionByStepAttemptParams{StepInstanceID: step.ID, AttemptNo: latest.AttemptNo})
+	if err != nil {
+		return fmt.Errorf("getting attempt %d of step %q: %w", se.Attempt, se.Path, err)
+	}
+	return t.settleStepStrict(ctx, toExecution(row), now)
 }

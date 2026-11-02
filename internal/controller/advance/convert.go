@@ -23,6 +23,10 @@ const DefaultPool = "default"
 //   - TimeoutRun becomes Advance.CancelRun (a sticky cancel with reason
 //     timeout) and ScheduleWake is returned as the wake time, for the caller to
 //     queue in the same transaction;
+//   - SettleStep becomes Advance.Settle (the store finishes the step from the
+//     outcome of that attempt) and a ScheduleExecution for an existing step
+//     becomes an AdvanceAttempt carrying the attempt number, a retry when it
+//     is above 1;
 //   - CancelExecution cancels a queued execution; an execution that was
 //     already dispatched is cancelled by its owning controller, which sees
 //     runs.cancel_requested_at (slice 53c), so there is nothing to write;
@@ -51,6 +55,8 @@ func toAdvance(acts []engine.Action, tree store.RunTree, job *engine.Job) (adv s
 			// The store cancels a queued execution and flags a claimed one for
 			// its owning controller (Advance.Cancel).
 			adv.Cancel = append(adv.Cancel, a.ExecutionID)
+		case engine.SettleStep:
+			adv.Settle = append(adv.Settle, store.AdvanceSettle{Path: a.Path, Attempt: a.Attempt})
 		case engine.TimeoutRun:
 			adv.CancelRun = store.CancelReasonTimeout
 		case engine.ScheduleWake:
@@ -77,7 +83,7 @@ func schedule(adv *store.Advance, created map[string]int, a engine.ScheduleExecu
 		adv.NewSteps[i].Execution = &ne
 		return nil
 	}
-	adv.NewAttempts = append(adv.NewAttempts, store.AdvanceAttempt{Path: a.Path, NewExecution: ne})
+	adv.NewAttempts = append(adv.NewAttempts, store.AdvanceAttempt{Path: a.Path, Attempt: a.Attempt, NewExecution: ne})
 	return nil
 }
 

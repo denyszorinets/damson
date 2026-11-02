@@ -136,7 +136,7 @@ func testApplyAdvanceAtomic(t *testing.T, s store.Store) {
 			Start:    true,
 			NewSteps: []store.AdvanceStep{advanceStep("a", ""), advanceStep("b", "")},
 			NewAttempts: []store.AdvanceAttempt{
-				{Path: "missing", NewExecution: *execSpec("default")},
+				{Path: "missing", Attempt: 1, NewExecution: *execSpec("default")},
 			},
 		}, t0)
 		return err

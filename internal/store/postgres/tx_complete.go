@@ -88,20 +88,32 @@ func (t *txn) ExpireLeases(ctx context.Context, now time.Time, limit int) ([]sto
 	return out, t.touchRuns(ctx, slices.Compact(runs)...)
 }
 
-// settleStep moves the step instance of a finished attempt to its terminal
-// status. A step that already finished (the run was cancelled meanwhile) is
-// left alone.
+// settleStep finishes the step of an attempt that just ended, but only when
+// there is nothing left to decide (a succeeded or canceled attempt). A failed,
+// timed out or lost attempt leaves the step pending: the engine retries it or
+// settles it in a later advance (Advance.Settle). A step that already
+// finished (the run was cancelled meanwhile) is left alone.
 func (t *txn) settleStep(ctx context.Context, ex store.Execution, now time.Time) error {
+	if !store.SettlesOnCompletion(ex.State) {
+		return nil
+	}
+	err := t.settleStepStrict(ctx, ex, now)
+	if err != nil && !errors.Is(err, store.ErrConflict) {
+		return err
+	}
+	return nil
+}
+
+// settleStepStrict moves the step instance of a finished attempt to the status
+// its outcome gives (store.StepOutcome); ErrConflict when the step is no longer
+// pending or running.
+func (t *txn) settleStepStrict(ctx context.Context, ex store.Execution, now time.Time) error {
 	status, reason := store.StepOutcome(ex)
 	outputs := "{}"
 	if len(ex.Outputs) > 0 {
 		outputs = string(ex.Outputs)
 	}
-	err := t.finishStepWith(ctx, ex.StepInstanceID, status, outputs, reason, now, store.StepPending, store.StepRunning)
-	if err != nil && !errors.Is(err, store.ErrConflict) {
-		return err
-	}
-	return nil
+	return t.finishStepWith(ctx, ex.StepInstanceID, status, outputs, reason, now, store.StepPending, store.StepRunning)
 }
 
 // touchRuns bumps runs.version so run.advance wakes. A finished run is left alone.

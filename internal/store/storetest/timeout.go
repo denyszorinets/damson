@@ -68,6 +68,7 @@ func testStepErrorKinds(t *testing.T, s store.Store) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		settleAttempt(t, s, ex, 1, at)
 		return mustStep(t, s, ex.StepInstanceID)
 	}
 
@@ -108,6 +109,7 @@ func testStepErrorKinds(t *testing.T, s store.Store) {
 		if err != nil || len(lost) == 0 {
 			t.Fatalf("ExpireLeases = %v, %v; want the attempt lost", lost, err)
 		}
+		settleAttempt(t, s, ex, 1, at)
 		st := mustStep(t, s, ex.StepInstanceID)
 		if kind, _ := store.SplitStepError(st.Error); kind != store.ErrKindLost {
 			t.Fatalf("step error = %q; want kind lost", st.Error)
@@ -188,4 +190,19 @@ func testRunCancelInAdvance(t *testing.T, s store.Store) {
 			t.Fatalf("unknown reason = %v; want ErrInvalid", err)
 		}
 	})
+}
+
+// settleAttempt applies the engine's "do not retry" decision for a step: an
+// advance with Settle for the attempt. The step then has the attempt's outcome.
+func settleAttempt(t *testing.T, s store.Store, ex store.Execution, attempt int, at time.Time) {
+	t.Helper()
+	ver := runVersion(t, s, ex.RunID)
+	step := mustStep(t, s, ex.StepInstanceID)
+	err := withTx(t, s, func(tx store.Tx) error {
+		_, err := tx.ApplyAdvance(context.Background(), ex.RunID, ver, store.Advance{Settle: []store.AdvanceSettle{{Path: step.Path, Attempt: attempt}}}, at)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("Settle attempt %d of %s: %v", attempt, step.Path, err)
+	}
 }

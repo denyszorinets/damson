@@ -1,0 +1,28 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "retry-lost-false"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "flaky",
+        "plugin": "ssh",
+        "with": {
+          "node": "n",
+          "command": "flaky"
+        },
+        "retry": {
+          "max_attempts": 3,
+          "backoff": {
+            "initial": "5s",
+            "jitter": 0
+          },
+          "on_lost": false
+        }
+      }
+    ]
+  }
+}

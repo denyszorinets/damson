@@ -120,7 +120,7 @@ func (d *decider) decide() ([]Action, error) {
 	for _, step := range d.job.Spec.Steps {
 		inst, exists := d.byID[step.ID]
 		if exists && !inst.Status.Terminal() {
-			return d.waitOn(step, inst)
+			return d.attend(step, inst)
 		}
 		if !exists {
 			status, waiting, err := d.begin(step, failed)
@@ -173,24 +173,6 @@ func (d *decider) cancelActive() {
 			}
 		}
 	}
-}
-
-// waitOn handles a step instance that is not terminal yet. Normally an
-// execution is in flight and there is nothing to do. Contract: when an
-// execution completes, the store must flip the step instance status in the
-// same transaction (§8.3 "Complete"); Decide does not derive step status from
-// executions, so a pending step with only terminal executions just waits. An instance with no
-// execution at all (it cannot happen when actions are applied atomically) is
-// repaired by scheduling its first one.
-func (d *decider) waitOn(step Step, inst StepInstanceState) ([]Action, error) {
-	if len(inst.Executions) == 0 {
-		timeout, err := parseTimeout(step)
-		if err != nil {
-			return nil, err
-		}
-		d.emit(ScheduleExecution{Path: inst.Path, Attempt: 1, ScheduledAt: d.now, Timeout: timeout})
-	}
-	return d.acts, nil
 }
 
 // begin decides what happens to a step that has no instance yet. It returns
@@ -269,17 +251,18 @@ func parseTimeout(step Step) (Duration, error) {
 // recorded by the store (sticky), so controllers with skewed clocks cannot
 // disagree about it afterwards, and a user cancel that commits first wins.
 func (d *decider) jobTimeout(starting bool) error {
-	if d.job.Spec.Timeout == "" || d.canceling || d.runStatus.Terminal() {
+	if d.canceling || d.runStatus.Terminal() {
 		return nil
 	}
-	timeout, err := time.ParseDuration(d.job.Spec.Timeout)
-	if err != nil {
-		return fmt.Errorf("invalid job timeout %q: %w", d.job.Spec.Timeout, err)
+	if d.job.Spec.Timeout != "" {
+		if _, err := time.ParseDuration(d.job.Spec.Timeout); err != nil {
+			return fmt.Errorf("invalid job timeout %q: %w", d.job.Spec.Timeout, err)
+		}
 	}
-	if timeout <= 0 {
+	deadline, ok := d.jobDeadline()
+	if !ok {
 		return nil
 	}
-	deadline := d.startedAt.Add(timeout)
 	if starting {
 		d.emit(ScheduleWake{At: deadline})
 	}

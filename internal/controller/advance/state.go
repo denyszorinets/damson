@@ -74,9 +74,28 @@ func stepState(n store.StepNode) (engine.StepInstanceState, error) {
 		inst.Error = decodeStepError(n.Error)
 	}
 	for _, ex := range n.Executions {
-		inst.Executions = append(inst.Executions, engine.ExecutionView{ID: ex.ID, AttemptID: ex.AttemptID, State: engine.ExecStateFromStore(string(ex.State)), CancelRequested: ex.CancelRequestedAt != nil})
+		inst.Executions = append(inst.Executions, executionView(ex))
 	}
 	return inst, nil
+}
+
+// executionView maps one attempt. A finished attempt that did not succeed
+// carries its error (the stored kind, or one derived from its state) and the
+// time it ended, which is the base of the retry backoff.
+func executionView(ex store.Execution) engine.ExecutionView {
+	v := engine.ExecutionView{
+		ID: ex.ID, AttemptID: ex.AttemptID, Attempt: ex.AttemptNo,
+		State: engine.ExecStateFromStore(string(ex.State)), CancelRequested: ex.CancelRequestedAt != nil,
+	}
+	if ex.State.Terminal() && ex.State != store.ExecSucceeded {
+		v.FinishedAt = ex.FinishedAt
+		_, msg := store.SplitStepError(ex.Error)
+		v.Error = &engine.StepError{Kind: store.ErrorKindOf(ex), Message: msg}
+		if full := decodeStepError(ex.Error); full != nil && full.ExitCode != nil {
+			v.Error.ExitCode = full.ExitCode
+		}
+	}
+	return v
 }
 
 // decodeStepError reads step_instances.error: a JSON engine.StepError when

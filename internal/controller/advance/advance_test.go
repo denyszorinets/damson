@@ -31,6 +31,7 @@ type fakeStore struct {
 	applyVers []int64
 	enqueues  int
 	spec      string
+	manifests []store.PluginManifest // served by ListPluginManifests
 }
 
 func (f *fakeStore) GetRunTree(context.Context, string) (store.RunTree, error) {
@@ -55,6 +56,10 @@ func (f *fakeStore) ListProjects(context.Context) ([]store.Project, error) {
 
 func (f *fakeStore) WithTx(ctx context.Context, fn func(store.Tx) error) error {
 	return fn(&fakeTx{f: f})
+}
+
+func (f *fakeStore) ListPluginManifests(context.Context) ([]store.PluginManifest, error) {
+	return f.manifests, nil
 }
 
 type fakeTx struct{ f *fakeStore }
