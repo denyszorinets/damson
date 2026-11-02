@@ -37,6 +37,12 @@ type Tx interface {
 	// ExpireLeases is ExecutionStore.ExpireLeases with the same step and run
 	// effects as CompleteExecution: each lost attempt fails its step.
 	ExpireLeases(ctx context.Context, now time.Time, limit int) ([]Execution, error)
+	// CancelUndelivered ends a flagged attempt that was never delivered: it is
+	// still dispatched and has CancelRequestedAt, so it becomes canceled, its
+	// step instance too, and the run is touched. ErrStale if the attempt is not
+	// current, not dispatched (a running attempt only ends by the agent's
+	// report or the reaper) or not flagged; ErrNotFound if absent.
+	CancelUndelivered(ctx context.Context, executionID, attemptID string, now time.Time) (Execution, error)
 	// Native returns the driver transaction (pgx.Tx on Postgres, *sql.Tx on
 	// SQLite) so River can InsertTx on it. Only the queue adapter uses it.
 	Native() any
@@ -85,17 +91,20 @@ type Advance struct {
 	NewSteps []AdvanceStep
 	// NewAttempts add an attempt to a step instance that has none yet.
 	NewAttempts []AdvanceAttempt
-	// CancelQueued lists execution ids to cancel while still queued. Their
-	// step instances move to canceled in the same transaction. Executions
-	// that were claimed in the meantime are left to their owning controller.
-	CancelQueued []string
+	// Cancel lists execution ids to cancel. A queued execution and its step
+	// instance move to canceled in the same transaction. One that was claimed
+	// (dispatched or running) is flagged with cancel_requested_at instead, and
+	// its owning controller sends step.cancel; a terminal one is left alone.
+	// The flag is set whatever the attempt id, because a claim between the
+	// advance's read and its apply rotates it.
+	Cancel []string
 	// Finish, when set, moves the run to this terminal status.
 	Finish RunStatus
 }
 
 // Empty reports whether applying a would change nothing.
 func (a Advance) Empty() bool {
-	return !a.Start && len(a.NewSteps) == 0 && len(a.NewAttempts) == 0 && len(a.CancelQueued) == 0 && a.Finish == ""
+	return !a.Start && len(a.NewSteps) == 0 && len(a.NewAttempts) == 0 && len(a.Cancel) == 0 && a.Finish == ""
 }
 
 // ValidateAdvance rejects change sets the store cannot apply, before any I/O.

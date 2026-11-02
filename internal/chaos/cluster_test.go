@@ -29,7 +29,7 @@ import (
 // worst reconnect time, so "the step was not lost" is a real assertion.
 var timing = node.Timing{
 	Heartbeat: 50 * time.Millisecond, Flush: 50 * time.Millisecond, PluginSync: 100 * time.Millisecond, ReconnectJitter: 200 * time.Millisecond,
-	Dispatch: 20 * time.Millisecond, Renew: 50 * time.Millisecond, Reap: 50 * time.Millisecond,
+	Dispatch: 20 * time.Millisecond, Renew: 50 * time.Millisecond, Reap: 50 * time.Millisecond, Cancel: 50 * time.Millisecond,
 	LeaseTTL: 1500 * time.Millisecond, AdvancePoll: 20 * time.Millisecond, AdvanceSweep: 500 * time.Millisecond,
 }
 
@@ -193,13 +193,18 @@ func (c *Cluster) trigger(idx int) string { return c.triggerPlugin(idx, "gate") 
 
 // triggerPlugin is trigger with step s1 running the given plugin.
 func (c *Cluster) triggerPlugin(idx int, plugin string) string {
+	return c.triggerWord(idx, plugin, "one")
+}
+
+// triggerWord is triggerPlugin with the step's "word" input.
+func (c *Cluster) triggerWord(idx int, plugin, word string) string {
 	c.t.Helper()
 	ctl := c.ctls[idx]
 	var id string
 	err := ctl.st.WithTx(context.Background(), func(tx store.Tx) error {
 		tree, err := tx.CreateRun(context.Background(), store.NewRun{
 			JobID: c.jv.JobID, JobVersionID: c.jv.ID, Trigger: json.RawMessage(`{"type":"manual"}`), Options: json.RawMessage(`{}`),
-			Steps: []store.NewStepInstance{{Path: "s1", Plugin: plugin, Input: json.RawMessage(`{"word":"one"}`),
+			Steps: []store.NewStepInstance{{Path: "s1", Plugin: plugin, Input: json.RawMessage(`{"word":"` + word + `"}`),
 				Execution: &store.NewExecution{Pool: advance.DefaultPool, ScheduledAt: time.Now()}}},
 		}, time.Now())
 		if err != nil {

@@ -130,7 +130,7 @@ func (t *txn) applySteps(ctx context.Context, runID string, a store.Advance, now
 			return err
 		}
 	}
-	for _, id := range a.CancelQueued {
+	for _, id := range a.Cancel {
 		if err := t.cancelQueued(ctx, runID, id, now); err != nil {
 			return err
 		}
@@ -198,7 +198,12 @@ func (t *txn) cancelQueued(ctx context.Context, runID, executionID string, now t
 		return fmt.Errorf("canceling execution %q: %w", executionID, err)
 	}
 	if n == 0 {
-		return nil // claimed meanwhile: the owning controller cancels it
+		// Claimed since the advance read it (or already past queued): flag it
+		// so the owning controller stops it. No effect on a terminal one.
+		if _, err := t.q.RequestExecutionCancelCAS(ctx, gen.RequestExecutionCancelCASParams{Now: someTime(now), ID: executionID, RunID: runID}); err != nil {
+			return fmt.Errorf("flagging execution %q for cancellation: %w", executionID, err)
+		}
+		return nil
 	}
 	return t.finishStepFrom(ctx, ex.StepInstanceID, store.StepCanceled, "run cancelled", now, store.StepPending, store.StepRunning)
 }

@@ -89,12 +89,54 @@ func (q *Queries) CancelQueuedExecutionCAS(ctx context.Context, arg CancelQueued
 	return result.RowsAffected(), nil
 }
 
+const cancelUndeliveredCAS = `-- name: CancelUndeliveredCAS :one
+UPDATE executions SET state = 'canceled', finished_at = $1, error = 'run cancelled'
+WHERE id = $2 AND attempt_id = $3 AND state = 'dispatched'
+  AND cancel_requested_at IS NOT NULL
+RETURNING id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
+          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
+`
+
+type CancelUndeliveredCASParams struct {
+	FinishedAt pgtype.Timestamptz
+	ID         string
+	AttemptID  string
+}
+
+// A flagged attempt that was never delivered (still dispatched) ends canceled.
+// A running one only ends by the agent's report or the reaper.
+func (q *Queries) CancelUndeliveredCAS(ctx context.Context, arg CancelUndeliveredCASParams) (Execution, error) {
+	row := q.db.QueryRow(ctx, cancelUndeliveredCAS, arg.FinishedAt, arg.ID, arg.AttemptID)
+	var i Execution
+	err := row.Scan(
+		&i.ID,
+		&i.RunID,
+		&i.StepInstanceID,
+		&i.AttemptNo,
+		&i.AttemptID,
+		&i.State,
+		&i.ScheduledAt,
+		&i.Priority,
+		&i.Pool,
+		&i.AgentID,
+		&i.ControllerID,
+		&i.LeaseExpiresAt,
+		&i.Outputs,
+		&i.Error,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CancelRequestedAt,
+	)
+	return i, err
+}
+
 const claimExecutionCAS = `-- name: ClaimExecutionCAS :one
 UPDATE executions SET state = 'dispatched', attempt_id = $1, agent_id = $2,
        controller_id = $3, lease_expires_at = $4
 WHERE id = $5 AND state = 'queued'
 RETURNING id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at
+          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
 `
 
 type ClaimExecutionCASParams struct {
@@ -132,6 +174,7 @@ func (q *Queries) ClaimExecutionCAS(ctx context.Context, arg ClaimExecutionCASPa
 		&i.CreatedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }
@@ -168,7 +211,7 @@ func (q *Queries) CompleteExecutionCAS(ctx context.Context, arg CompleteExecutio
 
 const getExecution = `-- name: GetExecution :one
 SELECT id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at
+       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
 FROM executions WHERE id = $1
 `
 
@@ -193,13 +236,14 @@ func (q *Queries) GetExecution(ctx context.Context, id string) (Execution, error
 		&i.CreatedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }
 
 const getExecutionByAttempt = `-- name: GetExecutionByAttempt :one
 SELECT id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at
+       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
 FROM executions WHERE attempt_id = $1
 `
 
@@ -224,6 +268,7 @@ func (q *Queries) GetExecutionByAttempt(ctx context.Context, attemptID string) (
 		&i.CreatedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }
@@ -283,9 +328,62 @@ func (q *Queries) LatestAttempt(ctx context.Context, stepInstanceID string) (Lat
 	return i, err
 }
 
+const listCancelRequested = `-- name: ListCancelRequested :many
+SELECT id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
+       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
+FROM executions
+WHERE controller_id = $1 AND state IN ('dispatched', 'running')
+  AND cancel_requested_at IS NOT NULL
+ORDER BY id LIMIT $2
+`
+
+type ListCancelRequestedParams struct {
+	ControllerID pgtype.Text
+	RowLimit     int32
+}
+
+func (q *Queries) ListCancelRequested(ctx context.Context, arg ListCancelRequestedParams) ([]Execution, error) {
+	rows, err := q.db.Query(ctx, listCancelRequested, arg.ControllerID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Execution
+	for rows.Next() {
+		var i Execution
+		if err := rows.Scan(
+			&i.ID,
+			&i.RunID,
+			&i.StepInstanceID,
+			&i.AttemptNo,
+			&i.AttemptID,
+			&i.State,
+			&i.ScheduledAt,
+			&i.Priority,
+			&i.Pool,
+			&i.AgentID,
+			&i.ControllerID,
+			&i.LeaseExpiresAt,
+			&i.Outputs,
+			&i.Error,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.CancelRequestedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listExecutionsByRun = `-- name: ListExecutionsByRun :many
 SELECT id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at
+       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
 FROM executions WHERE run_id = $1 ORDER BY step_instance_id, attempt_no
 `
 
@@ -316,6 +414,7 @@ func (q *Queries) ListExecutionsByRun(ctx context.Context, runID string) ([]Exec
 			&i.CreatedAt,
 			&i.StartedAt,
 			&i.FinishedAt,
+			&i.CancelRequestedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -351,7 +450,7 @@ UPDATE executions SET state = 'lost', finished_at = $1, error = 'lease expired'
 WHERE id = $2 AND attempt_id = $3 AND state IN ('dispatched', 'running')
   AND lease_expires_at < $4
 RETURNING id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at
+          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
 `
 
 type MarkExecutionLostCASParams struct {
@@ -387,6 +486,7 @@ func (q *Queries) MarkExecutionLostCAS(ctx context.Context, arg MarkExecutionLos
 		&i.CreatedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }
@@ -447,10 +547,34 @@ func (q *Queries) RenewLeases(ctx context.Context, arg RenewLeasesParams) ([]str
 	return items, nil
 }
 
+const requestExecutionCancelCAS = `-- name: RequestExecutionCancelCAS :execrows
+UPDATE executions SET cancel_requested_at = $1
+WHERE id = $2 AND run_id = $3 AND state IN ('dispatched', 'running')
+  AND cancel_requested_at IS NULL
+`
+
+type RequestExecutionCancelCASParams struct {
+	Now   pgtype.Timestamptz
+	ID    string
+	RunID string
+}
+
+// run.advance flags a dispatched or running attempt for cancellation. It does
+// not check attempt_id: a claim between the advance's read and its apply
+// rotates the attempt, and the flag belongs to the execution row.
+func (q *Queries) RequestExecutionCancelCAS(ctx context.Context, arg RequestExecutionCancelCASParams) (int64, error) {
+	result, err := q.db.Exec(ctx, requestExecutionCancelCAS, arg.Now, arg.ID, arg.RunID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const requeueExecutionCAS = `-- name: RequeueExecutionCAS :execrows
 UPDATE executions SET state = 'queued', scheduled_at = $1, agent_id = NULL,
        controller_id = NULL, lease_expires_at = NULL
 WHERE id = $2 AND attempt_id = $3 AND state = 'dispatched'
+  AND cancel_requested_at IS NULL
 `
 
 type RequeueExecutionCASParams struct {

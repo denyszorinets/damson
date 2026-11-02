@@ -723,6 +723,7 @@ The `secrets` member is the only place secret values cross the wire. The Go type
   - Log `seq` starts at 1 per attempt and increases by one per entry. Unacknowledged batches are resent in order after a reconnect, so ingest must be idempotent.
   - A finished result stays in memory and in the `agent.hello` `executions` list until `step.complete` is acknowledged or stale. A reconciliation `cancel` for a finished attempt discards it. The attempt's logs are dropped after the acknowledgement only when none is unsent. Delivery failures of one result (error answer, acknowledgement with neither `acknowledged` nor `stale`) back off per result (exponential, jittered, capped at 30s) without blocking other results; only transport errors end a delivery round.
   - Acknowledged and discarded attempts are remembered with the cancel tombstones (15 minutes, bounded), so a late or retried `step.execute` for them is rejected as `already completed`.
+  - Reconciliation does not cancel a flagged attempt (`executions.cancel_requested_at`, §8.3 step 7): it answers `continue` as for any current attempt, because a reconciliation `cancel` would discard a result the agent already finished. The controller that adopts the attempt sends the `step.cancel` on its next poll.
   - Memory bounds: outputs of one step are limited to 1 MiB (larger fails the step), error messages to 8 KiB, so `step.complete` always fits `MaxFrameSize`; at most 1024 unacknowledged results are kept, for at most 6 hours, oldest dropped first.
   - Secret values live only in the executor's memory; masking covers log lines, progress, errors, string outputs, host key reports and the plugin logger (§9.4). Overlapping secrets are masked as the union of their matches. Values shorter than 4 bytes are not masked in text (they would destroy output); the step log gets one `System` line saying so, never the value. A secret split across two `Log` calls is not masked: plugins must log whole lines.
 - **Protocol versioning.** `agent.hello` carries `protocol: 1`. The controller supports N and N-1.
@@ -790,8 +791,10 @@ Action = CreateStepInstance | ScheduleExecution | SkipStep | CompleteGroup | Com
 6. **Retry:** the engine schedules a new Execution with `scheduled_at = now + backoff` and a new attempt_id.
 7. **Cancel:**
    - Set `runs.cancel_requested_at`.
-   - `run.advance` marks pending steps as cancelled.
-   - For running Executions, the owning controller sends `step.cancel`. The hint is delivered via `LISTEN/NOTIFY` (Postgres) plus a 2s poll fallback.
+   - `run.advance` marks pending steps as cancelled. A queued Execution becomes `canceled` with its step. A `dispatched` or `running` one is flagged (`executions.cancel_requested_at`, not fenced by `attempt_id`, because a claim between the advance's read and its apply rotates it) and the engine stops emitting the cancel once the flag is visible. A queued row never carries the flag.
+   - For flagged Executions, the owning controller (`executions.controller_id`) sends `step.cancel` with `grace_ms` (default 5s). It polls for flagged rows every 2s; a `LISTEN/NOTIFY` hint that only cuts latency is not implemented yet. Controllers skip agents that have no socket to them: after the agent reconnects the controller that adopts it sends the cancel, and if it never returns the lease reaper settles the attempt.
+   - The agent's `step.complete` is applied as reported through the normal fenced path: `canceled` ends the step and the run; a plugin that finished anyway reports `succeeded` and is applied as such.
+   - A flagged attempt that was claimed but never delivered (the agent rejected it, the send failed, or its cancel was answered) is not requeued: it goes `canceled` (`CancelUndelivered`), because a requeued flagged row would run again.
    - `finally` blocks run after cancellation, with a configured grace period.
 
 ### 8.4 Singleton duties (leader lease)

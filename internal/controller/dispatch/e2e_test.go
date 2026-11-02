@@ -52,6 +52,10 @@ func (demoPlugin) Execute(ctx context.Context, req pluginsdk.ExecRequest, emit p
 		case <-ctx.Done():
 		}
 	}
+	if in.Word == "hold" { // runs until cancelled, then fails the way a cancelled plugin does
+		<-ctx.Done()
+		return pluginsdk.Result{Error: &pluginsdk.StepError{Message: "stopped"}}, nil
+	}
 	if in.Word == "boom" {
 		return pluginsdk.Result{Error: &pluginsdk.StepError{Message: "boom"}}, nil
 	}

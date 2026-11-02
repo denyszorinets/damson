@@ -203,7 +203,28 @@ func (d *Dispatcher) requeue(ctx context.Context, a controller.AgentView, ex sto
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), d.cfg.CallTimeout)
 	defer cancel()
 	err := d.cfg.Store.RequeueExecution(rctx, ex.ID, ex.AttemptID, at)
-	if err != nil && !errors.Is(err, store.ErrStale) {
+	if errors.Is(err, store.ErrStale) {
+		// Not requeueable: either another writer moved it, or run.advance
+		// flagged it for cancellation while it was in flight. A flagged,
+		// undelivered attempt must end canceled, never run again.
+		d.cancelUndelivered(rctx, ex, log)
+		return
+	}
+	if err != nil {
 		log.Error("requeueing execution", "error", err)
+	}
+}
+
+// cancelUndelivered ends a flagged attempt that never ran. It is a no-op for
+// an attempt that is not flagged or no longer dispatched.
+func (d *Dispatcher) cancelUndelivered(ctx context.Context, ex store.Execution, log *slog.Logger) {
+	err := d.cfg.Store.WithTx(ctx, func(tx store.Tx) error {
+		if _, err := tx.CancelUndelivered(ctx, ex.ID, ex.AttemptID, d.cfg.Now()); err != nil {
+			return err
+		}
+		return d.cfg.Advance.Enqueue(ctx, tx, ex.RunID)
+	})
+	if err != nil && !errors.Is(err, store.ErrStale) {
+		log.Error("canceling an undelivered execution", "error", err)
 	}
 }

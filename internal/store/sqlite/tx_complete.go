@@ -40,6 +40,25 @@ func (t *txn) CompleteExecution(ctx context.Context, c store.Completion, now tim
 	return ex, t.touchRuns(ctx, ex.RunID)
 }
 
+// CancelUndelivered implements store.Tx.
+func (t *txn) CancelUndelivered(ctx context.Context, executionID, attemptID string, now time.Time) (store.Execution, error) {
+	row, err := t.q.CancelUndeliveredCAS(ctx, gen.CancelUndeliveredCASParams{FinishedAt: someTime(now), ID: executionID, AttemptID: attemptID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.Execution{}, fencedMiss(ctx, t.q, executionID, "is not a dispatched, flagged attempt of this id")
+	}
+	if err != nil {
+		return store.Execution{}, fmt.Errorf("canceling undelivered execution %q: %w", executionID, err)
+	}
+	ex, err := toExecution(row)
+	if err != nil {
+		return store.Execution{}, err
+	}
+	if err := t.settleStep(ctx, ex, now); err != nil {
+		return store.Execution{}, err
+	}
+	return ex, t.touchRuns(ctx, ex.RunID)
+}
+
 // ExpireLeases implements store.Tx.
 func (t *txn) ExpireLeases(ctx context.Context, now time.Time, limit int) ([]store.Execution, error) {
 	rows, err := t.q.SelectExpiredLeases(ctx, gen.SelectExpiredLeasesParams{Now: someTime(now), RowLimit: int64(store.ClampLimit(limit))})

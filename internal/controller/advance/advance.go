@@ -98,8 +98,9 @@ func (c *core) once(ctx context.Context, runID string) (changed bool, err error)
 			return err
 		}
 		// A cancelled queued execution finishes its step without any agent
-		// report, so nothing else would wake the run: advance again.
-		if len(adv.CancelQueued) > 0 {
+		// report, so nothing else would wake the run: advance again. (For a
+		// flagged one the second advance is empty.)
+		if len(adv.Cancel) > 0 {
 			return c.enqueue(ctx, tx, runID)
 		}
 		return nil

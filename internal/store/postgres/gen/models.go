@@ -46,23 +46,24 @@ type ControllerInstance struct {
 }
 
 type Execution struct {
-	ID             string
-	RunID          string
-	StepInstanceID string
-	AttemptNo      int32
-	AttemptID      string
-	State          string
-	ScheduledAt    pgtype.Timestamptz
-	Priority       int32
-	Pool           string
-	AgentID        pgtype.Text
-	ControllerID   pgtype.Text
-	LeaseExpiresAt pgtype.Timestamptz
-	Outputs        string
-	Error          string
-	CreatedAt      pgtype.Timestamptz
-	StartedAt      pgtype.Timestamptz
-	FinishedAt     pgtype.Timestamptz
+	ID                string
+	RunID             string
+	StepInstanceID    string
+	AttemptNo         int32
+	AttemptID         string
+	State             string
+	ScheduledAt       pgtype.Timestamptz
+	Priority          int32
+	Pool              string
+	AgentID           pgtype.Text
+	ControllerID      pgtype.Text
+	LeaseExpiresAt    pgtype.Timestamptz
+	Outputs           string
+	Error             string
+	CreatedAt         pgtype.Timestamptz
+	StartedAt         pgtype.Timestamptz
+	FinishedAt        pgtype.Timestamptz
+	CancelRequestedAt pgtype.Timestamptz
 }
 
 type InstanceSetting struct {
