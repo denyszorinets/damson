@@ -251,6 +251,26 @@ pooled connection would get its own empty database. If ``SQLITE_BUSY`` persists
 past the 5 second busy timeout it surfaces as a wrapped driver error, not as a
 store sentinel.
 
+Idle transactions (Postgres)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Every pool connection is opened with ``idle_in_transaction_session_timeout``
+of 30 seconds (``postgres.IdleInTransactionTimeout``). If a controller host
+dies or is partitioned without closing its sockets in the middle of a
+transaction, its backend would otherwise keep the row locks (the ``runs`` row
+of an advance) until the server's TCP keepalive notices, about two hours by
+default, and every advance of that run would wait on the lock. No Damson
+transaction waits on anything but the database (enqueue joins the caller's
+transaction, nothing calls an agent or a plugin inside one), so a connection
+idle in a transaction for 30 seconds is dead and the server ends it.
+
+Put ``idle_in_transaction_session_timeout=<value>`` in the DSN to change it
+(``0`` disables it). Servers behind a pooler in transaction mode must allow the
+parameter as a startup parameter (PgBouncer: ``ignore_startup_parameters``).
+Setting ``tcp_keepalives_idle``, ``tcp_keepalives_interval`` and
+``tcp_keepalives_count`` on the server is still advised for other kinds of
+dead peers.
+
 Testing
 -------
 

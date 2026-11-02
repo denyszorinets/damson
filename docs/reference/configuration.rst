@@ -36,7 +36,7 @@ written as a double underscore: ``agent.controller_url`` is
    * - ``database.dsn``
      - controller, dev
      - ``file:damson.db``
-     - Required. Treated as a secret and never logged.
+     - Required. Treated as a secret and never logged. On Postgres, ``idle_in_transaction_session_timeout`` in the URL overrides the default of 30 seconds (see :doc:`/development/store`).
    * - ``controller.listen``
      - controller, dev
      - ``:8080``

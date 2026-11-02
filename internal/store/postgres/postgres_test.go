@@ -194,3 +194,49 @@ func TestMigrateAcrossControllers(t *testing.T) {
 		t.Fatalf("Migrate again must be a no-op: %v", err)
 	}
 }
+
+// A pool connection that goes quiet inside a transaction is terminated by the
+// server, which releases its row locks (the host-crash hazard of #81).
+func TestIdleInTransactionIsTerminated(t *testing.T) {
+	ctx := context.Background()
+	u, err := url.Parse(newDatabase(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := u.Query()
+	q.Set("idle_in_transaction_session_timeout", "300ms")
+	u.RawQuery = q.Encode()
+	s, err := postgres.Open(ctx, u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	tx, err := s.Pool().Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // hands the connection back, or Close would wait for it
+	if _, err := tx.Exec(ctx, "SELECT 1"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Second)
+	if _, err := tx.Exec(ctx, "SELECT 1"); err == nil {
+		t.Fatal("transaction survived being idle past idle_in_transaction_session_timeout")
+	}
+}
+
+func TestIdleInTransactionDefaultApplies(t *testing.T) {
+	ctx := context.Background()
+	s, err := postgres.Open(ctx, newDatabase(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	var got string
+	if err := s.Pool().QueryRow(ctx, "SHOW idle_in_transaction_session_timeout").Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != "30s" {
+		t.Fatalf("idle_in_transaction_session_timeout = %q; want 30s", got)
+	}
+}
