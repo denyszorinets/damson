@@ -97,6 +97,14 @@ func toExecution(e store.Execution) Execution {
 
 func toStep(n store.StepNode) Step {
 	kind, msg := store.SplitStepError(n.Error)
+	if kind == "" && msg != "" { // plain text: the kind the engine assigns it
+		switch n.Status {
+		case store.StepFailed:
+			kind = store.ErrKindError
+		case store.StepCanceled:
+			kind = store.ErrKindCancelled
+		}
+	}
 	s := Step{
 		Error: msg, ErrorKind: kind,
 		ID: n.ID, Path: n.Path, Kind: n.Kind, Plugin: n.Plugin, Input: rawJSON(n.Input), Status: string(n.Status),

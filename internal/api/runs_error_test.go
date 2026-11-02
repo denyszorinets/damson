@@ -31,7 +31,7 @@ func TestExecutionAndStepErrorFields(t *testing.T) {
 		t.Fatalf("step = kind %q error %q", step.ErrorKind, step.Error)
 	}
 	plain := toStep(store.StepNode{StepInstance: store.StepInstance{ID: "s2", Path: "b", Status: store.StepCanceled, Error: "run cancelled"}})
-	if plain.ErrorKind != "" || plain.Error != "run cancelled" {
+	if plain.ErrorKind != "cancelled" || plain.Error != "run cancelled" {
 		t.Fatalf("plain step error = kind %q error %q", plain.ErrorKind, plain.Error)
 	}
 }
