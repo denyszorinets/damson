@@ -120,6 +120,9 @@ change nothing until accepted.
    * - 0034
      - :doc:`0034-dev-only-inline-nodes-and-secrets`
      - Accepted
+   * - 0035
+     - :doc:`0035-timeout-semantics`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -158,3 +161,4 @@ change nothing until accepted.
    0032-runtime-loaded-plugins
    0033-blueoak-licensed-dev-only-tooling-dependencies
    0034-dev-only-inline-nodes-and-secrets
+   0035-timeout-semantics

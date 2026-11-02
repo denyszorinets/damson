@@ -18,7 +18,7 @@ var _ store.RunStore = (*Store)(nil)
 func toRun(r gen.Run) store.Run {
 	return store.Run{
 		ID: r.ID, JobID: r.JobID, JobVersionID: r.JobVersionID, Trigger: json.RawMessage(r.Trigger), Options: json.RawMessage(r.Options),
-		Status: store.RunStatus(r.Status), Version: r.Version, CancelRequestedAt: tsPtr(r.CancelRequestedAt),
+		Status: store.RunStatus(r.Status), Version: r.Version, CancelRequestedAt: tsPtr(r.CancelRequestedAt), CancelReason: r.CancelReason,
 		ConcurrencyKey: r.ConcurrencyKey, CreatedAt: r.CreatedAt.Time.UTC(),
 		StartedAt: tsPtr(r.StartedAt), FinishedAt: tsPtr(r.FinishedAt),
 	}

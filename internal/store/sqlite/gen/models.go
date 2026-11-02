@@ -148,6 +148,7 @@ type Run struct {
 	CreatedAt         string
 	StartedAt         sql.NullString
 	FinishedAt        sql.NullString
+	CancelReason      string
 }
 
 type StepInstance struct {

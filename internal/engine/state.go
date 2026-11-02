@@ -72,8 +72,11 @@ type RunState struct {
 	Inputs      map[string]any `json:"inputs,omitempty"`
 	StartedAt   *time.Time     `json:"started_at,omitempty"`
 	// CancelRequestedAt is runs.cancel_requested_at; non-nil means cancel.
-	CancelRequestedAt *time.Time          `json:"cancel_requested_at,omitempty"`
-	Steps             []StepInstanceState `json:"steps,omitempty"`
+	CancelRequestedAt *time.Time `json:"cancel_requested_at,omitempty"`
+	// CancelReason is why the cancel was requested: "" for a user or API
+	// request, CancelReasonTimeout for the job-level timeout.
+	CancelReason string              `json:"cancel_reason,omitempty"`
+	Steps        []StepInstanceState `json:"steps,omitempty"`
 }
 
 // JobInfo is the job identity exposed to expressions as `job`.
@@ -113,7 +116,13 @@ type StepError struct {
 	ExitCode *int   `json:"exit_code,omitempty"`
 }
 
-// Error kinds produced by the engine itself.
+// Error kinds produced by the engine itself or by an executor and relied on
+// by the engine.
 const (
 	ErrKindExpression = "expression"
+	ErrKindTimeout    = "timeout"
 )
+
+// CancelReasonTimeout is RunState.CancelReason of a run the job-level timeout
+// cancelled.
+const CancelReasonTimeout = "timeout"

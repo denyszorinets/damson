@@ -1,0 +1,12 @@
+[
+  {
+    "at": "2026-03-01T10:10:00Z",
+    "type": "timeout_run"
+  },
+  {
+    "attempt_id": "at-a",
+    "execution_id": "ex-a",
+    "path": "a",
+    "type": "cancel_execution"
+  }
+]

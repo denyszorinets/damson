@@ -82,11 +82,15 @@ type AdvanceAttempt struct {
 }
 
 // Advance is the dialect-neutral change set of one run.advance, applied by
-// Tx.ApplyAdvance in this order: run start, new steps, new attempts, queued
-// cancellations, run finish.
+// Tx.ApplyAdvance in this order: run start, run cancel, new steps, new
+// attempts, execution cancellations, run finish.
 type Advance struct {
 	// Start moves a pending run to running.
 	Start bool
+	// CancelRun, when set, records cancel_requested_at on the run with this
+	// reason (CancelReasonTimeout), inside the advance's own version CAS. It
+	// is how the job-level timeout becomes a sticky cancel.
+	CancelRun string
 	// NewSteps are created in order.
 	NewSteps []AdvanceStep
 	// NewAttempts add an attempt to a step instance that has none yet.
@@ -104,11 +108,14 @@ type Advance struct {
 
 // Empty reports whether applying a would change nothing.
 func (a Advance) Empty() bool {
-	return !a.Start && len(a.NewSteps) == 0 && len(a.NewAttempts) == 0 && len(a.Cancel) == 0 && a.Finish == ""
+	return !a.Start && a.CancelRun == "" && len(a.NewSteps) == 0 && len(a.NewAttempts) == 0 && len(a.Cancel) == 0 && a.Finish == ""
 }
 
 // ValidateAdvance rejects change sets the store cannot apply, before any I/O.
 func ValidateAdvance(a Advance) error {
+	if a.CancelRun != "" && a.CancelRun != CancelReasonTimeout {
+		return fmt.Errorf("advance cancel reason %q is unknown: %w", a.CancelRun, ErrInvalid)
+	}
 	if a.Finish != "" && !a.Finish.Terminal() {
 		return fmt.Errorf("advance finish status %q is not terminal: %w", a.Finish, ErrInvalid)
 	}

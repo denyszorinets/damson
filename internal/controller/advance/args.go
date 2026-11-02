@@ -29,6 +29,10 @@ type Args struct {
 	RunID   string `json:"run_id"`
 	Version int64  `json:"version"`
 	Sweep   int64  `json:"sweep,omitempty"`
+	// Wake is the job-level timeout deadline (unix ms) a wake job was
+	// scheduled for, 0 for an event or sweep job. Wake jobs have version 0,
+	// which no run has, so their unique key never meets another job's.
+	Wake int64 `json:"wake,omitempty"`
 }
 
 // Kind implements river.JobArgs.

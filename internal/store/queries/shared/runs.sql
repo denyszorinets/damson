@@ -5,13 +5,13 @@ VALUES (sqlc.arg(id), sqlc.arg(job_id), sqlc.arg(job_version_id), sqlc.arg(trigg
 
 -- name: GetRun :one
 SELECT id, job_id, job_version_id, trigger, options, status, version, cancel_requested_at,
-       concurrency_key, created_at, started_at, finished_at
+       concurrency_key, created_at, started_at, finished_at, cancel_reason
 FROM runs WHERE id = sqlc.arg(id);
 
 -- An empty before_id selects the first (newest) page.
 -- name: ListRunsBefore :many
 SELECT id, job_id, job_version_id, trigger, options, status, version, cancel_requested_at,
-       concurrency_key, created_at, started_at, finished_at
+       concurrency_key, created_at, started_at, finished_at, cancel_reason
 FROM runs
 WHERE job_id = sqlc.arg(job_id) AND (sqlc.arg(before_id) = '' OR id < sqlc.arg(before_id))
 ORDER BY id DESC
@@ -21,7 +21,7 @@ LIMIT sqlc.arg(row_limit);
 -- newest page.
 -- name: QueryRunsBefore :many
 SELECT id, job_id, job_version_id, trigger, options, status, version, cancel_requested_at,
-       concurrency_key, created_at, started_at, finished_at
+       concurrency_key, created_at, started_at, finished_at, cancel_reason
 FROM runs
 WHERE (sqlc.arg(job_id) = '' OR job_id = sqlc.arg(job_id))
   AND (sqlc.arg(status) = '' OR status = sqlc.arg(status))
@@ -42,6 +42,13 @@ WHERE id = sqlc.arg(id) AND version = sqlc.arg(expected_version)
 
 -- name: RequestRunCancelCAS :execrows
 UPDATE runs SET cancel_requested_at = sqlc.arg(now), version = version + 1
+WHERE id = sqlc.arg(id) AND cancel_requested_at IS NULL
+  AND status NOT IN ('succeeded', 'failed', 'canceled');
+
+-- The job-level timeout, applied by run.advance inside its own version CAS
+-- (which bumps the version), so this does not bump it again.
+-- name: RequestRunCancelInAdvance :execrows
+UPDATE runs SET cancel_requested_at = sqlc.arg(now), cancel_reason = sqlc.arg(reason)
 WHERE id = sqlc.arg(id) AND cancel_requested_at IS NULL
   AND status NOT IN ('succeeded', 'failed', 'canceled');
 

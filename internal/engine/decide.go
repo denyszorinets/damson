@@ -50,7 +50,8 @@ func (e *Engine) Decide(job *Job, st RunState, now time.Time) ([]Action, error) 
 	if st.Status.Terminal() {
 		return nil, nil
 	}
-	d := &decider{e: e, job: job, st: st, now: now, canceling: st.CancelRequestedAt != nil}
+	d := &decider{e: e, job: job, st: st, now: now, canceling: st.CancelRequestedAt != nil, cancelAt: st.CancelRequestedAt,
+		timedOut: st.CancelRequestedAt != nil && st.CancelReason == CancelReasonTimeout}
 	if err := d.index(); err != nil {
 		return nil, err
 	}
@@ -63,6 +64,8 @@ type decider struct {
 	st        RunState
 	now       time.Time
 	canceling bool
+	cancelAt  *time.Time // when the cancel was requested (this Decide may set it: job timeout)
+	timedOut  bool       // the cancel is the job-level timeout
 
 	byID      map[string]StepInstanceState
 	runStatus RunStatus
@@ -102,9 +105,14 @@ func (d *decider) decide() ([]Action, error) {
 	if d.st.StartedAt != nil {
 		d.startedAt = *d.st.StartedAt
 	}
+	starting := false
 	if d.runStatus == RunQueued {
 		d.emit(StartRun{StartedAt: d.now})
 		d.runStatus = RunRunning
+		starting = true
+	}
+	if err := d.jobTimeout(starting); err != nil {
+		return nil, err
 	}
 	d.cancelActive()
 
@@ -128,13 +136,17 @@ func (d *decider) decide() ([]Action, error) {
 		failed = failed || (inst.Status == StepFailed && !step.ContinueOnError)
 		anyCancelled = anyCancelled || inst.Status == StepCancelled
 	}
-	d.emit(CompleteRun{Status: finalStatus(failed, anyCancelled), FinishedAt: d.now})
+	d.emit(CompleteRun{Status: finalStatus(failed, anyCancelled, d.timedOut), FinishedAt: d.now})
 	return d.acts, nil
 }
 
-// finalStatus derives the run status once every step is terminal.
-func finalStatus(failed, anyCancelled bool) RunStatus {
+// finalStatus derives the run status once every step is terminal. A run the
+// job timeout cancelled is failed if any step failed or was cancelled, and
+// succeeded only if every step still succeeded or was skipped by its `when`.
+func finalStatus(failed, anyCancelled, timedOut bool) RunStatus {
 	switch {
+	case timedOut && (failed || anyCancelled):
+		return RunFailed
 	case anyCancelled:
 		return RunCancelled
 	case failed:
@@ -151,7 +163,7 @@ func (d *decider) cancelActive() {
 		return
 	}
 	for _, inst := range d.st.Steps {
-		if inst.Status.Terminal() || inst.CreatedAt.After(*d.st.CancelRequestedAt) {
+		if inst.Status.Terminal() || inst.CreatedAt.After(*d.cancelAt) {
 			continue
 		}
 		for _, ex := range inst.Executions {
@@ -218,6 +230,8 @@ func (d *decider) begin(step Step, failed bool) (status StepStatus, waiting bool
 func (d *decider) skip(step Step, failed bool) StepStatus {
 	status, reason := StepSkipped, "when condition is false"
 	switch {
+	case d.timedOut:
+		status, reason = StepCancelled, "job timed out"
 	case d.canceling:
 		status, reason = StepCancelled, "run cancelled"
 	case failed:
@@ -244,4 +258,35 @@ func parseTimeout(step Step) (Duration, error) {
 		return 0, fmt.Errorf("step %q: invalid timeout %q: %w", step.ID, step.Timeout, err)
 	}
 	return Duration(t), nil
+}
+
+// jobTimeout applies spec.timeout, which covers the run from its start (time
+// spent queued does not count). When the run starts it asks for a wake at the
+// deadline; once the deadline has passed and no cancel was requested yet it
+// emits TimeoutRun and treats the run as canceling from now on, so the
+// ordinary cancel rules decide the rest in this same call. The cancel is
+// recorded by the store (sticky), so controllers with skewed clocks cannot
+// disagree about it afterwards, and a user cancel that commits first wins.
+func (d *decider) jobTimeout(starting bool) error {
+	if d.job.Spec.Timeout == "" || d.canceling || d.runStatus.Terminal() {
+		return nil
+	}
+	timeout, err := time.ParseDuration(d.job.Spec.Timeout)
+	if err != nil {
+		return fmt.Errorf("invalid job timeout %q: %w", d.job.Spec.Timeout, err)
+	}
+	if timeout <= 0 {
+		return nil
+	}
+	deadline := d.startedAt.Add(timeout)
+	if starting {
+		d.emit(ScheduleWake{At: deadline})
+	}
+	if d.now.Before(deadline) {
+		return nil
+	}
+	at := d.now
+	d.emit(TimeoutRun{At: at})
+	d.canceling, d.timedOut, d.cancelAt = true, true, &at
+	return nil
 }

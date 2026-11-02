@@ -35,3 +35,12 @@ func TestExecutionAndStepErrorFields(t *testing.T) {
 		t.Fatalf("plain step error = kind %q error %q", plain.ErrorKind, plain.Error)
 	}
 }
+
+func TestRunCancelReason(t *testing.T) {
+	if got := toRun(store.Run{ID: "r", CancelReason: store.CancelReasonTimeout}); got.CancelReason != "timeout" {
+		t.Fatalf("cancel reason = %q; want timeout", got.CancelReason)
+	}
+	if got := toRun(store.Run{ID: "r"}); got.CancelReason != "" {
+		t.Fatalf("cancel reason = %q; want none for a user cancel", got.CancelReason)
+	}
+}

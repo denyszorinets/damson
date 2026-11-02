@@ -524,6 +524,11 @@ export interface components {
             message?: string;
         };
         Run: {
+            /**
+             * @description Why the cancel was requested; absent for a user or API cancel, timeout for the job-level timeout.
+             * @enum {string}
+             */
+            cancel_reason?: "timeout";
             /** Format: date-time */
             cancel_requested_at?: string;
             concurrency_key?: string;
@@ -543,6 +548,11 @@ export interface components {
             trigger?: unknown;
         };
         RunDetail: {
+            /**
+             * @description Why the cancel was requested; absent for a user or API cancel, timeout for the job-level timeout.
+             * @enum {string}
+             */
+            cancel_reason?: "timeout";
             /** Format: date-time */
             cancel_requested_at?: string;
             concurrency_key?: string;

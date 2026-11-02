@@ -82,6 +82,15 @@ func (t *txn) ApplyAdvance(ctx context.Context, runID string, expectedVersion in
 	if err := t.bumpOrMove(ctx, cur, expectedVersion, a, now); err != nil {
 		return store.Run{}, err
 	}
+	if a.CancelRun != "" {
+		n, err := t.q.RequestRunCancelInAdvance(ctx, gen.RequestRunCancelInAdvanceParams{Now: someTime(now), Reason: a.CancelRun, ID: runID})
+		if err != nil {
+			return store.Run{}, fmt.Errorf("recording the cancel of run %q: %w", runID, err)
+		}
+		if n == 0 {
+			return store.Run{}, staleRun(ctx, t.q, runID, "is already cancelled or finished")
+		}
+	}
 	if err := t.applySteps(ctx, runID, a, now); err != nil {
 		return store.Run{}, err
 	}

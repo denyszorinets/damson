@@ -51,7 +51,14 @@ Document layout
      - A CEL expression. Compiled for syntax now; evaluated by the inventory
        work later.
    * - ``spec.timeout``
-     - Go duration (``30s``, ``10m``), positive. Covers the whole run.
+     - Go duration (``30s``, ``10m``), positive. Covers the whole run from its
+       start (time spent pending does not count). When it expires the run is
+       cancelled like a user cancel, with ``cancel_reason`` ``timeout``: running
+       steps are stopped, pending steps are cancelled as ``job timed out``, and
+       only steps whose ``when`` calls ``always()`` or ``cancelled()`` still run
+       (``failure()`` handlers do not). The run ends ``failed`` if any step
+       failed or was cancelled, ``succeeded`` if every step still succeeded
+       (:doc:`/architecture/decisions/0035-timeout-semantics`).
    * - ``spec.steps``
      - At least one step; run strictly in order.
    * - ``steps[].id``
@@ -64,7 +71,9 @@ Document layout
      - Plugin input. Any string may contain ``${{ }}`` expressions; they are
        compile-checked at validation time.
    * - ``steps[].timeout``
-     - Per attempt, Go duration. Passed to the executor as data.
+     - Per attempt, Go duration. Stored on the execution and enforced by the
+       agent (a deadline that starts when it accepts the step). A timed-out
+       attempt is a failed step with ``error.kind`` ``timeout``.
    * - ``steps[].when``
      - CEL condition, default ``success()``.
    * - ``steps[].continue_on_error``
