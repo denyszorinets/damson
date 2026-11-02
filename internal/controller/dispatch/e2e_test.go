@@ -78,6 +78,15 @@ func startCluster(t *testing.T, st store.Store, spec string, opts ...func(*dispa
 }
 
 func startClusterLog(t *testing.T, st store.Store, spec string, log *slog.Logger, opts ...func(*dispatch.Config)) *cluster {
+	return startClusterWith(t, st, spec, log, nil, opts...)
+}
+
+// startClusterPlugins is startCluster with extra plugins linked into the agent.
+func startClusterPlugins(t *testing.T, st store.Store, spec string, extra ...pluginsdk.Plugin) *cluster {
+	return startClusterWith(t, st, spec, slog.New(slog.DiscardHandler), extra)
+}
+
+func startClusterWith(t *testing.T, st store.Store, spec string, log *slog.Logger, extra []pluginsdk.Plugin, opts ...func(*dispatch.Config)) *cluster {
 	t.Helper()
 	ctx := context.Background()
 	pool, err := st.CreatePool(ctx, "default", "", t0)
@@ -157,7 +166,7 @@ func startClusterLog(t *testing.T, st store.Store, spec string, log *slog.Logger
 
 	ag, err := agent.New(agent.Config{
 		ControllerURL: "ws" + strings.TrimPrefix(srv.URL, "http"), Token: plain, AgentID: "agent-1",
-		Pool: "default", Slots: 2, Plugins: []pluginsdk.Plugin{demoPlugin{}, nodePlugin{}}, Logger: log, HeartbeatInterval: 50 * time.Millisecond,
+		Pool: "default", Slots: 2, Plugins: append([]pluginsdk.Plugin{demoPlugin{}, nodePlugin{}}, extra...), Logger: log, HeartbeatInterval: 50 * time.Millisecond,
 		ExecConfig: agent.ExecConfig{SpoolDir: t.TempDir(), WorkRoot: t.TempDir(), LogFlushInterval: 10 * time.Millisecond, CompleteRetry: 50 * time.Millisecond},
 	})
 	if err != nil {

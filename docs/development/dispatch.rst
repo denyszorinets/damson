@@ -50,9 +50,11 @@ unknown, foreign or already finished attempt is acknowledged as ``stale`` and
 changes nothing. Otherwise, in one transaction:
 
 * ``Tx.CompleteExecution`` (CAS on the attempt);
-* the step instance moves to ``succeeded``, ``failed`` or ``canceled`` with its
-  outputs or error (this fulfils the contract that the store flips the step
-  status, on which the engine's ``waitOn`` relies);
+* the step instance moves to ``succeeded`` or ``canceled`` with its outputs
+  or error, but only for those two outcomes. A ``failed``, ``timed_out`` or
+  ``lost`` attempt leaves the step pending: the engine retries it or settles it
+  in the next advance (ADR-0036), so the run wakes through the version bump
+  below;
 * ``runs.version`` is bumped and a River ``run.advance`` job is enqueued.
 
 The agent is acknowledged after the commit. After the commit the dispatcher also

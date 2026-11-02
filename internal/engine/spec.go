@@ -82,8 +82,10 @@ type Step struct {
 	ContinueOnError bool `json:"continue_on_error,omitempty"`
 	// RunsOn selects the agent pool and labels.
 	RunsOn *RunsOn `json:"runs_on,omitempty"`
+	// Retry re-runs a failed attempt (plugin steps only).
+	Retry *Retry `json:"retry,omitempty"`
 
-	// Reserved for M3 (groups, catch/finally, for_each, retries).
+	// Reserved for M3 (groups, catch/finally, for_each).
 	Steps         []Step `json:"steps,omitempty"`
 	Catch         []Step `json:"catch,omitempty"`
 	Finally       []Step `json:"finally,omitempty"`
@@ -91,7 +93,6 @@ type Step struct {
 	ForEach       string `json:"for_each,omitempty"`
 	MaxParallel   *int   `json:"max_parallel,omitempty"`
 	FailThreshold *int   `json:"fail_threshold,omitempty"`
-	Retry         *Retry `json:"retry,omitempty"`
 }
 
 // RunsOn is the optional agent selection of a step.
@@ -100,20 +101,28 @@ type RunsOn struct {
 	Labels map[string]string `json:"labels,omitempty"`
 }
 
-// Retry configures retries of a step (reserved, M3).
+// Retry configures retries of a step (ARCHITECTURE 5.2, 5.3 rule 7,
+// ADR-0036). A step without a retry block runs exactly one attempt.
 type Retry struct {
-	MaxAttempts int      `json:"max_attempts,omitempty"`
+	// MaxAttempts counts the first attempt and is required (1 to 100).
+	MaxAttempts int      `json:"max_attempts" jsonschema:"minimum=1,maximum=100"`
 	Backoff     *Backoff `json:"backoff,omitempty"`
-	RetryOn     string   `json:"retry_on,omitempty"`
-	OnLost      bool     `json:"on_lost,omitempty"`
+	// RetryOn is a CEL condition over `error` (kind, message, exit_code). The
+	// default retries the kinds connection, timeout and lost.
+	RetryOn string `json:"retry_on,omitempty"`
+	// OnLost decides whether an attempt whose lease expired (the agent died or
+	// was cut off) is retried. Unset follows the plugin's idempotent flag;
+	// true always retries; false never does.
+	OnLost *bool `json:"on_lost,omitempty"`
 }
 
-// Backoff is the retry delay curve (reserved, M3).
+// Backoff is the retry delay curve: initial * multiplier^(attempt-1), capped
+// at max, then reduced by up to jitter (a fraction, so 0.2 is up to 20%).
 type Backoff struct {
-	Initial    string  `json:"initial,omitempty"`
-	Multiplier float64 `json:"multiplier,omitempty"`
-	Max        string  `json:"max,omitempty"`
-	Jitter     float64 `json:"jitter,omitempty"`
+	Initial    string   `json:"initial,omitempty"`
+	Multiplier *float64 `json:"multiplier,omitempty" jsonschema:"minimum=1,maximum=10"`
+	Max        string   `json:"max,omitempty"`
+	Jitter     *float64 `json:"jitter,omitempty" jsonschema:"minimum=0,maximum=1"`
 }
 
 // IsGroup reports whether the step is a group (reserved).

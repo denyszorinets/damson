@@ -123,6 +123,9 @@ change nothing until accepted.
    * - 0035
      - :doc:`0035-timeout-semantics`
      - Accepted
+   * - 0036
+     - :doc:`0036-retry-semantics`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -162,3 +165,4 @@ change nothing until accepted.
    0033-blueoak-licensed-dev-only-tooling-dependencies
    0034-dev-only-inline-nodes-and-secrets
    0035-timeout-semantics
+   0036-retry-semantics

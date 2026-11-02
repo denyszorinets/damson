@@ -8,13 +8,17 @@
           "type": "string"
         },
         "multiplier": {
-          "type": "number"
+          "type": "number",
+          "maximum": 10,
+          "minimum": 1
         },
         "max": {
           "type": "string"
         },
         "jitter": {
-          "type": "number"
+          "type": "number",
+          "maximum": 1,
+          "minimum": 0
         }
       },
       "additionalProperties": false,
@@ -59,7 +63,9 @@
     "Retry": {
       "properties": {
         "max_attempts": {
-          "type": "integer"
+          "type": "integer",
+          "maximum": 100,
+          "minimum": 1
         },
         "backoff": {
           "$ref": "#/$defs/Backoff"
@@ -72,7 +78,10 @@
         }
       },
       "additionalProperties": false,
-      "type": "object"
+      "type": "object",
+      "required": [
+        "max_attempts"
+      ]
     },
     "RunsOn": {
       "properties": {
@@ -147,6 +156,9 @@
         "runs_on": {
           "$ref": "#/$defs/RunsOn"
         },
+        "retry": {
+          "$ref": "#/$defs/Retry"
+        },
         "steps": {
           "items": {
             "$ref": "#/$defs/Step"
@@ -176,9 +188,6 @@
         },
         "fail_threshold": {
           "type": "integer"
-        },
-        "retry": {
-          "$ref": "#/$defs/Retry"
         }
       },
       "additionalProperties": false,

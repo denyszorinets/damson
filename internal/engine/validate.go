@@ -116,6 +116,7 @@ func (v *validator) step(p string, s *Step) {
 		v.add(p+".plugin", "%q must be \"name\" or \"name@<major>\"", s.Plugin)
 	}
 	v.duration(p+".timeout", s.Timeout)
+	v.retry(p+".retry", s.Retry)
 	if s.When != "" {
 		v.expression(p+".when", s.When)
 	}
@@ -135,7 +136,6 @@ func (v *validator) reserved(p string, s *Step) {
 		{"steps", len(s.Steps) > 0}, {"catch", len(s.Catch) > 0}, {"finally", len(s.Finally) > 0},
 		{"rethrow", s.Rethrow != nil}, {"for_each", s.ForEach != ""},
 		{"max_parallel", s.MaxParallel != nil}, {"fail_threshold", s.FailThreshold != nil},
-		{"retry", s.Retry != nil},
 	}
 	if s.IsGroup() {
 		v.errs = append(v.errs, errNotSupported(p+".type", `step type "group"`))
@@ -208,4 +208,59 @@ func (v *validator) templates(path string, val any) {
 			v.templates(fmt.Sprintf("%s[%d]", path, i), x)
 		}
 	}
+}
+
+// Bounds of the retry block (ADR-0036).
+const (
+	maxRetryAttempts = 100
+	maxBackoffDelay  = 24 * time.Hour
+	maxMultiplier    = 10
+)
+
+func (v *validator) retry(p string, r *Retry) {
+	if r == nil {
+		return
+	}
+	if r.MaxAttempts < 1 || r.MaxAttempts > maxRetryAttempts {
+		v.add(p+".max_attempts", "is required and must be between 1 and %d (it counts the first attempt)", maxRetryAttempts)
+	}
+	if r.RetryOn != "" {
+		v.expression(p+".retry_on", r.RetryOn)
+	}
+	b := r.Backoff
+	if b == nil {
+		return
+	}
+	initial, iok := v.backoffDuration(p+".backoff.initial", b.Initial)
+	maxDelay, mok := v.backoffDuration(p+".backoff.max", b.Max)
+	if iok && mok && maxDelay < initial {
+		v.add(p+".backoff.max", "must not be less than backoff.initial")
+	}
+	if b.Multiplier != nil && (*b.Multiplier < 1 || *b.Multiplier > maxMultiplier) {
+		v.add(p+".backoff.multiplier", "must be between 1 and %d (1 is a constant delay)", maxMultiplier)
+	}
+	if b.Jitter != nil && (*b.Jitter < 0 || *b.Jitter > 1) {
+		v.add(p+".backoff.jitter", "must be a fraction between 0 and 1")
+	}
+}
+
+// backoffDuration checks an optional backoff duration: positive and at most
+// 24h. It returns the value and whether one was given and valid.
+func (v *validator) backoffDuration(path, s string) (time.Duration, bool) {
+	if s == "" {
+		return 0, false
+	}
+	d, err := time.ParseDuration(s)
+	switch {
+	case err != nil:
+		v.add(path, "%q is not a duration such as \"1s\" or \"5m\"", s)
+		return 0, false
+	case d <= 0:
+		v.add(path, "must be positive")
+		return 0, false
+	case d > maxBackoffDelay:
+		v.add(path, "must be at most %s", maxBackoffDelay)
+		return 0, false
+	}
+	return d, true
 }

@@ -82,3 +82,8 @@ FROM executions
 WHERE controller_id = sqlc.arg(controller_id) AND state IN ('dispatched', 'running')
   AND cancel_requested_at IS NOT NULL AND id > sqlc.arg(after_id)
 ORDER BY id LIMIT sqlc.arg(row_limit);
+
+-- name: GetExecutionByStepAttempt :one
+SELECT id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
+       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at, timeout_ms
+FROM executions WHERE step_instance_id = sqlc.arg(step_instance_id) AND attempt_no = sqlc.arg(attempt_no);

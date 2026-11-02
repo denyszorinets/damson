@@ -67,6 +67,16 @@ type FailStep struct {
 	Error           StepError `json:"error"`
 }
 
+// SettleStep finishes a step instance from the outcome of its latest attempt,
+// once the engine has decided not to retry it. The store derives the step's
+// status, error and outputs from that attempt (store.StepOutcome), so how an
+// error is encoded stays in one place. The Decide that emits it waits; the
+// advance runs again and reads the settled step.
+type SettleStep struct {
+	Path    string `json:"path"`
+	Attempt int    `json:"attempt"`
+}
+
 // CancelExecution asks the owning controller to cancel a running attempt.
 type CancelExecution struct {
 	Path        string `json:"path"`
@@ -102,6 +112,7 @@ func (CreateStepInstance) ActionType() string { return "create_step_instance" }
 func (ScheduleExecution) ActionType() string  { return "schedule_execution" }
 func (SkipStep) ActionType() string           { return "skip_step" }
 func (FailStep) ActionType() string           { return "fail_step" }
+func (SettleStep) ActionType() string         { return "settle_step" }
 func (CancelExecution) ActionType() string    { return "cancel_execution" }
 func (TimeoutRun) ActionType() string         { return "timeout_run" }
 func (ScheduleWake) ActionType() string       { return "schedule_wake" }

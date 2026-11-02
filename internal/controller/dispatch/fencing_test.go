@@ -159,8 +159,9 @@ func TestReaperMarksExpiredLeaseLost(t *testing.T) {
 		mu.Unlock()
 		waitFor(t, func() bool { got, _ := st.GetExecution(ctx, ex.ID); return got.State == store.ExecLost })
 		waitFor(t, func() bool { return enq.count() > 0 })
-		if step, _ := st.GetStepInstance(ctx, ex.StepInstanceID); step.Status != store.StepFailed {
-			t.Fatalf("step = %s; want failed", step.Status)
+		// The lost attempt leaves its step open for the engine to retry or settle.
+		if step, _ := st.GetStepInstance(ctx, ex.StepInstanceID); step.Status.Terminal() {
+			t.Fatalf("step = %s; want it left open", step.Status)
 		}
 		// A report for the lost attempt is stale.
 		if ack, err := d.Complete(ctx, "a1", protocol.StepComplete{AttemptID: ex.AttemptID, Status: protocol.StatusSucceeded}); err != nil || !ack.Stale {

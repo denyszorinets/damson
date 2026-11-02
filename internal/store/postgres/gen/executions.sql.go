@@ -277,6 +277,44 @@ func (q *Queries) GetExecutionByAttempt(ctx context.Context, attemptID string) (
 	return i, err
 }
 
+const getExecutionByStepAttempt = `-- name: GetExecutionByStepAttempt :one
+SELECT id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
+       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at, timeout_ms
+FROM executions WHERE step_instance_id = $1 AND attempt_no = $2
+`
+
+type GetExecutionByStepAttemptParams struct {
+	StepInstanceID string
+	AttemptNo      int32
+}
+
+func (q *Queries) GetExecutionByStepAttempt(ctx context.Context, arg GetExecutionByStepAttemptParams) (Execution, error) {
+	row := q.db.QueryRow(ctx, getExecutionByStepAttempt, arg.StepInstanceID, arg.AttemptNo)
+	var i Execution
+	err := row.Scan(
+		&i.ID,
+		&i.RunID,
+		&i.StepInstanceID,
+		&i.AttemptNo,
+		&i.AttemptID,
+		&i.State,
+		&i.ScheduledAt,
+		&i.Priority,
+		&i.Pool,
+		&i.AgentID,
+		&i.ControllerID,
+		&i.LeaseExpiresAt,
+		&i.Outputs,
+		&i.Error,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CancelRequestedAt,
+		&i.TimeoutMs,
+	)
+	return i, err
+}
+
 const insertExecution = `-- name: InsertExecution :execrows
 INSERT INTO executions (id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at,
                         priority, pool, created_at, timeout_ms)
