@@ -7,7 +7,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -40,13 +42,10 @@ var _ store.Store = (*Store)(nil)
 // Open connects to the server at dsn (a postgres:// URL or key=value string).
 // Errors never include the DSN, which may embed a password.
 func Open(ctx context.Context, dsn string) (*Store, error) {
-	cfg, err := pgxpool.ParseConfig(dsn)
+	cfg, err := poolConfig(dsn)
 	if err != nil {
-		return nil, errors.New("opening postgres: invalid dsn")
+		return nil, err
 	}
-	// Migrations hold one connection for an advisory lock and need a second
-	// for River's migrator: a pool of one would deadlock.
-	cfg.MaxConns = max(cfg.MaxConns, 2)
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("opening postgres pool: %w", err)
@@ -57,6 +56,34 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// IdleInTransactionTimeout is the server-side limit on a connection that sits
+// idle inside a transaction. A host that dies or is partitioned without
+// closing its sockets would otherwise leave its backend holding row locks
+// (the runs row an advance is applying to) until the server's TCP keepalive
+// notices, about two hours by default, and every advance of that run would
+// wait on the lock. No Damson transaction waits on anything but the database,
+// so a connection idle in a transaction for this long is dead. A DSN
+// parameter idle_in_transaction_session_timeout overrides it (0 disables).
+const IdleInTransactionTimeout = 30 * time.Second
+
+const idleInTxParam = "idle_in_transaction_session_timeout"
+
+// poolConfig parses dsn and applies the pool defaults. Errors never include
+// the DSN, which may embed a password.
+func poolConfig(dsn string) (*pgxpool.Config, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, errors.New("opening postgres: invalid dsn")
+	}
+	// Migrations hold one connection for an advisory lock and need a second
+	// for River's migrator: a pool of one would deadlock.
+	cfg.MaxConns = max(cfg.MaxConns, 2)
+	if _, ok := cfg.ConnConfig.RuntimeParams[idleInTxParam]; !ok {
+		cfg.ConnConfig.RuntimeParams[idleInTxParam] = strconv.FormatInt(IdleInTransactionTimeout.Milliseconds(), 10)
+	}
+	return cfg, nil
 }
 
 // Ping implements store.Store.

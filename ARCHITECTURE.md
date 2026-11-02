@@ -1107,6 +1107,7 @@ An activity-diagram view (UML-like) of a job's structure. It appears in three pl
   - Secrets for the KEK, the pool tokens, and the cluster secret.
 - **VMs:** systemd units for `damson controller` and `damson agent`. The binary has no runtime dependencies (the Ansible plugin needs ansible on that agent host).
 - **Mixed:** VM agents connect to the k8s ingress `wss://`. k8s agents connect to a VM controller. Both are fine.
+- **Postgres connections:** the pool sets `idle_in_transaction_session_timeout` to 30s (overridable in the DSN), so a controller host that dies mid-transaction cannot hold row locks until TCP keepalive notices. No transaction waits on anything but the database. Servers should also set `tcp_keepalives_*`.
 - **Migrations:** `damson migrate up` runs explicitly, or controllers run it at start behind a database advisory lock (Postgres) with `--auto-migrate`.
 - **Air-gapped:** no runtime internet access. Offline bundle: images + Helm chart + binaries + checksums.
 - **Dev:** `damson dev` runs a controller and an agent in one process with SQLite, the fs log store, and the db secret backend. Docker Compose provides Postgres, an S3-compatible server, and sshd and FTP test targets.
