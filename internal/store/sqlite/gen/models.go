@@ -46,23 +46,24 @@ type ControllerInstance struct {
 }
 
 type Execution struct {
-	ID             string
-	RunID          string
-	StepInstanceID string
-	AttemptNo      int64
-	AttemptID      string
-	State          string
-	ScheduledAt    string
-	Priority       int64
-	Pool           string
-	AgentID        sql.NullString
-	ControllerID   sql.NullString
-	LeaseExpiresAt sql.NullString
-	Outputs        string
-	Error          string
-	CreatedAt      string
-	StartedAt      sql.NullString
-	FinishedAt     sql.NullString
+	ID                string
+	RunID             string
+	StepInstanceID    string
+	AttemptNo         int64
+	AttemptID         string
+	State             string
+	ScheduledAt       string
+	Priority          int64
+	Pool              string
+	AgentID           sql.NullString
+	ControllerID      sql.NullString
+	LeaseExpiresAt    sql.NullString
+	Outputs           string
+	Error             string
+	CreatedAt         string
+	StartedAt         sql.NullString
+	FinishedAt        sql.NullString
+	CancelRequestedAt sql.NullString
 }
 
 type InstanceSetting struct {

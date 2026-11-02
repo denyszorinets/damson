@@ -107,6 +107,39 @@ statement that also checks the agent row still names this controller at this
 ``cancel``. Other controllers' ``RenewLeases`` no longer match, so the old
 controller cannot keep the lease alive. Any store error fails the hello.
 
+Cancel
+------
+
+A cancel request reaches running steps in two parts (ARCHITECTURE 8.3 step 7).
+``run.advance`` decides which executions to cancel: a queued one is cancelled
+with its step, a ``dispatched`` or ``running`` one gets
+``executions.cancel_requested_at``. The flag is set whatever the attempt id,
+because a claim between the advance's read and its apply rotates the attempt,
+and the engine stops emitting the cancel once the flag is in the tree. A queued
+row never carries the flag.
+
+Every ``CancelInterval`` (2 seconds) each controller lists the flagged
+attempts it owns (``controller_id``) and sends ``step.cancel`` with
+``CancelGrace`` (5 seconds) to the agents it has a socket to, one goroutine per
+agent. An answered attempt is not asked again (an in-memory cache; losing it
+causes a harmless resend). ``known=false`` changes nothing in the database: the
+agent's report or the lease reaper settles it. The agent stops the plugin and
+reports ``canceled``; a plugin that finishes anyway reports ``succeeded``, which
+is applied as reported.
+
+If the agent is away, no controller has a socket to it and the flag waits. The
+controller that adopts the agent on reconnect (see above) owns the attempt and
+sends the cancel on its next poll; reconciliation itself still answers
+``continue``, so a result the agent finished is not thrown away.
+
+A flagged attempt that never reached the agent (the agent rejected it, the
+send failed, or its cancel was answered first) is not requeued:
+``RequeueExecution`` refuses a flagged row and the dispatcher ends it with
+``Tx.CancelUndelivered``, which makes it and its step ``canceled`` and wakes the
+run. A running attempt is never ended this way.
+
+There is no notify hint yet; the poll is the only trigger.
+
 Not yet implemented
 -------------------
 
@@ -114,6 +147,5 @@ Not yet implemented
 * Real inventory and secret store behind the nodes and secrets bundle of
   ``step.execute`` (M4). Until then only the dev-only ``--dev-nodes`` file
   serves them (ADR-0034, see :doc:`/reference/cli`).
-* A notify hint for dispatch (the 1 s poll is the only trigger).
-* ``step.cancel`` dispatch for running executions.
+* A notify hint for dispatch and cancel (the 1 s and 2 s polls are the only triggers).
 * Retries (M3).

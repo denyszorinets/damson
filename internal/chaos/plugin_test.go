@@ -53,6 +53,13 @@ func (g *gatePlugin) Execute(ctx context.Context, req pluginsdk.ExecRequest, emi
 		case <-ctx.Done():
 		}
 	}
+	if in.Word == "hold" { // runs until cancelled, then fails the way a cancelled plugin does
+		<-ctx.Done()
+		g.mu.Lock()
+		g.cancelled[in.Word] = true
+		g.mu.Unlock()
+		return pluginsdk.Result{Error: &pluginsdk.StepError{Message: "stopped"}}, nil
+	}
 	g.mu.Lock()
 	g.cancelled[in.Word] = ctx.Err() != nil
 	g.mu.Unlock()

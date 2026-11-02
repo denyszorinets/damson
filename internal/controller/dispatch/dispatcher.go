@@ -18,6 +18,8 @@ const (
 	DefaultDispatchInterval = time.Second      // ARCHITECTURE 8.3: notify hint or 1s
 	DefaultRenewInterval    = 10 * time.Second // ARCHITECTURE 7.3: one UPDATE per controller every 10s
 	DefaultReapInterval     = 10 * time.Second
+	DefaultCancelInterval   = 2 * time.Second // ARCHITECTURE 8.3: cancel poll until a notify hint exists
+	DefaultCancelGrace      = 5 * time.Second // ARCHITECTURE 7.3: the agent's default grace
 	DefaultLeaseTTL         = time.Minute
 	DefaultCallTimeout      = 10 * time.Second // one step.execute round trip or store call
 	reapBatch               = 100
@@ -72,6 +74,8 @@ type Config struct {
 	DispatchInterval time.Duration
 	RenewInterval    time.Duration
 	ReapInterval     time.Duration
+	CancelInterval   time.Duration
+	CancelGrace      time.Duration // grace_ms of step.cancel
 	LeaseTTL         time.Duration
 	CallTimeout      time.Duration
 }
@@ -86,7 +90,11 @@ type Dispatcher struct {
 	started bool
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
-	busy    map[string]bool // agents with a dispatch round in flight
+	busy    map[string]bool // agents with a dispatch or cancel round in flight
+	// cancelled holds the attempts whose step.cancel an agent has answered, so
+	// a flagged attempt is not asked again every tick. It is only a cache:
+	// losing it causes a resend, which the agent treats as a no-op.
+	cancelled map[string]bool
 }
 
 // New validates cfg and applies defaults.
@@ -108,13 +116,14 @@ func New(cfg Config) (*Dispatcher, error) {
 		d time.Duration
 	}{
 		{&cfg.DispatchInterval, DefaultDispatchInterval}, {&cfg.RenewInterval, DefaultRenewInterval},
-		{&cfg.ReapInterval, DefaultReapInterval}, {&cfg.LeaseTTL, DefaultLeaseTTL}, {&cfg.CallTimeout, DefaultCallTimeout},
+		{&cfg.ReapInterval, DefaultReapInterval}, {&cfg.CancelInterval, DefaultCancelInterval}, {&cfg.CancelGrace, DefaultCancelGrace},
+		{&cfg.LeaseTTL, DefaultLeaseTTL}, {&cfg.CallTimeout, DefaultCallTimeout},
 	} {
 		if *d.v <= 0 {
 			*d.v = d.d
 		}
 	}
-	return &Dispatcher{cfg: cfg, log: cfg.Logger, busy: map[string]bool{}}, nil
+	return &Dispatcher{cfg: cfg, log: cfg.Logger, busy: map[string]bool{}, cancelled: map[string]bool{}}, nil
 }
 
 // Start launches the loops. Their lifetime is Stop, not ctx cancellation.
@@ -132,6 +141,7 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 		fn    func(context.Context)
 	}{
 		{d.cfg.DispatchInterval, d.dispatchOnce}, {d.cfg.RenewInterval, d.renewOnce}, {d.cfg.ReapInterval, d.reapOnce},
+		{d.cfg.CancelInterval, d.cancelOnce},
 	} {
 		d.wg.Add(1)
 		go func() { defer d.wg.Done(); loop(loopCtx, l.every, l.fn) }()

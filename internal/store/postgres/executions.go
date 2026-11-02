@@ -30,6 +30,7 @@ func toExecution(r gen.Execution) store.Execution {
 		Priority: int(r.Priority), Pool: r.Pool, AgentID: r.AgentID.String, ControllerID: r.ControllerID.String,
 		LeaseExpiresAt: tsPtr(r.LeaseExpiresAt), Outputs: json.RawMessage(r.Outputs), Error: r.Error,
 		CreatedAt: r.CreatedAt.Time.UTC(), StartedAt: tsPtr(r.StartedAt), FinishedAt: tsPtr(r.FinishedAt),
+		CancelRequestedAt: tsPtr(r.CancelRequestedAt),
 	}
 }
 
@@ -231,4 +232,17 @@ func (s *Store) RequeueExecution(ctx context.Context, executionID, attemptID str
 		return fencedMiss(ctx, s.q, executionID, "is not dispatched under this attempt")
 	}
 	return nil
+}
+
+// ListCancelRequested implements store.ExecutionStore.
+func (s *Store) ListCancelRequested(ctx context.Context, controllerID, afterID string, limit int) ([]store.Execution, error) {
+	rows, err := s.q.ListCancelRequested(ctx, gen.ListCancelRequestedParams{ControllerID: text(controllerID), AfterID: afterID, RowLimit: int32(store.ClampLimit(limit))})
+	if err != nil {
+		return nil, fmt.Errorf("listing executions to cancel: %w", err)
+	}
+	out := make([]store.Execution, len(rows))
+	for i, r := range rows {
+		out[i] = toExecution(r)
+	}
+	return out, nil
 }

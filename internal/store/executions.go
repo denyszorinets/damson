@@ -56,6 +56,10 @@ type Execution struct {
 	CreatedAt      time.Time
 	StartedAt      *time.Time
 	FinishedAt     *time.Time
+	// CancelRequestedAt is set by run.advance on a dispatched or running
+	// attempt that must stop; the owning controller sends step.cancel. A
+	// queued execution never has it.
+	CancelRequestedAt *time.Time
 }
 
 // ClaimParams selects queued executions for one connected agent.
@@ -117,8 +121,14 @@ type ExecutionStore interface {
 	// current or the execution is no longer dispatched or running; nothing
 	// is changed in that case. ErrInvalid for a non-reportable state.
 	CompleteExecution(ctx context.Context, c Completion, now time.Time) (Execution, error)
+	// ListCancelRequested returns up to limit dispatched or running attempts
+	// owned by controllerID that run.advance flagged for cancellation, in id
+	// order, after afterID (pass "" for the first page).
+	ListCancelRequested(ctx context.Context, controllerID, afterID string, limit int) ([]Execution, error)
 	// RequeueExecution moves dispatched back to queued (agent rejected or
-	// the send failed), clearing ownership. Fenced like CompleteExecution.
+	// the send failed), clearing ownership. Fenced like CompleteExecution. A
+	// flagged attempt (CancelRequestedAt) is not requeued: ErrStale, and the
+	// caller cancels it with Tx.CancelUndelivered.
 	RequeueExecution(ctx context.Context, executionID, attemptID string, scheduledAt time.Time) error
 }
 

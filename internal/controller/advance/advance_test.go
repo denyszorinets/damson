@@ -84,6 +84,9 @@ func (t *fakeTx) CompleteExecution(context.Context, store.Completion, time.Time)
 func (t *fakeTx) ExpireLeases(context.Context, time.Time, int) ([]store.Execution, error) {
 	return nil, nil
 }
+func (t *fakeTx) CancelUndelivered(context.Context, string, string, time.Time) (store.Execution, error) {
+	return store.Execution{}, nil
+}
 func (t *fakeTx) Native() any { return nil }
 
 func newEngine(t *testing.T) *engine.Engine {
@@ -134,6 +137,17 @@ func tree(version int64, status store.RunStatus, cancel bool, steps ...stepSpec)
 			n.Executions = append(n.Executions, store.Execution{ID: "ex-" + s.path + string(rune('a'+j)), AttemptID: "at-" + s.path, State: st})
 		}
 		tr.Steps = append(tr.Steps, n)
+	}
+	return tr
+}
+
+// flagged marks every execution of the tree as flagged for cancellation by an
+// earlier advance.
+func flagged(tr store.RunTree) store.RunTree {
+	for i := range tr.Steps {
+		for j := range tr.Steps[i].Executions {
+			tr.Steps[i].Executions[j].CancelRequestedAt = &t0
+		}
 	}
 	return tr
 }
@@ -210,15 +224,34 @@ func TestAdvanceDecisions(t *testing.T) {
 			tree: tree(2, store.RunRunning, false, stepSpec{"s1", store.StepPending, []store.ExecutionState{store.ExecQueued}, ""}),
 		},
 		{
-			name: "cancel with a running execution writes nothing",
-			tree: tree(3, store.RunRunning, true, stepSpec{"s1", store.StepPending, []store.ExecutionState{store.ExecRunning}, ""}),
+			name:      "cancel with a running execution flags it and advances again",
+			tree:      tree(3, store.RunRunning, true, stepSpec{"s1", store.StepPending, []store.ExecutionState{store.ExecRunning}, ""}),
+			wantApply: true, wantEnqueue: 1,
+			check: func(t *testing.T, adv store.Advance) {
+				if len(adv.Cancel) != 1 || adv.Cancel[0] != "ex-s1a" || adv.Finish != "" {
+					t.Fatalf("advance = %+v", adv)
+				}
+			},
+		},
+		{
+			name: "cancel with a dispatched execution flags it too",
+			tree: tree(3, store.RunRunning, true, stepSpec{"s1", store.StepPending, []store.ExecutionState{store.ExecDispatched}, ""}), wantApply: true, wantEnqueue: 1,
+			check: func(t *testing.T, adv store.Advance) {
+				if len(adv.Cancel) != 1 || adv.Cancel[0] != "ex-s1a" {
+					t.Fatalf("advance = %+v", adv)
+				}
+			},
+		},
+		{
+			name: "cancel with an already flagged execution writes nothing",
+			tree: flagged(tree(3, store.RunRunning, true, stepSpec{"s1", store.StepPending, []store.ExecutionState{store.ExecRunning}, ""})),
 		},
 		{
 			name:      "cancel with a queued execution cancels it and advances again",
 			tree:      tree(3, store.RunRunning, true, stepSpec{"s1", store.StepPending, []store.ExecutionState{store.ExecQueued}, ""}),
 			wantApply: true, wantEnqueue: 1,
 			check: func(t *testing.T, adv store.Advance) {
-				if len(adv.CancelQueued) != 1 || adv.CancelQueued[0] != "ex-s1a" || adv.Finish != "" {
+				if len(adv.Cancel) != 1 || adv.Cancel[0] != "ex-s1a" || adv.Finish != "" {
 					t.Fatalf("advance = %+v", adv)
 				}
 			},

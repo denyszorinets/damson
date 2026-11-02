@@ -46,9 +46,9 @@ func toAdvance(acts []engine.Action, tree store.RunTree, job *engine.Job) (store
 				adv.NewSteps = append(adv.NewSteps, store.AdvanceStep{Path: a.Path, Status: store.StepFailed, Reason: string(reason)})
 			}
 		case engine.CancelExecution:
-			if queued(tree, a.ExecutionID) {
-				adv.CancelQueued = append(adv.CancelQueued, a.ExecutionID)
-			}
+			// The store cancels a queued execution and flags a claimed one for
+			// its owning controller (Advance.Cancel).
+			adv.Cancel = append(adv.Cancel, a.ExecutionID)
 		case engine.CompleteRun:
 			adv.Finish = store.RunStatus(a.Status.Store())
 		default:
@@ -82,15 +82,4 @@ func poolFor(job *engine.Job, path string) string {
 		}
 	}
 	return DefaultPool
-}
-
-func queued(tree store.RunTree, executionID string) bool {
-	for _, n := range tree.Steps {
-		for _, ex := range n.Executions {
-			if ex.ID == executionID {
-				return ex.State == store.ExecQueued
-			}
-		}
-	}
-	return false
 }

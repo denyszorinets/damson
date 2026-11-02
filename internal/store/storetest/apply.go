@@ -105,7 +105,7 @@ func testApplyAdvance(t *testing.T, s store.Store) {
 		t.Fatalf("stale advance = %v, want ErrStale", err)
 	}
 	// Canceling the queued execution cancels its step; finishing ends the run.
-	run, err = apply(2, store.Advance{CancelQueued: []string{b.Executions[0].ID}, Finish: store.RunCanceled})
+	run, err = apply(2, store.Advance{Cancel: []string{b.Executions[0].ID}, Finish: store.RunCanceled})
 	if err != nil || run.Version != 3 || run.Status != store.RunCanceled || run.FinishedAt == nil {
 		t.Fatalf("cancel advance = %+v, %v", run, err)
 	}

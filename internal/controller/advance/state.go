@@ -73,7 +73,7 @@ func stepState(n store.StepNode) (engine.StepInstanceState, error) {
 		inst.Error = decodeStepError(n.Error)
 	}
 	for _, ex := range n.Executions {
-		inst.Executions = append(inst.Executions, engine.ExecutionView{ID: ex.ID, AttemptID: ex.AttemptID, State: engine.ExecStateFromStore(string(ex.State))})
+		inst.Executions = append(inst.Executions, engine.ExecutionView{ID: ex.ID, AttemptID: ex.AttemptID, State: engine.ExecStateFromStore(string(ex.State)), CancelRequested: ex.CancelRequestedAt != nil})
 	}
 	return inst, nil
 }
