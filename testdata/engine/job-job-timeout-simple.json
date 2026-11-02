@@ -1,0 +1,15 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "job-timeout-simple"
+  },
+  "spec": {
+    "timeout": "10m",
+    "steps": [
+      { "id": "a", "plugin": "ssh", "with": { "node": "n", "command": "a" } },
+      { "id": "b", "plugin": "ssh", "with": { "node": "n", "command": "b" } }
+    ]
+  }
+}

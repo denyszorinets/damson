@@ -1,0 +1,18 @@
+[
+  {
+    "at": "2026-03-01T10:10:30Z",
+    "type": "timeout_run"
+  },
+  {
+    "path": "b",
+    "reason": "job timed out",
+    "status": "cancelled",
+    "step_id": "b",
+    "type": "skip_step"
+  },
+  {
+    "finished_at": "2026-03-01T10:10:30Z",
+    "status": "failed",
+    "type": "complete_run"
+  }
+]

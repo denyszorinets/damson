@@ -87,8 +87,8 @@ func (t *txn) ApplyAdvance(ctx context.Context, runID string, expectedVersion in
 		if err != nil {
 			return store.Run{}, fmt.Errorf("recording the cancel of run %q: %w", runID, err)
 		}
-		if n == 0 {
-			return store.Run{}, staleRun(ctx, t.q, runID, "is already cancelled or finished")
+		if n == 0 { // cannot happen after the version CAS: a cancel bumps the version
+			return store.Run{}, fmt.Errorf("run %q already has a cancel request despite the version check", runID)
 		}
 	}
 	if err := t.applySteps(ctx, runID, a, now); err != nil {

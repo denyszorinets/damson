@@ -82,8 +82,9 @@ type AdvanceAttempt struct {
 }
 
 // Advance is the dialect-neutral change set of one run.advance, applied by
-// Tx.ApplyAdvance in this order: run start, run cancel, new steps, new
-// attempts, execution cancellations, run finish.
+// Tx.ApplyAdvance in this order: the run row (start or finish, and the version
+// check) first, then the run cancel, new steps, new attempts and execution
+// cancellations.
 type Advance struct {
 	// Start moves a pending run to running.
 	Start bool

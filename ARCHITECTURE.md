@@ -291,7 +291,7 @@ The engine evaluates these rules deterministically:
    - `failure()`: something previous in scope failed.
    - `always()`: always true.
    - `cancelled()`: the run has been cancelled.
-9. **Job timeout** (`spec.timeout`, ADR-0035). The deadline is `runs.started_at + timeout`. When it has passed and no cancel was requested, `Decide` emits `TimeoutRun` and treats the run as cancelling from that instant; the store records `cancel_requested_at` with `cancel_reason = 'timeout'` inside the advance's version CAS (a user cancel that commits first wins). The ordinary cancel rules then apply: running attempts are cancelled, pending steps are cancelled as `job timed out`, and only `always()` and `cancelled()` steps still run (`failure()` handlers do not). The run is `failed` if any step failed or was cancelled, `succeeded` if every step still succeeded. When the run starts the engine also emits `ScheduleWake{deadline}`.
+9. **Job timeout** (`spec.timeout`, ADR-0035). The deadline is `runs.started_at + timeout`. When it has passed and no cancel was requested, `Decide` emits `TimeoutRun` and treats the run as cancelling from that instant; the store records `cancel_requested_at` with `cancel_reason = 'timeout'` inside the advance's version CAS (a user cancel that commits first wins). The ordinary cancel rules then apply: running attempts are cancelled, pending steps are cancelled as `job timed out`, and only `always()` and `cancelled()` steps still run (the timeout itself does not trigger `failure()` handlers; a step that really failed still does). The run is `failed` if any step failed or was cancelled, `succeeded` if every step still succeeded. When the run starts the engine also emits `ScheduleWake{deadline}`.
 
 ### 5.4 Expressions and data passing
 

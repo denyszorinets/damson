@@ -54,9 +54,11 @@ Job timeout (the whole run)
   queued ones are cancelled, pending steps are cancelled with the reason
   ``job timed out``.
 - Only steps whose ``when`` calls ``always()`` or ``cancelled()`` still run
-  after the deadline; ``failure()`` handlers do not, because a cancelled step is
-  not a failed one. Those cleanup steps are bounded by their own step timeout,
-  not by the job timeout.
+  after the deadline. The timeout itself does not trigger ``failure()``
+  handlers, because a cancelled step is not a failed one; a step that really
+  failed (before the deadline, or a cancelled attempt that reports ``failed``)
+  still does. Those cleanup steps are bounded by their own step timeout, not by
+  the job timeout.
 - Final status: ``failed`` if any step failed or was cancelled; ``succeeded``
   only if every step still succeeded or was skipped by its ``when``. There is no
   ``timed_out`` run status. The API shows ``cancel_reason: timeout``.
@@ -106,5 +108,19 @@ Negative
 ~~~~~~~~
 
 - Cleanup after a job timeout is unbounded except by its own step timeouts.
+- Steps created after the cancel are told apart from in-flight ones by
+  comparing creation time with ``cancel_requested_at`` (a step created at the
+  same instant counts as created after it, which is how the cleanup step of the
+  very advance that records the timeout survives). The two times can come from
+  different controllers' clocks: with a large skew a cleanup step created by a
+  controller that runs behind could be cancelled, as it could after a user
+  cancel. Keep controller clocks in sync; a per-step marker is a possible
+  follow-up.
+- A queued execution cancelled by the timeout keeps the reason ``run
+  cancelled``, while steps that never started say ``job timed out``.
+- During a rolling upgrade a controller without this change ignores the wake
+  job's ``wake`` argument and runs it at once, which spends it; the sweep then
+  times the run out within one interval. Runs already past their deadline when
+  the first upgraded controller sweeps are timed out then.
 - A wedged executor on a live agent is not stopped until the lease logic or a
   future controller-side backstop handles it.

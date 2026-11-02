@@ -167,6 +167,21 @@ func testRunCancelInAdvance(t *testing.T, s store.Store) {
 		}
 	})
 
+	t.Run("timeout and finish in one advance", func(t *testing.T) {
+		// The deadline passed with nothing left to cancel: the same advance
+		// records the timeout and finishes the run. The finish moves the run
+		// to a terminal status first; the reason must still be recorded.
+		_, tree := mustRun(t, s, "timeout-and-finish")
+		ver := runVersion(t, s, tree.ID)
+		run, err := apply(tree.ID, ver, store.Advance{CancelRun: store.CancelReasonTimeout, Finish: store.RunFailed})
+		if err != nil {
+			t.Fatalf("timeout and finish in one advance: %v", err)
+		}
+		if run.Status != store.RunFailed || run.CancelReason != store.CancelReasonTimeout || run.CancelRequestedAt == nil || run.Version != ver+1 {
+			t.Fatalf("run = %+v; want failed, cancelled by timeout, version %d", run, ver+1)
+		}
+	})
+
 	t.Run("an unknown reason is invalid", func(t *testing.T) {
 		_, tree := mustRun(t, s, "timeout-bad")
 		if _, err := apply(tree.ID, runVersion(t, s, tree.ID), store.Advance{CancelRun: "nope"}); !errors.Is(err, store.ErrInvalid) {

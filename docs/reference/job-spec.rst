@@ -56,7 +56,8 @@ Document layout
        cancelled like a user cancel, with ``cancel_reason`` ``timeout``: running
        steps are stopped, pending steps are cancelled as ``job timed out``, and
        only steps whose ``when`` calls ``always()`` or ``cancelled()`` still run
-       (``failure()`` handlers do not). The run ends ``failed`` if any step
+       (the timeout itself does not trigger ``failure()`` handlers; a step that
+       really failed still does). The run ends ``failed`` if any step
        failed or was cancelled, ``succeeded`` if every step still succeeded
        (:doc:`/architecture/decisions/0035-timeout-semantics`).
    * - ``spec.steps``

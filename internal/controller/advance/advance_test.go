@@ -126,7 +126,8 @@ func tree(version int64, status store.RunStatus, cancel bool, steps ...stepSpec)
 		tr.StartedAt = &t0
 	}
 	if cancel {
-		tr.CancelRequestedAt = &t0
+		at := t0.Add(time.Minute) // after the steps, which are created within the first seconds
+		tr.CancelRequestedAt = &at
 	}
 	for i, s := range steps {
 		n := store.StepNode{StepInstance: store.StepInstance{

@@ -156,14 +156,15 @@ func finalStatus(failed, anyCancelled, timedOut bool) RunStatus {
 }
 
 // cancelActive asks for cancellation of in-flight attempts that started
-// before the cancel request. Steps created after it (an always() cleanup) are
-// left to finish.
+// before the cancel request. Steps created at or after it (an always()
+// cleanup, which may be created in the very Decide that records the cancel,
+// at the same instant) are left to finish.
 func (d *decider) cancelActive() {
 	if !d.canceling {
 		return
 	}
 	for _, inst := range d.st.Steps {
-		if inst.Status.Terminal() || inst.CreatedAt.After(*d.cancelAt) {
+		if inst.Status.Terminal() || !inst.CreatedAt.Before(*d.cancelAt) {
 			continue
 		}
 		for _, ex := range inst.Executions {

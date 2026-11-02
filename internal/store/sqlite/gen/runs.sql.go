@@ -393,7 +393,6 @@ func (q *Queries) RequestRunCancelCAS(ctx context.Context, arg RequestRunCancelC
 const requestRunCancelInAdvance = `-- name: RequestRunCancelInAdvance :execrows
 UPDATE runs SET cancel_requested_at = ?1, cancel_reason = ?2
 WHERE id = ?3 AND cancel_requested_at IS NULL
-  AND status NOT IN ('succeeded', 'failed', 'canceled')
 `
 
 type RequestRunCancelInAdvanceParams struct {
@@ -403,7 +402,11 @@ type RequestRunCancelInAdvanceParams struct {
 }
 
 // The job-level timeout, applied by run.advance inside its own version CAS
-// (which bumps the version), so this does not bump it again.
+// (which bumps the version), so this does not bump it again. It does not
+// filter on status: the same advance may also have finished the run (the
+// deadline passed with nothing left to cancel), and the timeout is still
+// recorded as the reason. A concurrent user cancel bumps the version, so after
+// a successful version CAS the cancel is always still unset.
 func (q *Queries) RequestRunCancelInAdvance(ctx context.Context, arg RequestRunCancelInAdvanceParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, requestRunCancelInAdvance, arg.Now, arg.Reason, arg.ID)
 	if err != nil {
