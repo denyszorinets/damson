@@ -358,7 +358,10 @@ export interface components {
              * @description Attempt number, from 1.
              */
             attempt: number;
+            /** @description Error message of a failed, timed out, lost or canceled attempt. */
             error?: string;
+            /** @description Machine-readable kind of the error, such as timeout, lost, cancelled or a plugin error code. */
+            error_kind?: string;
             /** Format: date-time */
             finished_at?: string;
             id: string;
@@ -378,7 +381,10 @@ export interface components {
              * @description Attempt number, from 1.
              */
             attempt: number;
+            /** @description Error message of a failed, timed out, lost or canceled attempt. */
             error?: string;
+            /** @description Machine-readable kind of the error, such as timeout, lost, cancelled or a plugin error code. */
+            error_kind?: string;
             /** Format: date-time */
             finished_at?: string;
             id: string;
@@ -569,7 +575,10 @@ export interface components {
         Step: {
             /** Format: date-time */
             created_at: string;
+            /** @description Error message of a failed or canceled step. */
             error?: string;
+            /** @description Machine-readable kind of the error, such as timeout, lost or a plugin error code. */
+            error_kind?: string;
             executions: components["schemas"]["Execution"][] | null;
             /** Format: date-time */
             finished_at?: string;

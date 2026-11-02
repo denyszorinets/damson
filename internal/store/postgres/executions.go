@@ -30,7 +30,7 @@ func toExecution(r gen.Execution) store.Execution {
 		Priority: int(r.Priority), Pool: r.Pool, AgentID: r.AgentID.String, ControllerID: r.ControllerID.String,
 		LeaseExpiresAt: tsPtr(r.LeaseExpiresAt), Outputs: json.RawMessage(r.Outputs), Error: r.Error,
 		CreatedAt: r.CreatedAt.Time.UTC(), StartedAt: tsPtr(r.StartedAt), FinishedAt: tsPtr(r.FinishedAt),
-		CancelRequestedAt: tsPtr(r.CancelRequestedAt),
+		CancelRequestedAt: tsPtr(r.CancelRequestedAt), Timeout: time.Duration(r.TimeoutMs) * time.Millisecond,
 	}
 }
 

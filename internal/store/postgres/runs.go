@@ -160,6 +160,7 @@ func insertExecution(ctx context.Context, q *gen.Queries, runID, stepID string, 
 	_, err = q.InsertExecution(ctx, gen.InsertExecutionParams{
 		ID: id, RunID: runID, StepInstanceID: stepID, AttemptNo: int32(attemptNo), AttemptID: attemptID,
 		ScheduledAt: ts(ne.ScheduledAt), Priority: int32(ne.Priority), Pool: ne.Pool, CreatedAt: ts(now),
+		TimeoutMs: store.TimeoutMillis(ne.Timeout),
 	})
 	if hasCode(err, uniqueViolation) {
 		return store.Execution{}, fmt.Errorf("step %q attempt %d: %w", stepID, attemptNo, store.ErrConflict)
@@ -170,7 +171,7 @@ func insertExecution(ctx context.Context, q *gen.Queries, runID, stepID string, 
 	return store.Execution{
 		ID: id, RunID: runID, StepInstanceID: stepID, AttemptNo: attemptNo, AttemptID: attemptID,
 		State: store.ExecQueued, ScheduledAt: store.NormalizeTime(ne.ScheduledAt), Priority: ne.Priority, Pool: ne.Pool,
-		Outputs: []byte("{}"), CreatedAt: store.NormalizeTime(now),
+		Outputs: []byte("{}"), CreatedAt: store.NormalizeTime(now), Timeout: time.Duration(store.TimeoutMillis(ne.Timeout)) * time.Millisecond,
 	}, nil
 }
 

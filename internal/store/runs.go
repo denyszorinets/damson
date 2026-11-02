@@ -102,6 +102,9 @@ type NewExecution struct {
 	Pool        string
 	Priority    int
 	ScheduledAt time.Time
+	// Timeout is the per-attempt step timeout, 0 for none. It is stored in
+	// whole milliseconds, rounded up, and sent to the agent in step.execute.
+	Timeout time.Duration
 }
 
 // NewStepInstance describes a step instance to create. A nil Execution

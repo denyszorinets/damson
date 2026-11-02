@@ -165,7 +165,7 @@ func (d *Dispatcher) buildRequest(ctx context.Context, a controller.AgentView, e
 	return protocol.StepExecute{
 		AttemptID: ex.AttemptID, ExecutionID: ex.ID, StepPath: step.Path,
 		PluginName: res.Manifest.Name, PluginVersion: res.Manifest.Version, Input: input,
-		Nodes: nodes, Secrets: bundle,
+		Nodes: nodes, Secrets: bundle, TimeoutMS: ex.Timeout.Milliseconds(),
 	}, nil
 }
 

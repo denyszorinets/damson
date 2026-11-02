@@ -1,9 +1,9 @@
 -- name: InsertExecution :execrows
 INSERT INTO executions (id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at,
-                        priority, pool, created_at)
+                        priority, pool, created_at, timeout_ms)
 VALUES (sqlc.arg(id), sqlc.arg(run_id), sqlc.arg(step_instance_id), sqlc.arg(attempt_no),
         sqlc.arg(attempt_id), 'queued', sqlc.arg(scheduled_at), sqlc.arg(priority), sqlc.arg(pool),
-        sqlc.arg(created_at));
+        sqlc.arg(created_at), sqlc.arg(timeout_ms));
 
 -- name: LatestAttempt :one
 SELECT attempt_no, state FROM executions
@@ -11,17 +11,17 @@ WHERE step_instance_id = sqlc.arg(step_instance_id) ORDER BY attempt_no DESC LIM
 
 -- name: GetExecution :one
 SELECT id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
+       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at, timeout_ms
 FROM executions WHERE id = sqlc.arg(id);
 
 -- name: GetExecutionByAttempt :one
 SELECT id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
+       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at, timeout_ms
 FROM executions WHERE attempt_id = sqlc.arg(attempt_id);
 
 -- name: ListExecutionsByRun :many
 SELECT id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
+       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at, timeout_ms
 FROM executions WHERE run_id = sqlc.arg(run_id) ORDER BY step_instance_id, attempt_no;
 
 -- name: ClaimExecutionCAS :one
@@ -29,7 +29,7 @@ UPDATE executions SET state = 'dispatched', attempt_id = sqlc.arg(attempt_id), a
        controller_id = sqlc.arg(controller_id), lease_expires_at = sqlc.arg(lease_expires_at)
 WHERE id = sqlc.arg(id) AND state = 'queued'
 RETURNING id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at;
+          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at, timeout_ms;
 
 -- name: MarkExecutionRunningCAS :execrows
 UPDATE executions SET state = 'running', started_at = sqlc.arg(started_at)
@@ -40,7 +40,7 @@ UPDATE executions SET state = 'lost', finished_at = sqlc.arg(finished_at), error
 WHERE id = sqlc.arg(id) AND attempt_id = sqlc.arg(attempt_id) AND state IN ('dispatched', 'running')
   AND lease_expires_at < sqlc.arg(now)
 RETURNING id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at;
+          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at, timeout_ms;
 
 -- name: CompleteExecutionCAS :execrows
 UPDATE executions SET state = sqlc.arg(state), outputs = sqlc.arg(outputs), error = sqlc.arg(error),
@@ -73,11 +73,11 @@ UPDATE executions SET state = 'canceled', finished_at = sqlc.arg(finished_at), e
 WHERE id = sqlc.arg(id) AND attempt_id = sqlc.arg(attempt_id) AND state = 'dispatched'
   AND cancel_requested_at IS NOT NULL
 RETURNING id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at;
+          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at, timeout_ms;
 
 -- name: ListCancelRequested :many
 SELECT id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
+       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at, timeout_ms
 FROM executions
 WHERE controller_id = sqlc.arg(controller_id) AND state IN ('dispatched', 'running')
   AND cancel_requested_at IS NOT NULL AND id > sqlc.arg(after_id)

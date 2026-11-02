@@ -64,6 +64,7 @@ type Execution struct {
 	StartedAt         pgtype.Timestamptz
 	FinishedAt        pgtype.Timestamptz
 	CancelRequestedAt pgtype.Timestamptz
+	TimeoutMs         int64
 }
 
 type InstanceSetting struct {

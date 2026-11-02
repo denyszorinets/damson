@@ -180,10 +180,15 @@ func StepOutcome(ex Execution) (StepStatus, string) {
 	case ExecCanceled:
 		return StepCanceled, ex.Error
 	default: // failed, timed_out, lost
-		reason := ex.Error
-		if reason == "" {
-			reason = string(ex.State)
+		// The step error carries the kind (timeout, lost, a plugin's error
+		// code), so the engine's error.kind and retry_on can match on it.
+		kind, msg := SplitStepError(ex.Error)
+		if kind != "" {
+			return StepFailed, ex.Error
 		}
-		return StepFailed, reason
+		if msg == "" {
+			msg = string(ex.State)
+		}
+		return StepFailed, StepErrorText(ErrorKindOf(ex), msg)
 	}
 }

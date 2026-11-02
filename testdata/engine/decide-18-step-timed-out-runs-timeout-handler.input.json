@@ -1,0 +1,36 @@
+{
+  "job_file": "job-step-timeout.json",
+  "now": "2026-03-01T10:05:00Z",
+  "state": {
+    "id": "run-1",
+    "status": "running",
+    "trigger": "manual",
+    "job": {
+      "name": "step-timeout",
+      "project": "default",
+      "version": "1"
+    },
+    "steps": [
+      {
+        "path": "slow",
+        "step_id": "slow",
+        "status": "failed",
+        "created_at": "2026-03-01T10:00:00Z",
+        "error": {
+          "kind": "timeout",
+          "message": "step timed out"
+        },
+        "executions": [
+          {
+            "id": "ex-1",
+            "attempt_id": "at-1",
+            "state": "failed"
+          }
+        ],
+        "started_at": "2026-03-01T10:00:00Z",
+        "finished_at": "2026-03-01T10:00:30Z"
+      }
+    ],
+    "started_at": "2026-03-01T10:00:00Z"
+  }
+}

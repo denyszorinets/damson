@@ -104,7 +104,7 @@ UPDATE executions SET state = 'canceled', finished_at = ?1, error = 'run cancell
 WHERE id = ?2 AND attempt_id = ?3 AND state = 'dispatched'
   AND cancel_requested_at IS NOT NULL
 RETURNING id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
+          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at, timeout_ms
 `
 
 type CancelUndeliveredCASParams struct {
@@ -137,6 +137,7 @@ func (q *Queries) CancelUndeliveredCAS(ctx context.Context, arg CancelUndelivere
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.CancelRequestedAt,
+		&i.TimeoutMs,
 	)
 	return i, err
 }
@@ -146,7 +147,7 @@ UPDATE executions SET state = 'dispatched', attempt_id = ?1, agent_id = ?2,
        controller_id = ?3, lease_expires_at = ?4
 WHERE id = ?5 AND state = 'queued'
 RETURNING id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
+          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at, timeout_ms
 `
 
 type ClaimExecutionCASParams struct {
@@ -185,6 +186,7 @@ func (q *Queries) ClaimExecutionCAS(ctx context.Context, arg ClaimExecutionCASPa
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.CancelRequestedAt,
+		&i.TimeoutMs,
 	)
 	return i, err
 }
@@ -221,7 +223,7 @@ func (q *Queries) CompleteExecutionCAS(ctx context.Context, arg CompleteExecutio
 
 const getExecution = `-- name: GetExecution :one
 SELECT id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
+       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at, timeout_ms
 FROM executions WHERE id = ?1
 `
 
@@ -247,13 +249,14 @@ func (q *Queries) GetExecution(ctx context.Context, id string) (Execution, error
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.CancelRequestedAt,
+		&i.TimeoutMs,
 	)
 	return i, err
 }
 
 const getExecutionByAttempt = `-- name: GetExecutionByAttempt :one
 SELECT id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
+       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at, timeout_ms
 FROM executions WHERE attempt_id = ?1
 `
 
@@ -279,16 +282,17 @@ func (q *Queries) GetExecutionByAttempt(ctx context.Context, attemptID string) (
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.CancelRequestedAt,
+		&i.TimeoutMs,
 	)
 	return i, err
 }
 
 const insertExecution = `-- name: InsertExecution :execrows
 INSERT INTO executions (id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at,
-                        priority, pool, created_at)
+                        priority, pool, created_at, timeout_ms)
 VALUES (?1, ?2, ?3, ?4,
         ?5, 'queued', ?6, ?7, ?8,
-        ?9)
+        ?9, ?10)
 `
 
 type InsertExecutionParams struct {
@@ -301,6 +305,7 @@ type InsertExecutionParams struct {
 	Priority       int64
 	Pool           string
 	CreatedAt      string
+	TimeoutMs      int64
 }
 
 func (q *Queries) InsertExecution(ctx context.Context, arg InsertExecutionParams) (int64, error) {
@@ -314,6 +319,7 @@ func (q *Queries) InsertExecution(ctx context.Context, arg InsertExecutionParams
 		arg.Priority,
 		arg.Pool,
 		arg.CreatedAt,
+		arg.TimeoutMs,
 	)
 	if err != nil {
 		return 0, err
@@ -340,7 +346,7 @@ func (q *Queries) LatestAttempt(ctx context.Context, stepInstanceID string) (Lat
 
 const listCancelRequested = `-- name: ListCancelRequested :many
 SELECT id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
+       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at, timeout_ms
 FROM executions
 WHERE controller_id = ?1 AND state IN ('dispatched', 'running')
   AND cancel_requested_at IS NOT NULL AND id > ?2
@@ -381,6 +387,7 @@ func (q *Queries) ListCancelRequested(ctx context.Context, arg ListCancelRequest
 			&i.StartedAt,
 			&i.FinishedAt,
 			&i.CancelRequestedAt,
+			&i.TimeoutMs,
 		); err != nil {
 			return nil, err
 		}
@@ -397,7 +404,7 @@ func (q *Queries) ListCancelRequested(ctx context.Context, arg ListCancelRequest
 
 const listExecutionsByRun = `-- name: ListExecutionsByRun :many
 SELECT id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
+       agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at, timeout_ms
 FROM executions WHERE run_id = ?1 ORDER BY step_instance_id, attempt_no
 `
 
@@ -429,6 +436,7 @@ func (q *Queries) ListExecutionsByRun(ctx context.Context, runID string) ([]Exec
 			&i.StartedAt,
 			&i.FinishedAt,
 			&i.CancelRequestedAt,
+			&i.TimeoutMs,
 		); err != nil {
 			return nil, err
 		}
@@ -468,7 +476,7 @@ UPDATE executions SET state = 'lost', finished_at = ?1, error = 'lease expired'
 WHERE id = ?2 AND attempt_id = ?3 AND state IN ('dispatched', 'running')
   AND lease_expires_at < ?4
 RETURNING id, run_id, step_instance_id, attempt_no, attempt_id, state, scheduled_at, priority, pool,
-          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at
+          agent_id, controller_id, lease_expires_at, outputs, error, created_at, started_at, finished_at, cancel_requested_at, timeout_ms
 `
 
 type MarkExecutionLostCASParams struct {
@@ -505,6 +513,7 @@ func (q *Queries) MarkExecutionLostCAS(ctx context.Context, arg MarkExecutionLos
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.CancelRequestedAt,
+		&i.TimeoutMs,
 	)
 	return i, err
 }

@@ -20,6 +20,7 @@ func toExecution(r gen.Execution) (store.Execution, error) {
 		AttemptID: r.AttemptID, State: store.ExecutionState(r.State), Priority: int(r.Priority), Pool: r.Pool,
 		AgentID: r.AgentID.String, ControllerID: r.ControllerID.String, Outputs: json.RawMessage(r.Outputs), Error: r.Error,
 	}
+	out.Timeout = time.Duration(r.TimeoutMs) * time.Millisecond
 	var err error
 	if out.ScheduledAt, err = parseTime(r.ScheduledAt); err != nil {
 		return store.Execution{}, err

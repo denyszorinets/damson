@@ -50,15 +50,20 @@ Action mapping
   (``TestDecideAfterTriggerInsert``).
 * ``SkipStep`` and ``FailStep`` create already finished steps. ``FailStep``
   stores the ``StepError`` as JSON in ``step_instances.error``; a plain-text
-  error (written elsewhere) reads back as kind ``error``.
-* ``CancelExecution`` cancels the execution only while it is ``queued`` (and
-  cancels its step in the same transaction, then enqueues another advance
-  because no agent report will). A dispatched or running execution is
-  cancelled by its owning controller, which sees ``runs.cancel_requested_at``
-  (``step.cancel`` dispatch is not implemented yet); there is nothing to write, and so no version bump.
+  error (written elsewhere) reads back as kind ``error``. Completions store
+  the agent's error the same way, as ``{"kind", "message"}``, with the kind
+  ``timeout`` for ``timed_out`` and ``lost`` for an expired lease, so
+  ``error.kind`` in expressions sees them; the API returns ``error`` (the
+  message) and ``error_kind`` apart.
+* ``CancelExecution`` cancels the execution outright only while it is
+  ``queued`` (and cancels its step in the same transaction, then enqueues
+  another advance because no agent report will). A dispatched or running
+  execution is flagged with ``executions.cancel_requested_at``, and its owning
+  controller sends ``step.cancel`` (see :doc:`dispatch`).
 * The execution pool is the step's ``runs_on.pool`` from the spec, else
-  ``default``; priority is 0. ``Timeout`` is not stored: the dispatcher
-  re-reads it from the spec. Target resolution and labels come with the
+  ``default``; priority is 0. ``Timeout`` is stored on the execution
+  (``executions.timeout_ms``, whole milliseconds, rounded up) and sent to the
+  agent in ``step.execute``; the agent enforces it and reports ``timed_out``. Target resolution and labels come with the
   inventory work.
 
 Uniqueness and wake-ups

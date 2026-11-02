@@ -135,7 +135,8 @@ Go test fails when ``web/openapi.json`` differs from the live document.
      - The run (``status``, ``trigger``, resolved ``options``, timestamps,
        ``job_version``) with ``steps``: every step instance in creation
        order with its resolved ``input`` (secret references only) and its
-       ``executions`` (attempt number, state, pool, agent, outputs, error).
+       ``executions`` (attempt number, state, pool, agent, outputs, ``error`` message and
+       ``error_kind``).
        The attempt id, which fences agent reports, is never exposed.
    * - ``POST /api/v1/runs/{id}/cancel``
      - Records the cancel request (``cancel_requested_at``); the orchestrator

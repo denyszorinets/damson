@@ -266,7 +266,7 @@ The spec is JSON; it is the canonical format stored in the database. YAML may be
 | `type: "group"` | A container with `steps`, optional `catch`, `finally`, `rethrow`, `for_each`, `max_parallel`, `fail_threshold` |
 | `when` | A CEL condition. The default is `success()` (all previous steps in scope succeeded or were handled). If the expression calls any status function (`success()`, `failure()`, `always()`, `cancelled()`), the implicit `success()` is off; otherwise it is evaluated as `success() && (when)`. |
 | `continue_on_error` | A failure is recorded but does not fail the enclosing scope. |
-| `timeout` | Per attempt. The job-level `timeout` covers the whole run. |
+| `timeout` | Per attempt, a Go duration. The engine stores it on the execution; the **agent enforces** it (a context deadline from `timeout_ms` in `step.execute`, started when the agent accepts the execute and kept across reconnects), so it works while the agent is cut off from its controller. A timed-out attempt reports `timed_out` with error kind `timeout`; the engine sees a failed step whose `error.kind` is `timeout` (retry, catch and `continue_on_error` react to that). Whichever of the deadline and a `step.cancel` cancels the context first decides `timed_out` or `canceled`. The job-level `timeout` covers the whole run. |
 | `retry` | `max_attempts`, `backoff{initial, multiplier, max, jitter}`, `retry_on` (CEL over `error`), `on_lost` (bool) |
 | `runs_on` | Optional agent selection: `{ "pool": "dc1", "labels": {...} }`. The default is the pool of the target node, or any pool. |
 
@@ -787,7 +787,7 @@ Action = CreateStepInstance | ScheduleExecution | SkipStep | CompleteGroup | Com
    - Delivery is at-most-once on an ambiguous send. If `step.execute` times out or the socket closes after the write, the controller sends `step.cancel` for the attempt and requeues only if the cancel is answered. Otherwise the execution stays `dispatched` and the lease reaper marks it `lost` (the agent also tombstones a cancelled attempt, so a late execute is rejected).
    - Dispatch rounds run per agent, asynchronously, with one in flight per agent. After a transport failure the rest of that agent's claimed batch is requeued immediately.
 4. **Running:** logs flow (§10), and heartbeats renew leases.
-5. **Complete:** `step.complete`, then a CAS on `attempt_id` to set the terminal state and store outputs and error, then enqueue `run.advance`. The agent gets its ack after the commit.
+5. **Complete:** `step.complete`, then a CAS on `attempt_id` to set the terminal state and store outputs and error, then enqueue `run.advance`. The agent gets its ack after the commit. The error is stored as `{"kind", "message"}` JSON (kind = the agent's error code, `timeout` for `timed_out`, `lost` for an expired lease), the shape of the engine's own `FailStep`, so `error.kind` and `retry_on` can match it. Rows written earlier as plain text still read: the kind is then derived from the final state. The API shows `error` (the message) and `error_kind` separately.
 6. **Retry:** the engine schedules a new Execution with `scheduled_at = now + backoff` and a new attempt_id.
 7. **Cancel:**
    - Set `runs.cancel_requested_at`.

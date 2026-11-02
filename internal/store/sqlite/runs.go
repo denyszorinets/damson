@@ -190,7 +190,7 @@ func insertExecution(ctx context.Context, q *gen.Queries, runID, stepID string, 
 	}
 	_, err = q.InsertExecution(ctx, gen.InsertExecutionParams{
 		ID: id, RunID: runID, StepInstanceID: stepID, AttemptNo: int64(attemptNo), AttemptID: attemptID,
-		ScheduledAt: fmtTime(ne.ScheduledAt), Priority: int64(ne.Priority), Pool: ne.Pool, CreatedAt: fmtTime(now),
+		ScheduledAt: fmtTime(ne.ScheduledAt), Priority: int64(ne.Priority), Pool: ne.Pool, CreatedAt: fmtTime(now), TimeoutMs: store.TimeoutMillis(ne.Timeout),
 	})
 	if isUnique(err) {
 		return store.Execution{}, fmt.Errorf("step %q attempt %d: %w", stepID, attemptNo, store.ErrConflict)
@@ -201,7 +201,7 @@ func insertExecution(ctx context.Context, q *gen.Queries, runID, stepID string, 
 	return store.Execution{
 		ID: id, RunID: runID, StepInstanceID: stepID, AttemptNo: attemptNo, AttemptID: attemptID,
 		State: store.ExecQueued, ScheduledAt: store.NormalizeTime(ne.ScheduledAt), Priority: ne.Priority, Pool: ne.Pool,
-		Outputs: []byte("{}"), CreatedAt: store.NormalizeTime(now),
+		Outputs: []byte("{}"), CreatedAt: store.NormalizeTime(now), Timeout: time.Duration(store.TimeoutMillis(ne.Timeout)) * time.Millisecond,
 	}, nil
 }
 

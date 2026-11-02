@@ -1,0 +1,30 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "step-timeout"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "slow",
+        "plugin": "ssh",
+        "timeout": "30s",
+        "with": {
+          "node": "builder",
+          "command": "sleep 60"
+        }
+      },
+      {
+        "id": "on-timeout",
+        "plugin": "ssh",
+        "when": "failure() && steps.slow.error.kind == 'timeout'",
+        "with": {
+          "node": "ops",
+          "command": "echo timed out"
+        }
+      }
+    ]
+  }
+}

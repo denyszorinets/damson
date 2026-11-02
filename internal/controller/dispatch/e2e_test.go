@@ -69,6 +69,8 @@ type cluster struct {
 	adv *advance.Advancer
 	jv  store.JobVersion
 	dsp *dispatch.Dispatcher
+	// firstTimeout is the step timeout of the first execution trigger creates.
+	firstTimeout time.Duration
 }
 
 func startCluster(t *testing.T, st store.Store, spec string, opts ...func(*dispatch.Config)) *cluster {
@@ -191,7 +193,7 @@ func (c *cluster) triggerInput(plugin, input string) string {
 		tree, err := tx.CreateRun(context.Background(), store.NewRun{
 			JobID: c.jv.JobID, JobVersionID: c.jv.ID, Trigger: json.RawMessage(`{"type":"manual"}`), Options: json.RawMessage(`{}`),
 			Steps: []store.NewStepInstance{{Path: "s1", Plugin: plugin, Input: json.RawMessage(input),
-				Execution: &store.NewExecution{Pool: advance.DefaultPool, ScheduledAt: time.Now()}}},
+				Execution: &store.NewExecution{Pool: advance.DefaultPool, ScheduledAt: time.Now(), Timeout: c.firstTimeout}}},
 		}, time.Now())
 		if err != nil {
 			return err

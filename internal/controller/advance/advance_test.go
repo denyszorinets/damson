@@ -382,3 +382,23 @@ func TestStepErrorRoundTrip(t *testing.T) {
 		t.Errorf("text error = %+v", got)
 	}
 }
+
+// The engine's per-attempt timeout reaches the execution row (the agent
+// enforces it), for a first and for a later attempt.
+func TestScheduleCarriesTimeout(t *testing.T) {
+	var adv store.Advance
+	created := map[string]int{"first": 0}
+	adv.NewSteps = []store.AdvanceStep{{Path: "first"}}
+	to := engine.Duration(30 * time.Second)
+	for _, path := range []string{"first", "later"} {
+		if err := schedule(&adv, created, engine.ScheduleExecution{Path: path, Attempt: 1, ScheduledAt: t0, Timeout: to}, &engine.Job{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := adv.NewSteps[0].Execution.Timeout; got != 30*time.Second {
+		t.Fatalf("new step execution timeout = %v; want 30s", got)
+	}
+	if got := adv.NewAttempts[0].NewExecution.Timeout; got != 30*time.Second {
+		t.Fatalf("attempt execution timeout = %v; want 30s", got)
+	}
+}
