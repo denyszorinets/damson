@@ -158,6 +158,27 @@ func (f *File) Names() []string {
 	return names
 }
 
+// Targets is the node list `for_each: "targets"` iterates and
+// `spec.targets.selector` filters, sorted by name. Each node is a plain map for
+// the expression context: name, address, tags (none in a dev file), attributes,
+// pool, os and transport. It never carries the credential ref, the host key or
+// the host key policy.
+func (f *File) Targets() []map[string]any {
+	out := make([]map[string]any, 0, len(f.nodes))
+	for _, name := range f.Names() {
+		n := f.nodes[name]
+		attrs := map[string]any{}
+		for k, v := range n.Attributes {
+			attrs[k] = v
+		}
+		out = append(out, map[string]any{
+			"name": n.Name, "address": n.Address, "tags": []any{}, "attributes": attrs,
+			"pool": "", "os": n.OS, "transport": n.Transport,
+		})
+	}
+	return out
+}
+
 // Node implements dispatch.NodeSource.
 func (f *File) Node(_ context.Context, _, name string) (pluginsdk.NodeInfo, error) {
 	n, ok := f.nodes[name]

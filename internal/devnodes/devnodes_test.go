@@ -3,6 +3,7 @@ package devnodes
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -113,5 +114,50 @@ func TestSecretFileChecks(t *testing.T) {
 				t.Fatalf("error leaks file content: %v", err)
 			}
 		})
+	}
+}
+
+func TestTargetsAreSortedAndCarryNoSecrets(t *testing.T) {
+	dir := t.TempDir()
+	key := write(t, dir, "key", marker, 0o600)
+	content := `{"version":1,
+"nodes":{
+ "web-02":{"address":"10.0.0.2","os":"linux","host_key_policy":"insecure","attributes":{"role":"web","rack":3}},
+ "db-01":{"address":"10.0.0.9","port":5022,"transport":"ssh","host_key_policy":"strict","host_key":"ssh-ed25519 AAAA","credential":"secret://dev/sshd"},
+ "web-01":{"address":"10.0.0.1","os":"linux","host_key_policy":"insecure","attributes":{"role":"web"}}},
+"secrets":{"secret://dev/sshd":{"username":"damson","private_key_file":"` + key + `"}}}`
+	f, err := Load(write(t, dir, "nodes.json", content, 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := f.Targets()
+	var names []string
+	for _, n := range targets {
+		names = append(names, n["name"].(string))
+	}
+	if strings.Join(names, ",") != "db-01,web-01,web-02" {
+		t.Fatalf("targets = %v; want them sorted by name", names)
+	}
+	web := targets[2]
+	if web["address"] != "10.0.0.2" || web["os"] != "linux" || web["transport"] != "ssh" || web["pool"] != "" {
+		t.Fatalf("web-02 = %v", web)
+	}
+	if attrs := web["attributes"].(map[string]any); attrs["role"] != "web" || attrs["rack"] != float64(3) {
+		t.Fatalf("attributes = %v", web["attributes"])
+	}
+	if tags, ok := web["tags"].([]any); !ok || len(tags) != 0 {
+		t.Fatalf("tags = %#v; want an empty list", web["tags"])
+	}
+	// The expression context never gets the credential, the host key or the policy.
+	dump := fmt.Sprint(targets)
+	for _, forbidden := range []string{"secret://", "AAAA", "credential", "host_key", marker, "strict", "insecure"} {
+		if strings.Contains(dump, forbidden) {
+			t.Fatalf("targets leak %q: %s", forbidden, dump)
+		}
+	}
+	// A copy: changing it does not change the file's nodes.
+	targets[2]["attributes"].(map[string]any)["role"] = "changed"
+	if again := f.Targets(); again[2]["attributes"].(map[string]any)["role"] != "web" {
+		t.Fatal("Targets shares the node attributes with the file")
 	}
 }

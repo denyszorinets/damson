@@ -44,6 +44,11 @@ Decision
   ``run.advance`` enqueued, the message names only the node or ref). Other
   source errors requeue the execution.
 
+- The nodes are also the source of ``targets`` before the inventory (ADR-0038):
+  ``File.Targets`` lists them sorted by name as plain maps without the
+  credential, host key or host key policy, and the advancer filters them with
+  ``spec.targets.selector``.
+
 Consequences
 ------------
 

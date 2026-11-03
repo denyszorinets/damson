@@ -42,8 +42,10 @@ type core struct {
 	log     *slog.Logger
 	enqueue func(ctx context.Context, tx store.Tx, runID string) error
 	// wake schedules the job-level timeout wake-up (nil: none, in tests).
-	wake   func(ctx context.Context, tx store.Tx, runID string, at time.Time) error
-	notify func(runID string)
+	wake func(ctx context.Context, tx store.Tx, runID string, at time.Time) error
+	// targets selects the nodes of a run (nil: none).
+	targets func(job *engine.Job, inputs map[string]any) []map[string]any
+	notify  func(runID string)
 }
 
 // advance runs one load-decide-apply cycle for runID, reloading when the
@@ -87,6 +89,9 @@ func (c *core) once(ctx context.Context, runID string) (changed bool, err error)
 	}
 	if err := c.fillIdempotent(ctx, &state, job); err != nil {
 		return false, err
+	}
+	if c.targets != nil {
+		state.Targets = c.targets(job, state.Inputs)
 	}
 	acts, err := c.eng.Decide(job, state, now)
 	if err != nil {

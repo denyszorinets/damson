@@ -34,6 +34,7 @@ func (d *decider) vars(sc *scope, failed bool) expr.Vars {
 		Node:    sc.nodeVar(),
 		Item:    sc.itemVar(),
 		HasItem: sc.inLane(),
+		Targets: targetList(d.st.Targets),
 		Status: expr.Status{
 			Success:   !failed && (!d.canceling || sc.shielded) && !sc.anyCancelled(),
 			Failure:   failed,
@@ -127,4 +128,13 @@ func (e *Engine) ResolveInput(step Step, vars expr.Vars) (json.RawMessage, error
 		return nil, fmt.Errorf("%w: resolved input is %d bytes, limit %d", expr.ErrResultSize, len(b), MaxResolvedInputBytes)
 	}
 	return b, nil
+}
+
+// targetList is the `targets` expression variable.
+func targetList(nodes []map[string]any) []any {
+	out := make([]any, len(nodes))
+	for i, n := range nodes {
+		out[i] = n
+	}
+	return out
 }

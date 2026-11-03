@@ -46,7 +46,8 @@ Lanes
 - ``item`` is the lane's item (any JSON value). ``node`` is the item when it is
   an object (for ``targets``, a node), otherwise empty. Both are inherited by
   everything nested in the lane. ``targets`` is the node list ``for_each`` can
-  iterate.
+  iterate: before the inventory (M4) the dev nodes of ADR-0034 filtered by
+  ``spec.targets.selector``, empty without a dev file.
 - ``steps.<id>`` inside a lane is lexical as in a group: the lane's own earlier
   steps first, then the enclosing lists; lanes do not see each other. Outside, a
   for_each group's value is ``{status, outputs, error, handled, started_at,

@@ -63,6 +63,13 @@ it; ``controller`` accepts it only with ``--insecure-dev``; ``agent`` rejects
 it (usage error, exit 2). A file that cannot be loaded fails startup with exit
 status 1. Startup logs a WARN naming the file path and the node names.
 
+The nodes are also the ``targets`` of a job: ``for_each: "targets"`` runs a
+group once per node, after ``spec.targets.selector`` has filtered them, with
+``node`` bound (``name``, ``address``, ``tags``, ``attributes``, ``pool``,
+``os``, ``transport``). The credential, host key and host key policy are never
+part of ``node``; a plugin step takes ``node: "${{ node.name }}"`` and the
+dispatcher resolves the rest. A dev file has no ``tags`` (always empty).
+
 .. code-block:: json
 
    {

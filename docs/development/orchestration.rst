@@ -154,6 +154,12 @@ the group row's input; ``engine.StepIDOf`` gives a lane row its for_each group's
 id. A lane that has just failed but is not settled yet holds new lanes back for
 one ``Decide`` (the settles counter).
 
+``targets`` comes from the advancer's ``TargetSource`` (``devnodes.File`` until
+the inventory exists): ``RunState.Targets`` is filled before each ``Decide``
+through ``Engine.SelectTargets``, which applies ``spec.targets.selector`` purely
+(a node for which it is not true is out), and a ``for_each`` group freezes the
+list it iterates when it starts.
+
 Retries
 -------
 

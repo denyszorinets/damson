@@ -37,10 +37,20 @@ type Config struct {
 	SweepInterval time.Duration
 	// Now is the clock handed to the engine; default time.Now.
 	Now func() time.Time
+	// Targets is where `targets` comes from (the inventory, once it exists in M4;
+	// today the dev-only nodes file). Optional: without it `targets` is empty.
+	Targets TargetSource
 	// Hub receives a signal after each committed advance. A new Hub is made
 	// when nil; read it back with Advancer.Hub.
 	Hub    *Hub
 	Logger *slog.Logger
+}
+
+// TargetSource lists the nodes `for_each: "targets"` can iterate, as plain
+// maps for the expression context (name, address, tags, attributes, pool, os,
+// transport), without credentials or host keys.
+type TargetSource interface {
+	Targets() []map[string]any
 }
 
 // DefaultSweepInterval is the safety-net sweep period.
@@ -90,6 +100,12 @@ func New(cfg Config) (*Advancer, error) {
 		now = time.Now
 	}
 	a.core = &core{st: cfg.Store, eng: cfg.Engine, now: now, log: a.log, enqueue: a.Enqueue, wake: a.enqueueWake, notify: a.hub.Notify}
+	if cfg.Targets != nil {
+		src, eng := cfg.Targets, cfg.Engine
+		a.core.targets = func(job *engine.Job, inputs map[string]any) []map[string]any {
+			return eng.SelectTargets(job, inputs, src.Targets())
+		}
+	}
 	q, err := newQueue(cfg, a.core, a.log)
 	if err != nil {
 		return nil, err

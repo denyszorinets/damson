@@ -78,20 +78,25 @@ func startCluster(t *testing.T, st store.Store, spec string, opts ...func(*dispa
 }
 
 func startClusterLog(t *testing.T, st store.Store, spec string, log *slog.Logger, opts ...func(*dispatch.Config)) *cluster {
-	return startClusterWith(t, st, spec, log, nil, nil, opts...)
+	return startClusterWith(t, st, spec, log, nil, nil, nil, opts...)
 }
 
 // startClusterPlugins is startCluster with extra plugins linked into the agent.
 func startClusterPlugins(t *testing.T, st store.Store, spec string, extra []pluginsdk.Plugin, opts ...func(*dispatch.Config)) *cluster {
-	return startClusterWith(t, st, spec, slog.New(slog.DiscardHandler), extra, nil, opts...)
+	return startClusterWith(t, st, spec, slog.New(slog.DiscardHandler), extra, nil, nil, opts...)
+}
+
+// startClusterTargets is startCluster with a source of `targets`.
+func startClusterTargets(t *testing.T, st store.Store, spec string, targets advance.TargetSource) *cluster {
+	return startClusterWith(t, st, spec, slog.New(slog.DiscardHandler), nil, nil, targets)
 }
 
 // startClusterGrace is startCluster with a finally grace of the given length.
 func startClusterGrace(t *testing.T, st store.Store, spec string, grace time.Duration) *cluster {
-	return startClusterWith(t, st, spec, slog.New(slog.DiscardHandler), nil, []engine.Option{engine.WithFinallyGrace(grace)})
+	return startClusterWith(t, st, spec, slog.New(slog.DiscardHandler), nil, []engine.Option{engine.WithFinallyGrace(grace)}, nil)
 }
 
-func startClusterWith(t *testing.T, st store.Store, spec string, log *slog.Logger, extra []pluginsdk.Plugin, eopts []engine.Option, opts ...func(*dispatch.Config)) *cluster {
+func startClusterWith(t *testing.T, st store.Store, spec string, log *slog.Logger, extra []pluginsdk.Plugin, eopts []engine.Option, targets advance.TargetSource, opts ...func(*dispatch.Config)) *cluster {
 	t.Helper()
 	ctx := context.Background()
 	pool, err := st.CreatePool(ctx, "default", "", t0)
@@ -120,7 +125,7 @@ func startClusterWith(t *testing.T, st store.Store, spec string, log *slog.Logge
 	if err != nil {
 		t.Fatal(err)
 	}
-	adv, err := advance.New(advance.Config{Store: st, Engine: eng, PollInterval: 20 * time.Millisecond, SweepInterval: -1, Logger: log})
+	adv, err := advance.New(advance.Config{Store: st, Engine: eng, PollInterval: 20 * time.Millisecond, SweepInterval: -1, Logger: log, Targets: targets})
 	if err != nil {
 		t.Fatal(err)
 	}
