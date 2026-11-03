@@ -808,18 +808,23 @@ Action = CreateStepInstance | ScheduleExecution | SettleStep | SkipStep | Comple
 
 ### 8.4 Singleton duties (leader lease)
 
-- `leader_leases(name, holder, expires_at)`. Acquire or renew with a CAS every 5s, with a TTL of 15s.
+- `leader_leases(name, holder, term, acquired_at, expires_at)`: one row per singleton duty (today only `reaper`). `holder` is the controller id, with no foreign key (`controller_instances` rows are deleted on shutdown). ADR-0039.
+- **Acquire or renew** is one upsert (`LeaderStore.AcquireLeader`) every 5s with a TTL of 15s. It succeeds if the caller is the holder or the current lease has expired (`expires_at < now`). A takeover adds 1 to `term`, a renewal keeps it; `term` never resets. **Release** is `UPDATE ... SET expires_at = now WHERE holder AND term match`, so a graceful stop hands over faster than the TTL.
+- **Clock:** the injected Go `now`, on both backends, not the database clock. Skew only shifts failover time (TTL plus skew); it cannot cause flapping.
+- **Step-down:** a controller counts as leader only while `now < expires_at - renew`, so one cut off from the database stops before another can take over.
+- **Fence:** `Tx.CheckLeader(name, holder, term, now)` returns `ErrStale` unless the lease is held at that term and unexpired. The reaper calls it first in its transaction. It is strict on SQLite (exclusive transaction) and best effort on Postgres READ COMMITTED, which is enough for idempotent duties.
 - Duties:
   - **scheduler** (§12.3)
   - **reaper** (expired leases → `lost`; dead `controller_instances` cleanup)
   - **retention** (old runs, logs, audit; per-project policy)
 - Each duty is idempotent, so a brief double-leader overlap during failover is harmless.
-- Until the M3 leader lease, the reaper runs on every controller. This is safe because expiry is a CAS per execution on `attempt_id` and lease. Lease expiry is judged with each controller's own clock, so the fastest clock decides; keep controller clocks in sync.
+- Per-controller duties stay on every controller: dispatch, lease renewal, cancels, adoption, and the sweep (a River unique key). The scheduler (M7) will need the lease plus a unique `(schedule_id, fire_at)`.
 - Reaper and complete transactions touch rows in a fixed order: step rows first, then each distinct run once, sorted by run id.
 
 ### 8.5 Controller registry and cross-controller routing
 
 - `controller_instances(id, internal_url, started_at, last_seen)`, heartbeated every 5s.
+- The reaper leader deletes rows whose `last_seen` is older than 1 minute (crashed controllers never deregister). Agent rows are not touched.
 - **Log tail:** a UI request to controller X for an execution owned by controller Y is proxied to `Y/internal/v1/executions/{id}/tail`.
   - Internal endpoints are authenticated with a cluster shared secret (HMAC) and should be on an internal listener or port.
 - **Graceful shutdown:**

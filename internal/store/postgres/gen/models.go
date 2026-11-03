@@ -92,6 +92,14 @@ type JobVersion struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type LeaderLease struct {
+	Name       string
+	Holder     string
+	Term       int64
+	AcquiredAt pgtype.Timestamptz
+	ExpiresAt  pgtype.Timestamptz
+}
+
 type LogChunk struct {
 	ID          string
 	ExecutionID string

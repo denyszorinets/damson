@@ -89,6 +89,7 @@ func (t *fakeTx) CompleteExecution(context.Context, store.Completion, time.Time)
 func (t *fakeTx) ExpireLeases(context.Context, time.Time, int) ([]store.Execution, error) {
 	return nil, nil
 }
+func (t *fakeTx) CheckLeader(context.Context, string, string, int64, time.Time) error { return nil }
 func (t *fakeTx) CancelUndelivered(context.Context, string, string, time.Time) (store.Execution, error) {
 	return store.Execution{}, nil
 }

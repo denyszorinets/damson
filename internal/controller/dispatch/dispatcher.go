@@ -30,7 +30,20 @@ const (
 type Store interface {
 	store.ExecutionStore
 	store.TxRunner
+	store.LeaderStore
 	GetStepInstance(ctx context.Context, id string) (store.StepInstance, error)
+}
+
+// LeaderReaper is the name of the lease of the reaper duty.
+const LeaderReaper = "reaper"
+
+// DeadControllerAfter is how long a controller instance may stay silent before
+// the leader removes its registry row.
+const DeadControllerAfter = time.Minute
+
+// Leader reports whether this controller holds the lease of a duty, and its term.
+type Leader interface {
+	Term() (term int64, ok bool)
 }
 
 // Agents is the controller's live sockets.
@@ -61,8 +74,12 @@ type Config struct {
 	Secrets      SecretSource
 	Advance      Enqueuer
 	ControllerID string
-	Now          func() time.Time
-	Logger       *slog.Logger
+	// Leader gates the reaper and the dead-controller cleanup to the holder of
+	// the LeaderReaper lease. Nil means every controller runs them (they are
+	// idempotent, so this is only wasteful).
+	Leader Leader
+	Now    func() time.Time
+	Logger *slog.Logger
 	// Invalidate drops a cached attempt lookup (logs.Ingest.Invalidate). It is
 	// called for the attempt of an execution that was requeued. Optional.
 	Invalidate func(attemptID string)
