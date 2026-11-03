@@ -125,10 +125,13 @@ Negative
 ~~~~~~~~
 
 - Every failed attempt costs one extra ``run.advance`` (the settle).
-- ``error.exit_code`` is set for an ``exit_code`` failure of an agent that
-  sends it (the optional ``exit_code`` of ``step.complete``'s error, issue
-  #95); an older agent does not, so guard with ``has(error.exit_code)`` while
-  such agents exist.
+- ``error.exit_code`` is never set for an agent failure until the protocol
+  carries it (issue #95); use ``has(error.exit_code)`` in ``retry_on``
+  meanwhile.
+  *Update (issue #95):* the protocol's step error now carries an optional
+  ``exit_code``, so ``error.exit_code`` is set for an ``exit_code`` failure of
+  an agent that sends it; keep the ``has(error.exit_code)`` guard only while
+  older agents exist.
 - During a rolling upgrade a controller without this change treats ``retry`` as
   a reserved field: it cannot parse a job that uses it, and fails the run. Do
   not create or run jobs with ``retry`` until every controller runs this
