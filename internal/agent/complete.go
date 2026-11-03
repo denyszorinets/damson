@@ -56,7 +56,7 @@ func (e *Executor) buildComplete(r *run, out pluginOutcome, m *masker, pipe *log
 		msg.Status, msg.Error = ctxStatus(ctxErr)
 	case serr != nil:
 		msg.Status = protocol.StatusFailed
-		msg.Error = &protocol.StepError{Code: string(serr.Kind), Message: truncate(m.Mask(serr.Message), maxErrorBytes), Retryable: serr.Kind == pluginsdk.KindConnection}
+		msg.Error = &protocol.StepError{Code: string(serr.Kind), Message: truncate(m.Mask(serr.Message), maxErrorBytes), Retryable: serr.Kind == pluginsdk.KindConnection, ExitCode: serr.ExitCode}
 	default:
 		msg.Status = protocol.StatusSucceeded
 	}

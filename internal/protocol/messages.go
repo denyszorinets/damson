@@ -269,6 +269,9 @@ type StepError struct {
 	Code      string `msgpack:"code,omitempty" json:"code,omitempty"`
 	Message   string `msgpack:"message" json:"message"`
 	Retryable bool   `msgpack:"retryable,omitempty" json:"retryable,omitempty"`
+	// ExitCode is the process exit code of an exit_code failure. Optional and
+	// omitted when absent; a peer at protocol N-1 ignores it.
+	ExitCode *int `msgpack:"exit_code,omitempty" json:"exit_code,omitempty"`
 }
 
 // StepComplete is the params of step.complete (A->C). It is retried until

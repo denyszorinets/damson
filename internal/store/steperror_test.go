@@ -32,6 +32,17 @@ func TestStepErrorTextRoundTrip(t *testing.T) {
 			t.Errorf("round trip of (%q, %q) = (%q, %q)", tc.kind, tc.msg, kind, msg)
 		}
 	}
+	// The exit code rides along and does not disturb the kind and message.
+	code := 3
+	if kind, msg := SplitStepError(StepErrorTextExit("exit_code", "exit 3", &code)); kind != "exit_code" || msg != "exit 3" {
+		t.Errorf("with exit code = (%q, %q)", kind, msg)
+	}
+	if got := StepErrorTextExit("exit_code", "m", &code); got != `{"kind":"exit_code","message":"m","exit_code":3}` {
+		t.Errorf("encoding = %s", got)
+	}
+	if got := StepErrorText("timeout", "m"); got != `{"kind":"timeout","message":"m"}` {
+		t.Errorf("no exit code must be omitted: %s", got)
+	}
 	// No kind: plain text, and plain text (even JSON without a kind) is not parsed.
 	for _, text := range []string{"boom", "", `{"message":"x"}`, `{"kind":"","message":"x"}`} {
 		if kind, msg := SplitStepError(text); kind != "" || msg != text {

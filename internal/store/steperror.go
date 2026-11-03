@@ -24,18 +24,23 @@ const (
 )
 
 type stepErrorJSON struct {
-	Kind    string `json:"kind"`
-	Message string `json:"message"`
+	Kind     string `json:"kind"`
+	Message  string `json:"message"`
+	ExitCode *int   `json:"exit_code,omitempty"`
 }
 
 // StepErrorText encodes a step error as {"kind","message"}, the shape the
 // engine writes for FailStep and reads back into error.kind. An empty kind
 // leaves the message as plain text.
-func StepErrorText(kind, message string) string {
+func StepErrorText(kind, message string) string { return StepErrorTextExit(kind, message, nil) }
+
+// StepErrorTextExit is StepErrorText that also carries the process exit code
+// of an exit_code failure, which the engine reads as error.exit_code.
+func StepErrorTextExit(kind, message string, exitCode *int) string {
 	if kind == "" {
 		return message
 	}
-	b, err := json.Marshal(stepErrorJSON{Kind: kind, Message: message})
+	b, err := json.Marshal(stepErrorJSON{Kind: kind, Message: message, ExitCode: exitCode})
 	if err != nil { // two strings always marshal
 		return message
 	}
