@@ -132,6 +132,11 @@ func (t *txn) applySteps(ctx context.Context, runID string, a store.Advance, now
 			return err
 		}
 	}
+	for _, fg := range a.FinishGroups {
+		if err := t.finishGroup(ctx, runID, fg, now); err != nil {
+			return err
+		}
+	}
 	for _, at := range a.NewAttempts {
 		if err := t.addAttempt(ctx, runID, at, now); err != nil {
 			return err
@@ -148,10 +153,13 @@ func (t *txn) applySteps(ctx context.Context, runID string, a store.Advance, now
 // addStep inserts the instance pending and, for the finished statuses, moves
 // it to its final status in the same transaction.
 func (t *txn) addStep(ctx context.Context, runID string, st store.AdvanceStep, now time.Time) error {
-	ns := store.NewStepInstance{Path: st.Path, Plugin: st.Plugin, Input: st.Input, Execution: st.Execution}
+	ns := store.NewStepInstance{Path: st.Path, Kind: st.Kind, Plugin: st.Plugin, Input: st.Input, Execution: st.Execution}
 	nodes, err := insertSteps(ctx, t.q, runID, []store.NewStepInstance{ns}, now)
 	if err != nil {
 		return err
+	}
+	if st.Kind == store.KindGroup && st.StatusOrDefault() == store.StepPending {
+		return t.startGroup(ctx, nodes[0].ID, now)
 	}
 	if status := st.StatusOrDefault(); status != store.StepPending {
 		return t.finishStep(ctx, nodes[0].ID, status, st.Reason, now)
@@ -245,6 +253,9 @@ func (t *txn) addAttempt(ctx context.Context, runID string, at store.AdvanceAtte
 	if err != nil {
 		return fmt.Errorf("getting step %q: %w", at.Path, err)
 	}
+	if step.Kind == store.KindGroup {
+		return fmt.Errorf("step %q is a group and takes no attempt: %w", at.Path, store.ErrConflict)
+	}
 	if st := store.StepStatus(step.Status); st != store.StepPending && st != store.StepRunning {
 		return fmt.Errorf("step %q is %s and takes no new attempt: %w", at.Path, st, store.ErrConflict)
 	}
@@ -275,6 +286,9 @@ func (t *txn) settle(ctx context.Context, runID string, se store.AdvanceSettle, 
 	if err != nil {
 		return fmt.Errorf("getting step %q: %w", se.Path, err)
 	}
+	if step.Kind == store.KindGroup {
+		return fmt.Errorf("step %q is a group and has no attempt to settle: %w", se.Path, store.ErrConflict)
+	}
 	latest, err := t.q.LatestAttempt(ctx, step.ID)
 	if err != nil {
 		return fmt.Errorf("reading latest attempt of step %q: %w", se.Path, err)
@@ -288,4 +302,35 @@ func (t *txn) settle(ctx context.Context, runID string, se store.AdvanceSettle, 
 		return fmt.Errorf("getting attempt %d of step %q: %w", se.Attempt, se.Path, err)
 	}
 	return t.settleStepStrict(ctx, toExecution(row), now)
+}
+
+// startGroup moves a freshly created group to running and stamps started_at;
+// a group has nothing to wait for before its first step is created.
+func (t *txn) startGroup(ctx context.Context, stepID string, now time.Time) error {
+	n, err := t.q.UpdateStepInstanceCAS(ctx, gen.UpdateStepInstanceCASParams{
+		Status: string(store.StepRunning), Outputs: "{}", StartedAt: tsOpt(&now), ID: stepID, ExpectedStatus: string(store.StepPending),
+	})
+	if err != nil {
+		return fmt.Errorf("starting group %q: %w", stepID, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("group %q is not pending: %w", stepID, store.ErrConflict)
+	}
+	return nil
+}
+
+// finishGroup finishes a group from the engine's decision. A miss (the path is
+// not a group, or it is already finished) is ErrConflict, never swallowed.
+func (t *txn) finishGroup(ctx context.Context, runID string, fg store.AdvanceFinishGroup, now time.Time) error {
+	_, finished := store.Stamps(nil, nil, false, true, now)
+	n, err := t.q.FinishGroupCAS(ctx, gen.FinishGroupCASParams{
+		Status: string(fg.Status), Error: fg.Error, FinishedAt: tsOpt(finished), RunID: runID, Path: fg.Path,
+	})
+	if err != nil {
+		return fmt.Errorf("finishing group %q: %w", fg.Path, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("group %q is not an open group of run %q: %w", fg.Path, runID, store.ErrConflict)
+	}
+	return nil
 }

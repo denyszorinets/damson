@@ -142,7 +142,7 @@ AuditEvent
 | **Job** | A named job in a project, pointing to its current `JobVersion`. `managed_by` is one of `ui`, `files:<source>`, or `git:<source>` (future). |
 | **JobVersion** | An immutable JSON spec with a checksum. Every run pins exactly one version. |
 | **Run** | One invocation of a job: trigger, resolved options, status, and a `concurrency_key`. |
-| **StepInstance** | One logical step in a run. Fan-out and `for_each` create one instance per node. It has a stable `path`, such as `main/for_each[web-01]/install`. |
+| **StepInstance** | One logical step in a run. Fan-out and `for_each` create one instance per node. It has a stable `path` (ADR-0037): the ids from the top of the job down joined by `/`, such as `deploy/inner/build`, `deploy/catch/rollback` or `per-node/for_each[web-01]/install/catch/rollback`; a top-level step's path is its id. |
 | **Execution** | One attempt of a step instance on one agent. It carries the lease, the fencing `attempt_id`, and the agent and controller ownership. |
 | **LogChunk** | A manifest row pointing to a stored log chunk object (sequence range, byte count, timestamps). |
 | **Node** | An inventory record: name, address, transport, tags, attributes, pool, credential ref, host key, source, external_id. |
@@ -263,7 +263,7 @@ The spec is JSON; it is the canonical format stored in the database. YAML may be
 |---|---|
 | `id` | Unique within its enclosing scope (`[a-z0-9-]+`) |
 | `plugin` + `with` | A plugin step. `plugin` is `name` or `name@<major>`. `with` is validated against the plugin's input schema *after* interpolation. |
-| `type: "group"` | A container with `steps`, optional `catch`, `finally`, `rethrow`, `for_each`, `max_parallel`, `fail_threshold` |
+| `type: "group"` | A container with `steps` (at least one), optional `catch`, `finally`, `rethrow`, `for_each`, `max_parallel`, `fail_threshold`. It takes `when` and `continue_on_error`, not `plugin`, `with`, `retry`, `timeout` or `runs_on`. Inside a group the ids `catch` and `finally` are reserved (a top-level step may still use them); a group's three lists share one id namespace; groups nest at most 8 deep (ADR-0037). |
 | `when` | A CEL condition. The default is `success()` (all previous steps in scope succeeded or were handled). If the expression calls any status function (`success()`, `failure()`, `always()`, `cancelled()`), the implicit `success()` is off; otherwise it is evaluated as `success() && (when)`. |
 | `continue_on_error` | A failure is recorded but does not fail the enclosing scope. |
 | `timeout` | Per attempt, a Go duration (ADR-0035). The engine stores it on the execution; the **agent enforces** it (a context deadline from `timeout_ms` in `step.execute`, started when the agent accepts the execute and kept across reconnects), so it works while the agent is cut off from its controller. A timed-out attempt reports `timed_out` with error kind `timeout`; the engine sees a failed step whose `error.kind` is `timeout` (retry, catch and `continue_on_error` react to that). Whichever of the deadline and a `step.cancel` cancels the context first decides `timed_out` or `canceled`. The job-level `timeout` covers the whole run from its start (§5.3 rule 9). |
@@ -308,7 +308,7 @@ The engine evaluates these rules deterministically:
   | `job` | `name`, `project`, `version` |
   | `node` | Inside `for_each` over targets: `name`, `address`, `tags`, `attributes` |
   | `targets` | The resolved node list |
-  | `steps.<id>` | `status`, `outputs`, `error`, `started_at`, `finished_at`; lane-local inside `for_each` |
+  | `steps.<id>` | `status`, `outputs`, `error`, `started_at`, `finished_at`. Lexical: a step sees the earlier siblings of its own list and of every enclosing list, an inner id shadowing an outer one; lane-local inside `for_each`. A group also has `handled` and `steps` (the values of its body steps) |
   | `steps.<id>.lanes[<key>]` | Access to a specific lane's results from outside the group |
   | `error` | Inside `catch`: `step`, `kind`, `message`, `exit_code` |
 
@@ -749,7 +749,7 @@ Decide(spec JobVersionSpec, state RunState, now time.Time) -> []Action
 Action = CreateStepInstance | ScheduleExecution | SettleStep | SkipStep | CompleteGroup | CompleteRun | CancelExecution | TimeoutRun | ScheduleWake
 ```
 
-- Implemented as `(*engine.Engine).Decide(job, state, now) ([]Action, error)`; the `Engine` only holds the compiled-expression environment. The sequential subset (M2) additionally emits `StartRun` and `FailStep` (a step whose `when` or `with` expression failed to evaluate); `SkipStep` also creates the instance, with status `skipped` or `cancelled`.
+- Implemented as `(*engine.Engine).Decide(job, state, now) ([]Action, error)`; the `Engine` only holds the compiled-expression environment. `Decide` walks the step lists recursively by path: `StartRun`, `FailStep` (a step or group whose `when` or `with` failed to evaluate), `SkipStep` (which also creates the instance, `skipped` or `cancelled`), `CreateStepInstance` with `Kind: "group"` for a group and `CompleteGroup` when its steps are done (ADR-0037).
 - `when` follows the implicit `success() &&` rule of §5.2/§5.3 rule 3.
 - No I/O, fully deterministic, exhaustively table-tested, including golden tests over JSON fixtures.
 - All control-flow semantics in §5.3 live here and nowhere else.

@@ -1,0 +1,19 @@
+[
+  {
+    "path": "deploy/build",
+    "reason": "job timed out",
+    "status": "cancelled",
+    "step_id": "build",
+    "type": "skip_step"
+  },
+  {
+    "path": "deploy",
+    "status": "cancelled",
+    "type": "complete_group"
+  },
+  {
+    "finished_at": "2026-03-01T10:10:05Z",
+    "status": "failed",
+    "type": "complete_run"
+  }
+]

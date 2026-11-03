@@ -60,32 +60,43 @@ func (d deps) checkSpec(raw json.RawMessage) specCheck {
 }
 
 func (c *specCheck) checkPlugins(pc PluginCatalog, job *engine.Job) {
-	for i, st := range job.Spec.Steps {
+	c.checkPluginSteps(pc, "spec.steps", job.Spec.Steps)
+}
+
+// checkPluginSteps checks the plugin steps of a list and, for a group, the
+// steps inside it, with the path of each in the spec.
+func (c *specCheck) checkPluginSteps(pc PluginCatalog, path string, steps []engine.Step) {
+	for i, st := range steps {
+		base := fmt.Sprintf("%s[%d]", path, i)
 		if st.IsGroup() {
+			c.checkPluginSteps(pc, base+".steps", st.Steps)
 			continue
 		}
-		base := fmt.Sprintf("spec.steps[%d]", i)
-		m, err := pc.Lookup(st.Plugin)
-		switch {
-		case errors.Is(err, pluginreg.ErrUnknownPlugin), errors.Is(err, pluginreg.ErrNoVersion):
-			c.warnings = append(c.warnings, SpecIssue{Path: base + ".plugin",
-				Message: fmt.Sprintf("plugin %q is not known to this controller (no agent has reported a matching version); its input was not checked", st.Plugin)})
-			continue
-		case err != nil:
-			c.errors = append(c.errors, SpecIssue{Path: base + ".plugin", Message: "the plugin reference is invalid"})
-			continue
-		}
-		with := st.With
-		if with == nil {
-			with = map[string]any{}
-		}
-		input, err := json.Marshal(with)
-		if err != nil {
-			c.errors = append(c.errors, SpecIssue{Path: base + ".with", Message: "the plugin input could not be encoded"})
-			continue
-		}
-		c.checkInput(pc, m.Name, base+".with", m, with, input)
+		c.checkPluginStep(pc, base, st)
 	}
+}
+
+func (c *specCheck) checkPluginStep(pc PluginCatalog, base string, st engine.Step) {
+	m, err := pc.Lookup(st.Plugin)
+	switch {
+	case errors.Is(err, pluginreg.ErrUnknownPlugin), errors.Is(err, pluginreg.ErrNoVersion):
+		c.warnings = append(c.warnings, SpecIssue{Path: base + ".plugin",
+			Message: fmt.Sprintf("plugin %q is not known to this controller (no agent has reported a matching version); its input was not checked", st.Plugin)})
+		return
+	case err != nil:
+		c.errors = append(c.errors, SpecIssue{Path: base + ".plugin", Message: "the plugin reference is invalid"})
+		return
+	}
+	with := st.With
+	if with == nil {
+		with = map[string]any{}
+	}
+	input, err := json.Marshal(with)
+	if err != nil {
+		c.errors = append(c.errors, SpecIssue{Path: base + ".with", Message: "the plugin input could not be encoded"})
+		return
+	}
+	c.checkInput(pc, m.Name, base+".with", m, with, input)
 }
 
 func (c *specCheck) checkInput(pc PluginCatalog, name, base string, m pluginsdk.Manifest, with map[string]any, input []byte) {

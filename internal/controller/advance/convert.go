@@ -23,6 +23,9 @@ const DefaultPool = "default"
 //   - TimeoutRun becomes Advance.CancelRun (a sticky cancel with reason
 //     timeout) and ScheduleWake is returned as the wake time, for the caller to
 //     queue in the same transaction;
+//   - a group is created by CreateStepInstance with Kind group (no execution;
+//     the store starts it) and finished by CompleteGroup, which becomes
+//     Advance.FinishGroups with the failure that decided it as JSON;
 //   - SettleStep becomes Advance.Settle (the store finishes the step from the
 //     outcome of that attempt) and a ScheduleExecution for an existing step
 //     becomes an AdvanceAttempt carrying the attempt number, a retry when it
@@ -41,20 +44,28 @@ func toAdvance(acts []engine.Action, tree store.RunTree, job *engine.Job) (adv s
 			adv.Start = true
 		case engine.CreateStepInstance:
 			created[a.Path] = len(adv.NewSteps)
-			adv.NewSteps = append(adv.NewSteps, store.AdvanceStep{Path: a.Path, Plugin: a.Plugin, Input: a.Input})
+			adv.NewSteps = append(adv.NewSteps, store.AdvanceStep{Path: a.Path, Kind: a.Kind, Plugin: a.Plugin, Input: a.Input})
 		case engine.ScheduleExecution:
 			err = schedule(&adv, created, a, job)
 		case engine.SkipStep:
-			adv.NewSteps = append(adv.NewSteps, store.AdvanceStep{Path: a.Path, Status: store.StepStatus(a.Status.Store()), Reason: a.Reason})
+			adv.NewSteps = append(adv.NewSteps, store.AdvanceStep{Path: a.Path, Kind: a.Kind, Status: store.StepStatus(a.Status.Store()), Reason: a.Reason})
 		case engine.FailStep:
 			var reason []byte
 			if reason, err = json.Marshal(a.Error); err == nil {
-				adv.NewSteps = append(adv.NewSteps, store.AdvanceStep{Path: a.Path, Status: store.StepFailed, Reason: string(reason)})
+				adv.NewSteps = append(adv.NewSteps, store.AdvanceStep{Path: a.Path, Kind: a.Kind, Status: store.StepFailed, Reason: string(reason)})
 			}
 		case engine.CancelExecution:
 			// The store cancels a queued execution and flags a claimed one for
 			// its owning controller (Advance.Cancel).
 			adv.Cancel = append(adv.Cancel, a.ExecutionID)
+		case engine.CompleteGroup:
+			var text []byte
+			if a.Error != nil {
+				if text, err = json.Marshal(a.Error); err != nil {
+					break
+				}
+			}
+			adv.FinishGroups = append(adv.FinishGroups, store.AdvanceFinishGroup{Path: a.Path, Status: store.StepStatus(a.Status.Store()), Error: string(text)})
 		case engine.SettleStep:
 			adv.Settle = append(adv.Settle, store.AdvanceSettle{Path: a.Path, Attempt: a.Attempt})
 		case engine.TimeoutRun:
@@ -88,10 +99,8 @@ func schedule(adv *store.Advance, created map[string]int, a engine.ScheduleExecu
 }
 
 func poolFor(job *engine.Job, path string) string {
-	for _, s := range job.Spec.Steps {
-		if s.ID == path && s.RunsOn != nil && s.RunsOn.Pool != "" {
-			return s.RunsOn.Pool
-		}
+	if s, ok := job.StepAt(path); ok && s.RunsOn != nil && s.RunsOn.Pool != "" {
+		return s.RunsOn.Pool
 	}
 	return DefaultPool
 }

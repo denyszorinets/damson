@@ -1,0 +1,32 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "groups-nested"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "o",
+        "type": "group",
+        "steps": [
+          {
+            "id": "i",
+            "type": "group",
+            "steps": [
+              {
+                "id": "x",
+                "plugin": "ssh",
+                "with": {
+                  "node": "n",
+                  "command": "x"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

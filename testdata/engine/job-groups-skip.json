@@ -1,0 +1,36 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "groups-skip"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "g",
+        "type": "group",
+        "steps": [
+          {
+            "id": "a",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "a"
+            },
+            "when": "false"
+          },
+          {
+            "id": "b",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "b"
+            },
+            "when": "false"
+          }
+        ]
+      }
+    ]
+  }
+}

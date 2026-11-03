@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,7 +81,6 @@ func TestParseInvalid(t *testing.T) {
 		{"no steps", mutate(t, `"steps": [`, `"stepz": [`), "spec", "stepz"},
 		{"empty runs_on", mutate(t, `"runs_on": { "pool": "dc1", "labels": { "arch": "amd64" } }`, `"runs_on": {}`), "spec.steps[0].runs_on", "pool or labels"},
 		// Reserved for M3: parsed, but rejected with a clear error.
-		{"group reserved", mutate(t, installStep, `"id": "install", "type": "group",`), "spec.steps[1].type", "not supported yet"},
 		{"retry without max_attempts", mutate(t, `"timeout": "10m",`, `"retry": {},`), "spec.steps[0].retry", "max_attempts"},
 		{"retry max_attempts too high", mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 101},`), "spec.steps[0].retry.max_attempts", "maximum"},
 		{"retry bad initial", mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 3, "backoff": {"initial": "soon"}},`), "spec.steps[0].retry.backoff.initial", "duration"},
@@ -224,5 +224,85 @@ func TestParseValidRetry(t *testing.T) {
 	r := job.Spec.Steps[0].Retry
 	if r == nil || r.MaxAttempts != 5 || r.OnLost == nil || *r.OnLost || r.Backoff == nil || *r.Backoff.Jitter != 0 || *r.Backoff.Multiplier != 3 {
 		t.Fatalf("retry = %+v", r)
+	}
+}
+
+func TestParseValidGroup(t *testing.T) {
+	job, err := Parse(stepsDoc(`[{"id":"fetch","type":"group","continue_on_error":true,"when":"success()","steps":[{"id":"a","plugin":"ssh"},{"id":"inner","type":"group","steps":[{"id":"b","plugin":"ssh"}]}]}]`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	g := job.Spec.Steps[0]
+	if !g.IsGroup() || len(g.Steps) != 2 || !g.ContinueOnError {
+		t.Fatalf("group = %+v", g)
+	}
+	if s, ok := job.StepAt("fetch/inner/b"); !ok || s.ID != "b" || s.Plugin != "ssh" {
+		t.Fatalf("StepAt(fetch/inner/b) = %+v, %v", s, ok)
+	}
+}
+
+func TestGroupNestingLimit(t *testing.T) {
+	inner := `{"id":"leaf","plugin":"ssh"}`
+	for i := range 9 { // 9 nested groups: one over the limit
+		inner = fmt.Sprintf(`{"id":"g%d","type":"group","steps":[%s]}`, i, inner)
+	}
+	_, err := Parse(stepsDoc("[" + inner + "]"))
+	var ve ValidationErrors
+	if !errors.As(err, &ve) || !strings.Contains(ve.Error(), "nest at most 8") {
+		t.Fatalf("err = %v; want the nesting limit", err)
+	}
+}
+
+// stepsDoc is a minimal job whose spec.steps is the given JSON array.
+func stepsDoc(steps string) []byte {
+	return []byte(`{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"g"},"spec":{"steps":` + steps + `}}`)
+}
+
+func TestParseInvalidGroups(t *testing.T) {
+	tests := []struct {
+		name, steps, wantPath, wantMsg string
+	}{
+		{"group needs steps", `[{"id":"g","type":"group"}]`, "spec.steps[0].steps", "at least one step"},
+		{"group rejects plugin", `[{"id":"g","type":"group","plugin":"ssh","steps":[{"id":"c","plugin":"ssh"}]}]`, "spec.steps[0].plugin", "not allowed on a group"},
+		{"group rejects with", `[{"id":"g","type":"group","with":{"a":1},"steps":[{"id":"c","plugin":"ssh"}]}]`, "spec.steps[0].with", "not allowed on a group"},
+		{"group rejects timeout", `[{"id":"g","type":"group","timeout":"1m","steps":[{"id":"c","plugin":"ssh"}]}]`, "spec.steps[0].timeout", "not allowed on a group"},
+		{"group rejects retry", `[{"id":"g","type":"group","retry":{"max_attempts":2},"steps":[{"id":"c","plugin":"ssh"}]}]`, "spec.steps[0].retry", "not allowed on a group"},
+		{"group rejects runs_on", `[{"id":"g","type":"group","runs_on":{"pool":"p"},"steps":[{"id":"c","plugin":"ssh"}]}]`, "spec.steps[0].runs_on", "not allowed on a group"},
+		{"steps on a plugin step", `[{"id":"a","plugin":"ssh","steps":[{"id":"c","plugin":"ssh"}]}]`, "spec.steps[0].steps", "only valid on a step of type"},
+		{"reserved id catch in a group", `[{"id":"g","type":"group","steps":[{"id":"catch","plugin":"ssh"}]}]`, "spec.steps[0].steps[0].id", "reserved inside a group"},
+		{"reserved id finally", `[{"id":"g","type":"group","steps":[{"id":"finally","plugin":"ssh"}]}]`, "spec.steps[0].steps[0].id", "reserved"},
+		{"duplicate id in a group", `[{"id":"g","type":"group","steps":[{"id":"c","plugin":"ssh"},{"id":"c","plugin":"ssh"}]}]`, "spec.steps[0].steps[1].id", "duplicate id"},
+		{"nested step is validated", `[{"id":"g","type":"group","steps":[{"id":"c","plugin":"Bad Name"}]}]`, "spec.steps[0].steps[0].plugin", "name@<major>"},
+		{"nested when is checked", `[{"id":"g","type":"group","steps":[{"id":"c","plugin":"ssh","when":"always( &&"}]}]`, "spec.steps[0].steps[0].when", "invalid expression"},
+		{"group when is checked", `[{"id":"g","type":"group","when":"always( &&","steps":[{"id":"c","plugin":"ssh"}]}]`, "spec.steps[0].when", "invalid expression"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse(stepsDoc(tt.steps))
+			var ve ValidationErrors
+			if !errors.As(err, &ve) {
+				t.Fatalf("err = %v, want ValidationErrors", err)
+			}
+			for _, fe := range ve {
+				if fe.Path == tt.wantPath && strings.Contains(fe.Message, tt.wantMsg) {
+					return
+				}
+			}
+			t.Fatalf("no error at %q containing %q in %v", tt.wantPath, tt.wantMsg, ve)
+		})
+	}
+}
+
+// Jobs saved before groups existed may use catch or finally as a top-level step
+// id; only ids inside a group are reserved.
+func TestTopLevelCatchAndFinallyIDsStayValid(t *testing.T) {
+	job, err := Parse(stepsDoc(`[{"id":"catch","plugin":"ssh"},{"id":"finally","plugin":"ssh"},{"id":"g","type":"group","steps":[{"id":"x","plugin":"ssh"}]}]`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	for path, want := range map[string]string{"catch": "ssh", "finally": "ssh", "g/x": "ssh"} {
+		if s, ok := job.StepAt(path); !ok || s.Plugin != want {
+			t.Errorf("StepAt(%q) = %+v, %v", path, s, ok)
+		}
 	}
 }

@@ -28,6 +28,9 @@ func TestValidateJob(t *testing.T) {
 			{name: "input fails the plugin schema", spec: specDoc("j", "", "ssh", `{"host":1}`), errPath: "spec.steps[0].with.host"},
 			{name: "missing required input", spec: specDoc("j", "", "ssh", `{}`), errPath: "spec.steps[0].with"},
 			{name: "expression input is checked at run time", spec: specDoc("j", "", "ssh", `{"host":"${{ inputs.h }}"}`), valid: true},
+			{name: "nested step is checked", spec: groupSpec(`{"host":"h"}`, "ssh"), valid: true},
+			{name: "nested input fails the plugin schema", spec: groupSpec(`{"host":1}`, "ssh"), errPath: "spec.steps[0].steps[1].with.host"},
+			{name: "nested unknown plugin is a warning", spec: groupSpec(`{}`, "nosuch"), valid: true, warningPaths: []string{"spec.steps[0].steps[1].plugin"}},
 			{name: "reserved field", spec: strings.Replace(specDoc("j", "", "ssh", `{"host":"h"}`), `"steps"`, `"concurrency":{"max":1},"steps"`, 1), errPath: "spec.concurrency"},
 		}
 		for _, tt := range tests {
@@ -142,4 +145,11 @@ func TestJobsAndVersions(t *testing.T) {
 		assert.JSONEq(t, spec2, string(one.Spec))
 		f.callOK(t, http.MethodGet, "/api/v1/jobs/"+d.Job.ID+"/versions/9", "", http.StatusNotFound, nil)
 	})
+}
+
+// groupSpec is a job with one group whose second step runs plugin with the
+// given input; the first step is a valid ssh step.
+func groupSpec(with, plugin string) string {
+	return `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"j"},"spec":{"steps":[` +
+		`{"id":"g","type":"group","steps":[{"id":"first","plugin":"ssh","with":{"host":"h"}},{"id":"second","plugin":"` + plugin + `","with":` + with + `}]}]}}`
 }

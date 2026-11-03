@@ -67,6 +67,7 @@ func Run(t *testing.T, f Factory) {
 		{"ClaimMultiPool", testClaimMultiPool},
 		{"AdoptExecutions", testAdoptExecutions},
 		{"CancelFlag", testCancelFlag},
+		{"Groups", testGroups},
 		{"RetryAttempts", testRetryAttempts},
 		{"ExecutionTimeout", testExecutionTimeout},
 		{"StepErrorKinds", testStepErrorKinds},

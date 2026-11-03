@@ -64,10 +64,6 @@ func (c *core) fillIdempotent(ctx context.Context, state *engine.RunState, job *
 // lostPluginRefs lists the plugin references of the open steps whose latest
 // attempt is lost.
 func lostPluginRefs(state engine.RunState, job *engine.Job) []string {
-	plugins := map[string]string{}
-	for _, s := range job.Spec.Steps {
-		plugins[s.ID] = s.Plugin
-	}
 	var refs []string
 	seen := map[string]bool{}
 	for _, inst := range state.Steps {
@@ -80,7 +76,8 @@ func lostPluginRefs(state engine.RunState, job *engine.Job) []string {
 				latest = ex
 			}
 		}
-		ref := plugins[inst.StepID]
+		spec, _ := job.StepAt(inst.Path)
+		ref := spec.Plugin
 		if latest.State == engine.ExecLost && ref != "" && !seen[ref] {
 			seen[ref] = true
 			refs = append(refs, ref)

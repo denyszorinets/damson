@@ -61,7 +61,7 @@ func (v *validator) spec(s *Spec) {
 	if len(s.Steps) == 0 {
 		v.add("spec.steps", "must contain at least one step")
 	}
-	v.steps("spec.steps", s.Steps)
+	v.steps("spec.steps", s.Steps, 1)
 }
 
 // options checks that spec.options is itself a valid JSON Schema.
@@ -82,7 +82,18 @@ func (v *validator) options(opts map[string]any) {
 	v.checkSecretSchema("spec.options", opts, false)
 }
 
-func (v *validator) steps(path string, steps []Step) {
+// maxGroupDepth bounds how deep groups nest (ADR-0037).
+const maxGroupDepth = 8
+
+// reservedIDs are the path markers of a group's catch and finally lists; a
+// step cannot take them as its id, or a body step could collide with a marker.
+var reservedIDs = map[string]bool{SegCatch: true, SegFinally: true}
+
+// steps checks one step list. depth is 1 for the job's own list and grows with
+// each group. The ids catch and finally are reserved only inside a group, where
+// they could be mistaken for a list marker in a path; a top-level step may
+// still use them, as jobs saved before groups existed may.
+func (v *validator) steps(path string, steps []Step, depth int) {
 	seen := map[string]int{}
 	for i := range steps {
 		p := fmt.Sprintf("%s[%d]", path, i)
@@ -92,6 +103,8 @@ func (v *validator) steps(path string, steps []Step) {
 			v.add(p+".id", "is required")
 		case !stepIDPattern.MatchString(s.ID):
 			v.add(p+".id", "%q must match [a-z0-9-]+", s.ID)
+		case depth > 1 && reservedIDs[s.ID]:
+			v.add(p+".id", "%q is reserved inside a group (it marks the catch and finally lists in step paths)", s.ID)
 		case dup:
 			v.add(p+".id", "duplicate id %q (first used at %s[%d])", s.ID, path, first)
 		}
@@ -100,14 +113,18 @@ func (v *validator) steps(path string, steps []Step) {
 				seen[s.ID] = i
 			}
 		}
-		v.step(p, s)
+		v.step(p, s, depth)
 	}
 }
 
-func (v *validator) step(p string, s *Step) {
+func (v *validator) step(p string, s *Step, depth int) {
 	v.reserved(p, s)
 	if s.IsGroup() {
+		v.group(p, s, depth)
 		return
+	}
+	if len(s.Steps) > 0 {
+		v.add(p+".steps", "is only valid on a step of type %q", StepTypeGroup)
 	}
 	switch {
 	case s.Plugin == "":
@@ -133,21 +150,43 @@ func (v *validator) reserved(p string, s *Step) {
 		name string
 		set  bool
 	}{
-		{"steps", len(s.Steps) > 0}, {"catch", len(s.Catch) > 0}, {"finally", len(s.Finally) > 0},
+		{"catch", len(s.Catch) > 0}, {"finally", len(s.Finally) > 0},
 		{"rethrow", s.Rethrow != nil}, {"for_each", s.ForEach != ""},
 		{"max_parallel", s.MaxParallel != nil}, {"fail_threshold", s.FailThreshold != nil},
-	}
-	if s.IsGroup() {
-		v.errs = append(v.errs, errNotSupported(p+".type", `step type "group"`))
 	}
 	for _, f := range fields {
 		if f.set {
 			v.errs = append(v.errs, errNotSupported(p+"."+f.name, f.name))
 		}
 	}
-	if s.IsGroup() && s.Plugin != "" {
-		v.add(p+".plugin", "a group cannot also set plugin")
+}
+
+// group checks a step of type "group": a container of steps that has no
+// attempts of its own, so it takes none of the per-attempt settings.
+func (v *validator) group(p string, s *Step, depth int) {
+	if depth > maxGroupDepth {
+		v.add(p, "groups nest at most %d deep", maxGroupDepth)
+		return
 	}
+	for _, f := range []struct {
+		name string
+		set  bool
+	}{
+		{"plugin", s.Plugin != ""}, {"with", s.With != nil}, {"retry", s.Retry != nil},
+		{"timeout", s.Timeout != ""}, {"runs_on", s.RunsOn != nil},
+	} {
+		if f.set {
+			v.add(p+"."+f.name, "is not allowed on a group")
+		}
+	}
+	if s.When != "" {
+		v.expression(p+".when", s.When)
+	}
+	if len(s.Steps) == 0 {
+		v.add(p+".steps", "a group needs at least one step")
+		return
+	}
+	v.steps(p+".steps", s.Steps, depth+1)
 }
 
 func (v *validator) duration(path, s string) {

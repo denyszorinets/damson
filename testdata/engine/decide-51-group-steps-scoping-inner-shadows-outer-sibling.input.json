@@ -1,0 +1,58 @@
+{
+  "job_file": "job-groups-scope.json",
+  "now": "2026-03-01T10:05:00Z",
+  "state": {
+    "id": "run-1",
+    "status": "running",
+    "trigger": "manual",
+    "job": {
+      "name": "groups",
+      "project": "default",
+      "version": "1"
+    },
+    "started_at": "2026-03-01T10:00:00Z",
+    "steps": [
+      {
+        "path": "a",
+        "step_id": "a",
+        "status": "succeeded",
+        "created_at": "2026-03-01T10:00:00Z",
+        "outputs": {
+          "v": "outer"
+        },
+        "executions": [
+          {
+            "id": "ex-a",
+            "attempt_id": "at-a",
+            "attempt": 1,
+            "state": "succeeded"
+          }
+        ]
+      },
+      {
+        "path": "g",
+        "step_id": "g",
+        "status": "pending",
+        "created_at": "2026-03-01T10:00:00Z",
+        "kind": "group"
+      },
+      {
+        "path": "g/a",
+        "step_id": "a",
+        "status": "succeeded",
+        "created_at": "2026-03-01T10:00:00Z",
+        "outputs": {
+          "v": "inner"
+        },
+        "executions": [
+          {
+            "id": "ex-ga",
+            "attempt_id": "at-ga",
+            "attempt": 1,
+            "state": "succeeded"
+          }
+        ]
+      }
+    ]
+  }
+}
