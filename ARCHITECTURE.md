@@ -327,7 +327,7 @@ The engine evaluates these rules deterministically:
 
 - `spec.targets.selector` is a CEL expression over `node` (name, tags, attributes, pool, os, transport).
   - It is evaluated against the inventory intersected with the project's node scope (§12).
-  - It is evaluated once, at run start. The node list is frozen into the run.
+  - From M4 it is evaluated once, at run start, and the node list is frozen into the run (a run-level snapshot, which needs a schema change). Before that, each `for_each` group freezes the list it iterates (below).
 - Before the inventory exists (M4) `targets` is the nodes of the dev-only `--dev-nodes` file (ADR-0034) filtered by the selector, sorted by name; each is a map of `name`, `address`, `tags` (always empty, a dev file has none), `attributes`, `pool` (empty), `os` and `transport`, and never a credential ref, host key or host key policy. Without that file `targets` is empty. A node for which the selector does not evaluate to true, or fails to, does not match. A `for_each` group freezes the list it iterates when it starts (ADR-0038), so the lanes of a run do not change.
 - Plugins that accept a whole inventory (Ansible) receive `targets` directly. Plugins that work on one node (SSH, WinRM) take a `node` field, usually `${{ node.name }}` inside `for_each`.
 

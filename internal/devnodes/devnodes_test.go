@@ -77,6 +77,7 @@ func TestLoadRejects(t *testing.T) {
 		{"bad policy", `{"version":1,"nodes":{"n":{"address":"h","host_key_policy":"yolo"}}}`},
 		{"no address", `{"version":1,"nodes":{"n":{"host_key_policy":"strict"}}}`},
 		{"bad port", `{"version":1,"nodes":{"n":{"address":"h","port":70000,"host_key_policy":"strict"}}}`},
+		{"secret ref in attributes", `{"version":1,"nodes":{"n":{"address":"h","host_key_policy":"strict","attributes":{"a":{"b":["secret://x"]}}}}}`},
 		{"not json", `nope`},
 	}
 	for _, tc := range tests {

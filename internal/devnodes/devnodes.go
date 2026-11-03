@@ -122,6 +122,9 @@ func buildNode(name string, n rawNode) (pluginsdk.NodeInfo, error) {
 	if transport == "" {
 		transport = "ssh"
 	}
+	if err := checkNoSecretRefs(n.Attributes); err != nil {
+		return pluginsdk.NodeInfo{}, fmt.Errorf("node %q: attributes: %w", name, err)
+	}
 	return pluginsdk.NodeInfo{
 		Name: name, Address: n.Address, Port: port, Transport: transport, OS: n.OS, Attributes: n.Attributes,
 		Credential: n.Credential, HostKey: n.HostKey, HostKeyPolicy: n.HostKeyPolicy,
@@ -235,4 +238,28 @@ func readSecretFile(path string) ([]byte, error) {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
 	return b, nil
+}
+
+// checkNoSecretRefs rejects a secret:// string anywhere in v: attributes are
+// stored with the run and shown by the API, so they are never secret.
+func checkNoSecretRefs(v any) error {
+	switch x := v.(type) {
+	case string:
+		if strings.HasPrefix(x, "secret://") {
+			return errors.New("secret:// refs are not allowed (attributes are stored with the run and shown by the API)")
+		}
+	case map[string]any:
+		for _, e := range x {
+			if err := checkNoSecretRefs(e); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, e := range x {
+			if err := checkNoSecretRefs(e); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

@@ -69,6 +69,9 @@ group once per node, after ``spec.targets.selector`` has filtered them, with
 ``os``, ``transport``). The credential, host key and host key policy are never
 part of ``node``; a plugin step takes ``node: "${{ node.name }}"`` and the
 dispatcher resolves the rest. A dev file has no ``tags`` (always empty).
+``attributes`` are not secret: they are stored with the run and shown by the
+API and the UI, so a ``secret://`` value in them is rejected when the file is
+loaded.
 
 .. code-block:: json
 

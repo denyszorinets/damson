@@ -78,3 +78,36 @@ func TestTriggerRollsBackWhenEnqueueFails(t *testing.T) {
 		assert.Empty(t, page.Runs, "a run without its advance job must not exist")
 	})
 }
+
+type fixedTargets []map[string]any
+
+func (f fixedTargets) Targets() []map[string]any { return f }
+
+// A for_each over targets that is the first step is decided at trigger time:
+// it must see the targets, or it freezes an empty lane list.
+func TestTriggerFreezesLanesFromTargets(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		reg, err := pluginreg.New([]pluginsdk.Manifest{apiManifest("ssh", "1.0.0")}, nil)
+		require.NoError(t, err)
+		srv := api.NewServer(api.Config{
+			Addr: "127.0.0.1:0", Store: st, Data: st, Plugins: reg, UI: ui(), Advance: &recordingEnqueuer{},
+			Targets: fixedTargets{{"name": "a", "os": "linux"}, {"name": "b", "os": "linux"}},
+			Now:     func() time.Time { return t0 }, Logger: slog.New(slog.DiscardHandler),
+		})
+		f := &jrFixture{st: st, h: srv.Handler(), logs: &syncBuffer{}}
+		job := f.createJob(t, `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"tg"},`+
+			`"spec":{"steps":[{"id":"g","type":"group","for_each":"targets","steps":[{"id":"x","plugin":"ssh","with":{"host":"h"}}]}]}}`)
+		run := f.trigger(t, job.Job.ID, `{}`)
+		tree, err := st.GetRunTree(context.Background(), run.ID)
+		require.NoError(t, err)
+		var group *store.StepNode
+		for i := range tree.Steps {
+			if tree.Steps[i].Path == "g" {
+				group = &tree.Steps[i]
+			}
+		}
+		require.NotNil(t, group, "steps: %+v", tree.Steps)
+		assert.Contains(t, string(group.Input), `"key":"a"`)
+		assert.Contains(t, string(group.Input), `"key":"b"`)
+	})
+}

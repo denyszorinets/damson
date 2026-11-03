@@ -102,6 +102,9 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	if n.adv != nil {
 		apiCfg.Advance, apiCfg.RunNotify = n.adv, n.adv.Hub()
 	}
+	if cfg.DevNodes != nil { // a nil *File must not become a non-nil interface
+		apiCfg.Targets = cfg.DevNodes
+	}
 	n.srv = api.NewServer(apiCfg)
 	return n, nil
 }

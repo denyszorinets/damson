@@ -30,12 +30,19 @@ type Config struct {
 	// Advance enqueues run.advance in the same transaction as a trigger or a
 	// cancel request. Nil means nothing is enqueued.
 	Advance RunEnqueuer
+	// Targets is where `targets` comes from when a run is created (the same
+	// source run.advance uses, or the first Decide would freeze an empty list).
+	// Nil means none.
+	Targets TargetSource
 	// Mounts maps extra mux patterns (for example "/agent/v1/connect") to
 	// handlers owned by other components. They are wrapped by the same
 	// request logging as the API.
 	Mounts map[string]http.Handler
 	Logger *slog.Logger
 }
+
+// TargetSource lists the nodes `targets` is built from.
+type TargetSource interface{ Targets() []map[string]any }
 
 // Server is the controller's HTTP server component. Start listens and serves
 // in the background; Stop drains in-flight requests.
