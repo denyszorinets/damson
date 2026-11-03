@@ -701,7 +701,7 @@ Params and results are MessagePack maps with snake_case keys; unknown keys are i
 | `log.append` | `attempt_id`, `seq_from`, optional `gap_to` (uint64, omitted when unset), `entries`: each entry is the array `[ts_unix_ns, stream, line]`. Without `gap_to`, entry i has seq `seq_from + i`. With `gap_to` the agent declares seqs `seq_from..gap_to` inclusive dropped and never to be sent; entry i then has seq `gap_to + 1 + i`. The controller treats a declared gap as contiguous when it computes `log.ack`. Additive and optional, so N-1 compatible: a peer that ignores `gap_to` sees a hole it must already tolerate. |
 | `log.ack` | `attempt_id`, `seq` |
 | `step.progress` | `attempt_id`, `percent` (0 to 100), `message` |
-| `step.complete` params | `attempt_id`, `status` (`succeeded`, `failed`, `canceled`, `timed_out`), `outputs`, `error` (`code`, `message`, `retryable`), `started_at_ns`, `finished_at_ns` |
+| `step.complete` params | `attempt_id`, `status` (`succeeded`, `failed`, `canceled`, `timed_out`), `outputs`, `error` (`code`, `message`, `retryable`, optional `exit_code`), `started_at_ns`, `finished_at_ns` |
 | `step.complete` result | `acknowledged`, `stale` (result discarded by fencing; the agent stops retrying either way) |
 | `step.cancel` params / result | `attempt_id`, `grace_ms` / `known` |
 | `agent.drain` | `reason` |

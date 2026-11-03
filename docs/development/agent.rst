@@ -96,7 +96,10 @@ Status mapping
      - ``succeeded``
      - none
 
-``retryable`` is set only for ``connection`` errors.
+``retryable`` is set only for ``connection`` errors. ``exit_code`` is set only
+for ``exit_code`` errors and is omitted otherwise (an optional field, so a peer
+at the previous protocol version ignores it); the controller stores it in the
+step error and the engine reads it as ``error.exit_code``.
 
 Secrets
 -------

@@ -81,8 +81,8 @@ Document layout
        default 2), ``max`` (default ``5m``, at most 24h) and ``jitter`` (a
        fraction, 0 to 1, default 0.2: the delay is shortened by up to that
        share). ``retry_on`` is a CEL condition over ``error`` (``kind``,
-       ``message``; ``exit_code`` is not delivered yet, use
-       ``has(error.exit_code)``), default ``error.kind in ['connection',
+       ``message``, and ``exit_code`` for an ``exit_code`` failure; use
+       ``has(error.exit_code)`` to test for it), default ``error.kind in ['connection',
        'timeout', 'lost']``. ``on_lost`` (optional boolean): unset retries a
        lost attempt only for an idempotent plugin, ``true`` always,
        ``false`` never. Nothing is retried once the run is being cancelled

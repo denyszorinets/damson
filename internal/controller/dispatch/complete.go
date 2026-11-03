@@ -86,7 +86,7 @@ func completion(m protocol.StepComplete) (store.Completion, error) {
 		c.Outputs = raw
 	}
 	if m.Error != nil {
-		c.Error = store.StepErrorText(m.Error.Code, m.Error.Message)
+		c.Error = store.StepErrorTextExit(m.Error.Code, m.Error.Message, m.Error.ExitCode)
 	}
 	return c, nil
 }

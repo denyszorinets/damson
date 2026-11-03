@@ -17,6 +17,7 @@ import (
 type flakyPlugin struct {
 	mu    sync.Mutex
 	fail  int
+	code  int // when set, the failures are exit_code errors with this code
 	calls int
 }
 
@@ -34,6 +35,9 @@ func (p *flakyPlugin) Execute(context.Context, pluginsdk.ExecRequest, pluginsdk.
 	p.calls++
 	n := p.calls
 	p.mu.Unlock()
+	if n <= p.fail && p.code != 0 {
+		return pluginsdk.Result{Error: pluginsdk.ExitCodeError(p.code, "script failed")}, nil
+	}
 	if n <= p.fail {
 		return pluginsdk.Result{Error: pluginsdk.NewError(pluginsdk.KindConnection, "connection reset", nil)}, nil
 	}
@@ -226,4 +230,42 @@ func TestLostAttemptRetriedOnlyForIdempotentPlugin(t *testing.T) {
 			})
 		})
 	}
+}
+
+func exitRetrySpec(retryOn string) string {
+	return `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"lin"},
+"spec":{"steps":[{"id":"s1","plugin":"flaky","retry":{"max_attempts":4,"retry_on":"` + retryOn + `","backoff":{"initial":"20ms","multiplier":1,"max":"1s","jitter":0}}}]}}`
+}
+
+// error.exit_code reaches retry_on: exit 1 is retried until the plugin
+// succeeds (ADR-0036, #95).
+func TestRetryOnExitCode(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		fp := &flakyPlugin{fail: 2, code: 1}
+		c := startClusterPlugins(t, st, exitRetrySpec("error.exit_code == 1"), []pluginsdk.Plugin{fp})
+		tree := c.waitRun(c.triggerPlugin("flaky", "x"), store.RunSucceeded)
+		if n := len(tree.Steps[0].Executions); n != 3 {
+			t.Fatalf("exit 1 ran %d attempts; want 3", n)
+		}
+	})
+}
+
+// Exit 2 does not match the condition: no retry, and the code stays visible on
+// the failed step.
+func TestNoRetryOnOtherExitCode(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		fp := &flakyPlugin{fail: 100, code: 2}
+		c := startClusterPlugins(t, st, exitRetrySpec("error.exit_code == 1"), []pluginsdk.Plugin{fp})
+		tree := c.waitRun(c.triggerPlugin("flaky", "x"), store.RunFailed)
+		s1 := tree.Steps[0]
+		if len(s1.Executions) != 1 || s1.Status != store.StepFailed {
+			t.Fatalf("exit 2 = %s with %d attempts; want failed after 1", s1.Status, len(s1.Executions))
+		}
+		var e struct {
+			ExitCode *int `json:"exit_code"`
+		}
+		if err := json.Unmarshal([]byte(s1.Error), &e); err != nil || e.ExitCode == nil || *e.ExitCode != 2 {
+			t.Fatalf("step error %q; want exit_code 2", s1.Error)
+		}
+	})
 }
