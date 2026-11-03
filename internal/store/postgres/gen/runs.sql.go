@@ -30,6 +30,35 @@ func (q *Queries) BumpRunVersionCAS(ctx context.Context, arg BumpRunVersionCASPa
 	return result.RowsAffected(), nil
 }
 
+const finishGroupCAS = `-- name: FinishGroupCAS :execrows
+UPDATE step_instances SET status = $1, error = $2, finished_at = $3
+WHERE run_id = $4 AND path = $5 AND kind = 'group'
+  AND status IN ('pending', 'running')
+`
+
+type FinishGroupCASParams struct {
+	Status     string
+	Error      string
+	FinishedAt pgtype.Timestamptz
+	RunID      string
+	Path       string
+}
+
+// Finishing a group keeps its started_at (UpdateStepInstanceCAS would clear it).
+func (q *Queries) FinishGroupCAS(ctx context.Context, arg FinishGroupCASParams) (int64, error) {
+	result, err := q.db.Exec(ctx, finishGroupCAS,
+		arg.Status,
+		arg.Error,
+		arg.FinishedAt,
+		arg.RunID,
+		arg.Path,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getRun = `-- name: GetRun :one
 SELECT id, job_id, job_version_id, trigger, options, status, version, cancel_requested_at,
        concurrency_key, created_at, started_at, finished_at, cancel_reason

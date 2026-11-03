@@ -1,0 +1,42 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "groups-scope"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "a",
+        "plugin": "ssh",
+        "with": {
+          "node": "n",
+          "command": "a"
+        }
+      },
+      {
+        "id": "g",
+        "type": "group",
+        "steps": [
+          {
+            "id": "a",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "a"
+            }
+          },
+          {
+            "id": "b",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "${{ steps.a.outputs.v }}"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

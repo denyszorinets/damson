@@ -73,6 +73,12 @@ UPDATE step_instances SET status = sqlc.arg(status), outputs = sqlc.arg(outputs)
        started_at = sqlc.arg(started_at), finished_at = sqlc.arg(finished_at)
 WHERE id = sqlc.arg(id) AND status = sqlc.arg(expected_status);
 
+-- Finishing a group keeps its started_at (UpdateStepInstanceCAS would clear it).
+-- name: FinishGroupCAS :execrows
+UPDATE step_instances SET status = sqlc.arg(status), error = sqlc.arg(error), finished_at = sqlc.arg(finished_at)
+WHERE run_id = sqlc.arg(run_id) AND path = sqlc.arg(path) AND kind = 'group'
+  AND status IN ('pending', 'running');
+
 -- name: GetStepInstanceByPath :one
 SELECT id, run_id, path, kind, plugin, input, status, outputs, error, created_at, started_at, finished_at
 FROM step_instances WHERE run_id = sqlc.arg(run_id) AND path = sqlc.arg(path);

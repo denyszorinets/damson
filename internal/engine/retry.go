@@ -22,34 +22,34 @@ var defaultRetryKinds = []string{"connection", ErrKindTimeout, "lost"}
 //     emits SettleStep so the store finishes the step from that attempt.
 //
 // Both ways end this Decide: the advance runs again and reads the result.
-func (d *decider) attend(step Step, inst StepInstanceState) ([]Action, error) {
+func (d *decider) attend(sc *scope, step Step, inst StepInstanceState) error {
 	latest := latestExecution(inst)
 	if latest == nil {
 		timeout, err := parseTimeout(step)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		d.emit(ScheduleExecution{Path: inst.Path, Attempt: 1, ScheduledAt: d.now, Timeout: timeout})
-		return d.acts, nil
+		return nil
 	}
 	if !latest.State.Terminal() || (latest.State != ExecFailed && latest.State != ExecLost) {
 		// In flight, or finished in a way the store settles itself.
-		return d.acts, nil
+		return nil
 	}
-	at, retry, err := d.retryDecision(step, inst, latest)
+	at, retry, err := d.retryDecision(sc, step, inst, latest)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !retry {
 		d.emit(SettleStep{Path: inst.Path, Attempt: latest.Attempt})
-		return d.acts, nil
+		return nil
 	}
 	timeout, err := parseTimeout(step)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	d.emit(ScheduleExecution{Path: inst.Path, Attempt: latest.Attempt + 1, ScheduledAt: at, Timeout: timeout})
-	return d.acts, nil
+	return nil
 }
 
 // latestExecution is the attempt with the highest number, or nil.
@@ -67,7 +67,7 @@ func latestExecution(inst StepInstanceState) *ExecutionView {
 // and, if so, when the next attempt becomes due. The order of the rules is
 // ADR-0036's. Everything it reads is in the state, so the same state always
 // gives the same answer and `at`.
-func (d *decider) retryDecision(step Step, inst StepInstanceState, latest *ExecutionView) (at time.Time, retry bool, err error) {
+func (d *decider) retryDecision(sc *scope, step Step, inst StepInstanceState, latest *ExecutionView) (at time.Time, retry bool, err error) {
 	switch {
 	case d.canceling: // a user cancel or the job timeout: no further attempts, not even for cleanup steps
 		return at, false, nil
@@ -78,7 +78,7 @@ func (d *decider) retryDecision(step Step, inst StepInstanceState, latest *Execu
 	case latest.State == ExecLost && !d.lostMayRetry(step):
 		return at, false, nil
 	}
-	ok, err := d.retryOn(step, inst, latest)
+	ok, err := d.retryOn(sc, step, inst, latest)
 	if err != nil || !ok {
 		return at, false, err
 	}
@@ -110,7 +110,7 @@ func (d *decider) lostMayRetry(step Step) bool {
 // absent). An expression that fails to evaluate means no retry, so the step
 // settles with the attempt's own error and catch and continue_on_error still
 // see the real kind.
-func (d *decider) retryOn(step Step, inst StepInstanceState, latest *ExecutionView) (bool, error) {
+func (d *decider) retryOn(sc *scope, step Step, inst StepInstanceState, latest *ExecutionView) (bool, error) {
 	kind, message := attemptError(latest)
 	if step.Retry.RetryOn == "" {
 		return slices.Contains(defaultRetryKinds, kind), nil
@@ -119,7 +119,7 @@ func (d *decider) retryOn(step Step, inst StepInstanceState, latest *ExecutionVi
 	if latest.Error != nil && latest.Error.ExitCode != nil {
 		errv["exit_code"] = float64(*latest.Error.ExitCode)
 	}
-	vars := d.vars(false)
+	vars := d.vars(sc, false)
 	vars.Error = errv
 	ok, err := d.e.env.EvalBool(step.Retry.RetryOn, vars)
 	if err != nil {

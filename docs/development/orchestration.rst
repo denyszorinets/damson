@@ -114,6 +114,19 @@ rescuer only clears rows a crashed controller stranded; it is not what
 recovers the run. A job discarded after five failures is replaced by the next
 sweep.
 
+Groups
+------
+
+``Decide`` walks the step lists recursively by path (``internal/engine/scope.go``,
+ADR-0037). A group is a ``kind = 'group'`` row: ``CreateStepInstance`` with
+``Kind: "group"`` becomes an ``AdvanceStep`` with that kind (no execution; the
+store starts it with ``started_at``), and ``CompleteGroup`` becomes
+``Advance.FinishGroups`` with the failure that decided it as JSON. ``buildState``
+keeps group rows (``Kind``), and ``poolFor`` and ``lostPluginRefs`` find a
+nested step's spec with ``Job.StepAt(path)``. The engine adds the state a step
+will have once the actions apply (a skipped step, a finished group) to its path
+index, so the steps after it in the same ``Decide`` see it.
+
 Retries
 -------
 

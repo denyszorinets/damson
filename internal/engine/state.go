@@ -93,6 +93,11 @@ type JobInfo struct {
 
 // StepInstanceState is the view of one StepInstance.
 type StepInstanceState struct {
+	// Kind is "step" (the default, also written as empty) or "group".
+	Kind string `json:"kind,omitempty"`
+	// Handled is true for a group whose failure its catch list handled (the
+	// group succeeded, the caught error is kept in Error).
+	Handled bool `json:"handled,omitempty"`
 	// Path is the stable instance path. For top-level steps it equals the
 	// step id; M3 extends it for groups and lanes ("main/for_each[web-01]/x").
 	Path       string          `json:"path"`
@@ -121,8 +126,11 @@ type ExecutionView struct {
 
 // StepError describes why a step failed.
 type StepError struct {
-	Kind     string `json:"kind"`
-	Message  string `json:"message"`
+	Kind    string `json:"kind"`
+	Message string `json:"message"`
+	// Path is the instance path of the plugin step that failed, set when the
+	// error is carried up through groups.
+	Path     string `json:"path,omitempty"`
 	ExitCode *int   `json:"exit_code,omitempty"`
 }
 

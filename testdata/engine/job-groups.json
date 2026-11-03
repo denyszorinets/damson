@@ -1,0 +1,66 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "groups"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "fetch",
+        "plugin": "ssh",
+        "with": {
+          "node": "n",
+          "command": "fetch"
+        }
+      },
+      {
+        "id": "deploy",
+        "type": "group",
+        "steps": [
+          {
+            "id": "unpack",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "unpack ${{ steps.fetch.status }}"
+            }
+          },
+          {
+            "id": "build",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "build"
+            },
+            "retry": {
+              "max_attempts": 3,
+              "backoff": {
+                "initial": "5s",
+                "jitter": 0
+              }
+            }
+          },
+          {
+            "id": "verify",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "verify ${{ steps.unpack.status }}"
+            },
+            "when": "steps.unpack.status == 'succeeded'"
+          }
+        ]
+      },
+      {
+        "id": "report",
+        "plugin": "ssh",
+        "with": {
+          "node": "n",
+          "command": "report ${{ steps.deploy.status }} ${{ steps.deploy.steps.build.status }}"
+        }
+      }
+    ]
+  }
+}

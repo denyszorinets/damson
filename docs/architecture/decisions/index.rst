@@ -126,6 +126,9 @@ change nothing until accepted.
    * - 0036
      - :doc:`0036-retry-semantics`
      - Accepted
+   * - 0037
+     - :doc:`0037-groups-scoping-and-status`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -166,3 +169,4 @@ change nothing until accepted.
    0034-dev-only-inline-nodes-and-secrets
    0035-timeout-semantics
    0036-retry-semantics
+   0037-groups-scoping-and-status

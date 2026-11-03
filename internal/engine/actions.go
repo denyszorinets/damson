@@ -30,10 +30,13 @@ type StartRun struct {
 // CreateStepInstance creates the StepInstance with its resolved input. The
 // input contains no secret values: secret:// references stay literal (§9).
 type CreateStepInstance struct {
-	Path            string          `json:"path"`
-	StepID          string          `json:"step_id"`
-	Plugin          string          `json:"plugin"`
-	Input           json.RawMessage `json:"input"`
+	Path   string `json:"path"`
+	StepID string `json:"step_id"`
+	// Kind is "group" for a group (it has no plugin, input or execution) and
+	// empty for a plugin step.
+	Kind            string          `json:"kind,omitempty"`
+	Plugin          string          `json:"plugin,omitempty"`
+	Input           json.RawMessage `json:"input,omitempty"`
 	ContinueOnError bool            `json:"continue_on_error,omitempty"`
 	RunsOn          *RunsOn         `json:"runs_on,omitempty"`
 	CreatedAt       time.Time       `json:"created_at"`
@@ -53,6 +56,7 @@ type ScheduleExecution struct {
 type SkipStep struct {
 	Path   string     `json:"path"`
 	StepID string     `json:"step_id"`
+	Kind   string     `json:"kind,omitempty"`
 	Status StepStatus `json:"status"`
 	Reason string     `json:"reason"`
 }
@@ -63,6 +67,7 @@ type SkipStep struct {
 type FailStep struct {
 	Path            string    `json:"path"`
 	StepID          string    `json:"step_id"`
+	Kind            string    `json:"kind,omitempty"`
 	ContinueOnError bool      `json:"continue_on_error,omitempty"`
 	Error           StepError `json:"error"`
 }
@@ -100,6 +105,15 @@ type ScheduleWake struct {
 	At time.Time `json:"at"`
 }
 
+// CompleteGroup finishes a group instance once its body (and, later, its catch
+// and finally lists) is done. Status is succeeded, failed or cancelled; Error
+// is the failure that decided it.
+type CompleteGroup struct {
+	Path   string     `json:"path"`
+	Status StepStatus `json:"status"`
+	Error  *StepError `json:"error,omitempty"`
+}
+
 // CompleteRun finishes the run with its final status.
 type CompleteRun struct {
 	Status     RunStatus `json:"status"`
@@ -116,6 +130,7 @@ func (SettleStep) ActionType() string         { return "settle_step" }
 func (CancelExecution) ActionType() string    { return "cancel_execution" }
 func (TimeoutRun) ActionType() string         { return "timeout_run" }
 func (ScheduleWake) ActionType() string       { return "schedule_wake" }
+func (CompleteGroup) ActionType() string      { return "complete_group" }
 func (CompleteRun) ActionType() string        { return "complete_run" }
 
 // MarshalActions renders actions as a JSON array of objects, each with a

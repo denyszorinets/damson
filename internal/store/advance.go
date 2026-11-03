@@ -59,7 +59,12 @@ type TxRunner interface {
 // terminal statuses (skipped, failed, canceled) create an already finished
 // instance with Reason stored as its error text and no execution.
 type AdvanceStep struct {
-	Path      string
+	Path string
+	// Kind is KindStep (also when empty) or KindGroup. A group has no plugin,
+	// input or execution; created with no status it starts running, with
+	// started_at, and is finished later by Advance.FinishGroups. A group may
+	// also be created already skipped, failed or canceled.
+	Kind      string
 	Plugin    string
 	Input     json.RawMessage
 	Status    StepStatus
@@ -73,6 +78,15 @@ func (s AdvanceStep) StatusOrDefault() StepStatus {
 		return StepPending
 	}
 	return s.Status
+}
+
+// AdvanceFinishGroup finishes a group instance (succeeded, failed or canceled)
+// once its steps are done. Error is the failure text that decided it, kept for
+// a failed group and for a succeeded one whose failure its catch handled.
+type AdvanceFinishGroup struct {
+	Path   string
+	Status StepStatus
+	Error  string
 }
 
 // AdvanceAttempt schedules attempt number Attempt for an existing step
@@ -97,8 +111,8 @@ type AdvanceSettle struct {
 
 // Advance is the dialect-neutral change set of one run.advance, applied by
 // Tx.ApplyAdvance in this order: the run row (start or finish, and the version
-// check) first, then the run cancel, new steps, settled steps, new attempts and
-// execution cancellations.
+// check) first, then the run cancel, new steps, settled steps, finished groups,
+// new attempts and execution cancellations.
 type Advance struct {
 	// Start moves a pending run to running.
 	Start bool
@@ -110,6 +124,9 @@ type Advance struct {
 	NewSteps []AdvanceStep
 	// Settle finishes steps whose failed attempt is not retried.
 	Settle []AdvanceSettle
+	// FinishGroups finishes groups whose steps are done. A group created in
+	// the same advance can be finished in it.
+	FinishGroups []AdvanceFinishGroup
 	// NewAttempts add an attempt (the first, or a retry) to a step instance.
 	NewAttempts []AdvanceAttempt
 	// Cancel lists execution ids to cancel. A queued execution and its step
@@ -125,7 +142,7 @@ type Advance struct {
 
 // Empty reports whether applying a would change nothing.
 func (a Advance) Empty() bool {
-	return !a.Start && a.CancelRun == "" && len(a.NewSteps) == 0 && len(a.Settle) == 0 && len(a.NewAttempts) == 0 && len(a.Cancel) == 0 && a.Finish == ""
+	return !a.Start && a.CancelRun == "" && len(a.NewSteps) == 0 && len(a.Settle) == 0 && len(a.FinishGroups) == 0 && len(a.NewAttempts) == 0 && len(a.Cancel) == 0 && a.Finish == ""
 }
 
 // ValidateAdvance rejects change sets the store cannot apply, before any I/O.
@@ -162,12 +179,25 @@ func ValidateAdvance(a Advance) error {
 		}
 		settled[se.Path] = true
 	}
+	finished := map[string]bool{}
+	for _, fg := range a.FinishGroups {
+		if fg.Path == "" {
+			return fmt.Errorf("advance group finish needs a path: %w", ErrInvalid)
+		}
+		if fg.Status != StepSucceeded && fg.Status != StepFailed && fg.Status != StepCanceled {
+			return fmt.Errorf("group %q cannot finish as %q: %w", fg.Path, fg.Status, ErrInvalid)
+		}
+		if finished[fg.Path] || settled[fg.Path] {
+			return fmt.Errorf("duplicate advance finish of %q: %w", fg.Path, ErrInvalid)
+		}
+		finished[fg.Path] = true
+	}
 	scheduled := map[string]bool{}
 	for _, at := range a.NewAttempts {
 		if at.Path == "" || at.Attempt < 1 {
 			return fmt.Errorf("advance attempt needs a step path and an attempt number from 1: %w", ErrInvalid)
 		}
-		if settled[at.Path] {
+		if settled[at.Path] || finished[at.Path] {
 			return fmt.Errorf("step %q is both settled and given a new attempt: %w", at.Path, ErrInvalid)
 		}
 		if scheduled[at.Path] {
@@ -191,6 +221,16 @@ func SettlesOnCompletion(s ExecutionState) bool {
 }
 
 func validateAdvanceStep(st AdvanceStep) error {
+	if st.Kind == KindGroup {
+		if st.Plugin != "" || len(st.Input) > 0 || st.Execution != nil {
+			return fmt.Errorf("advance group %q cannot have a plugin, input or execution: %w", st.Path, ErrInvalid)
+		}
+		switch st.StatusOrDefault() {
+		case StepPending, StepSkipped, StepFailed, StepCanceled:
+			return nil
+		}
+		return fmt.Errorf("advance group %q has status %q: %w", st.Path, st.Status, ErrInvalid)
+	}
 	switch st.StatusOrDefault() {
 	case StepPending:
 		if st.Execution == nil {

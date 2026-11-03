@@ -67,38 +67,47 @@ type decider struct {
 	cancelAt  *time.Time // when the cancel was requested (this Decide may set it: job timeout)
 	timedOut  bool       // the cancel is the job-level timeout
 
-	byID      map[string]StepInstanceState
+	// byPath indexes the step instances by path. The walk adds the state a
+	// step will have once this Decide's actions apply (a skipped step, a
+	// finished group), so the steps after it see it.
+	byPath    map[string]StepInstanceState
 	runStatus RunStatus
 	startedAt time.Time
-	steps     map[string]any // the `steps` expression variable, built as we walk
 	acts      []Action
 }
 
+// kindGroup is StepInstanceState.Kind of a group.
+const kindGroup = "group"
+
 func (d *decider) index() error {
-	known := map[string]bool{}
-	for _, s := range d.job.Spec.Steps {
-		known[s.ID] = true
-	}
-	d.byID = make(map[string]StepInstanceState, len(d.st.Steps))
+	d.byPath = make(map[string]StepInstanceState, len(d.st.Steps))
 	for _, inst := range d.st.Steps {
-		if !known[inst.StepID] {
-			return fmt.Errorf("run %s: step instance %q has no step %q in the job spec", d.st.ID, inst.Path, inst.StepID)
+		spec, ok := d.job.StepAt(inst.Path)
+		if !ok {
+			return fmt.Errorf("run %s: step instance %q has no step in the job spec", d.st.ID, inst.Path)
 		}
-		if _, dup := d.byID[inst.StepID]; dup {
-			return fmt.Errorf("run %s: duplicate step instance for step %q", d.st.ID, inst.StepID)
+		if _, dup := d.byPath[inst.Path]; dup {
+			return fmt.Errorf("run %s: duplicate step instance for path %q", d.st.ID, inst.Path)
 		}
-		d.byID[inst.StepID] = inst
+		if spec.IsGroup() != (inst.Kind == kindGroup) {
+			return fmt.Errorf("run %s: step instance %q is a %s but the job spec says %s", d.st.ID, inst.Path, kindName(inst.Kind), kindName(map[bool]string{true: kindGroup, false: ""}[spec.IsGroup()]))
+		}
+		d.byPath[inst.Path] = inst
 	}
-	d.steps = map[string]any{}
 	return nil
+}
+
+func kindName(k string) string {
+	if k == kindGroup {
+		return "group"
+	}
+	return "step"
 }
 
 func (d *decider) emit(a ...Action) { d.acts = append(d.acts, a...) }
 
-// decide is the sequential-scope kernel: one flat loop over one step list.
-// In M3 it is re-keyed by Path and recursed per scope (groups, catch/finally,
-// for_each lanes) rather than rewritten; the helpers below already take the
-// step and its instance, not a list index.
+// decide walks the job's step list (rules 1-3, 8) with the start and timeout
+// bookkeeping around it, and completes the run when the walk is done.
 func (d *decider) decide() ([]Action, error) {
 	d.runStatus = d.st.Status
 	d.startedAt = d.now
@@ -116,27 +125,13 @@ func (d *decider) decide() ([]Action, error) {
 	}
 	d.cancelActive()
 
-	var failed, anyCancelled bool
-	for _, step := range d.job.Spec.Steps {
-		inst, exists := d.byID[step.ID]
-		if exists && !inst.Status.Terminal() {
-			return d.attend(step, inst)
-		}
-		if !exists {
-			status, waiting, err := d.begin(step, failed)
-			if err != nil {
-				return nil, err
-			}
-			if waiting {
-				return d.acts, nil
-			}
-			inst = simulated(step, status)
-		}
-		d.steps[step.ID] = stepValue(inst)
-		failed = failed || (inst.Status == StepFailed && !step.ContinueOnError)
-		anyCancelled = anyCancelled || inst.Status == StepCancelled
+	o, err := d.walk(newScope("", d.job.Spec.Steps, nil))
+	if err != nil {
+		return nil, err
 	}
-	d.emit(CompleteRun{Status: finalStatus(failed, anyCancelled, d.timedOut), FinishedAt: d.now})
+	if o.done {
+		d.emit(CompleteRun{Status: finalStatus(o.failed, o.cancelled, d.timedOut), FinishedAt: d.now})
+	}
 	return d.acts, nil
 }
 
@@ -175,42 +170,50 @@ func (d *decider) cancelActive() {
 	}
 }
 
-// begin decides what happens to a step that has no instance yet. It returns
-// the terminal status when the step is settled without running (skipped,
-// cancelled, or failed before start), or waiting=true once it has been
-// scheduled.
-func (d *decider) begin(step Step, failed bool) (status StepStatus, waiting bool, err error) {
-	vars := d.vars(failed)
+// evalWhen evaluates a step's `when` (default success()) in its scope.
+func (d *decider) evalWhen(sc *scope, step Step, failed bool) (bool, error) {
 	when := step.When
 	if when == "" {
 		when = defaultWhen
 	}
-	ok, werr := d.e.env.EvalBool(when, vars)
+	return d.e.env.EvalBool(when, d.vars(sc, failed))
+}
+
+// begin decides what happens to a plugin step that has no instance yet. It
+// returns settled=true when the step is finished without running (skipped,
+// cancelled, or failed before start), and settled=false once its first
+// execution has been scheduled.
+func (d *decider) begin(sc *scope, step Step, path string, failed bool) (settled bool, err error) {
+	ok, werr := d.evalWhen(sc, step, failed)
 	if werr != nil {
-		return d.fail(step, fmt.Errorf("evaluating when: %w", werr)), false, nil
+		d.fail(step, path, "", fmt.Errorf("evaluating when: %w", werr))
+		return true, nil
 	}
 	if !ok {
-		return d.skip(step, failed), false, nil
+		d.skip(step, path, "", failed)
+		return true, nil
 	}
-	input, ierr := d.e.ResolveInput(step, vars)
+	input, ierr := d.e.ResolveInput(step, d.vars(sc, failed))
 	if ierr != nil {
-		return d.fail(step, fmt.Errorf("resolving input: %w", ierr)), false, nil
+		d.fail(step, path, "", fmt.Errorf("resolving input: %w", ierr))
+		return true, nil
 	}
 	timeout, err := parseTimeout(step)
 	if err != nil {
-		return "", false, err
+		return false, err
 	}
 	d.emit(
 		CreateStepInstance{
-			Path: step.ID, StepID: step.ID, Plugin: step.Plugin, Input: input,
+			Path: path, StepID: step.ID, Plugin: step.Plugin, Input: input,
 			ContinueOnError: step.ContinueOnError, RunsOn: step.RunsOn, CreatedAt: d.now,
 		},
-		ScheduleExecution{Path: step.ID, Attempt: 1, ScheduledAt: d.now, Timeout: timeout},
+		ScheduleExecution{Path: path, Attempt: 1, ScheduledAt: d.now, Timeout: timeout},
 	)
-	return StepPending, true, nil
+	d.byPath[path] = StepInstanceState{Path: path, StepID: step.ID, Status: StepPending, CreatedAt: d.now}
+	return false, nil
 }
 
-func (d *decider) skip(step Step, failed bool) StepStatus {
+func (d *decider) skip(step Step, path, kind string, failed bool) {
 	status, reason := StepSkipped, "when condition is false"
 	switch {
 	case d.timedOut:
@@ -220,16 +223,14 @@ func (d *decider) skip(step Step, failed bool) StepStatus {
 	case failed:
 		reason = "a previous step failed"
 	}
-	d.emit(SkipStep{Path: step.ID, StepID: step.ID, Status: status, Reason: reason})
-	return status
+	d.emit(SkipStep{Path: path, StepID: step.ID, Kind: kind, Status: status, Reason: reason})
+	d.byPath[path] = StepInstanceState{Path: path, StepID: step.ID, Kind: kind, Status: status, CreatedAt: d.now}
 }
 
-func (d *decider) fail(step Step, err error) StepStatus {
-	d.emit(FailStep{
-		Path: step.ID, StepID: step.ID, ContinueOnError: step.ContinueOnError,
-		Error: StepError{Kind: ErrKindExpression, Message: err.Error()},
-	})
-	return StepFailed
+func (d *decider) fail(step Step, path, kind string, err error) {
+	se := StepError{Kind: ErrKindExpression, Message: err.Error()}
+	d.emit(FailStep{Path: path, StepID: step.ID, Kind: kind, ContinueOnError: step.ContinueOnError, Error: se})
+	d.byPath[path] = StepInstanceState{Path: path, StepID: step.ID, Kind: kind, Status: StepFailed, Error: &se, CreatedAt: d.now}
 }
 
 func parseTimeout(step Step) (Duration, error) {

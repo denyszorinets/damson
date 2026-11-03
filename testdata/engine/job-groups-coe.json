@@ -1,0 +1,35 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "groups-coe"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "deploy",
+        "type": "group",
+        "steps": [
+          {
+            "id": "x",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "x"
+            }
+          }
+        ],
+        "continue_on_error": true
+      },
+      {
+        "id": "report",
+        "plugin": "ssh",
+        "with": {
+          "node": "n",
+          "command": "report"
+        }
+      }
+    ]
+  }
+}

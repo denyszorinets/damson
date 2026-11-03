@@ -1,0 +1,33 @@
+[
+  {
+    "path": "deploy/build",
+    "reason": "run cancelled",
+    "status": "cancelled",
+    "step_id": "build",
+    "type": "skip_step"
+  },
+  {
+    "path": "deploy/verify",
+    "reason": "run cancelled",
+    "status": "cancelled",
+    "step_id": "verify",
+    "type": "skip_step"
+  },
+  {
+    "path": "deploy",
+    "status": "cancelled",
+    "type": "complete_group"
+  },
+  {
+    "path": "report",
+    "reason": "run cancelled",
+    "status": "cancelled",
+    "step_id": "report",
+    "type": "skip_step"
+  },
+  {
+    "finished_at": "2026-03-01T10:05:00Z",
+    "status": "cancelled",
+    "type": "complete_run"
+  }
+]

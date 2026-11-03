@@ -41,9 +41,6 @@ func buildState(tree store.RunTree, meta jobMeta) (engine.RunState, error) {
 		return st, fmt.Errorf("decoding options of run %s: %w", tree.ID, err)
 	}
 	for _, n := range tree.Steps {
-		if n.Kind != store.KindStep {
-			continue // groups arrive with M3
-		}
 		inst, err := stepState(n)
 		if err != nil {
 			return st, err
@@ -66,6 +63,9 @@ func stepState(n store.StepNode) (engine.StepInstanceState, error) {
 	inst := engine.StepInstanceState{
 		Path: n.Path, StepID: n.Path[strings.LastIndex(n.Path, "/")+1:], Status: engine.StepStatusFromStore(string(n.Status)),
 		CreatedAt: n.CreatedAt, StartedAt: n.StartedAt, FinishedAt: n.FinishedAt,
+	}
+	if n.Kind == store.KindGroup {
+		inst.Kind = "group"
 	}
 	if err := decodeObject(n.Outputs, &inst.Outputs); err != nil {
 		return inst, fmt.Errorf("decoding outputs of step %s: %w", n.Path, err)

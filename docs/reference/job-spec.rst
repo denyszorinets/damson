@@ -96,14 +96,35 @@ Document layout
    * - ``steps[].runs_on``
      - ``{ "pool": "...", "labels": { ... } }``; at least one of the two.
 
+Groups
+------
+
+``type: "group"`` is a container with ``steps`` (at least one). It takes
+``when`` and ``continue_on_error`` like a step, and none of ``plugin``,
+``with``, ``retry``, ``timeout`` and ``runs_on``. The steps of a group run in
+order; a failure inside skips the rest of the group (unless a later step's
+``when`` calls a status function), and the group then fails with that step's
+error, which fails the enclosing list like any failed step. A group whose
+``when`` is false is skipped without creating its steps.
+
+The step ids ``catch`` and ``finally`` are reserved, and groups nest at most 8
+deep. A nested step's path is ``<group>/<id>``
+(:doc:`/architecture/decisions/0037-groups-scoping-and-status`).
+
+In expressions ``steps.<id>`` is lexical: a step sees the earlier steps of its
+own list and of every enclosing list, an inner id shadowing an outer one.
+``steps.<group>`` has ``status``, ``outputs``, ``error``, ``handled``,
+``started_at``, ``finished_at`` and ``steps`` (the values of its body steps),
+for example ``steps.deploy.steps.build.status``. ``success()`` and
+``failure()`` look only at the earlier steps of the same list.
+
 Reserved fields (rejected for now)
 ----------------------------------
 
 These fields are part of the schema so that M3 extends the model instead of
 reshaping it, but validation rejects them with ``<path> is not supported yet``:
-``spec.concurrency``, ``type: "group"``, and on steps ``steps``, ``catch``,
-``finally``, ``rethrow``, ``for_each``, ``max_parallel`` and
-``fail_threshold``.
+``spec.concurrency``, and on steps ``catch``, ``finally``, ``rethrow``,
+``for_each``, ``max_parallel`` and ``fail_threshold``.
 
 Control flow (sequential)
 -------------------------

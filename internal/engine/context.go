@@ -14,7 +14,7 @@ const MaxResolvedInputBytes = 1 << 20
 
 // vars builds the expression context for the next step. It contains only
 // plain data from the run state: never secret values (§5.4).
-func (d *decider) vars(failed bool) expr.Vars {
+func (d *decider) vars(sc *scope, failed bool) expr.Vars {
 	return expr.Vars{
 		Inputs: d.st.Inputs,
 		Run: map[string]any{
@@ -29,22 +29,13 @@ func (d *decider) vars(failed bool) expr.Vars {
 			"project": d.st.Job.Project,
 			"version": d.st.Job.Version,
 		},
-		Steps: d.steps,
+		Steps: sc.stepsVar(),
 		Status: expr.Status{
-			Success:   !failed && !d.canceling && !d.anyCancelled(),
+			Success:   !failed && !d.canceling && !sc.anyCancelled(),
 			Failure:   failed,
 			Cancelled: d.canceling,
 		},
 	}
-}
-
-func (d *decider) anyCancelled() bool {
-	for _, v := range d.steps {
-		if m, ok := v.(map[string]any); ok && m["status"] == string(StepCancelled) {
-			return true
-		}
-	}
-	return false
 }
 
 // stepValue is the `steps.<id>` expression value of an instance.
@@ -70,9 +61,23 @@ func stepValue(inst StepInstanceState) map[string]any {
 	}
 }
 
-// simulated is the state a step will have once this Decide's actions apply.
-func simulated(step Step, status StepStatus) StepInstanceState {
-	return StepInstanceState{Path: step.ID, StepID: step.ID, Status: status}
+// value is the `steps.<id>` expression value of the step at path. A group's
+// value also carries `handled` and `steps`, the values of its body steps.
+func (d *decider) value(path string, step Step) map[string]any {
+	inst := d.byPath[path]
+	v := stepValue(inst)
+	if !step.IsGroup() {
+		return v
+	}
+	children := map[string]any{}
+	for _, c := range step.Steps {
+		if _, ok := d.byPath[ChildPath(path+"/", c.ID)]; ok {
+			children[c.ID] = d.value(ChildPath(path+"/", c.ID), c)
+		}
+	}
+	v["handled"] = inst.Handled
+	v["steps"] = children
+	return v
 }
 
 func formatTime(t *time.Time) any {
