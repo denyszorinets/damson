@@ -107,8 +107,8 @@ order; a failure inside skips the rest of the group (unless a later step's
 error, which fails the enclosing list like any failed step. A group whose
 ``when`` is false is skipped without creating its steps.
 
-The step ids ``catch`` and ``finally`` are reserved, and groups nest at most 8
-deep. A nested step's path is ``<group>/<id>``
+Inside a group the step ids ``catch`` and ``finally`` are reserved (a
+top-level step may still use them), and groups nest at most 8 deep. A nested step's path is ``<group>/<id>``
 (:doc:`/architecture/decisions/0037-groups-scoping-and-status`).
 
 In expressions ``steps.<id>`` is lexical: a step sees the earlier steps of its
@@ -116,7 +116,10 @@ own list and of every enclosing list, an inner id shadowing an outer one.
 ``steps.<group>`` has ``status``, ``outputs``, ``error``, ``handled``,
 ``started_at``, ``finished_at`` and ``steps`` (the values of its body steps),
 for example ``steps.deploy.steps.build.status``. ``success()`` and
-``failure()`` look only at the earlier steps of the same list.
+``failure()`` look only at the earlier steps of the same list. A group whose
+``when`` admits it after a cancel or the job timeout (``always()``,
+``cancelled()``) runs its body: the run-level cancel does not make ``success()``
+false inside it.
 
 Reserved fields (rejected for now)
 ----------------------------------

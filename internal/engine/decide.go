@@ -190,7 +190,7 @@ func (d *decider) begin(sc *scope, step Step, path string, failed bool) (settled
 		return true, nil
 	}
 	if !ok {
-		d.skip(step, path, "", failed)
+		d.skip(sc, step, path, "", failed)
 		return true, nil
 	}
 	input, ierr := d.e.ResolveInput(step, d.vars(sc, failed))
@@ -213,12 +213,12 @@ func (d *decider) begin(sc *scope, step Step, path string, failed bool) (settled
 	return false, nil
 }
 
-func (d *decider) skip(step Step, path, kind string, failed bool) {
+func (d *decider) skip(sc *scope, step Step, path, kind string, failed bool) {
 	status, reason := StepSkipped, "when condition is false"
 	switch {
-	case d.timedOut:
+	case d.timedOut && !sc.shielded:
 		status, reason = StepCancelled, "job timed out"
-	case d.canceling:
+	case d.canceling && !sc.shielded:
 		status, reason = StepCancelled, "run cancelled"
 	case failed:
 		reason = "a previous step failed"

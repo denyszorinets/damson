@@ -89,8 +89,10 @@ const maxGroupDepth = 8
 // step cannot take them as its id, or a body step could collide with a marker.
 var reservedIDs = map[string]bool{SegCatch: true, SegFinally: true}
 
-// steps checks one step list. A group's steps, catch and finally share one id
-// namespace, so the caller passes the ids already taken in the group.
+// steps checks one step list. depth is 1 for the job's own list and grows with
+// each group. The ids catch and finally are reserved only inside a group, where
+// they could be mistaken for a list marker in a path; a top-level step may
+// still use them, as jobs saved before groups existed may.
 func (v *validator) steps(path string, steps []Step, depth int) {
 	seen := map[string]int{}
 	for i := range steps {
@@ -101,8 +103,8 @@ func (v *validator) steps(path string, steps []Step, depth int) {
 			v.add(p+".id", "is required")
 		case !stepIDPattern.MatchString(s.ID):
 			v.add(p+".id", "%q must match [a-z0-9-]+", s.ID)
-		case reservedIDs[s.ID]:
-			v.add(p+".id", "%q is reserved (it marks the catch and finally lists in step paths)", s.ID)
+		case depth > 1 && reservedIDs[s.ID]:
+			v.add(p+".id", "%q is reserved inside a group (it marks the catch and finally lists in step paths)", s.ID)
 		case dup:
 			v.add(p+".id", "duplicate id %q (first used at %s[%d])", s.ID, path, first)
 		}

@@ -27,9 +27,11 @@ Paths
   written before groups keep theirs. A body child is ``<group>/<id>``; the
   children of a catch or finally list will be ``<group>/catch/<id>`` and
   ``<group>/finally/<id>``.
-- The ids ``catch`` and ``finally`` are reserved (validation rejects them), so a
-  marker segment can never be a step id. A group's ``steps``, ``catch`` and
-  ``finally`` form one id namespace.
+- Inside a group the ids ``catch`` and ``finally`` are reserved (validation
+  rejects them), so a marker segment can never be a step id. A top-level step
+  may still use them, as jobs saved before groups existed may: a marker is only
+  ambiguous right after a group segment. A group's ``steps``, ``catch`` and
+  ``finally`` will form one id namespace when the catch and finally lists land.
 - Groups nest at most 8 deep.
 
 Engine
@@ -58,6 +60,12 @@ Expressions
   and, further out, those of every enclosing list; an inner id shadows an outer
   one. ``steps.<group>`` has ``status``, ``outputs``, ``error``, ``handled``,
   ``started_at``, ``finished_at`` and ``steps``, the values of its body steps.
+- A group that is admitted after a cancel (its ``when`` calls ``always()`` or
+  ``cancelled()``; the run is cancelled by a user or by the job timeout) is
+  created at or after the cancel, so the run-level cancel does not count against
+  ``success()`` in its body: its steps run like the ``always()`` steps created
+  after a cancel do. Failures inside it still count, and no step is retried
+  while the run is being cancelled.
 - The status functions are local to a list: ``success()`` and ``failure()``
   look only at the earlier steps of the same list; ``cancelled()`` is the
   run-level cancel.
@@ -98,5 +106,8 @@ Positive
 Negative
 ~~~~~~~~
 
-- Two ids are reserved in every list.
+- Two ids are reserved inside groups.
 - The flat API list needs clients to nest by path.
+- During a rolling upgrade a controller without this change cannot parse a job
+  with ``type: "group"`` and fails the run, and one that reads group rows fails
+  on them. Finish the rollout before authoring group jobs.

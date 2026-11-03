@@ -31,7 +31,7 @@ func (d *decider) vars(sc *scope, failed bool) expr.Vars {
 		},
 		Steps: sc.stepsVar(),
 		Status: expr.Status{
-			Success:   !failed && !d.canceling && !sc.anyCancelled(),
+			Success:   !failed && (!d.canceling || sc.shielded) && !sc.anyCancelled(),
 			Failure:   failed,
 			Cancelled: d.canceling,
 		},

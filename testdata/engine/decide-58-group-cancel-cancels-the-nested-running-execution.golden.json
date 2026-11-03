@@ -1,0 +1,8 @@
+[
+  {
+    "attempt_id": "at-u",
+    "execution_id": "ex-u",
+    "path": "deploy/unpack",
+    "type": "cancel_execution"
+  }
+]

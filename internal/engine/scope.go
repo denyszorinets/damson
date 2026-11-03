@@ -12,6 +12,11 @@ type scope struct {
 	list   []Step
 	parent *scope
 	vis    map[string]any
+	// shielded marks the body of a group that was created at or after the
+	// cancel (a group admitted by always() or cancelled() once the run is being
+	// cancelled): the run-level cancel does not count against success() there,
+	// so its steps run like the always() steps created after a cancel do.
+	shielded bool
 }
 
 func newScope(prefix string, list []Step, parent *scope) *scope {
@@ -125,11 +130,12 @@ func (d *decider) beginGroup(sc *scope, step Step, path string, failed bool) (se
 		return true, nil
 	}
 	if !ok {
-		d.skip(step, path, "group", failed)
+		d.skip(sc, step, path, "group", failed)
 		return true, nil
 	}
 	d.emit(CreateStepInstance{Path: path, StepID: step.ID, Kind: kindGroup, CreatedAt: d.now, ContinueOnError: step.ContinueOnError})
-	d.byPath[path] = StepInstanceState{Path: path, StepID: step.ID, Kind: kindGroup, Status: StepPending, CreatedAt: d.now}
+	started := d.now
+	d.byPath[path] = StepInstanceState{Path: path, StepID: step.ID, Kind: kindGroup, Status: StepPending, CreatedAt: d.now, StartedAt: &started}
 	return d.runGroup(sc, step, path)
 }
 
@@ -138,6 +144,7 @@ func (d *decider) beginGroup(sc *scope, step Step, path string, failed bool) (se
 // continue_on_error), else cancelled if any was cancelled, else succeeded.
 func (d *decider) runGroup(sc *scope, step Step, path string) (settled bool, err error) {
 	body := newScope(path+"/", step.Steps, sc)
+	body.shielded = sc.shielded || d.createdAfterCancel(path)
 	o, err := d.walk(body)
 	if err != nil || !o.done {
 		return false, err
@@ -151,7 +158,15 @@ func (d *decider) runGroup(sc *scope, step Step, path string) (settled bool, err
 	}
 	d.emit(CompleteGroup{Path: path, Status: status, Error: gerr})
 	prev := d.byPath[path]
-	prev.Status, prev.Error = status, gerr
+	finished := d.now
+	prev.Status, prev.Error, prev.FinishedAt = status, gerr, &finished
 	d.byPath[path] = prev
 	return true, nil
+}
+
+// createdAfterCancel reports whether the instance at path was created at or
+// after the cancel request (the same instant counts, as for steps).
+func (d *decider) createdAfterCancel(path string) bool {
+	inst, ok := d.byPath[path]
+	return d.canceling && ok && !inst.CreatedAt.Before(*d.cancelAt)
 }

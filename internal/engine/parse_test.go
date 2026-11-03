@@ -269,7 +269,7 @@ func TestParseInvalidGroups(t *testing.T) {
 		{"group rejects retry", `[{"id":"g","type":"group","retry":{"max_attempts":2},"steps":[{"id":"c","plugin":"ssh"}]}]`, "spec.steps[0].retry", "not allowed on a group"},
 		{"group rejects runs_on", `[{"id":"g","type":"group","runs_on":{"pool":"p"},"steps":[{"id":"c","plugin":"ssh"}]}]`, "spec.steps[0].runs_on", "not allowed on a group"},
 		{"steps on a plugin step", `[{"id":"a","plugin":"ssh","steps":[{"id":"c","plugin":"ssh"}]}]`, "spec.steps[0].steps", "only valid on a step of type"},
-		{"reserved id catch", `[{"id":"catch","plugin":"ssh"}]`, "spec.steps[0].id", "reserved"},
+		{"reserved id catch in a group", `[{"id":"g","type":"group","steps":[{"id":"catch","plugin":"ssh"}]}]`, "spec.steps[0].steps[0].id", "reserved inside a group"},
 		{"reserved id finally", `[{"id":"g","type":"group","steps":[{"id":"finally","plugin":"ssh"}]}]`, "spec.steps[0].steps[0].id", "reserved"},
 		{"duplicate id in a group", `[{"id":"g","type":"group","steps":[{"id":"c","plugin":"ssh"},{"id":"c","plugin":"ssh"}]}]`, "spec.steps[0].steps[1].id", "duplicate id"},
 		{"nested step is validated", `[{"id":"g","type":"group","steps":[{"id":"c","plugin":"Bad Name"}]}]`, "spec.steps[0].steps[0].plugin", "name@<major>"},
@@ -290,5 +290,19 @@ func TestParseInvalidGroups(t *testing.T) {
 			}
 			t.Fatalf("no error at %q containing %q in %v", tt.wantPath, tt.wantMsg, ve)
 		})
+	}
+}
+
+// Jobs saved before groups existed may use catch or finally as a top-level step
+// id; only ids inside a group are reserved.
+func TestTopLevelCatchAndFinallyIDsStayValid(t *testing.T) {
+	job, err := Parse(stepsDoc(`[{"id":"catch","plugin":"ssh"},{"id":"finally","plugin":"ssh"},{"id":"g","type":"group","steps":[{"id":"x","plugin":"ssh"}]}]`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	for path, want := range map[string]string{"catch": "ssh", "finally": "ssh", "g/x": "ssh"} {
+		if s, ok := job.StepAt(path); !ok || s.Plugin != want {
+			t.Errorf("StepAt(%q) = %+v, %v", path, s, ok)
+		}
 	}
 }
