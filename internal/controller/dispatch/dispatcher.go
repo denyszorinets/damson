@@ -20,6 +20,7 @@ const (
 	DefaultReapInterval     = 10 * time.Second
 	DefaultCancelInterval   = 2 * time.Second // ARCHITECTURE 8.3: cancel poll until a notify hint exists
 	DefaultCancelGrace      = 5 * time.Second // ARCHITECTURE 7.3: the agent's default grace
+	DefaultIncapableRetry   = 5 * time.Second // how long an execution claimed by an agent that cannot run it waits
 	DefaultLeaseTTL         = time.Minute
 	DefaultCallTimeout      = 10 * time.Second // one step.execute round trip or store call
 	reapBatch               = 100
@@ -76,8 +77,12 @@ type Config struct {
 	ReapInterval     time.Duration
 	CancelInterval   time.Duration
 	CancelGrace      time.Duration // grace_ms of step.cancel
-	LeaseTTL         time.Duration
-	CallTimeout      time.Duration
+	// IncapableRetry delays an execution claimed by an agent that cannot run it
+	// before it is claimed again, so a step nobody can run does not spin the claim
+	// loop (known limitation: incapable agents in the pool churn it).
+	IncapableRetry time.Duration
+	LeaseTTL       time.Duration
+	CallTimeout    time.Duration
 }
 
 // Dispatcher owns the dispatch, renewal and reaper loops. Register it as a
@@ -116,7 +121,7 @@ func New(cfg Config) (*Dispatcher, error) {
 		d time.Duration
 	}{
 		{&cfg.DispatchInterval, DefaultDispatchInterval}, {&cfg.RenewInterval, DefaultRenewInterval},
-		{&cfg.ReapInterval, DefaultReapInterval}, {&cfg.CancelInterval, DefaultCancelInterval}, {&cfg.CancelGrace, DefaultCancelGrace},
+		{&cfg.ReapInterval, DefaultReapInterval}, {&cfg.CancelInterval, DefaultCancelInterval}, {&cfg.CancelGrace, DefaultCancelGrace}, {&cfg.IncapableRetry, DefaultIncapableRetry},
 		{&cfg.LeaseTTL, DefaultLeaseTTL}, {&cfg.CallTimeout, DefaultCallTimeout},
 	} {
 		if *d.v <= 0 {

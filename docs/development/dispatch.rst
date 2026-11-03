@@ -22,7 +22,8 @@ Every second, for each locally connected agent with free slots:
 
 The claim filters by pool only; plugin and capability matching happens after
 it. An execution claimed by an agent that cannot run it is requeued with a 5 s
-delay (known limitation: incapable agents in the pool churn it).
+delay (``Config.IncapableRetry``; known limitation: incapable agents in the pool
+churn it).
 
 Definite failures (agent rejected, plugin unresolved) requeue at once with a
 CAS under the ``attempt_id``. Delivery is at-most-once on an ambiguous send: if

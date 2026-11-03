@@ -15,10 +15,6 @@ import (
 	"github.com/denyszorinets/damson/internal/store"
 )
 
-// retryIncapable delays an execution claimed by an agent that cannot run it,
-// so a step nobody can run does not spin the claim loop.
-const retryIncapable = 5 * time.Second
-
 // dispatchOnce starts a dispatch round for every connected agent with free
 // slots and does not wait for it: a half-open socket must not delay the other
 // agents. At most one round per agent is in flight; Stop waits for them.
@@ -103,7 +99,7 @@ func (d *Dispatcher) send(ctx context.Context, a controller.AgentView, ex store.
 	}
 	if err != nil {
 		log.Warn("execution cannot be sent to this agent", "error", err)
-		d.requeue(ctx, a, ex, d.cfg.Now().Add(retryIncapable), log)
+		d.requeue(ctx, a, ex, d.cfg.Now().Add(d.cfg.IncapableRetry), log)
 		return true
 	}
 	cctx, cancel := context.WithTimeout(ctx, d.cfg.CallTimeout)
