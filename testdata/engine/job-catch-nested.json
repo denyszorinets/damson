@@ -1,0 +1,42 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "catch-nested"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "o",
+        "type": "group",
+        "steps": [
+          {
+            "id": "i",
+            "type": "group",
+            "steps": [
+              {
+                "id": "x",
+                "plugin": "ssh",
+                "with": {
+                  "node": "n",
+                  "command": "x"
+                }
+              }
+            ]
+          }
+        ],
+        "catch": [
+          {
+            "id": "handle",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "handle ${{ error.step }} ${{ error.path }}"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

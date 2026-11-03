@@ -1,0 +1,24 @@
+[
+  {
+    "error": {
+      "kind": "exit_code",
+      "message": "rollback broke",
+      "path": "deploy/catch/rollback"
+    },
+    "path": "deploy",
+    "status": "failed",
+    "type": "complete_group"
+  },
+  {
+    "path": "report",
+    "reason": "a previous step failed",
+    "status": "skipped",
+    "step_id": "report",
+    "type": "skip_step"
+  },
+  {
+    "finished_at": "2026-03-01T10:05:00Z",
+    "status": "failed",
+    "type": "complete_run"
+  }
+]

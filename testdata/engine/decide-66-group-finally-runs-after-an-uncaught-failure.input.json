@@ -1,0 +1,48 @@
+{
+  "job_file": "job-finally.json",
+  "now": "2026-03-01T10:05:00Z",
+  "state": {
+    "id": "run-1",
+    "status": "running",
+    "trigger": "manual",
+    "job": {
+      "name": "catch",
+      "project": "default",
+      "version": "1"
+    },
+    "started_at": "2026-03-01T10:00:00Z",
+    "steps": [
+      {
+        "path": "deploy",
+        "step_id": "deploy",
+        "status": "pending",
+        "created_at": "2026-03-01T10:00:00Z",
+        "kind": "group",
+        "started_at": "2026-03-01T10:00:00Z"
+      },
+      {
+        "path": "deploy/a",
+        "step_id": "a",
+        "status": "failed",
+        "created_at": "2026-03-01T10:00:00Z",
+        "error": {
+          "kind": "exit_code",
+          "message": "boom"
+        },
+        "executions": [
+          {
+            "id": "ex-a",
+            "attempt_id": "at-a",
+            "attempt": 1,
+            "state": "failed",
+            "error": {
+              "kind": "exit_code",
+              "message": "boom"
+            },
+            "finished_at": "2026-03-01T10:00:10Z"
+          }
+        ]
+      }
+    ]
+  }
+}

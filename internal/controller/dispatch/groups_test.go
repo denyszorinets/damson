@@ -179,3 +179,147 @@ func TestRetryInsideGroup(t *testing.T) {
 		}
 	})
 }
+
+func catchSpec(rethrow bool, bodyWord string) string {
+	r := ""
+	if rethrow {
+		r = `"rethrow":true,`
+	}
+	return `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"lin"},
+"spec":{"steps":[{"id":"s1","plugin":"demo","with":{"word":"one"}},
+{"id":"deploy","type":"group",` + r + `
+  "steps":[{"id":"unpack","plugin":"demo","with":{"word":"` + bodyWord + `"}},{"id":"build","plugin":"demo","with":{"word":"build"}}],
+  "catch":[{"id":"rollback","plugin":"demo","with":{"word":"rollback ${{ error.step }} ${{ error.kind }}"}}],
+  "finally":[{"id":"cleanup","plugin":"demo","with":{"word":"cleanup"}}]},
+{"id":"report","plugin":"demo","with":{"word":"report ${{ steps.deploy.status }} ${{ steps.deploy.handled }}"}}]}}`
+}
+
+func stepsByPath(tree store.RunTree) map[string]store.StepNode {
+	m := map[string]store.StepNode{}
+	for _, n := range tree.Steps {
+		m[n.Path] = n
+	}
+	return m
+}
+
+// A failing body step runs the catch list with `error` bound, then finally;
+// the group succeeds as handled and the run goes on.
+func TestCatchHandlesFailureAndFinallyRuns(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		c := startCluster(t, st, catchSpec(false, "boom"))
+		tree := c.waitRun(c.trigger("one"), store.RunSucceeded)
+		by := stepsByPath(tree)
+
+		want := map[string]store.StepStatus{
+			"deploy/unpack": store.StepFailed, "deploy/build": store.StepSkipped,
+			"deploy/catch/rollback": store.StepSucceeded, "deploy/finally/cleanup": store.StepSucceeded, "report": store.StepSucceeded,
+		}
+		for p, status := range want {
+			if got := by[p].Status; got != status {
+				t.Fatalf("step %q = %q; want %q (steps %v)", p, got, status, paths(tree))
+			}
+		}
+		g := by["deploy"]
+		if g.Status != store.StepSucceeded || !g.Handled() {
+			t.Fatalf("deploy = %s handled=%v error=%q; want a handled success", g.Status, g.Handled(), g.Error)
+		}
+		if kind, _ := store.SplitStepError(g.Error); kind == "" {
+			t.Fatalf("handled group error = %q; want the caught error", g.Error)
+		}
+		waitLog(t, st, by["deploy/catch/rollback"].Executions[0].ID, "said rollback unpack")
+		waitLog(t, st, by["report"].Executions[0].ID, "said report succeeded true")
+	})
+}
+
+// With rethrow the group fails after catch and finally have run, and the run
+// fails with it.
+func TestRethrowFailsGroupAfterCatchAndFinally(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		c := startCluster(t, st, catchSpec(true, "boom"))
+		tree := c.waitRun(c.trigger("one"), store.RunFailed)
+		by := stepsByPath(tree)
+		for _, p := range []string{"deploy/catch/rollback", "deploy/finally/cleanup"} {
+			if by[p].Status != store.StepSucceeded {
+				t.Fatalf("step %q = %q; want succeeded (steps %v)", p, by[p].Status, paths(tree))
+			}
+		}
+		if g := by["deploy"]; g.Status != store.StepFailed || g.Handled() {
+			t.Fatalf("deploy = %s handled=%v; want failed", g.Status, g.Handled())
+		}
+		if by["report"].Status != store.StepSkipped {
+			t.Fatalf("report = %q; want skipped after the failed group", by["report"].Status)
+		}
+	})
+}
+
+// A successful body skips catch and still runs finally.
+func TestFinallyRunsAfterSuccessAndCatchIsSkipped(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		c := startCluster(t, st, catchSpec(false, "fine"))
+		tree := c.waitRun(c.trigger("one"), store.RunSucceeded)
+		by := stepsByPath(tree)
+		if _, ran := by["deploy/catch/rollback"]; ran {
+			t.Fatal("catch ran after a successful body")
+		}
+		if by["deploy/finally/cleanup"].Status != store.StepSucceeded || by["deploy"].Status != store.StepSucceeded || by["deploy"].Handled() {
+			t.Fatalf("steps %v", paths(tree))
+		}
+	})
+}
+
+// A cancel while the body runs stops the body, skips catch and still runs the
+// finally list, within its grace; the run ends cancelled.
+func TestCancelInBodyStillRunsFinally(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		c := startCluster(t, st, catchSpec(false, "hold"))
+		id := c.trigger("one")
+		waitStepExecution(t, c, id, "deploy/unpack", store.ExecRunning)
+
+		c.requestCancel(id)
+		tree := c.waitRun(id, store.RunCanceled)
+		by := stepsByPath(tree)
+		want := map[string]store.StepStatus{
+			"deploy/unpack": store.StepCanceled, "deploy/build": store.StepCanceled,
+			"deploy/finally/cleanup": store.StepSucceeded, "deploy": store.StepCanceled, "report": store.StepCanceled,
+		}
+		for p, status := range want {
+			if got := by[p].Status; got != status {
+				t.Fatalf("step %q = %q; want %q (steps %v)", p, got, status, paths(tree))
+			}
+		}
+		if _, ran := by["deploy/catch/rollback"]; ran {
+			t.Fatal("catch ran for a cancelled body")
+		}
+		if ex := by["deploy/finally/cleanup"].Executions; len(ex) != 1 || ex[0].Timeout == 0 {
+			t.Fatalf("cleanup executions = %+v; want one with the grace-capped timeout", ex)
+		}
+	})
+}
+
+// The end of the finally grace cancels a finally step that was already running
+// when the cancel came. Nothing else wakes the run (the sweep is off in this
+// cluster), so the wake the engine asks for must be queued even though the
+// Decide that asks for it changes nothing else.
+func TestFinallyGraceEndCancelsARunningFinallyStep(t *testing.T) {
+	spec := `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"lin"},
+"spec":{"steps":[{"id":"s1","plugin":"demo","with":{"word":"one"}},
+{"id":"deploy","type":"group","steps":[{"id":"body","plugin":"demo","with":{"word":"fine"}}],
+  "finally":[{"id":"cleanup","plugin":"demo","with":{"word":"hold"}}]}]}}`
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		c := startClusterGrace(t, st, spec, time.Second)
+		id := c.trigger("one")
+		waitStepExecution(t, c, id, "deploy/finally/cleanup", store.ExecRunning)
+
+		c.requestCancel(id)
+		// Without the wake nothing would end the held step: the sweep is disabled.
+		tree := c.waitRun(id, store.RunCanceled)
+		by := stepsByPath(tree)
+		cleanup := by["deploy/finally/cleanup"]
+		if cleanup.Status != store.StepCanceled || len(cleanup.Executions) != 1 || cleanup.Executions[0].State != store.ExecCanceled {
+			t.Fatalf("cleanup = %s %+v; want canceled when the grace ended", cleanup.Status, cleanup.Executions)
+		}
+		if by["deploy"].Status != store.StepCanceled {
+			t.Fatalf("deploy = %s; want canceled", by["deploy"].Status)
+		}
+	})
+}

@@ -92,21 +92,29 @@ func (c *core) once(ctx context.Context, runID string) (changed bool, err error)
 	if err != nil {
 		return false, &permanentError{fmt.Errorf("deciding run %s: %w", runID, err)}
 	}
-	adv, wakeAt, err := toAdvance(acts, tree, job)
+	adv, wakes, err := toAdvance(acts, tree, job)
 	if err != nil {
 		return false, &permanentError{err}
 	}
 	if adv.Empty() {
+		// A Decide can ask only for a wake (the end of a finally grace while a
+		// finally step runs): nothing to apply, but the wake must be queued or
+		// nothing runs the advance then.
+		if err := c.queueWakes(ctx, runID, wakes); err != nil {
+			return false, err
+		}
 		return false, nil
 	}
 	err = c.st.WithTx(ctx, func(tx store.Tx) error {
 		if _, err := tx.ApplyAdvance(ctx, runID, tree.Version, adv, now); err != nil {
 			return err
 		}
-		// The job-level timeout's wake-up is queued with the start of the run.
-		if !wakeAt.IsZero() && c.wake != nil {
-			if err := c.wake(ctx, tx, runID, wakeAt); err != nil {
-				return err
+		// Wake-ups (the job-level timeout's deadline, the end of a finally grace) are queued in the same transaction.
+		if c.wake != nil {
+			for _, at := range wakes {
+				if err := c.wake(ctx, tx, runID, at); err != nil {
+					return err
+				}
 			}
 		}
 		// A cancelled queued execution finishes its step without any agent
@@ -192,3 +200,20 @@ type permanentError struct{ err error }
 
 func (e *permanentError) Error() string { return e.err.Error() }
 func (e *permanentError) Unwrap() error { return e.err }
+
+// queueWakes inserts the wake jobs of a Decide that changed nothing, in a
+// transaction of their own. A wake is unique per (run, deadline), so asking
+// again while one is queued adds nothing.
+func (c *core) queueWakes(ctx context.Context, runID string, wakes []time.Time) error {
+	if len(wakes) == 0 || c.wake == nil {
+		return nil
+	}
+	return c.st.WithTx(ctx, func(tx store.Tx) error {
+		for _, at := range wakes {
+			if err := c.wake(ctx, tx, runID, at); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}

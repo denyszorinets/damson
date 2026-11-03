@@ -1,0 +1,26 @@
+[
+  {
+    "path": "deploy/build",
+    "reason": "a previous step failed",
+    "status": "skipped",
+    "step_id": "build",
+    "type": "skip_step"
+  },
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "input": {
+      "command": "rollback unpack deploy/unpack exit_code boom",
+      "node": "n"
+    },
+    "path": "deploy/catch/rollback",
+    "plugin": "ssh",
+    "step_id": "rollback",
+    "type": "create_step_instance"
+  },
+  {
+    "attempt": 1,
+    "path": "deploy/catch/rollback",
+    "scheduled_at": "2026-03-01T10:05:00Z",
+    "type": "schedule_execution"
+  }
+]

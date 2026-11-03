@@ -68,6 +68,7 @@ func Run(t *testing.T, f Factory) {
 		{"AdoptExecutions", testAdoptExecutions},
 		{"CancelFlag", testCancelFlag},
 		{"Groups", testGroups},
+		{"GroupHandled", testGroupHandled},
 		{"RetryAttempts", testRetryAttempts},
 		{"ExecutionTimeout", testExecutionTimeout},
 		{"StepErrorKinds", testStepErrorKinds},

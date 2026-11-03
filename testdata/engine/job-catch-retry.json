@@ -1,0 +1,77 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "catch-retry"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "deploy",
+        "type": "group",
+        "steps": [
+          {
+            "id": "unpack",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "unpack"
+            }
+          },
+          {
+            "id": "build",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "build"
+            }
+          }
+        ],
+        "catch": [
+          {
+            "id": "rollback",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "rollback ${{ error.step }} ${{ error.path }} ${{ error.kind }} ${{ error.message }}"
+            }
+          },
+          {
+            "id": "notify",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "notify"
+            }
+          }
+        ],
+        "finally": [
+          {
+            "id": "cleanup",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "cleanup"
+            },
+            "retry": {
+              "max_attempts": 3,
+              "backoff": {
+                "initial": "5s",
+                "jitter": 0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "report",
+        "plugin": "ssh",
+        "with": {
+          "node": "n",
+          "command": "report"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "catch"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "deploy",
+        "type": "group",
+        "steps": [
+          {
+            "id": "unpack",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "unpack"
+            }
+          },
+          {
+            "id": "build",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "build"
+            }
+          }
+        ],
+        "catch": [
+          {
+            "id": "rollback",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "rollback ${{ error.step }} ${{ error.path }} ${{ error.kind }} ${{ error.message }}"
+            }
+          },
+          {
+            "id": "notify",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "notify"
+            }
+          }
+        ],
+        "finally": [
+          {
+            "id": "cleanup",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "cleanup"
+            }
+          }
+        ]
+      },
+      {
+        "id": "report",
+        "plugin": "ssh",
+        "with": {
+          "node": "n",
+          "command": "report"
+        }
+      }
+    ]
+  }
+}

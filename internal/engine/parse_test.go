@@ -92,8 +92,8 @@ func TestParseInvalid(t *testing.T) {
 		{"retry jitter above 1", mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 3, "backoff": {"jitter": 1.5}},`), "spec.steps[0].retry.backoff.jitter", "maximum"},
 		{"retry_on syntax", mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 3, "retry_on": "error.kind =="},`), "spec.steps[0].retry.retry_on", "invalid expression"},
 		{"for_each reserved", mutate(t, `"timeout": "10m",`, `"for_each": "targets",`), "spec.steps[0].for_each", "not supported yet"},
-		{"catch reserved", mutate(t, `"timeout": "10m",`, `"catch": [{"id":"c","plugin":"ssh"}],`), "spec.steps[0].catch", "not supported yet"},
-		{"finally reserved", mutate(t, `"timeout": "10m",`, `"finally": [{"id":"c","plugin":"ssh"}],`), "spec.steps[0].finally", "not supported yet"},
+		{"catch reserved", mutate(t, `"timeout": "10m",`, `"catch": [{"id":"c","plugin":"ssh"}],`), "spec.steps[0].catch", "only valid on a step of type"},
+		{"finally reserved", mutate(t, `"timeout": "10m",`, `"finally": [{"id":"c","plugin":"ssh"}],`), "spec.steps[0].finally", "only valid on a step of type"},
 		{"concurrency reserved", mutate(t, `"timeout": "30m",`, `"timeout": "30m", "concurrency": {"key": "x", "max": 1},`), "spec.concurrency", "not supported yet"},
 	}
 	for _, tt := range tests {
@@ -271,6 +271,13 @@ func TestParseInvalidGroups(t *testing.T) {
 		{"steps on a plugin step", `[{"id":"a","plugin":"ssh","steps":[{"id":"c","plugin":"ssh"}]}]`, "spec.steps[0].steps", "only valid on a step of type"},
 		{"reserved id catch in a group", `[{"id":"g","type":"group","steps":[{"id":"catch","plugin":"ssh"}]}]`, "spec.steps[0].steps[0].id", "reserved inside a group"},
 		{"reserved id finally", `[{"id":"g","type":"group","steps":[{"id":"finally","plugin":"ssh"}]}]`, "spec.steps[0].steps[0].id", "reserved"},
+		{"duplicate id across body and catch", `[{"id":"g","type":"group","steps":[{"id":"c","plugin":"ssh"}],"catch":[{"id":"c","plugin":"ssh"}]}]`, "spec.steps[0].catch[0].id", "duplicate id"},
+		{"duplicate id across catch and finally", `[{"id":"g","type":"group","steps":[{"id":"a","plugin":"ssh"}],"catch":[{"id":"c","plugin":"ssh"}],"finally":[{"id":"c","plugin":"ssh"}]}]`, "spec.steps[0].finally[0].id", "duplicate id"},
+		{"rethrow without catch", `[{"id":"g","type":"group","rethrow":true,"steps":[{"id":"a","plugin":"ssh"}]}]`, "spec.steps[0].rethrow", "needs a catch list"},
+		{"rethrow on a plugin step", `[{"id":"a","plugin":"ssh","rethrow":true}]`, "spec.steps[0].rethrow", "only valid on a step of type"},
+		{"reserved id in a catch list", `[{"id":"g","type":"group","steps":[{"id":"a","plugin":"ssh"}],"catch":[{"id":"finally","plugin":"ssh"}]}]`, "spec.steps[0].catch[0].id", "reserved inside a group"},
+		{"catch step is validated", `[{"id":"g","type":"group","steps":[{"id":"a","plugin":"ssh"}],"catch":[{"id":"c","plugin":"Bad Name"}]}]`, "spec.steps[0].catch[0].plugin", "name@<major>"},
+		{"finally when is checked", `[{"id":"g","type":"group","steps":[{"id":"a","plugin":"ssh"}],"finally":[{"id":"f","plugin":"ssh","when":"always( &&"}]}]`, "spec.steps[0].finally[0].when", "invalid expression"},
 		{"duplicate id in a group", `[{"id":"g","type":"group","steps":[{"id":"c","plugin":"ssh"},{"id":"c","plugin":"ssh"}]}]`, "spec.steps[0].steps[1].id", "duplicate id"},
 		{"nested step is validated", `[{"id":"g","type":"group","steps":[{"id":"c","plugin":"Bad Name"}]}]`, "spec.steps[0].steps[0].plugin", "name@<major>"},
 		{"nested when is checked", `[{"id":"g","type":"group","steps":[{"id":"c","plugin":"ssh","when":"always( &&"}]}]`, "spec.steps[0].steps[0].when", "invalid expression"},
@@ -302,6 +309,25 @@ func TestTopLevelCatchAndFinallyIDsStayValid(t *testing.T) {
 	}
 	for path, want := range map[string]string{"catch": "ssh", "finally": "ssh", "g/x": "ssh"} {
 		if s, ok := job.StepAt(path); !ok || s.Plugin != want {
+			t.Errorf("StepAt(%q) = %+v, %v", path, s, ok)
+		}
+	}
+}
+
+func TestParseValidCatchFinally(t *testing.T) {
+	job, err := Parse(stepsDoc(`[{"id":"deploy","type":"group","rethrow":true,
+		"steps":[{"id":"unpack","plugin":"ssh"}],
+		"catch":[{"id":"rollback","plugin":"ssh","with":{"cmd":"${{ error.step }} ${{ error.kind }}"}}],
+		"finally":[{"id":"cleanup","plugin":"ssh","when":"always()"}]}]`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	g := job.Spec.Steps[0]
+	if g.Rethrow == nil || !*g.Rethrow || len(g.Catch) != 1 || len(g.Finally) != 1 {
+		t.Fatalf("group = %+v", g)
+	}
+	for path, plugin := range map[string]string{"deploy/unpack": "ssh", "deploy/catch/rollback": "ssh", "deploy/finally/cleanup": "ssh"} {
+		if s, ok := job.StepAt(path); !ok || s.Plugin != plugin {
 			t.Errorf("StepAt(%q) = %+v, %v", path, s, ok)
 		}
 	}

@@ -592,6 +592,8 @@ export interface components {
             executions: components["schemas"]["Execution"][] | null;
             /** Format: date-time */
             finished_at?: string;
+            /** @description A group whose failure its catch list handled: the group succeeded and error is the failure that was caught. */
+            handled?: boolean;
             id: string;
             /** @description Resolved plugin input; holds secret:// references, never secret values. */
             input?: unknown;

@@ -59,7 +59,7 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 		return err
 	}
 	n, err := node.Start(ctx, node.Config{
-		Store: st, ControllerID: id, InternalURL: cfg.Controller.InternalURL, Plugins: plugins, DevNodes: devNodes,
+		Store: st, ControllerID: id, InternalURL: cfg.Controller.InternalURL, Plugins: plugins, DevNodes: devNodes, FinallyGrace: cfg.FinallyGraceDuration(),
 		InsecureDev: cfg.Controller.InsecureDev, TrustForwardedProto: cfg.Controller.TrustForwardedProto,
 		Addr: cfg.Controller.Listen, UI: webui.Handler(web.Build()), Logger: log,
 	})

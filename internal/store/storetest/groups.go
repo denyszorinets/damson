@@ -178,3 +178,29 @@ func testGroups(t *testing.T, s store.Store) {
 		}
 	})
 }
+
+func testGroupHandled(t *testing.T, s store.Store) {
+	migrated(t, s)
+	at := claimNow.Add(time.Minute)
+	_, tree := mustRun(t, s, "g-handled")
+	id := tree.ID
+	if err := applyAdvance(t, s, id, store.Advance{NewSteps: []store.AdvanceStep{groupStep("caught"), groupStep("clean")}}, at); err != nil {
+		t.Fatal(err)
+	}
+	finish := []store.AdvanceFinishGroup{
+		{Path: "caught", Status: store.StepSucceeded, Error: `{"kind":"exit_code","message":"boom","path":"caught/a"}`},
+		{Path: "clean", Status: store.StepSucceeded},
+	}
+	if err := applyAdvance(t, s, id, store.Advance{FinishGroups: finish}, at.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if g := stepAt(t, s, id, "caught"); !g.Handled() {
+		t.Fatalf("caught = %+v; want handled", g.StepInstance)
+	}
+	if g := stepAt(t, s, id, "clean"); g.Handled() {
+		t.Fatalf("clean = %+v; want not handled", g.StepInstance)
+	}
+	if n := stepAt(t, s, id, "main/a"); n.Handled() {
+		t.Fatal("a plugin step is never handled")
+	}
+}

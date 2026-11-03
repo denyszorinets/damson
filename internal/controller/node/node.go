@@ -41,6 +41,10 @@ type Config struct {
 	ControllerID string
 	InternalURL  string
 	Plugins      *pluginreg.Registry
+	// FinallyGrace is how long finally blocks may run after a cancel or the
+	// job timeout; zero selects the engine default. All controllers of a
+	// cluster must use the same value.
+	FinallyGrace time.Duration
 	// DevNodes replaces inventory and secret authorization (development
 	// only, ADR-0034). Nil in production.
 	DevNodes *devnodes.File
@@ -106,7 +110,7 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 // handler exists.
 func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 	log, t := cfg.Logger, cfg.Timing
-	eng, err := engine.New(expr.Limits{})
+	eng, err := engine.New(expr.Limits{}, engine.WithFinallyGrace(cfg.FinallyGrace))
 	if err != nil {
 		return fmt.Errorf("building engine: %w", err)
 	}

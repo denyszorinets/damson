@@ -107,6 +107,21 @@ order; a failure inside skips the rest of the group (unless a later step's
 error, which fails the enclosing list like any failed step. A group whose
 ``when`` is false is skipped without creating its steps.
 
+A group may also have ``catch``, ``finally`` and ``rethrow``
+(:doc:`/architecture/decisions/0037-groups-scoping-and-status`). When a body
+step fails, the rest of the body is skipped and the ``catch`` steps run with
+``error`` bound (``error.step``, ``error.path``, ``error.kind``,
+``error.message``, ``error.exit_code`` when known); if the catch steps do not
+fail the group *succeeds as handled* (``steps.<group>.handled``), unless
+``rethrow: true``, which fails it with the original error after ``finally``. The
+``finally`` steps always run for a group that started, also after a failure or a
+cancel, and a failure in ``finally`` fails the group. After a cancel or the job
+timeout, ``finally`` is protected for ``engine.finally_grace`` (default 2m,
+:doc:`configuration`): its steps keep running during the grace, a finally step
+that starts then gets at most the time left as its timeout, and what is still
+running after it is cancelled. The three lists of a group share one id
+namespace, and ``rethrow`` needs a ``catch`` list.
+
 Inside a group the step ids ``catch`` and ``finally`` are reserved (a
 top-level step may still use them), and groups nest at most 8 deep. A nested step's path is ``<group>/<id>``
 (:doc:`/architecture/decisions/0037-groups-scoping-and-status`).
@@ -126,8 +141,8 @@ Reserved fields (rejected for now)
 
 These fields are part of the schema so that M3 extends the model instead of
 reshaping it, but validation rejects them with ``<path> is not supported yet``:
-``spec.concurrency``, and on steps ``catch``, ``finally``, ``rethrow``,
-``for_each``, ``max_parallel`` and ``fail_threshold``.
+``spec.concurrency``, and on steps ``for_each``, ``max_parallel`` and
+``fail_threshold``.
 
 Control flow (sequential)
 -------------------------

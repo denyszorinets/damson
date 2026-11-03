@@ -277,10 +277,12 @@ The engine evaluates these rules deterministically:
 1. Steps in a list run **sequentially**.
 2. Before a step runs, its `when` is evaluated. If false, the step is `skipped`.
 3. If a step fails and has no `continue_on_error`, the rest of that list is skipped, except for steps whose `when` explicitly allows it by calling a status function (`failure()`, `always()` or `cancelled()`). Any status function in `when` turns off the implicit `success() &&` that is otherwise prepended.
-4. **Group with `catch`.** If any step in `steps` fails, `catch` runs with `error` bound to the failing step's error.
-   - If `catch` succeeds and `rethrow` is false, the group is `succeeded (handled)`.
-   - If `rethrow` is true, the group fails after `catch` and `finally`.
-5. **`finally`** always runs, whether the group succeeded, failed, or was cancelled (with a short grace period on cancel). A failure in `finally` fails the group.
+4. **Group with `catch`** (ADR-0037). If a step in `steps` fails (and does not `continue_on_error`), the rest of `steps` is skipped and `catch` runs with `error` bound to that failure: `step` (the failing step's id), `path` (its instance path, the leaf for a failure in a nested group), `kind`, `message` and, when known, `exit_code`; steps nested in the catch list inherit `error`. A cancelled body does not enter `catch` (cancelled is not failed).
+   - If `catch` does not fail, the group is `succeeded (handled)`: it keeps the caught error (`steps.<group>.handled` is true, `steps.<group>.error` is the caught error). A catch whose steps were all skipped counts as handled.
+   - If `rethrow` is true, the group fails with the original body error after `catch` and `finally`.
+   - If `catch` fails, the group fails with the catch error, which replaces the body error; if `catch` was cancelled the body error stands.
+5. **`finally`** runs after the body and the catch list, whether the group succeeded, failed, or was cancelled. A failure in `finally` fails the group and replaces any other error. It does not run for a group that never started (its `when` was false). After a cancel or the job timeout the finally list is protected for a grace period (`engine.finally_grace`, default 2m): its steps are not cancelled until the cancel instant plus the grace, a finally step that starts during the grace gets at most the time left as its `timeout`, and a wake at the end of the grace cancels what is still running; after it, unstarted finally steps are cancelled ("finally grace expired"). The grace applies to `finally` only, not to top-level `always()` steps, and not to the finally list of a group created at or after the cancel (it is itself left to run to completion). A finally step cut by its capped timeout fails with kind `timeout` and can make the run `failed` rather than `cancelled`; the grace is measured against `cancel_requested_at`, so controller clocks must be kept in sync. The status functions in a finally list are local to it, and a finally list is run as if created after the cancel, so the default `when` runs.
+   - A group is finished as: finally failed, then catch failed, then rethrown, then handled, then uncaught body failure (all `failed`), else `cancelled` if any step was cancelled, else `succeeded`. At group level a failure beats a cancel.
 6. **`for_each: "targets"`** (or any CEL list expression) runs the group body once per item, in independent *lanes*, with `node` bound.
    - Inside a lane, `steps.<id>` refers to that lane's steps.
    - `max_parallel` limits concurrent lanes.
@@ -310,7 +312,7 @@ The engine evaluates these rules deterministically:
   | `targets` | The resolved node list |
   | `steps.<id>` | `status`, `outputs`, `error`, `started_at`, `finished_at`. Lexical: a step sees the earlier siblings of its own list and of every enclosing list, an inner id shadowing an outer one; lane-local inside `for_each`. A group also has `handled` and `steps` (the values of its body steps) |
   | `steps.<id>.lanes[<key>]` | Access to a specific lane's results from outside the group |
-  | `error` | Inside `catch`: `step`, `kind`, `message`, `exit_code` |
+  | `error` | Inside `catch`: `step`, `path`, `kind`, `message`, `exit_code` (steps nested in the catch list inherit it; `retry_on` is evaluated over the attempt's own error) |
 
 - **Secrets are never values in the CEL context.** They are referenced only as `secret://...` strings in plugin fields whose schema marks them `x-damson-secret: true`. They are resolved at dispatch time (§9).
 - **Run options** marked `x-damson-secret: true` in `spec.options` accept only `secret://` references (anything else is rejected at trigger time, and such an option may not default to a plaintext value). Options that are not marked are stored and returned verbatim, so authors must mark credentials.
@@ -797,7 +799,7 @@ Action = CreateStepInstance | ScheduleExecution | SettleStep | SkipStep | Comple
    - For flagged Executions, the owning controller (`executions.controller_id`) sends `step.cancel` with `grace_ms` (default 5s). The hint is delivered via `LISTEN/NOTIFY` (Postgres) plus a 2s poll fallback. Controllers skip agents that have no socket to them: after the agent reconnects the controller that adopts it sends the cancel, and if it never returns the lease reaper settles the attempt.
    - The agent's `step.complete` is applied as reported through the normal fenced path: `canceled` ends the step and the run; a plugin that finished anyway reports `succeeded` and is applied as such.
    - A flagged attempt that was claimed but never delivered (the agent rejected it, the send failed, or its cancel was answered) is not requeued: it goes `canceled` (`CancelUndelivered`), because a requeued flagged row would run again.
-   - `finally` blocks run after cancellation, with a configured grace period.
+   - `finally` blocks run after cancellation, within the finally grace (`engine.finally_grace`, §5.3 rule 5): protected from `step.cancel` until the grace ends, capped by a `timeout`, with a wake scheduled for its end.
 
 ### 8.4 Singleton duties (leader lease)
 

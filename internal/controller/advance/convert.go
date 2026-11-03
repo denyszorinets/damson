@@ -21,8 +21,9 @@ const DefaultPool = "default"
 //     becomes an AdvanceAttempt;
 //   - SkipStep and FailStep become already finished steps;
 //   - TimeoutRun becomes Advance.CancelRun (a sticky cancel with reason
-//     timeout) and ScheduleWake is returned as the wake time, for the caller to
-//     queue in the same transaction;
+//     timeout) and ScheduleWake actions are returned as wake times (the job
+//     timeout deadline, the end of a finally grace), for the caller to queue in
+//     the same transaction;
 //   - a group is created by CreateStepInstance with Kind group (no execution;
 //     the store starts it) and finished by CompleteGroup, which becomes
 //     Advance.FinishGroups with the failure that decided it as JSON;
@@ -36,7 +37,7 @@ const DefaultPool = "default"
 //   - the execution pool is runs_on.pool of the step in the job spec, else
 //     DefaultPool; priority is 0; ScheduleExecution.Timeout is stored on the
 //     execution and sent to the agent, which enforces it.
-func toAdvance(acts []engine.Action, tree store.RunTree, job *engine.Job) (adv store.Advance, wakeAt time.Time, err error) {
+func toAdvance(acts []engine.Action, tree store.RunTree, job *engine.Job) (adv store.Advance, wakes []time.Time, err error) {
 	created := map[string]int{} // path -> index in adv.NewSteps
 	for _, act := range acts {
 		switch a := act.(type) {
@@ -71,17 +72,17 @@ func toAdvance(acts []engine.Action, tree store.RunTree, job *engine.Job) (adv s
 		case engine.TimeoutRun:
 			adv.CancelRun = store.CancelReasonTimeout
 		case engine.ScheduleWake:
-			wakeAt = a.At
+			wakes = append(wakes, a.At)
 		case engine.CompleteRun:
 			adv.Finish = store.RunStatus(a.Status.Store())
 		default:
 			err = fmt.Errorf("unsupported engine action %q", act.ActionType())
 		}
 		if err != nil {
-			return store.Advance{}, time.Time{}, fmt.Errorf("run %s: %w", tree.ID, err)
+			return store.Advance{}, nil, fmt.Errorf("run %s: %w", tree.ID, err)
 		}
 	}
-	return adv, wakeAt, nil
+	return adv, wakes, nil
 }
 
 func schedule(adv *store.Advance, created map[string]int, a engine.ScheduleExecution, job *engine.Job) error {

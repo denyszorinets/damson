@@ -94,7 +94,13 @@ var reservedIDs = map[string]bool{SegCatch: true, SegFinally: true}
 // they could be mistaken for a list marker in a path; a top-level step may
 // still use them, as jobs saved before groups existed may.
 func (v *validator) steps(path string, steps []Step, depth int) {
-	seen := map[string]int{}
+	v.stepsIn(path, steps, depth, map[string]string{})
+}
+
+// stepsIn is steps with the ids already taken: a group's steps, catch and
+// finally lists share one id namespace, so the group passes the same map to all
+// three. seen maps an id to where it was first used.
+func (v *validator) stepsIn(path string, steps []Step, depth int, seen map[string]string) {
 	for i := range steps {
 		p := fmt.Sprintf("%s[%d]", path, i)
 		s := &steps[i]
@@ -106,11 +112,11 @@ func (v *validator) steps(path string, steps []Step, depth int) {
 		case depth > 1 && reservedIDs[s.ID]:
 			v.add(p+".id", "%q is reserved inside a group (it marks the catch and finally lists in step paths)", s.ID)
 		case dup:
-			v.add(p+".id", "duplicate id %q (first used at %s[%d])", s.ID, path, first)
+			v.add(p+".id", "duplicate id %q (first used at %s)", s.ID, first)
 		}
 		if s.ID != "" {
 			if _, ok := seen[s.ID]; !ok {
-				seen[s.ID] = i
+				seen[s.ID] = p
 			}
 		}
 		v.step(p, s, depth)
@@ -123,8 +129,13 @@ func (v *validator) step(p string, s *Step, depth int) {
 		v.group(p, s, depth)
 		return
 	}
-	if len(s.Steps) > 0 {
-		v.add(p+".steps", "is only valid on a step of type %q", StepTypeGroup)
+	for _, f := range []struct {
+		name string
+		set  bool
+	}{{"steps", len(s.Steps) > 0}, {"catch", len(s.Catch) > 0}, {"finally", len(s.Finally) > 0}, {"rethrow", s.Rethrow != nil}} {
+		if f.set {
+			v.add(p+"."+f.name, "is only valid on a step of type %q", StepTypeGroup)
+		}
 	}
 	switch {
 	case s.Plugin == "":
@@ -150,8 +161,7 @@ func (v *validator) reserved(p string, s *Step) {
 		name string
 		set  bool
 	}{
-		{"catch", len(s.Catch) > 0}, {"finally", len(s.Finally) > 0},
-		{"rethrow", s.Rethrow != nil}, {"for_each", s.ForEach != ""},
+		{"for_each", s.ForEach != ""},
 		{"max_parallel", s.MaxParallel != nil}, {"fail_threshold", s.FailThreshold != nil},
 	}
 	for _, f := range fields {
@@ -182,11 +192,17 @@ func (v *validator) group(p string, s *Step, depth int) {
 	if s.When != "" {
 		v.expression(p+".when", s.When)
 	}
+	if s.Rethrow != nil && *s.Rethrow && len(s.Catch) == 0 {
+		v.add(p+".rethrow", "needs a catch list")
+	}
 	if len(s.Steps) == 0 {
 		v.add(p+".steps", "a group needs at least one step")
 		return
 	}
-	v.steps(p+".steps", s.Steps, depth+1)
+	seen := map[string]string{}
+	v.stepsIn(p+".steps", s.Steps, depth+1, seen)
+	v.stepsIn(p+".catch", s.Catch, depth+1, seen)
+	v.stepsIn(p+".finally", s.Finally, depth+1, seen)
 }
 
 func (v *validator) duration(path, s string) {

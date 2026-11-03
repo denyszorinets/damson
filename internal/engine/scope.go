@@ -1,6 +1,9 @@
 package engine
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // A scope is one step list being walked: the top-level list of the job, or the
 // body of a group. Its prefix is the path prefix of the instances it holds,
@@ -17,6 +20,14 @@ type scope struct {
 	// cancelled): the run-level cancel does not count against success() there,
 	// so its steps run like the always() steps created after a cancel do.
 	shielded bool
+	// finally marks a finally list and everything nested in it: its steps are
+	// protected from a cancel until the finally grace ends.
+	finally bool
+	// cancelled is true once a step of this list was cancelled (success() is
+	// then false for the steps after it).
+	cancelled bool
+	// errv is the `error` bound in a catch list; nested scopes inherit it.
+	errv map[string]any
 }
 
 func newScope(prefix string, list []Step, parent *scope) *scope {
@@ -41,13 +52,17 @@ func (sc *scope) stepsVar() map[string]any {
 
 // anyCancelled reports whether a step already walked in this list was
 // cancelled (success() is then false).
-func (sc *scope) anyCancelled() bool {
-	for _, v := range sc.vis {
-		if m, ok := v.(map[string]any); ok && m["status"] == string(StepCancelled) {
-			return true
+func (sc *scope) anyCancelled() bool { return sc.cancelled }
+
+// errorVar is the `error` expression variable: the one bound by the nearest
+// enclosing catch list, if any.
+func (sc *scope) errorVar() map[string]any {
+	for s := sc; s != nil; s = s.parent {
+		if s.errv != nil {
+			return s.errv
 		}
 	}
-	return false
+	return nil
 }
 
 // outcome is what walking a scope leaves behind. done is false while some
@@ -101,6 +116,7 @@ func (d *decider) walk(sc *scope) (outcome, error) {
 			o.failed = true
 		}
 		o.cancelled = o.cancelled || inst.Status == StepCancelled
+		sc.cancelled = o.cancelled
 	}
 	return o, nil
 }
@@ -124,6 +140,10 @@ func failureOf(inst StepInstanceState, path string) *StepError {
 // the instance is created and the walk continues into its body in this same
 // Decide; settled reports whether the group is already finished.
 func (d *decider) beginGroup(sc *scope, step Step, path string, failed bool) (settled bool, err error) {
+	if sc.finally && d.graceOver() {
+		d.skipGraceExpired(step, path, "group")
+		return true, nil
+	}
 	ok, werr := d.evalWhen(sc, step, failed)
 	if werr != nil {
 		d.fail(step, path, "group", fmt.Errorf("evaluating when: %w", werr))
@@ -139,29 +159,113 @@ func (d *decider) beginGroup(sc *scope, step Step, path string, failed bool) (se
 	return d.runGroup(sc, step, path)
 }
 
-// runGroup walks the body of a group whose instance exists and, once the body
-// is done, finishes the group: failed if a body step failed (and did not
-// continue_on_error), else cancelled if any was cancelled, else succeeded.
+// runGroup walks a group whose instance exists: the body first; then, if a
+// body step failed and the group has a catch list, the catch list with `error`
+// bound to that failure; then the finally list, which always runs. When all of
+// them are done the group is finished (groupStatus).
 func (d *decider) runGroup(sc *scope, step Step, path string) (settled bool, err error) {
 	body := newScope(path+"/", step.Steps, sc)
 	body.shielded = sc.shielded || d.createdAfterCancel(path)
-	o, err := d.walk(body)
-	if err != nil || !o.done {
+	body.finally = sc.finally
+	ob, err := d.walk(body)
+	if err != nil || !ob.done {
 		return false, err
 	}
-	status, gerr := StepSucceeded, (*StepError)(nil)
-	switch {
-	case o.failed:
-		status, gerr = StepFailed, o.err
-	case o.cancelled:
-		status = StepCancelled
+
+	caught := ob.failed && len(step.Catch) > 0
+	oc := outcome{done: true}
+	var catchVis map[string]any
+	if caught {
+		cs := newScope(path+"/"+SegCatch+"/", step.Catch, sc)
+		cs.shielded, cs.finally = body.shielded, sc.finally
+		cs.seed(body.vis)
+		cs.errv = errorValue(ob.err)
+		if oc, err = d.walk(cs); err != nil || !oc.done {
+			return false, err
+		}
+		catchVis = cs.vis
 	}
-	d.emit(CompleteGroup{Path: path, Status: status, Error: gerr})
+
+	of := outcome{done: true}
+	if len(step.Finally) > 0 {
+		fs := newScope(path+"/"+SegFinally+"/", step.Finally, sc)
+		// The list is cut at the grace only when its group predates the cancel.
+		fs.shielded, fs.finally = true, sc.finally || !d.createdAfterCancel(path)
+		fs.seed(body.vis)
+		fs.seed(catchVis)
+		if of, err = d.walk(fs); err != nil || !of.done {
+			return false, err
+		}
+	}
+
+	status, gerr, handled := groupStatus(step, ob, caught, oc, of)
+	d.emit(CompleteGroup{Path: path, Status: status, Handled: handled, Error: gerr})
 	prev := d.byPath[path]
 	finished := d.now
-	prev.Status, prev.Error, prev.FinishedAt = status, gerr, &finished
+	prev.Status, prev.Error, prev.Handled, prev.FinishedAt = status, gerr, handled, &finished
 	d.byPath[path] = prev
 	return true, nil
+}
+
+// groupStatus derives a finished group's status and the error that goes with
+// it. The first rule that matches wins (ARCHITECTURE 5.3 rules 4 and 5):
+//
+//  1. a failed finally list fails the group with its error;
+//  2. a failed catch list fails it with the catch error, and a cancelled one
+//     leaves the body error standing;
+//  3. a caught failure with rethrow fails it with the original body error;
+//  4. a caught failure whose catch list did not fail is handled: the group
+//     succeeds and keeps the body error (a catch whose steps were all skipped
+//     counts as handled);
+//  5. an uncaught body failure fails it with that error;
+//  6. a cancelled step anywhere cancels it;
+//  7. otherwise it succeeded.
+//
+// At group level a real failure beats a cancel, so the failure() handlers of
+// the enclosing list still see it during a cancel.
+func groupStatus(step Step, ob outcome, caught bool, oc, of outcome) (status StepStatus, err *StepError, handled bool) {
+	switch {
+	case of.failed:
+		return StepFailed, of.err, false
+	case caught && oc.failed:
+		return StepFailed, oc.err, false
+	case caught && oc.cancelled:
+		return StepFailed, ob.err, false
+	case caught && step.Rethrow != nil && *step.Rethrow:
+		return StepFailed, ob.err, false
+	case caught:
+		return StepSucceeded, ob.err, true
+	case ob.failed:
+		return StepFailed, ob.err, false
+	case ob.cancelled || oc.cancelled || of.cancelled:
+		return StepCancelled, nil, false
+	}
+	return StepSucceeded, nil, false
+}
+
+// seed copies the values of earlier lists of the same group into this list's
+// visible steps, so catch and finally see the body (and finally the catch).
+func (sc *scope) seed(vis map[string]any) {
+	for k, v := range vis {
+		sc.vis[k] = v
+	}
+}
+
+// errorValue is the `error` variable bound in a catch list: the failing step's
+// path and last segment, kind, message and, when known, exit code.
+func errorValue(e *StepError) map[string]any {
+	if e == nil {
+		return map[string]any{}
+	}
+	step := e.Path
+	if i := strings.LastIndex(step, "/"); i >= 0 {
+		step = step[i+1:]
+	}
+	m := map[string]any{"step": step, "path": e.Path, "kind": e.Kind, "message": e.Message}
+	if e.ExitCode != nil {
+		m["exit_code"] = float64(*e.ExitCode)
+	}
+	return m
 }
 
 // createdAfterCancel reports whether the instance at path was created at or

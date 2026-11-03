@@ -30,6 +30,7 @@ func (d *decider) vars(sc *scope, failed bool) expr.Vars {
 			"version": d.st.Job.Version,
 		},
 		Steps: sc.stepsVar(),
+		Error: sc.errorVar(),
 		Status: expr.Status{
 			Success:   !failed && (!d.canceling || sc.shielded) && !sc.anyCancelled(),
 			Failure:   failed,

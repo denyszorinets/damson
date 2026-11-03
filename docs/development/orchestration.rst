@@ -127,6 +127,19 @@ nested step's spec with ``Job.StepAt(path)``. The engine adds the state a step
 will have once the actions apply (a skipped step, a finished group) to its path
 index, so the steps after it in the same ``Decide`` see it.
 
+Catch and finally
+~~~~~~~~~~~~~~~~~
+
+``runGroup`` walks the body, then (if a body step failed and a catch list
+exists) the catch list with ``error`` bound in its scope, then the finally list;
+``groupStatus`` derives the group's status (rules in ADR-0037). The grace is a
+deadline, ``cancel_requested_at + engine.finally_grace``: ``cancelActive`` keeps
+finally attempts until then, a finally step that starts during it gets the time
+left as ``timeout``, and the engine emits ``ScheduleWake`` at the end of the
+grace. ``toAdvance`` returns every wake of a ``Decide`` and the advance inserts
+them in the transaction that applies it. A handled group is a ``succeeded``
+group that keeps the caught error (``StepInstance.Handled``).
+
 Retries
 -------
 
@@ -160,7 +173,10 @@ When the run starts, ``ScheduleWake`` becomes a River job scheduled for the
 deadline, inserted in the same transaction (``Args.Wake`` is the deadline in
 milliseconds, version 0, so its unique key meets no other job's). A worker that
 runs it before the controller's clock reaches the deadline returns
-``river.JobSnooze``, which does not count as an attempt. If the wake job is
+``river.JobSnooze``, which does not count as an attempt. River moves scheduled
+jobs to available every 5 seconds (its scheduler interval, not configurable
+through its public config), so a wake runs up to about 5 seconds after its
+deadline; the same holds for the end of a finally grace. If the wake job is
 lost, the sweep times the run out within one interval.
 
 Permanent errors

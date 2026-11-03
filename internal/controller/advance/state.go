@@ -70,9 +70,10 @@ func stepState(n store.StepNode) (engine.StepInstanceState, error) {
 	if err := decodeObject(n.Outputs, &inst.Outputs); err != nil {
 		return inst, fmt.Errorf("decoding outputs of step %s: %w", n.Path, err)
 	}
-	if n.Status == store.StepFailed {
+	if n.Status == store.StepFailed || n.Handled() {
 		inst.Error = decodeStepError(n.Error)
 	}
+	inst.Handled = n.Handled()
 	for _, ex := range n.Executions {
 		inst.Executions = append(inst.Executions, executionView(ex))
 	}

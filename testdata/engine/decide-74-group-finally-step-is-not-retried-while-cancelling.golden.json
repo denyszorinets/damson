@@ -1,0 +1,7 @@
+[
+  {
+    "attempt": 1,
+    "path": "deploy/finally/cleanup",
+    "type": "settle_step"
+  }
+]

@@ -39,6 +39,7 @@ type Step struct {
 	Outputs    json.RawMessage `json:"outputs,omitempty"`
 	Error      string          `json:"error,omitempty" doc:"Error message of a failed or canceled step."`
 	ErrorKind  string          `json:"error_kind,omitempty" doc:"Machine-readable kind of the error, such as timeout, lost or a plugin error code."`
+	Handled    bool            `json:"handled,omitempty" doc:"A group whose failure its catch list handled: the group succeeded and error is the failure that was caught."`
 	CreatedAt  time.Time       `json:"created_at"`
 	StartedAt  *time.Time      `json:"started_at,omitempty"`
 	FinishedAt *time.Time      `json:"finished_at,omitempty"`
@@ -110,6 +111,7 @@ func toStep(n store.StepNode) Step {
 		Error: msg, ErrorKind: kind,
 		ID: n.ID, Path: n.Path, Kind: n.Kind, Plugin: n.Plugin, Input: rawJSON(n.Input), Status: string(n.Status),
 		Outputs: rawJSON(n.Outputs), CreatedAt: n.CreatedAt, StartedAt: n.StartedAt, FinishedAt: n.FinishedAt,
+		Handled:    n.Handled(),
 		Executions: make([]Execution, 0, len(n.Executions)),
 	}
 	for _, e := range n.Executions {

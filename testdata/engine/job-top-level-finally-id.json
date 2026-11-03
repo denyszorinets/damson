@@ -1,0 +1,28 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "top-level-finally-id"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "finally",
+        "plugin": "ssh",
+        "with": {
+          "node": "n",
+          "command": "finally"
+        }
+      },
+      {
+        "id": "x",
+        "plugin": "ssh",
+        "with": {
+          "node": "n",
+          "command": "x"
+        }
+      }
+    ]
+  }
+}
