@@ -1,0 +1,17 @@
+[
+  {
+    "error": {
+      "kind": "expression",
+      "message": "evaluating for_each: expression evaluation failed: no such key: nope"
+    },
+    "kind": "group",
+    "path": "per-node",
+    "step_id": "per-node",
+    "type": "fail_step"
+  },
+  {
+    "finished_at": "2026-03-01T10:05:00Z",
+    "status": "failed",
+    "type": "complete_run"
+  }
+]

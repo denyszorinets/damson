@@ -23,11 +23,16 @@ type Status struct {
 // Vars is the whole evaluation context. It contains plain data only; there is
 // deliberately no way to put a secret value in it.
 type Vars struct {
-	Inputs  map[string]any
-	Run     map[string]any
-	Job     map[string]any
-	Steps   map[string]any
-	Node    map[string]any
+	Inputs map[string]any
+	Run    map[string]any
+	Job    map[string]any
+	Steps  map[string]any
+	Node   map[string]any
+	// Item is the for_each item of the lane: any JSON value, null included.
+	// HasItem tells a lane (whose item may be null) from no lane, where item is
+	// an empty object like node.
+	Item    any
+	HasItem bool
 	Targets []any
 	Error   map[string]any
 	Status  Status
@@ -40,6 +45,7 @@ func (v Vars) activation() map[string]any {
 		VarJob:     normalize(orEmpty(v.Job)),
 		VarSteps:   normalize(orEmpty(v.Steps)),
 		VarNode:    normalize(orEmpty(v.Node)),
+		VarItem:    normalize(v.itemValue()),
 		VarTargets: normalize(orEmptyList(v.Targets)),
 		VarError:   normalize(orEmpty(v.Error)),
 
@@ -82,6 +88,15 @@ func orEmpty(m map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	return m
+}
+
+// itemValue is the item inside a lane as it is (null included), and an empty
+// object outside one, like node.
+func (v Vars) itemValue() any {
+	if !v.HasItem && v.Item == nil {
+		return map[string]any{}
+	}
+	return v.Item
 }
 
 func orEmptyList(l []any) []any {
@@ -135,6 +150,40 @@ func (e *Env) EvalBool(src string, vars Vars) (bool, error) {
 		return false, nil
 	}
 	return b, nil
+}
+
+// EvalList evaluates a for_each expression: its result must be a list. The
+// size limit of Limits.MaxResultBytes applies to the whole list.
+func (e *Env) EvalList(src string, vars Vars) ([]any, error) {
+	p, err := e.Compile(src)
+	if err != nil {
+		return nil, err
+	}
+	v, err := e.Eval(p, vars)
+	if err != nil {
+		return nil, err
+	}
+	l, ok := v.([]any)
+	if !ok {
+		return nil, fmt.Errorf("%w: for_each returned %s, want a list", ErrEval, jsonTypeName(v))
+	}
+	return l, nil
+}
+
+func jsonTypeName(v any) string {
+	switch v.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return "a bool"
+	case float64, int64:
+		return "a number"
+	case string:
+		return "a string"
+	case map[string]any:
+		return "an object"
+	}
+	return fmt.Sprintf("%T", v)
 }
 
 func toJSONValue(v ref.Val) (any, error) {

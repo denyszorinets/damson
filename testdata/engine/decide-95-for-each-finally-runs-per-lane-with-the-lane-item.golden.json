@@ -1,0 +1,43 @@
+[
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "input": {
+      "command": "tidy a",
+      "node": "n"
+    },
+    "path": "per-node/for_each[a]/finally/tidy",
+    "plugin": "ssh",
+    "step_id": "tidy",
+    "type": "create_step_instance"
+  },
+  {
+    "attempt": 1,
+    "path": "per-node/for_each[a]/finally/tidy",
+    "scheduled_at": "2026-03-01T10:05:00Z",
+    "type": "schedule_execution"
+  },
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "kind": "group",
+    "path": "per-node/for_each[b]",
+    "step_id": "per-node",
+    "type": "create_step_instance"
+  },
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "input": {
+      "command": "install b",
+      "node": "b"
+    },
+    "path": "per-node/for_each[b]/install",
+    "plugin": "ssh",
+    "step_id": "install",
+    "type": "create_step_instance"
+  },
+  {
+    "attempt": 1,
+    "path": "per-node/for_each[b]/install",
+    "scheduled_at": "2026-03-01T10:05:00Z",
+    "type": "schedule_execution"
+  }
+]

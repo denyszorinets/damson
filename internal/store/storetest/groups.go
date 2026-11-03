@@ -97,6 +97,40 @@ func testGroups(t *testing.T, s store.Store) {
 		}
 	})
 
+	t.Run("a for_each group keeps its lane list and lanes have bracketed paths", func(t *testing.T) {
+		id := newRunID("g-lanes")
+		lanes := json.RawMessage(`{"lanes":[{"key":"web-01","item":{"name":"web-01"}},{"key":"web.02","item":"web.02"}]}`)
+		agg := store.AdvanceStep{Path: "per-node", Kind: store.KindGroup, Input: lanes}
+		err := applyAdvance(t, s, id, store.Advance{NewSteps: []store.AdvanceStep{
+			agg, groupStep("per-node/for_each[web-01]"), leafStep("per-node/for_each[web-01]/install"),
+		}}, at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g := stepAt(t, s, id, "per-node"); string(g.Input) != string(lanes) && !jsonEqual(g.Input, lanes) {
+			t.Fatalf("group input = %s; want the frozen lane list %s", g.Input, lanes)
+		}
+		if l := stepAt(t, s, id, "per-node/for_each[web-01]/install"); l.Kind != store.KindStep || len(l.Executions) != 1 {
+			t.Fatalf("lane step = %+v", l)
+		}
+		// A lane is finished and skipped like any group; a duplicate lane path conflicts.
+		finish := store.Advance{FinishGroups: []store.AdvanceFinishGroup{{Path: "per-node/for_each[web-01]", Status: store.StepSucceeded}}}
+		if err := applyAdvance(t, s, id, finish, at.Add(time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		skip := store.AdvanceStep{Path: "per-node/for_each[web.02]", Kind: store.KindGroup, Status: store.StepCanceled, Reason: "fail_threshold reached"}
+		if err := applyAdvance(t, s, id, store.Advance{NewSteps: []store.AdvanceStep{skip}}, at.Add(time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		if g := stepAt(t, s, id, "per-node/for_each[web.02]"); g.Status != store.StepCanceled || g.Error != "fail_threshold reached" {
+			t.Fatalf("skipped lane = %+v", g.StepInstance)
+		}
+		dup := store.Advance{NewSteps: []store.AdvanceStep{groupStep("per-node/for_each[web-01]")}}
+		if err := applyAdvance(t, s, id, dup, at.Add(time.Minute)); !errors.Is(err, store.ErrConflict) {
+			t.Fatalf("duplicate lane path = %v; want ErrConflict", err)
+		}
+	})
+
 	t.Run("a group may be created already skipped", func(t *testing.T) {
 		id := newRunID("g-skipped")
 		skip := store.AdvanceStep{Path: "g", Kind: store.KindGroup, Status: store.StepSkipped, Reason: "when condition is false"}
@@ -203,4 +237,14 @@ func testGroupHandled(t *testing.T, s store.Store) {
 	if n := stepAt(t, s, id, "main/a"); n.Handled() {
 		t.Fatal("a plugin step is never handled")
 	}
+}
+
+func jsonEqual(a, b []byte) bool {
+	var x, y any
+	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
+		return false
+	}
+	ja, _ := json.Marshal(x)
+	jb, _ := json.Marshal(y)
+	return string(ja) == string(jb)
 }

@@ -1,0 +1,81 @@
+[
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "input": {
+      "lanes": [
+        {
+          "item": "a",
+          "key": "a"
+        },
+        {
+          "item": "b",
+          "key": "b"
+        },
+        {
+          "item": "c",
+          "key": "c"
+        },
+        {
+          "item": "d",
+          "key": "d"
+        },
+        {
+          "item": "e",
+          "key": "e"
+        }
+      ]
+    },
+    "kind": "group",
+    "path": "per-node",
+    "step_id": "per-node",
+    "type": "create_step_instance"
+  },
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "kind": "group",
+    "path": "per-node/for_each[a]",
+    "step_id": "per-node",
+    "type": "create_step_instance"
+  },
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "input": {
+      "command": "install a",
+      "node": "a"
+    },
+    "path": "per-node/for_each[a]/install",
+    "plugin": "ssh",
+    "step_id": "install",
+    "type": "create_step_instance"
+  },
+  {
+    "attempt": 1,
+    "path": "per-node/for_each[a]/install",
+    "scheduled_at": "2026-03-01T10:05:00Z",
+    "type": "schedule_execution"
+  },
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "kind": "group",
+    "path": "per-node/for_each[b]",
+    "step_id": "per-node",
+    "type": "create_step_instance"
+  },
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "input": {
+      "command": "install b",
+      "node": "b"
+    },
+    "path": "per-node/for_each[b]/install",
+    "plugin": "ssh",
+    "step_id": "install",
+    "type": "create_step_instance"
+  },
+  {
+    "attempt": 1,
+    "path": "per-node/for_each[b]/install",
+    "scheduled_at": "2026-03-01T10:05:00Z",
+    "type": "schedule_execution"
+  }
+]

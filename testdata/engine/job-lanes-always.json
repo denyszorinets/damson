@@ -1,0 +1,36 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "lanes-always"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "a",
+        "plugin": "ssh",
+        "with": {
+          "node": "n",
+          "command": "a"
+        }
+      },
+      {
+        "id": "per-node",
+        "type": "group",
+        "steps": [
+          {
+            "id": "install",
+            "plugin": "ssh",
+            "with": {
+              "node": "${{ item }}",
+              "command": "install ${{ item }}"
+            }
+          }
+        ],
+        "for_each": "inputs.hosts",
+        "when": "always()"
+      }
+    ]
+  }
+}

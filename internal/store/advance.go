@@ -222,8 +222,10 @@ func SettlesOnCompletion(s ExecutionState) bool {
 
 func validateAdvanceStep(st AdvanceStep) error {
 	if st.Kind == KindGroup {
-		if st.Plugin != "" || len(st.Input) > 0 || st.Execution != nil {
-			return fmt.Errorf("advance group %q cannot have a plugin, input or execution: %w", st.Path, ErrInvalid)
+		// A for_each group keeps its frozen lane list in the input; a group never
+		// has a plugin or an execution.
+		if st.Plugin != "" || st.Execution != nil {
+			return fmt.Errorf("advance group %q cannot have a plugin or an execution: %w", st.Path, ErrInvalid)
 		}
 		switch st.StatusOrDefault() {
 		case StepPending, StepSkipped, StepFailed, StepCanceled:

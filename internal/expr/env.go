@@ -43,14 +43,15 @@ func (l Limits) withDefaults() Limits {
 }
 
 // Variable names of the evaluation context. All are dynamically typed.
-// `node`, `targets` and `error` are declared now so that specs using them
-// compile; the engine binds them from M3 (for_each and catch).
+// `node` and `item` are bound inside a for_each lane, `targets` is the node
+// list a for_each can iterate, and `error` is bound inside a catch list.
 const (
 	VarInputs  = "inputs"
 	VarRun     = "run"
 	VarJob     = "job"
 	VarSteps   = "steps"
 	VarNode    = "node"
+	VarItem    = "item"
 	VarTargets = "targets"
 	VarError   = "error"
 )
@@ -93,7 +94,7 @@ func NewEnv(limits Limits) (*Env, error) {
 			statusMacro("success", varSuccess), statusMacro("failure", varFailure),
 			statusMacro("always", varAlways), statusMacro("cancelled", varCancelled)),
 	}
-	for _, v := range []string{VarInputs, VarRun, VarJob, VarSteps, VarNode, VarTargets, VarError} {
+	for _, v := range []string{VarInputs, VarRun, VarJob, VarSteps, VarNode, VarItem, VarTargets, VarError} {
 		opts = append(opts, cel.Variable(v, cel.DynType))
 	}
 	for _, v := range []string{varSuccess, varFailure, varAlways, varCancelled} {

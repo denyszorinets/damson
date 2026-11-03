@@ -129,6 +129,9 @@ change nothing until accepted.
    * - 0037
      - :doc:`0037-groups-scoping-and-status`
      - Accepted
+   * - 0038
+     - :doc:`0038-for-each-lanes`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -170,3 +173,4 @@ change nothing until accepted.
    0035-timeout-semantics
    0036-retry-semantics
    0037-groups-scoping-and-status
+   0038-for-each-lanes

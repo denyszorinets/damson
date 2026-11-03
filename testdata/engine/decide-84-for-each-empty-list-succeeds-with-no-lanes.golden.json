@@ -1,0 +1,34 @@
+[
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "input": {
+      "lanes": []
+    },
+    "kind": "group",
+    "path": "per-node",
+    "step_id": "per-node",
+    "type": "create_step_instance"
+  },
+  {
+    "path": "per-node",
+    "status": "succeeded",
+    "type": "complete_group"
+  },
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "input": {
+      "command": "after",
+      "node": "n"
+    },
+    "path": "after",
+    "plugin": "ssh",
+    "step_id": "after",
+    "type": "create_step_instance"
+  },
+  {
+    "attempt": 1,
+    "path": "after",
+    "scheduled_at": "2026-03-01T10:05:00Z",
+    "type": "schedule_execution"
+  }
+]

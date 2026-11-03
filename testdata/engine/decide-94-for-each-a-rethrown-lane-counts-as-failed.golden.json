@@ -1,0 +1,50 @@
+[
+  {
+    "error": {
+      "kind": "exit_code",
+      "message": "boom",
+      "path": "per-node/for_each[a]/install"
+    },
+    "path": "per-node/for_each[a]",
+    "status": "failed",
+    "type": "complete_group"
+  },
+  {
+    "kind": "group",
+    "path": "per-node/for_each[b]",
+    "reason": "fail_threshold reached",
+    "status": "cancelled",
+    "step_id": "per-node",
+    "type": "skip_step"
+  },
+  {
+    "kind": "group",
+    "path": "per-node/for_each[c]",
+    "reason": "fail_threshold reached",
+    "status": "cancelled",
+    "step_id": "per-node",
+    "type": "skip_step"
+  },
+  {
+    "error": {
+      "kind": "exit_code",
+      "message": "boom",
+      "path": "per-node/for_each[a]/install"
+    },
+    "path": "per-node",
+    "status": "failed",
+    "type": "complete_group"
+  },
+  {
+    "path": "after",
+    "reason": "a previous step failed",
+    "status": "skipped",
+    "step_id": "after",
+    "type": "skip_step"
+  },
+  {
+    "finished_at": "2026-03-01T10:05:00Z",
+    "status": "failed",
+    "type": "complete_run"
+  }
+]

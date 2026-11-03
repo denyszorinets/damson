@@ -91,7 +91,7 @@ func TestParseInvalid(t *testing.T) {
 		{"retry multiplier above 10", mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 3, "backoff": {"multiplier": 11}},`), "spec.steps[0].retry.backoff.multiplier", "maximum"},
 		{"retry jitter above 1", mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 3, "backoff": {"jitter": 1.5}},`), "spec.steps[0].retry.backoff.jitter", "maximum"},
 		{"retry_on syntax", mutate(t, `"timeout": "10m",`, `"retry": {"max_attempts": 3, "retry_on": "error.kind =="},`), "spec.steps[0].retry.retry_on", "invalid expression"},
-		{"for_each reserved", mutate(t, `"timeout": "10m",`, `"for_each": "targets",`), "spec.steps[0].for_each", "not supported yet"},
+		{"for_each reserved", mutate(t, `"timeout": "10m",`, `"for_each": "targets",`), "spec.steps[0].for_each", "only valid on a step of type"},
 		{"catch reserved", mutate(t, `"timeout": "10m",`, `"catch": [{"id":"c","plugin":"ssh"}],`), "spec.steps[0].catch", "only valid on a step of type"},
 		{"finally reserved", mutate(t, `"timeout": "10m",`, `"finally": [{"id":"c","plugin":"ssh"}],`), "spec.steps[0].finally", "only valid on a step of type"},
 		{"concurrency reserved", mutate(t, `"timeout": "30m",`, `"timeout": "30m", "concurrency": {"key": "x", "max": 1},`), "spec.concurrency", "not supported yet"},
@@ -278,6 +278,17 @@ func TestParseInvalidGroups(t *testing.T) {
 		{"reserved id in a catch list", `[{"id":"g","type":"group","steps":[{"id":"a","plugin":"ssh"}],"catch":[{"id":"finally","plugin":"ssh"}]}]`, "spec.steps[0].catch[0].id", "reserved inside a group"},
 		{"catch step is validated", `[{"id":"g","type":"group","steps":[{"id":"a","plugin":"ssh"}],"catch":[{"id":"c","plugin":"Bad Name"}]}]`, "spec.steps[0].catch[0].plugin", "name@<major>"},
 		{"finally when is checked", `[{"id":"g","type":"group","steps":[{"id":"a","plugin":"ssh"}],"finally":[{"id":"f","plugin":"ssh","when":"always( &&"}]}]`, "spec.steps[0].finally[0].when", "invalid expression"},
+		{"max_parallel without for_each", `[{"id":"g","type":"group","max_parallel":2,"steps":[{"id":"a","plugin":"ssh"}]}]`, "spec.steps[0].max_parallel", "needs for_each"},
+		{"fail_threshold without for_each", `[{"id":"g","type":"group","fail_threshold":1,"steps":[{"id":"a","plugin":"ssh"}]}]`, "spec.steps[0].fail_threshold", "needs for_each"},
+		{"for_each syntax", `[{"id":"g","type":"group","for_each":"[1,","steps":[{"id":"a","plugin":"ssh"}]}]`, "spec.steps[0].for_each", "invalid expression"},
+		{"for_each status function", `[{"id":"g","type":"group","for_each":"success() ? [1] : []","steps":[{"id":"a","plugin":"ssh"}]}]`, "spec.steps[0].for_each", "status functions"},
+		{"max_parallel zero", `[{"id":"g","type":"group","for_each":"[1]","max_parallel":0,"steps":[{"id":"a","plugin":"ssh"}]}]`, "spec.steps[0].max_parallel", "minimum"},
+		{"fail_threshold too large", `[{"id":"g","type":"group","for_each":"[1]","fail_threshold":1001,"steps":[{"id":"a","plugin":"ssh"}]}]`, "spec.steps[0].fail_threshold", "maximum"},
+		{"nested for_each", `[{"id":"g","type":"group","for_each":"[1]","steps":[{"id":"h","type":"group","for_each":"[2]","steps":[{"id":"a","plugin":"ssh"}]}]}]`, "spec.steps[0].steps[0].for_each", "cannot be nested"},
+		{"for_each nested in a lane finally", `[{"id":"g","type":"group","for_each":"[1]","steps":[{"id":"a","plugin":"ssh"}],"finally":[{"id":"h","type":"group","for_each":"[2]","steps":[{"id":"b","plugin":"ssh"}]}]}]`, "spec.steps[0].finally[0].for_each", "cannot be nested"},
+		{"for_each nested in a plain group inside a lane", `[{"id":"g","type":"group","for_each":"[1]","steps":[{"id":"p","type":"group","steps":[{"id":"h","type":"group","for_each":"[2]","steps":[{"id":"b","plugin":"ssh"}]}]}]}]`, "spec.steps[0].steps[0].steps[0].for_each", "cannot be nested"},
+		{"max_parallel and fail_threshold errors keep their order", `[{"id":"g","type":"group","for_each":"[1]","max_parallel":0,"fail_threshold":0,"steps":[{"id":"a","plugin":"ssh"}]}]`, "spec.steps[0].max_parallel", "minimum"},
+		{"for_each nested in a lane catch", `[{"id":"g","type":"group","for_each":"[1]","steps":[{"id":"a","plugin":"ssh"}],"catch":[{"id":"h","type":"group","for_each":"[2]","steps":[{"id":"b","plugin":"ssh"}]}]}]`, "spec.steps[0].catch[0].for_each", "cannot be nested"},
 		{"duplicate id in a group", `[{"id":"g","type":"group","steps":[{"id":"c","plugin":"ssh"},{"id":"c","plugin":"ssh"}]}]`, "spec.steps[0].steps[1].id", "duplicate id"},
 		{"nested step is validated", `[{"id":"g","type":"group","steps":[{"id":"c","plugin":"Bad Name"}]}]`, "spec.steps[0].steps[0].plugin", "name@<major>"},
 		{"nested when is checked", `[{"id":"g","type":"group","steps":[{"id":"c","plugin":"ssh","when":"always( &&"}]}]`, "spec.steps[0].steps[0].when", "invalid expression"},
@@ -329,6 +340,29 @@ func TestParseValidCatchFinally(t *testing.T) {
 	for path, plugin := range map[string]string{"deploy/unpack": "ssh", "deploy/catch/rollback": "ssh", "deploy/finally/cleanup": "ssh"} {
 		if s, ok := job.StepAt(path); !ok || s.Plugin != plugin {
 			t.Errorf("StepAt(%q) = %+v, %v", path, s, ok)
+		}
+	}
+}
+
+func TestParseValidForEach(t *testing.T) {
+	job, err := Parse(stepsDoc(`[{"id":"per-node","type":"group","for_each":"targets","max_parallel":2,"fail_threshold":1,
+		"steps":[{"id":"install","plugin":"ssh","with":{"node":"${{ node.name }}","cmd":"${{ item.name }}"}}],
+		"catch":[{"id":"rollback","plugin":"ssh"}]},
+		{"id":"after","type":"group","for_each":"inputs.hosts","steps":[{"id":"x","plugin":"ssh"}]}]`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	g := job.Spec.Steps[0]
+	if g.ForEach != "targets" || g.MaxParallel == nil || *g.MaxParallel != 2 || g.FailThreshold == nil || *g.FailThreshold != 1 {
+		t.Fatalf("group = %+v", g)
+	}
+	// Sibling for_each groups are fine; only nesting is rejected.
+	for path, ok := range map[string]bool{
+		"per-node": true, "per-node/for_each[web-01]": true, "per-node/for_each[web-01]/install": true,
+		"per-node/for_each[web-01]/catch/rollback": true, "per-node/install": false, "per-node/for_each[web-01]/nope": false,
+	} {
+		if _, got := job.StepAt(path); got != ok {
+			t.Errorf("StepAt(%q) found = %v; want %v", path, got, ok)
 		}
 	}
 }

@@ -1,0 +1,25 @@
+{
+  "job_file": "job-lanes-host.json",
+  "now": "2026-03-01T10:05:00Z",
+  "state": {
+    "id": "run-1",
+    "status": "running",
+    "trigger": "manual",
+    "job": {
+      "name": "x",
+      "project": "default",
+      "version": "1"
+    },
+    "started_at": "2026-03-01T10:00:00Z",
+    "inputs": {
+      "hosts": [
+        {
+          "host": "x"
+        },
+        {
+          "host": "y"
+        }
+      ]
+    }
+  }
+}

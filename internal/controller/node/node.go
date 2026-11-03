@@ -31,6 +31,7 @@ type Timing struct {
 	Heartbeat, Flush, PluginSync  time.Duration // gateway
 	ReconnectJitter               time.Duration // gateway: bound of the agent.reconnect delay
 	Dispatch, Renew, Reap, Cancel time.Duration // dispatcher
+	IncapableRetry                time.Duration // dispatcher: delay of an execution an agent cannot run
 	LeaseTTL                      time.Duration // dispatcher and adoption on reconnect
 	AdvancePoll, AdvanceSweep     time.Duration // run.advance
 }
@@ -132,7 +133,7 @@ func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 	dcfg := dispatch.Config{
 		Store: cfg.Store, Agents: gw, Plugins: cfg.Plugins, Advance: n.adv, ControllerID: cfg.ControllerID, Logger: log,
 		Invalidate: n.logs.Invalidate, Finish: n.logs.Finish,
-		DispatchInterval: t.Dispatch, RenewInterval: t.Renew, ReapInterval: t.Reap, CancelInterval: t.Cancel, LeaseTTL: t.LeaseTTL,
+		DispatchInterval: t.Dispatch, RenewInterval: t.Renew, ReapInterval: t.Reap, CancelInterval: t.Cancel, IncapableRetry: t.IncapableRetry, LeaseTTL: t.LeaseTTL,
 	}
 	if cfg.DevNodes != nil { // a nil *File must not become a non-nil interface
 		dcfg.Nodes, dcfg.Secrets = cfg.DevNodes, cfg.DevNodes

@@ -283,10 +283,13 @@ The engine evaluates these rules deterministically:
    - If `catch` fails, the group fails with the catch error, which replaces the body error; if `catch` was cancelled the body error stands.
 5. **`finally`** runs after the body and the catch list, whether the group succeeded, failed, or was cancelled. A failure in `finally` fails the group and replaces any other error. It does not run for a group that never started (its `when` was false). After a cancel or the job timeout the finally list is protected for a grace period (`engine.finally_grace`, default 2m): its steps are not cancelled until the cancel instant plus the grace, a finally step that starts during the grace gets at most the time left as its `timeout`, and a wake at the end of the grace cancels what is still running; after it, unstarted finally steps are cancelled ("finally grace expired"). The grace applies to `finally` only, not to top-level `always()` steps, and not to the finally list of a group created at or after the cancel (it is itself left to run to completion). A finally step cut by its capped timeout fails with kind `timeout` and can make the run `failed` rather than `cancelled`; the grace is measured against `cancel_requested_at`, so controller clocks must be kept in sync. The status functions in a finally list are local to it, and a finally list is run as if created after the cancel, so the default `when` runs.
    - A group is finished as: finally failed, then catch failed, then rethrown, then handled, then uncaught body failure (all `failed`), else `cancelled` if any step was cancelled, else `succeeded`. At group level a failure beats a cancel.
-6. **`for_each: "targets"`** (or any CEL list expression) runs the group body once per item, in independent *lanes*, with `node` bound.
-   - Inside a lane, `steps.<id>` refers to that lane's steps.
-   - `max_parallel` limits concurrent lanes.
-   - `fail_threshold` is the number of failed lanes after which pending lanes are cancelled.
+6. **`for_each: "targets"`** (or any CEL list expression) runs the group once per item, in independent *lanes*, with `item` bound (and `node`, when the item is an object; ADR-0038).
+   - The list is evaluated **once**, when the group starts, and frozen on the group's row. The lane key is the item's `name` (an object with a string `name`), the item (a string), else its index; keys must match `^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$` and be unique. A failing expression, a non-list, more than 1000 items or a bad or duplicate key fails the group before any lane starts. An empty list succeeds with no lanes.
+   - Each lane is a full instance of the group at `<group>/for_each[<key>]`: its `steps`, `catch`, `finally` and `rethrow` run per lane. Inside a lane, `steps.<id>` refers to that lane's steps; lanes do not see each other.
+   - `max_parallel` (1 to 1000, default all) limits concurrent lanes; lanes open in list order and every open lane progresses in the same `Decide`.
+   - `fail_threshold` (1 to 1000, default never) is the number of failed lanes after which lanes that have not started are cancelled ("fail_threshold reached"); running lanes finish. A lane handled by its catch does not count; a rethrown one does.
+   - The group fails with the first failed lane's error (in list order, its `path` the leaf step), else is cancelled if a lane was, else succeeds. A cancel or the job timeout cancels the lanes that have not started, unless the group was admitted after the cancel.
+   - `for_each` groups do not nest in v1.
 7. **Retries** (ADR-0036). A failed, timed-out or lost attempt does not finish its step: the engine either schedules attempt n+1 or emits `SettleStep`. A step without `retry` has one attempt. The retry is scheduled when the attempt's `retry_on` holds (default `connection`, `timeout`, `lost`), attempts are left, a lost attempt is allowed (`on_lost`, else the plugin's `idempotent`), the run is not being cancelled (a user cancel or the job timeout) and the retry would not be due after the job deadline. It is due at the failed attempt's `finished_at` plus `min(max, initial * multiplier^(n-1)) * (1 - jitter * u)`, with `u` a deterministic hash of run, step and attempt (the engine has no randomness). An exhausted or refused retry settles the step with the last attempt's error; a `retry_on` that fails to evaluate counts as false. `continue_on_error` and `catch` see the final error only.
 8. **Status functions** available in `when`:
    - `success()`: everything previous in scope succeeded or was handled.
@@ -308,10 +311,11 @@ The engine evaluates these rules deterministically:
   | `inputs` | Run options, validated against `spec.options` |
   | `run` | `id`, `status`, `trigger`, `triggered_by`, `started_at` |
   | `job` | `name`, `project`, `version` |
-  | `node` | Inside `for_each` over targets: `name`, `address`, `tags`, `attributes` |
+  | `node` | Inside a `for_each` lane whose item is an object (a node of `targets`): `name`, `address`, `tags`, `attributes`; empty otherwise |
   | `targets` | The resolved node list |
   | `steps.<id>` | `status`, `outputs`, `error`, `started_at`, `finished_at`. Lexical: a step sees the earlier siblings of its own list and of every enclosing list, an inner id shadowing an outer one; lane-local inside `for_each`. A group also has `handled` and `steps` (the values of its body steps) |
-  | `steps.<id>.lanes[<key>]` | Access to a specific lane's results from outside the group |
+  | `steps.<id>.lanes[<key>]` | Access to a specific lane's results from outside the group: `key`, `item`, `status`, `error`, `handled`, `started_at`, `finished_at` and `steps` (the lane's step values) |
+| `item` | Inside a `for_each` lane: the lane's item (any JSON value) |
   | `error` | Inside `catch`: `step`, `path`, `kind`, `message`, `exit_code` (steps nested in the catch list inherit it; `retry_on` is evaluated over the attempt's own error) |
 
 - **Secrets are never values in the CEL context.** They are referenced only as `secret://...` strings in plugin fields whose schema marks them `x-damson-secret: true`. They are resolved at dispatch time (§9).

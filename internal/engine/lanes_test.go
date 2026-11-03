@@ -1,0 +1,119 @@
+package engine
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/denyszorinets/damson/internal/expr"
+)
+
+func TestLaneKeyOf(t *testing.T) {
+	tests := []struct {
+		item any
+		i    int
+		want string
+	}{
+		{"web-01", 0, "web-01"},
+		{map[string]any{"name": "db-1", "x": 1.0}, 4, "db-1"},
+		{map[string]any{"name": 7.0}, 2, "2"}, // a name that is not a string falls back to the index
+		{map[string]any{"host": "x"}, 3, "3"},
+		{42.0, 5, "5"},
+		{true, 6, "6"},
+		{nil, 7, "7"},
+		{[]any{"a"}, 8, "8"},
+	}
+	for _, tc := range tests {
+		if got := laneKeyOf(tc.item, tc.i); got != tc.want {
+			t.Errorf("laneKeyOf(%v, %d) = %q; want %q", tc.item, tc.i, got, tc.want)
+		}
+	}
+}
+
+func TestEvalLanes(t *testing.T) {
+	e := newEngine(t, expr.Limits{})
+	d := &decider{e: e, st: RunState{Inputs: map[string]any{
+		"hosts": []any{"a", "b", "c"},
+		"nodes": []any{map[string]any{"name": "web-01"}, map[string]any{"name": "web-02"}},
+		"dup":   []any{"a", "a"},
+		"bad":   []any{"has/slash"},
+		"mixed": []any{"x", 3.0, map[string]any{"id": 1.0}},
+		"empty": []any{},
+	}}}
+	sc := newScope("", nil, nil)
+	tests := []struct {
+		src     string
+		wantKey []string
+		wantErr string
+	}{
+		{"inputs.hosts", []string{"a", "b", "c"}, ""},
+		{"inputs.nodes", []string{"web-01", "web-02"}, ""},
+		{"inputs.mixed", []string{"x", "1", "2"}, ""},
+		{"inputs.empty", []string{}, ""},
+		{"inputs.hosts.filter(h, h != 'b')", []string{"a", "c"}, ""},
+		{"inputs.dup", nil, "same lane key"},
+		{"inputs.bad", nil, "lane key"},
+		{"inputs.hosts[0]", nil, "want a list"},
+		{"1 +", nil, "Syntax error"},
+	}
+	for _, tc := range tests {
+		lanes, err := d.evalLanes(sc, Step{ForEach: tc.src}, false)
+		if tc.wantErr != "" {
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("%s: err = %v; want %q", tc.src, err, tc.wantErr)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: %v", tc.src, err)
+			continue
+		}
+		var keys []string
+		for _, l := range lanes {
+			keys = append(keys, l.Key)
+		}
+		if strings.Join(keys, ",") != strings.Join(tc.wantKey, ",") {
+			t.Errorf("%s: keys = %v; want %v", tc.src, keys, tc.wantKey)
+		}
+	}
+}
+
+func TestEvalLanesLimit(t *testing.T) {
+	e := newEngine(t, expr.Limits{})
+	d := &decider{e: e, st: RunState{}}
+	_, err := d.evalLanes(newScope("", nil, nil), Step{ForEach: "[1,2,3].map(x, x)"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := make([]any, maxLanes+1)
+	for i := range items {
+		items[i] = float64(i)
+	}
+	d.st.Inputs = map[string]any{"big": items}
+	if _, err := d.evalLanes(newScope("", nil, nil), Step{ForEach: "inputs.big"}, false); err == nil || !strings.Contains(err.Error(), "limit") {
+		t.Fatalf("err = %v; want the lane limit", err)
+	}
+}
+
+// A null item is null inside its lane (not an empty object) and the lane value
+// reports it as such.
+func TestNullItemLane(t *testing.T) {
+	e := newEngine(t, expr.Limits{})
+	d := &decider{e: e, st: RunState{}}
+	sc := newScope("", nil, nil)
+	lanes, err := d.evalLanes(sc, Step{ForEach: "[null, 'x']"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lanes[0].Key != "0" || lanes[0].Item != nil || lanes[1].Key != "x" {
+		t.Fatalf("lanes = %+v", lanes)
+	}
+	bind := newScope("g/for_each[0]/", nil, sc)
+	bind.bindLane(nil)
+	if !bind.inLane() || bind.itemVar() != nil || sc.inLane() {
+		t.Fatal("a lane with a null item must still count as a lane")
+	}
+	got, err := e.env.EvalBool("item == null", d.vars(bind, false))
+	if err != nil || !got {
+		t.Fatalf("item == null inside the lane: %v, %v", got, err)
+	}
+}

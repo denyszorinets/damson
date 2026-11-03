@@ -895,7 +895,7 @@
             "type": "string"
           },
           "input": {
-            "description": "Resolved plugin input; holds secret:// references, never secret values."
+            "description": "Resolved plugin input; holds secret:// references, never secret values. For a for_each group: the frozen lane list."
           },
           "kind": {
             "enum": [

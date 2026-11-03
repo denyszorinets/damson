@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -28,6 +29,10 @@ type scope struct {
 	cancelled bool
 	// errv is the `error` bound in a catch list; nested scopes inherit it.
 	errv map[string]any
+	// item is the for_each item bound in a lane scope (hasItem tells a nil item
+	// from no binding); nested scopes inherit it.
+	item    any
+	hasItem bool
 }
 
 func newScope(prefix string, list []Step, parent *scope) *scope {
@@ -86,7 +91,7 @@ func (d *decider) walk(sc *scope) (outcome, error) {
 		switch {
 		case exists && !inst.Status.Terminal():
 			if step.IsGroup() {
-				settled, err := d.runGroup(sc, step, path)
+				settled, err := d.runGroupOrLanes(sc, step, path)
 				if err != nil || !settled {
 					return outcome{}, err
 				}
@@ -153,9 +158,36 @@ func (d *decider) beginGroup(sc *scope, step Step, path string, failed bool) (se
 		d.skip(sc, step, path, "group", failed)
 		return true, nil
 	}
-	d.emit(CreateStepInstance{Path: path, StepID: step.ID, Kind: kindGroup, CreatedAt: d.now, ContinueOnError: step.ContinueOnError})
 	started := d.now
-	d.byPath[path] = StepInstanceState{Path: path, StepID: step.ID, Kind: kindGroup, Status: StepPending, CreatedAt: d.now, StartedAt: &started}
+	create := CreateStepInstance{Path: path, StepID: step.ID, Kind: kindGroup, CreatedAt: d.now, ContinueOnError: step.ContinueOnError}
+	inst := StepInstanceState{Path: path, StepID: step.ID, Kind: kindGroup, Status: StepPending, CreatedAt: d.now, StartedAt: &started}
+	if step.ForEach != "" {
+		// The list is evaluated once, here, and frozen on the group's row.
+		lanes, lerr := d.evalLanes(sc, step, failed)
+		var input json.RawMessage
+		if lerr == nil {
+			input, lerr = lanesInput(lanes)
+		}
+		if lerr != nil {
+			d.fail(step, path, "group", fmt.Errorf("evaluating for_each: %w", lerr))
+			return true, nil
+		}
+		create.Input, inst.Lanes = input, lanes
+		if inst.Lanes == nil {
+			inst.Lanes = []Lane{}
+		}
+	}
+	d.emit(create)
+	d.byPath[path] = inst
+	return d.runGroupOrLanes(sc, step, path)
+}
+
+// runGroupOrLanes advances a started group: a for_each group runs its lanes,
+// any other group its body, catch and finally.
+func (d *decider) runGroupOrLanes(sc *scope, step Step, path string) (bool, error) {
+	if step.ForEach != "" {
+		return d.runLanes(sc, step, path)
+	}
 	return d.runGroup(sc, step, path)
 }
 

@@ -1,0 +1,38 @@
+[
+  {
+    "attempt_id": "at-a",
+    "execution_id": "ex-a",
+    "path": "per-node/for_each[a]/install",
+    "type": "cancel_execution"
+  },
+  {
+    "attempt_id": "at-b",
+    "execution_id": "ex-b",
+    "path": "per-node/for_each[b]/install",
+    "type": "cancel_execution"
+  },
+  {
+    "kind": "group",
+    "path": "per-node/for_each[c]",
+    "reason": "run cancelled",
+    "status": "cancelled",
+    "step_id": "per-node",
+    "type": "skip_step"
+  },
+  {
+    "kind": "group",
+    "path": "per-node/for_each[d]",
+    "reason": "run cancelled",
+    "status": "cancelled",
+    "step_id": "per-node",
+    "type": "skip_step"
+  },
+  {
+    "kind": "group",
+    "path": "per-node/for_each[e]",
+    "reason": "run cancelled",
+    "status": "cancelled",
+    "step_id": "per-node",
+    "type": "skip_step"
+  }
+]

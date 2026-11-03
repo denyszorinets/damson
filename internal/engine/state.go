@@ -98,6 +98,9 @@ type StepInstanceState struct {
 	// Handled is true for a group whose failure its catch list handled (the
 	// group succeeded, the caught error is kept in Error).
 	Handled bool `json:"handled,omitempty"`
+	// Lanes is the frozen for_each list of a for_each group's aggregate row,
+	// in list order; empty for every other instance.
+	Lanes []Lane `json:"lanes,omitempty"`
 	// Path is the stable instance path. For top-level steps it equals the
 	// step id; M3 extends it for groups and lanes ("main/for_each[web-01]/x").
 	Path       string          `json:"path"`
@@ -144,3 +147,11 @@ const (
 // CancelReasonTimeout is RunState.CancelReason of a run the job-level timeout
 // cancelled.
 const CancelReasonTimeout = "timeout"
+
+// Lane is one item of a for_each list with its key. The list is evaluated once,
+// when the for_each group starts, and frozen on the group's row, so the lanes
+// of a run never change.
+type Lane struct {
+	Key  string `json:"key"`
+	Item any    `json:"item"`
+}

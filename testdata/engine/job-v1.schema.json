@@ -184,10 +184,14 @@
           "type": "string"
         },
         "max_parallel": {
-          "type": "integer"
+          "type": "integer",
+          "maximum": 1000,
+          "minimum": 1
         },
         "fail_threshold": {
-          "type": "integer"
+          "type": "integer",
+          "maximum": 1000,
+          "minimum": 1
         }
       },
       "additionalProperties": false,
