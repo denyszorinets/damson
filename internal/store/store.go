@@ -48,6 +48,7 @@ type Store interface {
 	AgentStore
 	PluginStore
 	ControllerStore
+	LeaderStore
 	JobStore
 	RunStore
 	ExecutionStore

@@ -23,6 +23,18 @@ func (q *Queries) DeleteControllerInstance(ctx context.Context, id string) (int6
 	return result.RowsAffected(), nil
 }
 
+const deleteDeadControllerInstances = `-- name: DeleteDeadControllerInstances :execrows
+DELETE FROM controller_instances WHERE last_seen < $1
+`
+
+func (q *Queries) DeleteDeadControllerInstances(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteDeadControllerInstances, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const heartbeatControllerInstance = `-- name: HeartbeatControllerInstance :execrows
 UPDATE controller_instances SET last_seen = $1
 WHERE id = $2

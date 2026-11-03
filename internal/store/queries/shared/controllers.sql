@@ -17,3 +17,6 @@ DELETE FROM controller_instances WHERE id = sqlc.arg(id);
 SELECT id, internal_url, started_at, last_seen
 FROM controller_instances
 ORDER BY id;
+
+-- name: DeleteDeadControllerInstances :execrows
+DELETE FROM controller_instances WHERE last_seen < sqlc.arg(cutoff);

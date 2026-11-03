@@ -30,7 +30,7 @@ import (
 var timing = node.Timing{
 	Heartbeat: 50 * time.Millisecond, Flush: 50 * time.Millisecond, PluginSync: 100 * time.Millisecond, ReconnectJitter: 200 * time.Millisecond,
 	Dispatch: 20 * time.Millisecond, Renew: 50 * time.Millisecond, Reap: 50 * time.Millisecond, Cancel: 50 * time.Millisecond, IncapableRetry: 100 * time.Millisecond,
-	LeaseTTL: 1500 * time.Millisecond, AdvancePoll: 20 * time.Millisecond, AdvanceSweep: 500 * time.Millisecond,
+	LeaseTTL: 1500 * time.Millisecond, LeaderTTL: 2 * time.Second, LeaderRenew: 500 * time.Millisecond, AdvancePoll: 20 * time.Millisecond, AdvanceSweep: 500 * time.Millisecond,
 }
 
 const (

@@ -224,6 +224,12 @@ cancel for the rest. ``ExpireLeases`` (the reaper) marks overdue dispatched or
 running executions ``lost`` and returns them; a lost attempt can no longer
 complete or renew.
 
+``LeaderStore.AcquireLeader`` / ``ReleaseLeader`` and ``Tx.CheckLeader`` manage
+the ``leader_leases`` table (migration 00009, ADR-0039). ``AcquireLeader`` is
+one upsert that succeeds for the holder or over an expired lease and bumps
+``term`` on a change of holder; ``CheckLeader`` returns ``ErrStale`` unless the
+lease is held at that term and unexpired.
+
 ``DeleteLogDataPrefix`` matches with ``substr`` (not ``LIKE``, which is
 case-insensitive on SQLite) and rejects an empty prefix.
 

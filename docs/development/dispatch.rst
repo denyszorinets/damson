@@ -73,11 +73,20 @@ Reaper
 ------
 
 Every 10 s ``Tx.ExpireLeases`` marks expired leases ``lost``, fails their
-steps and enqueues ``run.advance``. For now the reaper runs on every
-controller; the CAS per execution on ``attempt_id`` and lease makes overlap
-harmless. Lease expiry is judged with each controller's own clock, so the
-fastest clock decides: keep controller clocks in sync. The leader lease of
-ARCHITECTURE section 8.4 arrives in M3.
+steps and enqueues ``run.advance``. Only the leader of the ``reaper`` lease
+runs it (ADR-0039): ``dispatch.Config.Leader`` gates the reaper and the
+dead-controller cleanup, and ``nil`` means every controller runs them (tests).
+The reaper calls ``Tx.CheckLeader`` first in its transaction and gets
+``ErrStale`` if it lost the lease. The leader also deletes
+``controller_instances`` rows with ``last_seen`` older than 1 minute. Agent
+rows are not touched. Lease expiry is judged with the leader's clock.
+
+The elector (``internal/controller/leader``) acquires or renews every 5 s with
+a 15 s TTL (``node.Timing.LeaderRenew`` / ``LeaderTTL``) and reports a term only
+while ``now < expires_at - renew``. ``Stop`` releases the lease. It runs on
+SQLite too. Dispatch, lease renewal, cancels, adoption and the sweep stay on
+every controller. The chaos tests ``TestLeaderFailoverAfterControllerCrash`` and
+``TestLeaderHandoverOnGracefulStop`` cover failover and handover.
 
 Lock order
 ----------

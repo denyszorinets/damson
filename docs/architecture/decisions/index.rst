@@ -174,3 +174,4 @@ change nothing until accepted.
    0036-retry-semantics
    0037-groups-scoping-and-status
    0038-for-each-lanes
+   0039-leader-lease

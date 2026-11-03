@@ -43,6 +43,11 @@ type Tx interface {
 	// current, not dispatched (a running attempt only ends by the agent's
 	// report or the reaper) or not flagged; ErrNotFound if absent.
 	CancelUndelivered(ctx context.Context, executionID, attemptID string, now time.Time) (Execution, error)
+	// CheckLeader fences a singleton duty: it returns ErrStale unless holder
+	// still holds the lease name at term and it has not expired at now. On
+	// SQLite the transaction is exclusive, so the check is strict; on Postgres
+	// it is best effort, which suffices for idempotent duties.
+	CheckLeader(ctx context.Context, name, holder string, term int64, now time.Time) error
 	// Native returns the driver transaction (pgx.Tx on Postgres, *sql.Tx on
 	// SQLite) so River can InsertTx on it. Only the queue adapter uses it.
 	Native() any

@@ -16,6 +16,7 @@ import (
 	"github.com/denyszorinets/damson/internal/controller"
 	"github.com/denyszorinets/damson/internal/controller/advance"
 	"github.com/denyszorinets/damson/internal/controller/dispatch"
+	"github.com/denyszorinets/damson/internal/controller/leader"
 	"github.com/denyszorinets/damson/internal/controller/logs"
 	"github.com/denyszorinets/damson/internal/devnodes"
 	"github.com/denyszorinets/damson/internal/engine"
@@ -33,6 +34,7 @@ type Timing struct {
 	Dispatch, Renew, Reap, Cancel time.Duration // dispatcher
 	IncapableRetry                time.Duration // dispatcher: delay of an execution an agent cannot run
 	LeaseTTL                      time.Duration // dispatcher and adoption on reconnect
+	LeaderTTL, LeaderRenew        time.Duration // leader lease of the singleton duties
 	AdvancePoll, AdvanceSweep     time.Duration // run.advance
 }
 
@@ -67,6 +69,7 @@ type Node struct {
 	adv  *advance.Advancer
 	logs *logs.Ingest
 	disp *dispatch.Dispatcher
+	lead *leader.Elector
 	srv  *api.Server
 }
 
@@ -137,9 +140,14 @@ func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 	}}); err != nil {
 		return fmt.Errorf("creating log ingest: %w", err)
 	}
+	if n.lead, err = leader.New(leader.Config{
+		Store: cfg.Store, Name: dispatch.LeaderReaper, Holder: cfg.ControllerID, TTL: t.LeaderTTL, Renew: t.LeaderRenew, Logger: log,
+	}); err != nil {
+		return fmt.Errorf("creating leader elector: %w", err)
+	}
 	dcfg := dispatch.Config{
 		Store: cfg.Store, Agents: gw, Plugins: cfg.Plugins, Advance: n.adv, ControllerID: cfg.ControllerID, Logger: log,
-		Invalidate: n.logs.Invalidate, Finish: n.logs.Finish,
+		Leader: n.lead, Invalidate: n.logs.Invalidate, Finish: n.logs.Finish,
 		DispatchInterval: t.Dispatch, RenewInterval: t.Renew, ReapInterval: t.Reap, CancelInterval: t.Cancel, IncapableRetry: t.IncapableRetry, LeaseTTL: t.LeaseTTL,
 	}
 	if cfg.DevNodes != nil { // a nil *File must not become a non-nil interface
@@ -157,7 +165,7 @@ func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 	for _, step := range []struct {
 		name  string
 		start func(context.Context) error
-	}{{"run.advance", n.adv.Start}, {"log ingest", n.logs.Start}, {"dispatcher", n.disp.Start}, {"agent gateway", gw.Start}} {
+	}{{"run.advance", n.adv.Start}, {"log ingest", n.logs.Start}, {"leader elector", n.lead.Start}, {"dispatcher", n.disp.Start}, {"agent gateway", gw.Start}} {
 		if err := step.start(ctx); err != nil {
 			return errors.Join(fmt.Errorf("starting %s: %w", step.name, err), n.stopOrchestration(context.WithoutCancel(ctx)))
 		}
@@ -189,5 +197,5 @@ func (n *Node) stopOrchestration(ctx context.Context) error {
 	if n.disp == nil { // unmigrated, or construction failed part-way
 		return n.gw.Stop(ctx)
 	}
-	return errors.Join(n.disp.Stop(ctx), n.gw.Stop(ctx), n.logs.Stop(ctx), n.adv.Stop(ctx))
+	return errors.Join(n.disp.Stop(ctx), n.lead.Stop(ctx), n.gw.Stop(ctx), n.logs.Stop(ctx), n.adv.Stop(ctx))
 }
