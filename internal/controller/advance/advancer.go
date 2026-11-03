@@ -166,9 +166,10 @@ func (a *Advancer) enqueue(ctx context.Context, tx store.Tx, runID string, sweep
 	return nil
 }
 
-// enqueueWake schedules a run.advance for the moment the job-level timeout
-// expires, in the caller's transaction (the one that starts the run, so the
-// wake cannot be lost without the start). The job is unique per deadline.
+// enqueueWake schedules a run.advance for a moment the engine asked to be woken
+// at: the job-level timeout deadline (queued with the transaction that starts
+// the run, so it cannot be lost without the start) or the end of a finally
+// grace. The job is unique per run and instant.
 func (a *Advancer) enqueueWake(ctx context.Context, tx store.Tx, runID string, at time.Time) error {
 	wake := (at.UnixNano() + int64(time.Millisecond) - 1) / int64(time.Millisecond) // rounded up to a whole ms
 	if err := a.q.insert(ctx, tx, Args{RunID: runID, Wake: wake}, time.UnixMilli(wake)); err != nil {

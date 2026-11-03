@@ -97,6 +97,12 @@ func (c *core) once(ctx context.Context, runID string) (changed bool, err error)
 		return false, &permanentError{err}
 	}
 	if adv.Empty() {
+		// A Decide can ask only for a wake (the end of a finally grace while a
+		// finally step runs): nothing to apply, but the wake must be queued or
+		// nothing runs the advance then.
+		if err := c.queueWakes(ctx, runID, wakes); err != nil {
+			return false, err
+		}
 		return false, nil
 	}
 	err = c.st.WithTx(ctx, func(tx store.Tx) error {
@@ -194,3 +200,20 @@ type permanentError struct{ err error }
 
 func (e *permanentError) Error() string { return e.err.Error() }
 func (e *permanentError) Unwrap() error { return e.err }
+
+// queueWakes inserts the wake jobs of a Decide that changed nothing, in a
+// transaction of their own. A wake is unique per (run, deadline), so asking
+// again while one is queued adds nothing.
+func (c *core) queueWakes(ctx context.Context, runID string, wakes []time.Time) error {
+	if len(wakes) == 0 || c.wake == nil {
+		return nil
+	}
+	return c.st.WithTx(ctx, func(tx store.Tx) error {
+		for _, at := range wakes {
+			if err := c.wake(ctx, tx, runID, at); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}

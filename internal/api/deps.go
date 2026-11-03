@@ -115,7 +115,7 @@ func newDeps(cfg Config) deps {
 	if d.now == nil {
 		d.now = time.Now
 	}
-	eng, err := engine.New(expr.Limits{})
+	eng, err := engine.New(expr.Limits{}) // no finally grace: the API only parses and decides queued runs, where nothing is being cancelled
 	if err != nil {
 		d.engErr = fmt.Errorf("building engine: %w", err)
 		return d

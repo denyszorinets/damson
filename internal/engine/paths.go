@@ -17,15 +17,23 @@ const (
 // prefix ("" at the top, "<group>/" in a group's body).
 func ChildPath(prefix, id string) string { return prefix + id }
 
-// InFinally reports whether path is inside some group's finally list.
-func InFinally(path string) bool {
-	for _, seg := range strings.Split(path, "/") {
-		if seg == SegFinally {
-			return true
+// finallyOwners returns the paths of the groups whose finally list path is in,
+// outermost first. A marker always follows a group id, so a segment at index 0
+// is never one: a top-level step may be named finally (jobs saved before groups
+// existed may), and so may a top-level group.
+func finallyOwners(path string) []string {
+	segs := strings.Split(path, "/")
+	var owners []string
+	for i := 1; i < len(segs); i++ {
+		if segs[i] == SegFinally {
+			owners = append(owners, strings.Join(segs[:i], "/"))
 		}
 	}
-	return false
+	return owners
 }
+
+// InFinally reports whether path is inside some group's finally list.
+func InFinally(path string) bool { return len(finallyOwners(path)) > 0 }
 
 // StepAt returns the spec step a step instance path refers to.
 func (j *Job) StepAt(path string) (Step, bool) {

@@ -189,7 +189,8 @@ func (d *decider) runGroup(sc *scope, step Step, path string) (settled bool, err
 	of := outcome{done: true}
 	if len(step.Finally) > 0 {
 		fs := newScope(path+"/"+SegFinally+"/", step.Finally, sc)
-		fs.shielded, fs.finally = true, true
+		// The list is cut at the grace only when its group predates the cancel.
+		fs.shielded, fs.finally = true, sc.finally || !d.createdAfterCancel(path)
 		fs.seed(body.vis)
 		fs.seed(catchVis)
 		if of, err = d.walk(fs); err != nil || !of.done {

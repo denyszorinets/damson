@@ -78,15 +78,20 @@ func startCluster(t *testing.T, st store.Store, spec string, opts ...func(*dispa
 }
 
 func startClusterLog(t *testing.T, st store.Store, spec string, log *slog.Logger, opts ...func(*dispatch.Config)) *cluster {
-	return startClusterWith(t, st, spec, log, nil, opts...)
+	return startClusterWith(t, st, spec, log, nil, nil, opts...)
 }
 
 // startClusterPlugins is startCluster with extra plugins linked into the agent.
 func startClusterPlugins(t *testing.T, st store.Store, spec string, extra []pluginsdk.Plugin, opts ...func(*dispatch.Config)) *cluster {
-	return startClusterWith(t, st, spec, slog.New(slog.DiscardHandler), extra, opts...)
+	return startClusterWith(t, st, spec, slog.New(slog.DiscardHandler), extra, nil, opts...)
 }
 
-func startClusterWith(t *testing.T, st store.Store, spec string, log *slog.Logger, extra []pluginsdk.Plugin, opts ...func(*dispatch.Config)) *cluster {
+// startClusterGrace is startCluster with a finally grace of the given length.
+func startClusterGrace(t *testing.T, st store.Store, spec string, grace time.Duration) *cluster {
+	return startClusterWith(t, st, spec, slog.New(slog.DiscardHandler), nil, []engine.Option{engine.WithFinallyGrace(grace)})
+}
+
+func startClusterWith(t *testing.T, st store.Store, spec string, log *slog.Logger, extra []pluginsdk.Plugin, eopts []engine.Option, opts ...func(*dispatch.Config)) *cluster {
 	t.Helper()
 	ctx := context.Background()
 	pool, err := st.CreatePool(ctx, "default", "", t0)
@@ -111,7 +116,7 @@ func startClusterWith(t *testing.T, st store.Store, spec string, log *slog.Logge
 	if err != nil {
 		t.Fatal(err)
 	}
-	eng, err := engine.New(expr.Limits{})
+	eng, err := engine.New(expr.Limits{}, eopts...)
 	if err != nil {
 		t.Fatal(err)
 	}

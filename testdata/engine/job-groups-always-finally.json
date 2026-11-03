@@ -1,0 +1,45 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "groups-always-finally"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "a",
+        "plugin": "ssh",
+        "with": {
+          "node": "n",
+          "command": "a"
+        }
+      },
+      {
+        "id": "cleanup",
+        "type": "group",
+        "steps": [
+          {
+            "id": "x",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "x"
+            }
+          }
+        ],
+        "when": "always()",
+        "finally": [
+          {
+            "id": "y",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "y"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

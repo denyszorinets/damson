@@ -68,18 +68,16 @@ type Engine struct {
 	FinallyGrace string `koanf:"finally_grace"`
 }
 
-// DefaultFinallyGrace is the default of engine.finally_grace.
-const DefaultFinallyGrace = 2 * time.Minute
-
 // MaxFinallyGrace bounds engine.finally_grace.
 const MaxFinallyGrace = 24 * time.Hour
 
 // FinallyGraceDuration returns the configured grace. Validate guarantees it
-// parses; an unset or invalid value gives the default.
+// parses; an unset or invalid value gives zero, which selects the engine's
+// default (engine.DefaultFinallyGrace, the same 2m as the key's default).
 func (c Config) FinallyGraceDuration() time.Duration {
 	d, err := time.ParseDuration(c.Engine.FinallyGrace)
 	if err != nil || d <= 0 {
-		return DefaultFinallyGrace
+		return 0
 	}
 	return d
 }

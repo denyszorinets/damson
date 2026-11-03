@@ -192,7 +192,7 @@ func (v *validator) group(p string, s *Step, depth int) {
 	if s.When != "" {
 		v.expression(p+".when", s.When)
 	}
-	if s.Rethrow != nil && len(s.Catch) == 0 {
+	if s.Rethrow != nil && *s.Rethrow && len(s.Catch) == 0 {
 		v.add(p+".rethrow", "needs a catch list")
 	}
 	if len(s.Steps) == 0 {

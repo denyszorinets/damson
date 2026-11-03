@@ -73,6 +73,22 @@ Engine
   timers: the grace is a deadline compared with ``now``, and the wake makes the
   advance run then, with the sweep as the fallback for a finally step that was
   already running when the cancel came.
+- The grace protects the finally list of a group that existed when the cancel
+  came. The finally list of a group created at or after the cancel (admitted by
+  ``always()`` or ``cancelled()``) is not cut: its group is itself left to run
+  to completion, like the ``always()`` steps created after a cancel. The wake
+  for the end of the grace is queued even when it is the only thing a ``Decide``
+  asks for.
+- A finally step that is cut by its grace-capped timeout fails with kind
+  ``timeout``, which fails the group and can end the run ``failed`` instead of
+  ``cancelled``. The wake normally cancels it first (the agent's timer starts
+  later), so the outcome depends on which comes first; a late wake favours
+  ``failed``.
+- The grace is measured from ``cancel_requested_at``, written by the controller
+  that took the cancel, against the ``now`` of the controller that advances the
+  run, so clock skew between controllers lengthens or shortens it by the skew.
+  Keep controller clocks in sync. Wakes run up to about 5 seconds after their
+  instant (River's scheduler interval).
 - A finally list is run as if created after the cancel: the run-level cancel
   does not make ``success()`` false in it, and no step is retried while the run
   is being cancelled.
@@ -141,5 +157,7 @@ Negative
 - Two ids are reserved inside groups.
 - The flat API list needs clients to nest by path.
 - During a rolling upgrade a controller without this change cannot parse a job
-  with ``type: "group"`` and fails the run, and one that reads group rows fails
-  on them. Finish the rollout before authoring group jobs.
+  with ``type: "group"`` (or, for a controller that has groups but not
+  ``catch`` and ``finally``, those fields) and fails the run, and one that reads
+  group rows fails on them. Finish the rollout of every controller before
+  authoring jobs that use groups, ``catch`` or ``finally``.

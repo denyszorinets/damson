@@ -29,8 +29,8 @@ type Args struct {
 	RunID   string `json:"run_id"`
 	Version int64  `json:"version"`
 	Sweep   int64  `json:"sweep,omitempty"`
-	// Wake is the job-level timeout deadline (unix ms) a wake job was
-	// scheduled for, 0 for an event or sweep job. Wake jobs have version 0,
+	// Wake is the instant (unix ms) a wake job was scheduled for, the job-level
+	// timeout deadline or the end of a finally grace, 0 for an event or sweep job. Wake jobs have version 0,
 	// which no run has, so their unique key never meets another job's.
 	Wake int64 `json:"wake,omitempty"`
 }

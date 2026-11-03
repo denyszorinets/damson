@@ -295,3 +295,31 @@ func TestCancelInBodyStillRunsFinally(t *testing.T) {
 		}
 	})
 }
+
+// The end of the finally grace cancels a finally step that was already running
+// when the cancel came. Nothing else wakes the run (the sweep is off in this
+// cluster), so the wake the engine asks for must be queued even though the
+// Decide that asks for it changes nothing else.
+func TestFinallyGraceEndCancelsARunningFinallyStep(t *testing.T) {
+	spec := `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"lin"},
+"spec":{"steps":[{"id":"s1","plugin":"demo","with":{"word":"one"}},
+{"id":"deploy","type":"group","steps":[{"id":"body","plugin":"demo","with":{"word":"fine"}}],
+  "finally":[{"id":"cleanup","plugin":"demo","with":{"word":"hold"}}]}]}}`
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		c := startClusterGrace(t, st, spec, time.Second)
+		id := c.trigger("one")
+		waitStepExecution(t, c, id, "deploy/finally/cleanup", store.ExecRunning)
+
+		c.requestCancel(id)
+		// Without the wake nothing would end the held step: the sweep is disabled.
+		tree := c.waitRun(id, store.RunCanceled)
+		by := stepsByPath(tree)
+		cleanup := by["deploy/finally/cleanup"]
+		if cleanup.Status != store.StepCanceled || len(cleanup.Executions) != 1 || cleanup.Executions[0].State != store.ExecCanceled {
+			t.Fatalf("cleanup = %s %+v; want canceled when the grace ended", cleanup.Status, cleanup.Executions)
+		}
+		if by["deploy"].Status != store.StepCanceled {
+			t.Fatalf("deploy = %s; want canceled", by["deploy"].Status)
+		}
+	})
+}

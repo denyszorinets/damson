@@ -190,7 +190,7 @@ func (d *decider) cancelActive() {
 		if inst.Status.Terminal() {
 			continue
 		}
-		if InFinally(inst.Path) {
+		if d.graceProtected(inst.Path) {
 			if d.now.Before(d.graceAt()) {
 				for _, ex := range inst.Executions {
 					wantWake = wantWake || (!ex.State.Terminal() && !ex.CancelRequested)
@@ -209,6 +209,20 @@ func (d *decider) cancelActive() {
 	if wantWake {
 		d.emit(ScheduleWake{At: d.graceAt()})
 	}
+}
+
+// graceProtected reports whether path is in a finally list whose group existed
+// when the cancel came. The finally list of a group created at or after the
+// cancel (one admitted by always() or cancelled()) belongs to a step that is
+// itself allowed to run to completion, so it is not cut by the grace.
+func (d *decider) graceProtected(path string) bool {
+	for _, owner := range finallyOwners(path) {
+		if inst, ok := d.byPath[owner]; ok && !inst.CreatedAt.Before(*d.cancelAt) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // graceAt is the instant the finally grace ends: the cancel request plus the
