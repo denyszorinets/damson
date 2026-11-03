@@ -102,6 +102,9 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	if n.adv != nil {
 		apiCfg.Advance, apiCfg.RunNotify = n.adv, n.adv.Hub()
 	}
+	if cfg.DevNodes != nil { // a nil *File must not become a non-nil interface
+		apiCfg.Targets = cfg.DevNodes
+	}
 	n.srv = api.NewServer(apiCfg)
 	return n, nil
 }
@@ -115,9 +118,13 @@ func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("building engine: %w", err)
 	}
-	if n.adv, err = advance.New(advance.Config{
+	acfg := advance.Config{
 		Store: cfg.Store, Engine: eng, Logger: log, PollInterval: t.AdvancePoll, SweepInterval: t.AdvanceSweep,
-	}); err != nil {
+	}
+	if cfg.DevNodes != nil { // a nil *File must not become a non-nil interface
+		acfg.Targets = cfg.DevNodes
+	}
+	if n.adv, err = advance.New(acfg); err != nil {
 		return fmt.Errorf("creating run advancer: %w", err)
 	}
 	gw := n.gw

@@ -80,8 +80,13 @@ type RunState struct {
 	// whether the plugin declares itself idempotent. The advance fills it only
 	// when a step's latest attempt was lost (it decides whether that attempt
 	// may be retried); a plugin without a stored manifest is not idempotent.
-	IdempotentPlugins map[string]bool     `json:"idempotent_plugins,omitempty"`
-	Steps             []StepInstanceState `json:"steps,omitempty"`
+	IdempotentPlugins map[string]bool `json:"idempotent_plugins,omitempty"`
+	// Targets is the node list `targets` evaluates to: the inventory filtered by
+	// spec.targets.selector (Engine.SelectTargets), each node a map with name,
+	// address, tags, attributes, pool, os and transport. Before the inventory
+	// exists (M4) it comes from the dev-only nodes file; it is empty without one.
+	Targets []map[string]any    `json:"targets,omitempty"`
+	Steps   []StepInstanceState `json:"steps,omitempty"`
 }
 
 // JobInfo is the job identity exposed to expressions as `job`.

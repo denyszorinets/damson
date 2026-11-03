@@ -167,6 +167,9 @@ func (d deps) newRun(job store.Job, ver store.JobVersion, spec *engine.Job, opts
 		ID: id, Status: engine.RunQueued, Trigger: triggerAPI, Inputs: opts,
 		Job: engine.JobInfo{Name: spec.Metadata.Name, Project: spec.Metadata.Project, Version: strconv.Itoa(ver.Version)},
 	}
+	if d.targets != nil {
+		state.Targets = d.eng.SelectTargets(spec, opts, d.targets.Targets())
+	}
 	actions, err := d.eng.Decide(spec, state, now)
 	if err != nil {
 		return store.NewRun{}, fmt.Errorf("deciding the initial state of run %s: %w", id, err)

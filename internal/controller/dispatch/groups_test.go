@@ -3,10 +3,13 @@ package dispatch_test
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/denyszorinets/damson/internal/devnodes"
 	"github.com/denyszorinets/damson/internal/store"
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 )
@@ -527,6 +530,66 @@ func TestForEachRetryInsideLanes(t *testing.T) {
 		}
 		if attempts != 4 || fp.callCount() != 4 {
 			t.Fatalf("attempts = %d, plugin calls = %d; want 2 lanes + 2 failures = 4 each", attempts, fp.callCount())
+		}
+	})
+}
+
+const devNodesJSON = `{"version":1,"nodes":{
+ "web-01":{"address":"10.0.0.1","os":"linux","host_key_policy":"insecure","attributes":{"role":"web"}},
+ "web-02":{"address":"10.0.0.2","os":"linux","host_key_policy":"insecure","attributes":{"role":"web"}},
+ "win-01":{"address":"10.0.0.3","os":"windows","transport":"winrm","host_key_policy":"insecure"}}}`
+
+// for_each over `targets` runs one lane per node the dev nodes file lists and
+// the selector keeps, with the node bound; the list is the file's, sorted.
+func TestForEachOverTargetsFromDevNodes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nodes.json")
+	if err := os.WriteFile(path, []byte(devNodesJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	nodes, err := devnodes.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"lin"},
+"spec":{"targets":{"selector":"node.os == 'linux'"},"steps":[{"id":"s1","plugin":"demo","with":{"word":"one"}},
+{"id":"per-node","type":"group","for_each":"targets",
+  "steps":[{"id":"install","plugin":"demo","with":{"word":"on ${{ node.name }} ${{ node.address }} ${{ node.attributes.role }}"}}]}]}}`
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		c := startClusterTargets(t, st, spec, nodes)
+		tree := c.waitRun(c.trigger("one"), store.RunSucceeded)
+		by := stepsByPath(tree)
+
+		for _, name := range []string{"web-01", "web-02"} {
+			inst := by["per-node/for_each["+name+"]/install"]
+			if inst.Status != store.StepSucceeded {
+				t.Fatalf("lane %s install = %s (steps %v)", name, inst.Status, paths(tree))
+			}
+		}
+		if _, ran := by["per-node/for_each[win-01]"]; ran {
+			t.Fatal("the selector kept a windows node")
+		}
+		waitLog(t, st, by["per-node/for_each[web-02]/install"].Executions[0].ID, "said on web-02 10.0.0.2 web")
+		var frozen struct {
+			Lanes []struct{ Key string } `json:"lanes"`
+		}
+		if err := json.Unmarshal(by["per-node"].Input, &frozen); err != nil || len(frozen.Lanes) != 2 {
+			t.Fatalf("frozen lane list = %s (%v); want the two linux nodes", by["per-node"].Input, err)
+		}
+	})
+}
+
+// Without a dev nodes file `targets` is empty and the group succeeds with no
+// lanes.
+func TestForEachOverTargetsWithoutNodesIsEmpty(t *testing.T) {
+	spec := lanesSpec(`{"id":"per-node","type":"group","for_each":"targets","steps":[{"id":"install","plugin":"demo","with":{"word":"x"}}]}`)
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		c := startCluster(t, st, spec)
+		tree := c.waitRun(c.trigger("one"), store.RunSucceeded)
+		for p := range stepsByPath(tree) {
+			if strings.Contains(p, "for_each[") {
+				t.Fatalf("created %q without any target", p)
+			}
 		}
 	})
 }

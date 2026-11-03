@@ -117,3 +117,45 @@ func TestNullItemLane(t *testing.T) {
 		t.Fatalf("item == null inside the lane: %v, %v", got, err)
 	}
 }
+
+func TestSelectTargets(t *testing.T) {
+	e := newEngine(t, expr.Limits{})
+	nodes := []map[string]any{
+		{"name": "web-01", "os": "linux", "attributes": map[string]any{"role": "web"}, "tags": []any{"prod"}},
+		{"name": "web-02", "os": "windows", "attributes": map[string]any{"role": "web"}, "tags": []any{}},
+		{"name": "db-01", "os": "linux", "attributes": map[string]any{}, "tags": []any{"prod", "db"}},
+	}
+	jobWith := func(selector string) *Job {
+		return &Job{Spec: Spec{Targets: &Targets{Selector: selector}}}
+	}
+	names := func(ns []map[string]any) string {
+		var out []string
+		for _, n := range ns {
+			out = append(out, n["name"].(string))
+		}
+		return strings.Join(out, ",")
+	}
+	tests := []struct {
+		name     string
+		job      *Job
+		inputs   map[string]any
+		wantList string
+	}{
+		{"no selector selects every node", &Job{}, nil, "web-01,web-02,db-01"},
+		{"empty selector selects every node", jobWith(""), nil, "web-01,web-02,db-01"},
+		{"os", jobWith(`node.os == "linux"`), nil, "web-01,db-01"},
+		{"tag", jobWith(`"db" in node.tags`), nil, "db-01"},
+		{"attribute that some nodes lack", jobWith(`node.attributes.role == "web"`), nil, "web-01,web-02"}, // db-01 has no role: not a match
+		{"an input", jobWith(`node.os == inputs.os`), map[string]any{"os": "windows"}, "web-02"},
+		{"not a bool matches nothing", jobWith(`node.name`), nil, ""},
+		{"a broken selector matches nothing", jobWith(`node.`), nil, ""},
+	}
+	for _, tc := range tests {
+		if got := names(e.SelectTargets(tc.job, tc.inputs, nodes)); got != tc.wantList {
+			t.Errorf("%s: selected %q; want %q", tc.name, got, tc.wantList)
+		}
+	}
+	if got := e.SelectTargets(&Job{}, nil, nil); len(got) != 0 {
+		t.Errorf("no nodes: got %v", got)
+	}
+}

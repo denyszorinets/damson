@@ -48,8 +48,11 @@ Document layout
        everything below it) accepts only ``secret://`` references; see
        :ref:`job-spec-secret-options`.
    * - ``spec.targets.selector``
-     - A CEL expression. Compiled for syntax now; evaluated by the inventory
-       work later.
+     - A CEL expression over ``node`` (``name``, ``address``, ``tags``,
+       ``attributes``, ``pool``, ``os``, ``transport``) and ``inputs``; the nodes
+       for which it is true are ``targets``. Before the inventory exists (M4) the
+       nodes are those of the :ref:`dev nodes file <cli-dev-nodes>`; without one
+       ``targets`` is empty. A node for which it fails does not match.
    * - ``spec.timeout``
      - Go duration (``30s``, ``10m``), positive. Covers the whole run from its
        start (time spent pending does not count). When it expires the run is

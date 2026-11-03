@@ -73,6 +73,7 @@ type deps struct {
 	tail    LogTail
 	notify  RunNotifier
 	advance RunEnqueuer
+	targets TargetSource
 	slots   chan struct{} // semaphore of open SSE streams; nil means unlimited
 }
 
@@ -109,7 +110,7 @@ func (d deps) acquireStream() (release func(), err error) {
 func newDeps(cfg Config) deps {
 	d := deps{
 		ds: cfg.Data, plugins: cfg.Plugins, now: cfg.Now,
-		stream: cfg.Stream.withDefaults(), tail: cfg.LogTail, notify: cfg.RunNotify, advance: cfg.Advance,
+		stream: cfg.Stream.withDefaults(), tail: cfg.LogTail, notify: cfg.RunNotify, advance: cfg.Advance, targets: cfg.Targets,
 	}
 	d.slots = make(chan struct{}, d.stream.MaxStreams)
 	if d.now == nil {
