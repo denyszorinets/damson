@@ -42,6 +42,7 @@ func (d *decider) attend(sc *scope, step Step, inst StepInstanceState) error {
 	}
 	if !retry {
 		d.emit(SettleStep{Path: inst.Path, Attempt: latest.Attempt})
+		d.settles++
 		return nil
 	}
 	timeout, err := parseTimeout(step)

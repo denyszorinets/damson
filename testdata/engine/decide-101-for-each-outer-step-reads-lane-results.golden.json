@@ -1,0 +1,24 @@
+[
+  {
+    "path": "per-node",
+    "status": "succeeded",
+    "type": "complete_group"
+  },
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "input": {
+      "command": "lane b is succeeded succeeded item b",
+      "node": "n"
+    },
+    "path": "report",
+    "plugin": "ssh",
+    "step_id": "report",
+    "type": "create_step_instance"
+  },
+  {
+    "attempt": 1,
+    "path": "report",
+    "scheduled_at": "2026-03-01T10:05:00Z",
+    "type": "schedule_execution"
+  }
+]

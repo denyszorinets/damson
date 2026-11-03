@@ -1,0 +1,105 @@
+{
+  "job_file": "job-lanes-catch.json",
+  "now": "2026-03-01T10:05:00Z",
+  "state": {
+    "id": "run-1",
+    "status": "running",
+    "trigger": "manual",
+    "job": {
+      "name": "x",
+      "project": "default",
+      "version": "1"
+    },
+    "started_at": "2026-03-01T10:00:00Z",
+    "inputs": {
+      "hosts": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    "steps": [
+      {
+        "path": "per-node",
+        "step_id": "per-node",
+        "status": "pending",
+        "created_at": "2026-03-01T10:00:00Z",
+        "kind": "group",
+        "started_at": "2026-03-01T10:00:00Z",
+        "lanes": [
+          {
+            "key": "a",
+            "item": "a"
+          },
+          {
+            "key": "b",
+            "item": "b"
+          },
+          {
+            "key": "c",
+            "item": "c"
+          }
+        ]
+      },
+      {
+        "path": "per-node/for_each[a]",
+        "step_id": "for_each[a]",
+        "status": "pending",
+        "created_at": "2026-03-01T10:00:00Z",
+        "kind": "group",
+        "started_at": "2026-03-01T10:00:00Z"
+      },
+      {
+        "path": "per-node/for_each[a]/install",
+        "step_id": "install",
+        "status": "failed",
+        "created_at": "2026-03-01T10:00:00Z",
+        "error": {
+          "kind": "exit_code",
+          "message": "boom"
+        },
+        "executions": [
+          {
+            "id": "ex-a",
+            "attempt_id": "at-a",
+            "attempt": 1,
+            "state": "failed",
+            "error": {
+              "kind": "exit_code",
+              "message": "boom"
+            },
+            "finished_at": "2026-03-01T10:04:40Z"
+          }
+        ]
+      },
+      {
+        "path": "per-node/for_each[a]/catch/rollback",
+        "step_id": "rollback",
+        "status": "succeeded",
+        "created_at": "2026-03-01T10:00:00Z",
+        "executions": [
+          {
+            "id": "ex-ar",
+            "attempt_id": "at-ar",
+            "attempt": 1,
+            "state": "succeeded"
+          }
+        ]
+      },
+      {
+        "path": "per-node/for_each[a]/finally/tidy",
+        "step_id": "tidy",
+        "status": "succeeded",
+        "created_at": "2026-03-01T10:00:00Z",
+        "executions": [
+          {
+            "id": "ex-at",
+            "attempt_id": "at-at",
+            "attempt": 1,
+            "state": "succeeded"
+          }
+        ]
+      }
+    ]
+  }
+}

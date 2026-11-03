@@ -1,0 +1,43 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "lanes-outer-catch"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "o",
+        "type": "group",
+        "steps": [
+          {
+            "id": "per-node",
+            "type": "group",
+            "steps": [
+              {
+                "id": "install",
+                "plugin": "ssh",
+                "with": {
+                  "node": "${{ item }}",
+                  "command": "install ${{ item }}"
+                }
+              }
+            ],
+            "for_each": "inputs.hosts"
+          }
+        ],
+        "catch": [
+          {
+            "id": "handle",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "handle ${{ error.step }} ${{ error.path }}"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/denyszorinets/damson/internal/engine"
 	"github.com/denyszorinets/damson/internal/store"
@@ -61,11 +60,16 @@ func decodeObject(raw json.RawMessage, into any) error {
 // is also the last path segment once M3 prefixes scopes.
 func stepState(n store.StepNode) (engine.StepInstanceState, error) {
 	inst := engine.StepInstanceState{
-		Path: n.Path, StepID: n.Path[strings.LastIndex(n.Path, "/")+1:], Status: engine.StepStatusFromStore(string(n.Status)),
+		Path: n.Path, StepID: engine.StepIDOf(n.Path), Status: engine.StepStatusFromStore(string(n.Status)),
 		CreatedAt: n.CreatedAt, StartedAt: n.StartedAt, FinishedAt: n.FinishedAt,
 	}
 	if n.Kind == store.KindGroup {
 		inst.Kind = "group"
+		lanes, err := decodeLanes(n.Input)
+		if err != nil {
+			return inst, fmt.Errorf("decoding the lanes of group %s: %w", n.Path, err)
+		}
+		inst.Lanes = lanes
 	}
 	if err := decodeObject(n.Outputs, &inst.Outputs); err != nil {
 		return inst, fmt.Errorf("decoding outputs of step %s: %w", n.Path, err)
@@ -107,4 +111,19 @@ func decodeStepError(text string) *engine.StepError {
 		return &se
 	}
 	return &engine.StepError{Kind: "error", Message: text}
+}
+
+// decodeLanes reads the frozen for_each list from a group row's input: nil for
+// a group without one (the input is empty or an empty object).
+func decodeLanes(raw json.RawMessage) ([]engine.Lane, error) {
+	if len(raw) == 0 || string(raw) == "{}" {
+		return nil, nil
+	}
+	var in struct {
+		Lanes []engine.Lane `json:"lanes"`
+	}
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return nil, err
+	}
+	return in.Lanes, nil
 }

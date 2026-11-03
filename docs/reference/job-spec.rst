@@ -122,6 +122,28 @@ that starts then gets at most the time left as its timeout, and what is still
 running after it is cancelled. The three lists of a group share one id
 namespace, and ``rethrow`` needs a ``catch`` list.
 
+``for_each``
+~~~~~~~~~~~~
+
+A group with ``for_each`` runs once per item of a list, in independent lanes
+(:doc:`/architecture/decisions/0038-for-each-lanes`). ``for_each`` is a CEL
+expression that evaluates to a list, for example ``inputs.hosts`` or
+``steps.plan.outputs.nodes``; it is evaluated once, when the group starts, and
+the list is frozen. Inside a lane ``item`` is the item, and ``node`` is the item
+when it is an object. The lane key is the item's ``name`` (an object with a
+string ``name``), the item (a string), or its index; it must match
+``^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`` and be unique, and a list with more than
+1000 items, a bad or duplicate key, or an expression that is not a list fails the
+group. An empty list succeeds with no lanes.
+
+Each lane is a full instance of the group: ``steps``, ``catch``, ``finally`` and
+``rethrow`` run per lane, and ``steps.<id>`` inside a lane means that lane's
+steps. ``max_parallel`` (1 to 1000, default all lanes) limits the lanes open at
+once, in list order; ``fail_threshold`` (1 to 1000, default never) cancels the
+lanes that have not started after that many lanes failed. From outside, the
+results are ``steps.<group>.lanes[<key>]``. A group with ``for_each`` cannot sit
+inside another one. The group fails with the first failed lane's error.
+
 Inside a group the step ids ``catch`` and ``finally`` are reserved (a
 top-level step may still use them), and groups nest at most 8 deep. A nested step's path is ``<group>/<id>``
 (:doc:`/architecture/decisions/0037-groups-scoping-and-status`).
@@ -139,10 +161,9 @@ false inside it.
 Reserved fields (rejected for now)
 ----------------------------------
 
-These fields are part of the schema so that M3 extends the model instead of
-reshaping it, but validation rejects them with ``<path> is not supported yet``:
-``spec.concurrency``, and on steps ``for_each``, ``max_parallel`` and
-``fail_threshold``.
+These fields are part of the schema so that later milestones extend the model
+instead of reshaping it, but validation rejects them with
+``<path> is not supported yet``: ``spec.concurrency``.
 
 Control flow (sequential)
 -------------------------

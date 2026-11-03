@@ -31,6 +31,9 @@ func Validate(j *Job) ValidationErrors {
 type validator struct {
 	env  *expr.Env
 	errs ValidationErrors
+	// inLane is true while the steps of a for_each group are being checked:
+	// for_each groups do not nest (ADR-0038).
+	inLane bool
 }
 
 func (v *validator) add(path, format string, args ...any) {
@@ -124,7 +127,6 @@ func (v *validator) stepsIn(path string, steps []Step, depth int, seen map[strin
 }
 
 func (v *validator) step(p string, s *Step, depth int) {
-	v.reserved(p, s)
 	if s.IsGroup() {
 		v.group(p, s, depth)
 		return
@@ -132,7 +134,10 @@ func (v *validator) step(p string, s *Step, depth int) {
 	for _, f := range []struct {
 		name string
 		set  bool
-	}{{"steps", len(s.Steps) > 0}, {"catch", len(s.Catch) > 0}, {"finally", len(s.Finally) > 0}, {"rethrow", s.Rethrow != nil}} {
+	}{
+		{"steps", len(s.Steps) > 0}, {"catch", len(s.Catch) > 0}, {"finally", len(s.Finally) > 0}, {"rethrow", s.Rethrow != nil},
+		{"for_each", s.ForEach != ""}, {"max_parallel", s.MaxParallel != nil}, {"fail_threshold", s.FailThreshold != nil},
+	} {
 		if f.set {
 			v.add(p+"."+f.name, "is only valid on a step of type %q", StepTypeGroup)
 		}
@@ -152,23 +157,6 @@ func (v *validator) step(p string, s *Step, depth int) {
 		v.add(p+".runs_on", "must set pool or labels")
 	}
 	v.templates(p+".with", s.With)
-}
-
-// reserved rejects fields that are parsed for forward compatibility but not
-// implemented in this milestone.
-func (v *validator) reserved(p string, s *Step) {
-	fields := []struct {
-		name string
-		set  bool
-	}{
-		{"for_each", s.ForEach != ""},
-		{"max_parallel", s.MaxParallel != nil}, {"fail_threshold", s.FailThreshold != nil},
-	}
-	for _, f := range fields {
-		if f.set {
-			v.errs = append(v.errs, errNotSupported(p+"."+f.name, f.name))
-		}
-	}
 }
 
 // group checks a step of type "group": a container of steps that has no
@@ -195,14 +183,46 @@ func (v *validator) group(p string, s *Step, depth int) {
 	if s.Rethrow != nil && *s.Rethrow && len(s.Catch) == 0 {
 		v.add(p+".rethrow", "needs a catch list")
 	}
+	v.forEach(p, s)
 	if len(s.Steps) == 0 {
 		v.add(p+".steps", "a group needs at least one step")
 		return
 	}
+	outer := v.inLane
+	v.inLane = outer || s.ForEach != ""
 	seen := map[string]string{}
 	v.stepsIn(p+".steps", s.Steps, depth+1, seen)
 	v.stepsIn(p+".catch", s.Catch, depth+1, seen)
 	v.stepsIn(p+".finally", s.Finally, depth+1, seen)
+	v.inLane = outer
+}
+
+// forEach checks the fan-out settings of a group.
+func (v *validator) forEach(p string, s *Step) {
+	if s.ForEach == "" {
+		if s.MaxParallel != nil {
+			v.add(p+".max_parallel", "needs for_each")
+		}
+		if s.FailThreshold != nil {
+			v.add(p+".fail_threshold", "needs for_each")
+		}
+		return
+	}
+	if v.inLane {
+		v.add(p+".for_each", "cannot be nested inside another for_each group")
+	}
+	prog, err := v.env.Compile(s.ForEach)
+	switch {
+	case err != nil:
+		v.add(p+".for_each", "%s", unwrapCompile(err))
+	case prog.UsesStatus():
+		v.add(p+".for_each", "cannot call status functions: it is evaluated once, when the group starts")
+	}
+	for name, n := range map[string]*int{"max_parallel": s.MaxParallel, "fail_threshold": s.FailThreshold} {
+		if n != nil && (*n < 1 || *n > maxLanes) {
+			v.add(p+"."+name, "must be between 1 and %d", maxLanes)
+		}
+	}
 }
 
 func (v *validator) duration(path, s string) {

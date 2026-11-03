@@ -135,3 +135,72 @@ func TestBuildStateMarksHandledGroups(t *testing.T) {
 		t.Fatal("a group without a kept error, or a step, was marked handled")
 	}
 }
+
+func TestBuildStateDecodesLanesAndLaneStepIDs(t *testing.T) {
+	tree := store.RunTree{Run: store.Run{ID: "r", Status: store.RunRunning}}
+	tree.Steps = []store.StepNode{
+		{StepInstance: store.StepInstance{Path: "per-node", Kind: store.KindGroup, Status: store.StepRunning, Outputs: []byte("{}"),
+			Input: []byte(`{"lanes":[{"key":"web-01","item":{"name":"web-01"}},{"key":"1","item":3}]}`)}},
+		{StepInstance: store.StepInstance{Path: "per-node/for_each[web-01]", Kind: store.KindGroup, Status: store.StepRunning, Outputs: []byte("{}"), Input: []byte("{}")}},
+		{StepInstance: store.StepInstance{Path: "per-node/for_each[web-01]/install", Kind: store.KindStep, Status: store.StepPending, Outputs: []byte("{}")}},
+		{StepInstance: store.StepInstance{Path: "plain", Kind: store.KindGroup, Status: store.StepRunning, Outputs: []byte("{}"), Input: []byte("{}")}},
+		{StepInstance: store.StepInstance{Path: "empty", Kind: store.KindGroup, Status: store.StepSucceeded, Outputs: []byte("{}"), Input: []byte(`{"lanes":[]}`)}},
+	}
+	st, err := buildState(tree, jobMeta{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agg := st.Steps[0]
+	if len(agg.Lanes) != 2 || agg.Lanes[0].Key != "web-01" || agg.Lanes[1].Key != "1" {
+		t.Fatalf("lanes = %+v", agg.Lanes)
+	}
+	if m, ok := agg.Lanes[0].Item.(map[string]any); !ok || m["name"] != "web-01" {
+		t.Fatalf("lane item = %#v; want the object", agg.Lanes[0].Item)
+	}
+	if lane := st.Steps[1]; lane.StepID != "per-node" || lane.Lanes != nil {
+		t.Fatalf("lane row = %+v; want the for_each group's id and no list of its own", lane)
+	}
+	if leaf := st.Steps[2]; leaf.StepID != "install" {
+		t.Fatalf("lane step id = %q; want install", leaf.StepID)
+	}
+	if plain := st.Steps[3]; plain.Lanes != nil {
+		t.Fatalf("a group without a lane list has Lanes %+v", plain.Lanes)
+	}
+	if empty := st.Steps[4]; empty.Lanes == nil || len(empty.Lanes) != 0 {
+		t.Fatalf("an empty lane list must decode to an empty, non-nil list; got %#v", empty.Lanes)
+	}
+}
+
+func TestToAdvanceKeepsTheLaneListOnTheGroup(t *testing.T) {
+	job := &engine.Job{Spec: engine.Spec{Steps: []engine.Step{{ID: "g", Type: engine.StepTypeGroup, ForEach: "x",
+		Steps: []engine.Step{{ID: "a", Plugin: "ssh", RunsOn: &engine.RunsOn{Pool: "gpu"}}}}}}}
+	acts := []engine.Action{
+		engine.CreateStepInstance{Path: "g", StepID: "g", Kind: "group", Input: json.RawMessage(`{"lanes":[{"key":"a","item":"a"}]}`), CreatedAt: t0},
+		engine.CreateStepInstance{Path: "g/for_each[a]", StepID: "g", Kind: "group", CreatedAt: t0},
+		engine.CreateStepInstance{Path: "g/for_each[a]/a", StepID: "a", Plugin: "ssh", Input: json.RawMessage(`{}`), CreatedAt: t0},
+		engine.ScheduleExecution{Path: "g/for_each[a]/a", Attempt: 1, ScheduledAt: t0},
+	}
+	adv, _, err := toAdvance(acts, store.RunTree{}, job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(adv.NewSteps[0].Input) != `{"lanes":[{"key":"a","item":"a"}]}` {
+		t.Fatalf("group input = %s", adv.NewSteps[0].Input)
+	}
+	if pool := adv.NewSteps[2].Execution.Pool; pool != "gpu" {
+		t.Fatalf("pool of the lane step = %q; want gpu, found through the lane path", pool)
+	}
+	if err := store.ValidateAdvance(adv); err != nil {
+		t.Fatalf("the store rejects the converted change set: %v", err)
+	}
+}
+
+func TestLostPluginRefsInsideLanes(t *testing.T) {
+	job := &engine.Job{Spec: engine.Spec{Steps: []engine.Step{{ID: "g", Type: engine.StepTypeGroup, ForEach: "x", Steps: []engine.Step{{ID: "a", Plugin: "tool"}}}}}}
+	state := engine.RunState{Steps: []engine.StepInstanceState{
+		{Path: "g/for_each[web-01]/a", StepID: "a", Status: engine.StepPending, Executions: []engine.ExecutionView{{ID: "e", Attempt: 1, State: engine.ExecLost}}},
+	}}
+	if refs := lostPluginRefs(state, job); len(refs) != 1 || refs[0] != "tool" {
+		t.Fatalf("refs = %v; want the lane step's plugin", refs)
+	}
+}

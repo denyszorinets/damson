@@ -34,7 +34,7 @@ type Step struct {
 	Path       string          `json:"path"`
 	Kind       string          `json:"kind" enum:"step,group"`
 	Plugin     string          `json:"plugin,omitempty"`
-	Input      json.RawMessage `json:"input,omitempty" doc:"Resolved plugin input; holds secret:// references, never secret values."`
+	Input      json.RawMessage `json:"input,omitempty" doc:"Resolved plugin input; holds secret:// references, never secret values. For a for_each group: the frozen lane list."`
 	Status     string          `json:"status" enum:"pending,running,succeeded,failed,skipped,canceled"`
 	Outputs    json.RawMessage `json:"outputs,omitempty"`
 	Error      string          `json:"error,omitempty" doc:"Error message of a failed or canceled step."`

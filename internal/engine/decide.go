@@ -97,6 +97,10 @@ type decider struct {
 	runStatus RunStatus
 	startedAt time.Time
 	acts      []Action
+	// settles counts the SettleStep actions of this Decide: a for_each lane whose
+	// attempt just failed is not failed yet until the settle applies, so the
+	// lanes after it must wait for the next Decide to see the result.
+	settles int
 }
 
 // kindGroup is StepInstanceState.Kind of a group.
@@ -117,7 +121,35 @@ func (d *decider) index() error {
 		}
 		d.byPath[inst.Path] = inst
 	}
+	return d.checkLanes()
+}
+
+// checkLanes rejects a state whose lane rows do not match their for_each
+// group: a lane whose key is not in the group's frozen list, or an open
+// for_each group that has no list at all.
+func (d *decider) checkLanes() error {
+	for path, inst := range d.byPath {
+		if group, key, ok := laneOf(path); ok {
+			agg, found := d.byPath[group]
+			if !found || !hasLane(agg.Lanes, key) {
+				return fmt.Errorf("run %s: step instance %q is a lane that its for_each group does not list", d.st.ID, path)
+			}
+			continue
+		}
+		if spec, ok := d.job.StepAt(path); ok && inst.Kind == kindGroup && spec.ForEach != "" && !inst.Status.Terminal() && inst.Lanes == nil {
+			return fmt.Errorf("run %s: for_each group %q has no lane list", d.st.ID, path)
+		}
+	}
 	return nil
+}
+
+func hasLane(lanes []Lane, key string) bool {
+	for _, l := range lanes {
+		if l.Key == key {
+			return true
+		}
+	}
+	return false
 }
 
 func kindName(k string) string {

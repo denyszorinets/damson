@@ -140,6 +140,20 @@ grace. ``toAdvance`` returns every wake of a ``Decide`` and the advance inserts
 them in the transaction that applies it. A handled group is a ``succeeded``
 group that keeps the caught error (``StepInstance.Handled``).
 
+for_each lanes
+~~~~~~~~~~~~~~
+
+A ``for_each`` group has an aggregate row whose ``input`` is the frozen lane list
+(``{"lanes": [{"key", "item"}]}``) and one group row per lane at
+``<group>/for_each[<key>]`` (ADR-0038). ``beginGroup`` evaluates the list once
+(``evalLanes``) and ``runLanes`` opens lanes in list order up to
+``max_parallel``, runs every open lane (``runGroup`` on the lane row, with a
+scope that binds ``item`` and ``node``), applies ``fail_threshold`` and finishes
+the aggregate once all lanes are terminal. ``buildState`` decodes the list from
+the group row's input; ``engine.StepIDOf`` gives a lane row its for_each group's
+id. A lane that has just failed but is not settled yet holds new lanes back for
+one ``Decide`` (the settles counter).
+
 Retries
 -------
 

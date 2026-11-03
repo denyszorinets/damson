@@ -2,6 +2,8 @@ package dispatch_test
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -320,6 +322,156 @@ func TestFinallyGraceEndCancelsARunningFinallyStep(t *testing.T) {
 		}
 		if by["deploy"].Status != store.StepCanceled {
 			t.Fatalf("deploy = %s; want canceled", by["deploy"].Status)
+		}
+	})
+}
+
+func lanesSpec(group string) string {
+	return `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"lin"},
+"spec":{"steps":[{"id":"s1","plugin":"demo","with":{"word":"one"}},` + group + `,
+{"id":"report","plugin":"demo","with":{"word":"report ${{ steps['per-node'].status }}"}}]}}`
+}
+
+// Five lanes with max_parallel 2 all run, never more than two at a time, and
+// each lane's step sees its own item. The group succeeds and the run goes on.
+func TestForEachRunsEveryLaneWithBoundedParallelism(t *testing.T) {
+	spec := lanesSpec(`{"id":"per-node","type":"group","for_each":"['a','b','c','d','e']","max_parallel":2,
+  "steps":[{"id":"install","plugin":"demo","with":{"word":"slow ${{ item }}"}}]}`)
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		c := startCluster(t, st, spec)
+		id := c.trigger("one")
+
+		maxOpen := 0
+		stop := make(chan struct{})
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for {
+				select {
+				case <-stop:
+					return
+				case <-time.After(15 * time.Millisecond):
+				}
+				tree, err := c.st.GetRunTree(context.Background(), id)
+				if err != nil {
+					return
+				}
+				open := 0
+				for _, n := range tree.Steps {
+					if n.Kind == store.KindGroup && strings.Contains(n.Path, "/for_each[") && !strings.Contains(strings.TrimPrefix(n.Path, "per-node/"), "/") && !n.Status.Terminal() {
+						open++
+					}
+				}
+				maxOpen = max(maxOpen, open)
+			}
+		}()
+		tree := c.waitRun(id, store.RunSucceeded)
+		close(stop)
+		<-done
+
+		by := stepsByPath(tree)
+		for _, k := range []string{"a", "b", "c", "d", "e"} {
+			lane := by["per-node/for_each["+k+"]"]
+			if lane.Status != store.StepSucceeded || lane.Kind != store.KindGroup {
+				t.Fatalf("lane %s = %s; want a succeeded group (steps %v)", k, lane.Status, paths(tree))
+			}
+			if inst := by["per-node/for_each["+k+"]/install"]; inst.Status != store.StepSucceeded || len(inst.Executions) != 1 {
+				t.Fatalf("lane %s install = %s %+v", k, inst.Status, inst.Executions)
+			}
+		}
+		if maxOpen != 2 {
+			t.Fatalf("at most %d lanes were open at once; want exactly 2 (max_parallel)", maxOpen)
+		}
+		if by["per-node"].Status != store.StepSucceeded {
+			t.Fatalf("per-node = %s", by["per-node"].Status)
+		}
+		waitLog(t, st, by["per-node/for_each[c]/install"].Executions[0].ID, "said slow c")
+		waitLog(t, st, by["report"].Executions[0].ID, "said report succeeded")
+	})
+}
+
+// A failing lane reaches fail_threshold: the lanes that have not started are
+// cancelled, the running one finishes, and the group fails with the failing
+// lane's error, whose path names the leaf step.
+func TestForEachFailThresholdCancelsPendingLanes(t *testing.T) {
+	spec := lanesSpec(`{"id":"per-node","type":"group","for_each":"['a','b','c','d','e']","max_parallel":2,"fail_threshold":1,
+  "steps":[{"id":"install","plugin":"demo","with":{"word":"${{ item == 'b' ? 'boom' : 'slow' }}"}}]}`)
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		c := startCluster(t, st, spec)
+		tree := c.waitRun(c.trigger("one"), store.RunFailed)
+		by := stepsByPath(tree)
+
+		want := map[string]store.StepStatus{
+			"per-node/for_each[a]": store.StepSucceeded, "per-node/for_each[b]": store.StepFailed,
+			"per-node/for_each[c]": store.StepCanceled, "per-node/for_each[d]": store.StepCanceled, "per-node/for_each[e]": store.StepCanceled,
+			"per-node": store.StepFailed, "report": store.StepSkipped,
+		}
+		for p, status := range want {
+			if got := by[p].Status; got != status {
+				t.Fatalf("step %q = %q; want %q (steps %v)", p, got, status, paths(tree))
+			}
+		}
+		for _, k := range []string{"c", "d", "e"} {
+			lane := by["per-node/for_each["+k+"]"]
+			if lane.Error != "fail_threshold reached" {
+				t.Fatalf("lane %s error = %q; want fail_threshold reached", k, lane.Error)
+			}
+			if _, ran := by["per-node/for_each["+k+"]/install"]; ran {
+				t.Fatalf("lane %s ran its step", k)
+			}
+		}
+		agg := by["per-node"]
+		var gerr struct {
+			Path string `json:"path"`
+		}
+		_ = json.Unmarshal([]byte(agg.Error), &gerr)
+		if gerr.Path != "per-node/for_each[b]/install" {
+			t.Fatalf("group error = %q; want the failing lane's leaf path", agg.Error)
+		}
+	})
+}
+
+// An empty list succeeds with no lanes and the job goes on.
+func TestForEachEmptyListSucceeds(t *testing.T) {
+	spec := lanesSpec(`{"id":"per-node","type":"group","for_each":"[]","steps":[{"id":"install","plugin":"demo","with":{"word":"x"}}]}`)
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		c := startCluster(t, st, spec)
+		tree := c.waitRun(c.trigger("one"), store.RunSucceeded)
+		by := stepsByPath(tree)
+		if by["per-node"].Status != store.StepSucceeded {
+			t.Fatalf("per-node = %s", by["per-node"].Status)
+		}
+		for p := range by {
+			if strings.Contains(p, "for_each[") {
+				t.Fatalf("an empty list created %q", p)
+			}
+		}
+	})
+}
+
+// A cancel with lanes running stops their attempts, cancels the lanes that
+// have not started, and ends the run cancelled.
+func TestCancelWithRunningLanes(t *testing.T) {
+	spec := lanesSpec(`{"id":"per-node","type":"group","for_each":"['a','b','c','d']","max_parallel":2,
+  "steps":[{"id":"install","plugin":"demo","with":{"word":"hold"}}]}`)
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		c := startCluster(t, st, spec)
+		id := c.trigger("one")
+		waitStepExecution(t, c, id, "per-node/for_each[a]/install", store.ExecRunning)
+		waitStepExecution(t, c, id, "per-node/for_each[b]/install", store.ExecRunning)
+
+		c.requestCancel(id)
+		tree := c.waitRun(id, store.RunCanceled)
+		by := stepsByPath(tree)
+		for _, k := range []string{"a", "b", "c", "d"} {
+			if got := by["per-node/for_each["+k+"]"].Status; got != store.StepCanceled {
+				t.Fatalf("lane %s = %s; want canceled (steps %v)", k, got, paths(tree))
+			}
+		}
+		for _, k := range []string{"c", "d"} {
+			if _, ran := by["per-node/for_each["+k+"]/install"]; ran {
+				t.Fatalf("lane %s started after the cancel", k)
+			}
 		}
 	})
 }

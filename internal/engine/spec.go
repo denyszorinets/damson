@@ -85,14 +85,20 @@ type Step struct {
 	// Retry re-runs a failed attempt (plugin steps only).
 	Retry *Retry `json:"retry,omitempty"`
 
-	// Reserved for M3 (groups, catch/finally, for_each).
-	Steps         []Step `json:"steps,omitempty"`
-	Catch         []Step `json:"catch,omitempty"`
-	Finally       []Step `json:"finally,omitempty"`
-	Rethrow       *bool  `json:"rethrow,omitempty"`
-	ForEach       string `json:"for_each,omitempty"`
-	MaxParallel   *int   `json:"max_parallel,omitempty"`
-	FailThreshold *int   `json:"fail_threshold,omitempty"`
+	// Group fields.
+	Steps   []Step `json:"steps,omitempty"`
+	Catch   []Step `json:"catch,omitempty"`
+	Finally []Step `json:"finally,omitempty"`
+	Rethrow *bool  `json:"rethrow,omitempty"`
+	// ForEach is a CEL expression that evaluates to a list; the group runs once
+	// per item in independent lanes, with `item` (and `node`, for an object
+	// item) bound. Evaluated once, when the group starts.
+	ForEach string `json:"for_each,omitempty"`
+	// MaxParallel limits the lanes open at once; unset means all of them.
+	MaxParallel *int `json:"max_parallel,omitempty" jsonschema:"minimum=1,maximum=1000"`
+	// FailThreshold is the number of failed lanes after which the lanes that
+	// have not started are cancelled; unset means never.
+	FailThreshold *int `json:"fail_threshold,omitempty" jsonschema:"minimum=1,maximum=1000"`
 }
 
 // RunsOn is the optional agent selection of a step.

@@ -35,15 +35,57 @@ func finallyOwners(path string) []string {
 // InFinally reports whether path is inside some group's finally list.
 func InFinally(path string) bool { return len(finallyOwners(path)) > 0 }
 
-// StepAt returns the spec step a step instance path refers to.
+// laneSeg is the prefix of a lane path segment: "for_each[<key>]". Step ids
+// are [a-z0-9-]+ and lane keys exclude '/', so the segment is never an id, a
+// marker or part of another segment.
+const laneSegPrefix = "for_each["
+
+// LanePath is the path of the lane with key under the for_each group at group.
+func LanePath(group, key string) string { return group + "/" + laneSegPrefix + key + "]" }
+
+// laneKey reads a lane segment.
+func laneKey(seg string) (string, bool) {
+	if strings.HasPrefix(seg, laneSegPrefix) && strings.HasSuffix(seg, "]") && len(seg) > len(laneSegPrefix)+1 {
+		return seg[len(laneSegPrefix) : len(seg)-1], true
+	}
+	return "", false
+}
+
+// StepIDOf is the id of the spec step an instance path belongs to: its last
+// segment, or for a lane row (whose last segment is the lane) the for_each
+// group's id before it.
+func StepIDOf(path string) string {
+	segs := strings.Split(path, "/")
+	last := segs[len(segs)-1]
+	if _, ok := laneKey(last); ok && len(segs) > 1 {
+		return segs[len(segs)-2]
+	}
+	return last
+}
+
+// laneOf splits a path at its first lane segment: the for_each group's path and
+// the lane key. ok is false when the path has no lane segment.
+func laneOf(path string) (group, key string, ok bool) {
+	segs := strings.Split(path, "/")
+	for i := 1; i < len(segs); i++ {
+		if k, isLane := laneKey(segs[i]); isLane {
+			return strings.Join(segs[:i], "/"), k, true
+		}
+	}
+	return "", "", false
+}
+
+// StepAt returns the spec step a step instance path refers to. A lane path
+// ("<group>/for_each[<key>]/...") resolves to the for_each group's own spec:
+// a lane is a full instance of the group. After a for_each group the next
+// segment must be a lane segment.
 func (j *Job) StepAt(path string) (Step, bool) {
 	list := j.Spec.Steps
 	segs := strings.Split(path, "/")
 	for i := 0; i < len(segs); i++ {
-		seg := segs[i]
 		var found *Step
 		for k := range list {
-			if list[k].ID == seg {
+			if list[k].ID == segs[i] {
 				found = &list[k]
 				break
 			}
@@ -58,6 +100,15 @@ func (j *Job) StepAt(path string) (Step, bool) {
 			return Step{}, false
 		}
 		list = found.Steps
+		if found.ForEach != "" {
+			if _, ok := laneKey(segs[i+1]); !ok {
+				return Step{}, false
+			}
+			i++
+			if i == len(segs)-1 {
+				return *found, true // the lane row itself
+			}
+		}
 		switch segs[i+1] {
 		case SegCatch:
 			list = found.Catch

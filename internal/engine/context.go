@@ -31,6 +31,8 @@ func (d *decider) vars(sc *scope, failed bool) expr.Vars {
 		},
 		Steps: sc.stepsVar(),
 		Error: sc.errorVar(),
+		Node:  sc.nodeVar(),
+		Item:  sc.itemVar(),
 		Status: expr.Status{
 			Success:   !failed && (!d.canceling || sc.shielded) && !sc.anyCancelled(),
 			Failure:   failed,
@@ -63,22 +65,33 @@ func stepValue(inst StepInstanceState) map[string]any {
 }
 
 // value is the `steps.<id>` expression value of the step at path. A group's
-// value also carries `handled` and `steps`, the values of its body steps.
+// value also carries `handled` and `steps`, the values of its body steps; a
+// for_each group's carries `lanes` instead of `steps`.
 func (d *decider) value(path string, step Step) map[string]any {
 	inst := d.byPath[path]
 	v := stepValue(inst)
 	if !step.IsGroup() {
 		return v
 	}
-	children := map[string]any{}
-	for _, c := range step.Steps {
-		if _, ok := d.byPath[ChildPath(path+"/", c.ID)]; ok {
-			children[c.ID] = d.value(ChildPath(path+"/", c.ID), c)
+	v["handled"] = inst.Handled
+	if step.ForEach != "" {
+		v["lanes"] = d.laneValues(path, step)
+		return v
+	}
+	v["steps"] = d.childValues(path+"/", step.Steps)
+	return v
+}
+
+// childValues is the map of `steps` values of the steps of a list that already
+// have an instance, under the given path prefix.
+func (d *decider) childValues(prefix string, list []Step) map[string]any {
+	out := map[string]any{}
+	for _, c := range list {
+		if _, ok := d.byPath[ChildPath(prefix, c.ID)]; ok {
+			out[c.ID] = d.value(ChildPath(prefix, c.ID), c)
 		}
 	}
-	v["handled"] = inst.Handled
-	v["steps"] = children
-	return v
+	return out
 }
 
 func formatTime(t *time.Time) any {

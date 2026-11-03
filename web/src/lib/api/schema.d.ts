@@ -595,7 +595,7 @@ export interface components {
             /** @description A group whose failure its catch list handled: the group succeeded and error is the failure that was caught. */
             handled?: boolean;
             id: string;
-            /** @description Resolved plugin input; holds secret:// references, never secret values. */
+            /** @description Resolved plugin input; holds secret:// references, never secret values. For a for_each group: the frozen lane list. */
             input?: unknown;
             /** @enum {string} */
             kind: "step" | "group";
