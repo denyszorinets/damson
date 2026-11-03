@@ -475,3 +475,58 @@ func TestCancelWithRunningLanes(t *testing.T) {
 		}
 	})
 }
+
+// catch and finally run per lane with that lane's item: a failing lane is
+// rolled back and cleaned up on its own, the other lane only cleans up, and the
+// group succeeds because the failure was handled.
+func TestForEachCatchAndFinallyRunPerLane(t *testing.T) {
+	spec := lanesSpec(`{"id":"per-node","type":"group","for_each":"['a','b']",
+  "steps":[{"id":"install","plugin":"demo","with":{"word":"${{ item == 'a' ? 'boom' : 'fine' }}"}}],
+  "catch":[{"id":"rollback","plugin":"demo","with":{"word":"rollback ${{ item }}"}}],
+  "finally":[{"id":"tidy","plugin":"demo","with":{"word":"tidy ${{ item }}"}}]}`)
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		c := startCluster(t, st, spec)
+		tree := c.waitRun(c.trigger("one"), store.RunSucceeded)
+		by := stepsByPath(tree)
+
+		a, b := by["per-node/for_each[a]"], by["per-node/for_each[b]"]
+		if a.Status != store.StepSucceeded || !a.Handled() {
+			t.Fatalf("lane a = %s handled=%v; want a handled success", a.Status, a.Handled())
+		}
+		if b.Status != store.StepSucceeded || b.Handled() {
+			t.Fatalf("lane b = %s handled=%v; want a plain success", b.Status, b.Handled())
+		}
+		if _, ran := by["per-node/for_each[b]/catch/rollback"]; ran {
+			t.Fatal("lane b rolled back although its step succeeded")
+		}
+		waitLog(t, st, by["per-node/for_each[a]/catch/rollback"].Executions[0].ID, "said rollback a")
+		waitLog(t, st, by["per-node/for_each[a]/finally/tidy"].Executions[0].ID, "said tidy a")
+		waitLog(t, st, by["per-node/for_each[b]/finally/tidy"].Executions[0].ID, "said tidy b")
+		if by["per-node"].Status != store.StepSucceeded {
+			t.Fatalf("per-node = %s; want succeeded (a handled lane does not fail it)", by["per-node"].Status)
+		}
+	})
+}
+
+// A step inside a lane is retried like any other, with the lane's own attempts.
+func TestForEachRetryInsideLanes(t *testing.T) {
+	spec := lanesSpec(`{"id":"per-node","type":"group","for_each":"['a','b']",
+  "steps":[{"id":"install","plugin":"flaky","retry":{"max_attempts":4,"backoff":{"initial":"20ms","jitter":0}}}]}`)
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		fp := &flakyPlugin{fail: 2}
+		c := startClusterPlugins(t, st, spec, []pluginsdk.Plugin{fp})
+		tree := c.waitRun(c.trigger("one"), store.RunSucceeded)
+		by := stepsByPath(tree)
+		attempts := 0
+		for _, k := range []string{"a", "b"} {
+			inst := by["per-node/for_each["+k+"]/install"]
+			if inst.Status != store.StepSucceeded {
+				t.Fatalf("lane %s install = %s", k, inst.Status)
+			}
+			attempts += len(inst.Executions)
+		}
+		if attempts != 4 || fp.callCount() != 4 {
+			t.Fatalf("attempts = %d, plugin calls = %d; want 2 lanes + 2 failures = 4 each", attempts, fp.callCount())
+		}
+	})
+}

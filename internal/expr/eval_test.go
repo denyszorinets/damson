@@ -66,3 +66,32 @@ func TestItemVariable(t *testing.T) {
 		}
 	}
 }
+
+func TestItemKeepsWorkingAsAMacroVariable(t *testing.T) {
+	env := newEnv(t, Limits{})
+	p, err := env.Compile(`inputs.l.map(item, item.x)`)
+	if err != nil {
+		t.Fatalf("a spec that names its macro variable item must still compile: %v", err)
+	}
+	got, err := env.Eval(p, Vars{Inputs: map[string]any{"l": []any{map[string]any{"x": 1.0}, map[string]any{"x": 2.0}}}, Item: "outer", HasItem: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, []any{1.0, 2.0}) {
+		t.Fatalf("got %#v; want the macro variable to shadow the lane item", got)
+	}
+}
+
+func TestNullItemInsideALane(t *testing.T) {
+	env := newEnv(t, Limits{})
+	p, err := env.Compile(`item == null`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := env.Eval(p, Vars{HasItem: true}); err != nil || got != true {
+		t.Fatalf("inside a lane a null item is null: got %v, %v", got, err)
+	}
+	if got, err := env.Eval(p, Vars{}); err != nil || got != false {
+		t.Fatalf("outside a lane item is an empty object: got %v, %v", got, err)
+	}
+}

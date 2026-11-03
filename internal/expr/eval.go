@@ -28,8 +28,11 @@ type Vars struct {
 	Job    map[string]any
 	Steps  map[string]any
 	Node   map[string]any
-	// Item is the for_each item of the lane: any JSON value.
+	// Item is the for_each item of the lane: any JSON value, null included.
+	// HasItem tells a lane (whose item may be null) from no lane, where item is
+	// an empty object like node.
 	Item    any
+	HasItem bool
 	Targets []any
 	Error   map[string]any
 	Status  Status
@@ -42,7 +45,7 @@ func (v Vars) activation() map[string]any {
 		VarJob:     normalize(orEmpty(v.Job)),
 		VarSteps:   normalize(orEmpty(v.Steps)),
 		VarNode:    normalize(orEmpty(v.Node)),
-		VarItem:    normalize(orEmptyItem(v.Item)),
+		VarItem:    normalize(v.itemValue()),
 		VarTargets: normalize(orEmptyList(v.Targets)),
 		VarError:   normalize(orEmpty(v.Error)),
 
@@ -87,12 +90,13 @@ func orEmpty(m map[string]any) map[string]any {
 	return m
 }
 
-// orEmptyItem is the item outside a lane: an empty object, like node.
-func orEmptyItem(v any) any {
-	if v == nil {
+// itemValue is the item inside a lane as it is (null included), and an empty
+// object outside one, like node.
+func (v Vars) itemValue() any {
+	if !v.HasItem && v.Item == nil {
 		return map[string]any{}
 	}
-	return v
+	return v.Item
 }
 
 func orEmptyList(l []any) []any {

@@ -218,9 +218,12 @@ func (v *validator) forEach(p string, s *Step) {
 	case prog.UsesStatus():
 		v.add(p+".for_each", "cannot call status functions: it is evaluated once, when the group starts")
 	}
-	for name, n := range map[string]*int{"max_parallel": s.MaxParallel, "fail_threshold": s.FailThreshold} {
-		if n != nil && (*n < 1 || *n > maxLanes) {
-			v.add(p+"."+name, "must be between 1 and %d", maxLanes)
+	for _, f := range []struct {
+		name string
+		n    *int
+	}{{"max_parallel", s.MaxParallel}, {"fail_threshold", s.FailThreshold}} {
+		if f.n != nil && (*f.n < 1 || *f.n > maxLanes) {
+			v.add(p+"."+f.name, "must be between 1 and %d", maxLanes)
 		}
 	}
 }

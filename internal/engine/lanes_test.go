@@ -93,3 +93,27 @@ func TestEvalLanesLimit(t *testing.T) {
 		t.Fatalf("err = %v; want the lane limit", err)
 	}
 }
+
+// A null item is null inside its lane (not an empty object) and the lane value
+// reports it as such.
+func TestNullItemLane(t *testing.T) {
+	e := newEngine(t, expr.Limits{})
+	d := &decider{e: e, st: RunState{}}
+	sc := newScope("", nil, nil)
+	lanes, err := d.evalLanes(sc, Step{ForEach: "[null, 'x']"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lanes[0].Key != "0" || lanes[0].Item != nil || lanes[1].Key != "x" {
+		t.Fatalf("lanes = %+v", lanes)
+	}
+	bind := newScope("g/for_each[0]/", nil, sc)
+	bind.bindLane(nil)
+	if !bind.inLane() || bind.itemVar() != nil || sc.inLane() {
+		t.Fatal("a lane with a null item must still count as a lane")
+	}
+	got, err := e.env.EvalBool("item == null", d.vars(bind, false))
+	if err != nil || !got {
+		t.Fatalf("item == null inside the lane: %v, %v", got, err)
+	}
+}

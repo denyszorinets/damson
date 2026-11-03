@@ -85,6 +85,16 @@ func (sc *scope) itemVar() any {
 	return nil
 }
 
+// inLane reports whether a lane binds `item` for this scope.
+func (sc *scope) inLane() bool {
+	for s := sc; s != nil; s = s.parent {
+		if s.hasItem {
+			return true
+		}
+	}
+	return false
+}
+
 // nodeVar is the `node` variable: the item of the nearest enclosing lane when
 // it is an object (a node of `targets`), otherwise empty.
 func (sc *scope) nodeVar() map[string]any {

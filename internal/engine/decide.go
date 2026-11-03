@@ -128,7 +128,8 @@ func (d *decider) index() error {
 // group: a lane whose key is not in the group's frozen list, or an open
 // for_each group that has no list at all.
 func (d *decider) checkLanes() error {
-	for path, inst := range d.byPath {
+	for _, row := range d.st.Steps {
+		path, inst := row.Path, d.byPath[row.Path]
 		if group, key, ok := laneOf(path); ok {
 			agg, found := d.byPath[group]
 			if !found || !hasLane(agg.Lanes, key) {
