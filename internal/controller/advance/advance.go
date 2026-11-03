@@ -92,7 +92,7 @@ func (c *core) once(ctx context.Context, runID string) (changed bool, err error)
 	if err != nil {
 		return false, &permanentError{fmt.Errorf("deciding run %s: %w", runID, err)}
 	}
-	adv, wakeAt, err := toAdvance(acts, tree, job)
+	adv, wakes, err := toAdvance(acts, tree, job)
 	if err != nil {
 		return false, &permanentError{err}
 	}
@@ -103,10 +103,12 @@ func (c *core) once(ctx context.Context, runID string) (changed bool, err error)
 		if _, err := tx.ApplyAdvance(ctx, runID, tree.Version, adv, now); err != nil {
 			return err
 		}
-		// The job-level timeout's wake-up is queued with the start of the run.
-		if !wakeAt.IsZero() && c.wake != nil {
-			if err := c.wake(ctx, tx, runID, wakeAt); err != nil {
-				return err
+		// Wake-ups (the job-level timeout's deadline, the end of a finally grace) are queued in the same transaction.
+		if c.wake != nil {
+			for _, at := range wakes {
+				if err := c.wake(ctx, tx, runID, at); err != nil {
+					return err
+				}
 			}
 		}
 		// A cancelled queued execution finishes its step without any agent

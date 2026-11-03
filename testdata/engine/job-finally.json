@@ -1,0 +1,44 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "finally"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "deploy",
+        "type": "group",
+        "steps": [
+          {
+            "id": "a",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "a"
+            }
+          }
+        ],
+        "finally": [
+          {
+            "id": "cleanup",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "cleanup"
+            }
+          }
+        ]
+      },
+      {
+        "id": "report",
+        "plugin": "ssh",
+        "with": {
+          "node": "n",
+          "command": "report"
+        }
+      }
+    ]
+  }
+}

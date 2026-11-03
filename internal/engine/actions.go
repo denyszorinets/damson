@@ -111,7 +111,10 @@ type ScheduleWake struct {
 type CompleteGroup struct {
 	Path   string     `json:"path"`
 	Status StepStatus `json:"status"`
-	Error  *StepError `json:"error,omitempty"`
+	// Handled is true when a catch list handled a body failure: the group
+	// succeeded and Error is the failure that was caught.
+	Handled bool       `json:"handled,omitempty"`
+	Error   *StepError `json:"error,omitempty"`
 }
 
 // CompleteRun finishes the run with its final status.

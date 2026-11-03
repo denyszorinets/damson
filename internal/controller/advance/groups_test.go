@@ -94,3 +94,44 @@ func TestLostPluginRefsFindNestedSteps(t *testing.T) {
 		t.Fatalf("refs = %v; want the nested step's plugin", refs)
 	}
 }
+
+func TestToAdvanceCollectsEveryWake(t *testing.T) {
+	deadline := t0.Add(time.Hour)
+	grace := t0.Add(2 * time.Minute)
+	acts := []engine.Action{
+		engine.ScheduleWake{At: deadline},
+		engine.ScheduleWake{At: grace},
+		engine.CompleteGroup{Path: "g", Status: engine.StepSucceeded, Handled: true, Error: &engine.StepError{Kind: "exit_code", Message: "boom", Path: "g/a"}},
+	}
+	adv, wakes, err := toAdvance(acts, store.RunTree{}, &engine.Job{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wakes) != 2 || !wakes[0].Equal(deadline) || !wakes[1].Equal(grace) {
+		t.Fatalf("wakes = %v; want both, in order", wakes)
+	}
+	// A handled group is a succeeded group that keeps the caught error.
+	if len(adv.FinishGroups) != 1 || adv.FinishGroups[0].Status != store.StepSucceeded || adv.FinishGroups[0].Error == "" {
+		t.Fatalf("FinishGroups = %+v; want a succeeded group with its error kept", adv.FinishGroups)
+	}
+}
+
+func TestBuildStateMarksHandledGroups(t *testing.T) {
+	tree := store.RunTree{Run: store.Run{ID: "r", Status: store.RunRunning}}
+	tree.Steps = []store.StepNode{
+		{StepInstance: store.StepInstance{Path: "caught", Kind: store.KindGroup, Status: store.StepSucceeded, Outputs: []byte("{}"),
+			Error: `{"kind":"exit_code","message":"boom","path":"caught/a"}`}},
+		{StepInstance: store.StepInstance{Path: "clean", Kind: store.KindGroup, Status: store.StepSucceeded, Outputs: []byte("{}")}},
+		{StepInstance: store.StepInstance{Path: "plain", Kind: store.KindStep, Status: store.StepSucceeded, Outputs: []byte("{}")}},
+	}
+	st, err := buildState(tree, jobMeta{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := st.Steps[0]; !c.Handled || c.Error == nil || c.Error.Path != "caught/a" {
+		t.Fatalf("caught group = %+v; want handled with its error and failing path", c)
+	}
+	if st.Steps[1].Handled || st.Steps[2].Handled {
+		t.Fatal("a group without a kept error, or a step, was marked handled")
+	}
+}

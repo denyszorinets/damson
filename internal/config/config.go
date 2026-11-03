@@ -4,7 +4,10 @@
 // TOML file, then DAMSON_* environment variables. See docs/reference/configuration.rst.
 package config
 
-import "log/slog"
+import (
+	"log/slog"
+	"time"
+)
 
 // Role selects which parts of the configuration are required.
 type Role string
@@ -27,6 +30,7 @@ type Config struct {
 	Log        Log        `koanf:"log"`
 	Database   Database   `koanf:"database"`
 	Controller Controller `koanf:"controller"`
+	Engine     Engine     `koanf:"engine"`
 	Agent      Agent      `koanf:"agent"`
 }
 
@@ -53,6 +57,31 @@ type Controller struct {
 	// TrustForwardedProto honors X-Forwarded-Proto: https from a TLS-terminating
 	// proxy when deciding whether an agent connection is secure.
 	TrustForwardedProto bool `koanf:"trust_forwarded_proto"`
+}
+
+// Engine configures the orchestration engine (controller and dev roles). Every
+// controller of a cluster must use the same values: its decisions are shared
+// through the database.
+type Engine struct {
+	// FinallyGrace is how long finally blocks may keep running after a cancel
+	// or the job-level timeout, as a Go duration. Default 2m.
+	FinallyGrace string `koanf:"finally_grace"`
+}
+
+// DefaultFinallyGrace is the default of engine.finally_grace.
+const DefaultFinallyGrace = 2 * time.Minute
+
+// MaxFinallyGrace bounds engine.finally_grace.
+const MaxFinallyGrace = 24 * time.Hour
+
+// FinallyGraceDuration returns the configured grace. Validate guarantees it
+// parses; an unset or invalid value gives the default.
+func (c Config) FinallyGraceDuration() time.Duration {
+	d, err := time.ParseDuration(c.Engine.FinallyGrace)
+	if err != nil || d <= 0 {
+		return DefaultFinallyGrace
+	}
+	return d
 }
 
 // Agent configures the agent role.
@@ -100,6 +129,7 @@ func defaults() map[string]any {
 		"controller.insecure_dev":          false,
 		"controller.internal_url":          "",
 		"controller.trust_forwarded_proto": false,
+		"engine.finally_grace":             "2m",
 		"agent.controller_url":             "",
 		"agent.token":                      "",
 		"agent.pool":                       "default",

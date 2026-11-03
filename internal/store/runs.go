@@ -92,6 +92,12 @@ type StepInstance struct {
 	FinishedAt *time.Time
 }
 
+// Handled reports whether the instance is a group whose failure its catch list
+// handled: the group succeeded and kept the error it caught.
+func (s StepInstance) Handled() bool {
+	return s.Kind == KindGroup && s.Status == StepSucceeded && s.Error != ""
+}
+
 // StepNode is a step instance with all its executions, oldest attempt first.
 type StepNode struct {
 	StepInstance

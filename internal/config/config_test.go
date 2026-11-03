@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeFile(t *testing.T, body string) string {
@@ -135,6 +136,21 @@ func TestLoad(t *testing.T) {
 			name: "bad level reports all errors", role: RoleController,
 			env:     []string{"DAMSON_LOG__LEVEL=loud", "DAMSON_CONTROLLER__LISTEN=nope", "DAMSON_DATABASE__DRIVER=mysql"},
 			wantErr: []string{"log.level", "controller.listen", "database.driver"},
+		},
+		{
+			name: "finally grace must be a duration", role: RoleController,
+			env:     []string{"DAMSON_ENGINE__FINALLY_GRACE=soon"},
+			wantErr: []string{"engine.finally_grace (DAMSON_ENGINE__FINALLY_GRACE)"},
+		},
+		{
+			name: "finally grace must be positive", role: RoleDev,
+			env:     []string{"DAMSON_ENGINE__FINALLY_GRACE=0s"},
+			wantErr: []string{"engine.finally_grace"},
+		},
+		{
+			name: "finally grace is bounded", role: RoleController,
+			env:     []string{"DAMSON_ENGINE__FINALLY_GRACE=25h"},
+			wantErr: []string{"engine.finally_grace"},
 		},
 		{
 			name: "dev rejects postgres", role: RoleDev,
@@ -270,5 +286,22 @@ func TestErrorsDoNotLeakSecrets(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "agent.controller_url") {
 		t.Errorf("error should name the key: %v", err)
+	}
+}
+
+func TestFinallyGrace(t *testing.T) {
+	c, err := Load(RoleController, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.FinallyGraceDuration(); got != 2*time.Minute {
+		t.Fatalf("default finally grace = %v; want 2m", got)
+	}
+	c, err = Load(RoleController, "", []string{"DAMSON_ENGINE__FINALLY_GRACE=45s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.FinallyGraceDuration(); got != 45*time.Second {
+		t.Fatalf("finally grace = %v; want 45s", got)
 	}
 }

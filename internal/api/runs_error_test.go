@@ -44,3 +44,14 @@ func TestRunCancelReason(t *testing.T) {
 		t.Fatalf("cancel reason = %q; want none for a user cancel", got.CancelReason)
 	}
 }
+
+func TestStepHandledGroup(t *testing.T) {
+	caught := toStep(store.StepNode{StepInstance: store.StepInstance{ID: "g", Path: "g", Kind: store.KindGroup, Status: store.StepSucceeded,
+		Error: store.StepErrorText("exit_code", "boom")}})
+	if !caught.Handled || caught.ErrorKind != "exit_code" || caught.Error != "boom" {
+		t.Fatalf("handled group = %+v; want handled with the caught error", caught)
+	}
+	if clean := toStep(store.StepNode{StepInstance: store.StepInstance{ID: "g", Path: "g", Kind: store.KindGroup, Status: store.StepSucceeded}}); clean.Handled {
+		t.Fatal("a clean group is not handled")
+	}
+}

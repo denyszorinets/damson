@@ -60,6 +60,13 @@ written as a double underscore: ``agent.controller_url`` is
      - empty
      - URL other controllers use to reach this one; stored in
        ``controller_instances``.
+   * - ``engine.finally_grace``
+     - controller, dev
+     - ``2m``
+     - How long ``finally`` blocks may keep running after a cancel or the
+       job-level timeout (a Go duration, positive, at most 24h). The same value
+       must be used on every controller of a cluster. See
+       :doc:`/architecture/decisions/0037-groups-scoping-and-status`.
    * - ``agent.controller_url``
      - agent
      - none

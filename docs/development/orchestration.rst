@@ -127,6 +127,19 @@ nested step's spec with ``Job.StepAt(path)``. The engine adds the state a step
 will have once the actions apply (a skipped step, a finished group) to its path
 index, so the steps after it in the same ``Decide`` see it.
 
+Catch and finally
+~~~~~~~~~~~~~~~~~
+
+``runGroup`` walks the body, then (if a body step failed and a catch list
+exists) the catch list with ``error`` bound in its scope, then the finally list;
+``groupStatus`` derives the group's status (rules in ADR-0037). The grace is a
+deadline, ``cancel_requested_at + engine.finally_grace``: ``cancelActive`` keeps
+finally attempts until then, a finally step that starts during it gets the time
+left as ``timeout``, and the engine emits ``ScheduleWake`` at the end of the
+grace. ``toAdvance`` returns every wake of a ``Decide`` and the advance inserts
+them in the transaction that applies it. A handled group is a ``succeeded``
+group that keeps the caught error (``StepInstance.Handled``).
+
 Retries
 -------
 

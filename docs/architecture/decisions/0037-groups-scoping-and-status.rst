@@ -13,8 +13,8 @@ The engine walked one flat list. Groups need nested instances, scoped
 expression variables, a derived status for the group itself, and room for the
 catch and finally lists and for lanes.
 
-This ADR records the decisions of the first change (groups with ``steps``);
-the same ADR is extended when ``catch``, ``finally`` and ``rethrow`` land.
+The first change added groups with ``steps``; the second added ``catch``,
+``finally``, ``rethrow``, the ``error`` binding and the finally grace.
 
 Decision
 --------
@@ -50,6 +50,32 @@ Engine
   of the plugin step that raised it); else ``cancelled`` if a step was
   cancelled; else ``succeeded``. At group level a real failure beats a cancel,
   as a failure still triggers the ``failure()`` handlers of the enclosing list.
+- After the body, a failure that did not ``continue_on_error`` enters the
+  ``catch`` list with ``error`` bound (``step``, ``path`` of the leaf plugin
+  step, ``kind``, ``message``, ``exit_code``); a cancelled body does not. Then the
+  ``finally`` list runs, always, for a group that started. Catch and finally
+  steps have paths ``<group>/catch/<id>`` and ``<group>/finally/<id>`` and see
+  the values of the earlier lists of the group.
+- The group's status is the first that matches: finally failed (its error);
+  catch failed (the catch error replaces the body error), or catch cancelled
+  (the body error stands); ``rethrow`` (the original body error); a caught
+  failure otherwise (handled: ``succeeded``, the caught error kept; a catch
+  whose steps were all skipped counts as handled); an uncaught body failure;
+  cancelled if any step was; succeeded. ``rethrow`` needs a ``catch`` list.
+- Finally grace. A cancel, or the job timeout (which is one), protects the
+  finally list for ``engine.finally_grace`` (default 2m, the same on every
+  controller) after the cancel instant. Inside it the engine does not cancel
+  finally attempts, and a finally step that starts gets
+  ``min(its timeout, time left)`` as its agent-enforced timeout and a
+  ``ScheduleWake`` at the end of the grace; after it, running finally attempts
+  are cancelled and unstarted finally steps are cancelled ("finally grace
+  expired"). Top-level ``always()`` steps are not covered. The engine has no
+  timers: the grace is a deadline compared with ``now``, and the wake makes the
+  advance run then, with the sweep as the fallback for a finally step that was
+  already running when the cancel came.
+- A finally list is run as if created after the cancel: the run-level cancel
+  does not make ``success()`` false in it, and no step is retried while the run
+  is being cancelled.
 - ``when`` and ``continue_on_error`` apply to a group; ``retry``, ``timeout``,
   ``runs_on``, ``plugin`` and ``with`` do not (a group has no attempts).
 
@@ -73,7 +99,9 @@ Expressions
 Store and API
 ~~~~~~~~~~~~~
 
-- No migration. A created group starts ``running`` with ``started_at`` and is
+- No migration. A handled group is stored as ``succeeded`` with the caught
+  error kept in ``error`` (``StepInstance.Handled``); the API shows
+  ``handled: true``. A created group starts ``running`` with ``started_at`` and is
   finished by ``Advance.FinishGroups`` (a compare-and-swap that keeps
   ``started_at``); a group cannot take an attempt or a settle.
 - The API keeps a flat step list in creation order; ``kind`` is ``group`` for a
@@ -106,6 +134,10 @@ Positive
 Negative
 ~~~~~~~~
 
+- A finally step that was already running when the cancel came is only
+  cancelled after the grace by a wake it did not ask for itself (the engine asks
+  when it sees it) or the next sweep.
+- A group timeout is not supported; a group has no attempts.
 - Two ids are reserved inside groups.
 - The flat API list needs clients to nest by path.
 - During a rolling upgrade a controller without this change cannot parse a job

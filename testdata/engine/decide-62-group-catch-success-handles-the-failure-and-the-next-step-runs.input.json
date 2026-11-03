@@ -1,0 +1,96 @@
+{
+  "job_file": "job-catch.json",
+  "now": "2026-03-01T10:05:00Z",
+  "state": {
+    "id": "run-1",
+    "status": "running",
+    "trigger": "manual",
+    "job": {
+      "name": "catch",
+      "project": "default",
+      "version": "1"
+    },
+    "started_at": "2026-03-01T10:00:00Z",
+    "steps": [
+      {
+        "path": "deploy",
+        "step_id": "deploy",
+        "status": "pending",
+        "created_at": "2026-03-01T10:00:00Z",
+        "kind": "group",
+        "started_at": "2026-03-01T10:00:00Z"
+      },
+      {
+        "path": "deploy/unpack",
+        "step_id": "unpack",
+        "status": "failed",
+        "created_at": "2026-03-01T10:00:00Z",
+        "error": {
+          "kind": "exit_code",
+          "message": "boom"
+        },
+        "executions": [
+          {
+            "id": "ex-u",
+            "attempt_id": "at-u",
+            "attempt": 1,
+            "state": "failed",
+            "error": {
+              "kind": "exit_code",
+              "message": "boom"
+            },
+            "finished_at": "2026-03-01T10:00:10Z"
+          }
+        ]
+      },
+      {
+        "path": "deploy/build",
+        "step_id": "build",
+        "status": "skipped",
+        "created_at": "2026-03-01T10:00:00Z"
+      },
+      {
+        "path": "deploy/catch/rollback",
+        "step_id": "rollback",
+        "status": "succeeded",
+        "created_at": "2026-03-01T10:00:00Z",
+        "executions": [
+          {
+            "id": "ex-r",
+            "attempt_id": "at-r",
+            "attempt": 1,
+            "state": "succeeded"
+          }
+        ]
+      },
+      {
+        "path": "deploy/catch/notify",
+        "step_id": "notify",
+        "status": "succeeded",
+        "created_at": "2026-03-01T10:00:00Z",
+        "executions": [
+          {
+            "id": "ex-n",
+            "attempt_id": "at-n",
+            "attempt": 1,
+            "state": "succeeded"
+          }
+        ]
+      },
+      {
+        "path": "deploy/finally/cleanup",
+        "step_id": "cleanup",
+        "status": "succeeded",
+        "created_at": "2026-03-01T10:00:00Z",
+        "executions": [
+          {
+            "id": "ex-c",
+            "attempt_id": "at-c",
+            "attempt": 1,
+            "state": "succeeded"
+          }
+        ]
+      }
+    ]
+  }
+}

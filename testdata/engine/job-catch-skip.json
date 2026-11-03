@@ -1,0 +1,37 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "catch-skip"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "deploy",
+        "type": "group",
+        "steps": [
+          {
+            "id": "a",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "a"
+            }
+          }
+        ],
+        "catch": [
+          {
+            "id": "x",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "x"
+            },
+            "when": "false"
+          }
+        ]
+      }
+    ]
+  }
+}

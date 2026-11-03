@@ -1,0 +1,31 @@
+[
+  {
+    "path": "deploy/build",
+    "reason": "run cancelled",
+    "status": "cancelled",
+    "step_id": "build",
+    "type": "skip_step"
+  },
+  {
+    "created_at": "2026-03-01T10:04:30Z",
+    "input": {
+      "command": "cleanup",
+      "node": "n"
+    },
+    "path": "deploy/finally/cleanup",
+    "plugin": "ssh",
+    "step_id": "cleanup",
+    "type": "create_step_instance"
+  },
+  {
+    "attempt": 1,
+    "path": "deploy/finally/cleanup",
+    "scheduled_at": "2026-03-01T10:04:30Z",
+    "timeout": "1m30s",
+    "type": "schedule_execution"
+  },
+  {
+    "at": "2026-03-01T10:06:00Z",
+    "type": "schedule_wake"
+  }
+]

@@ -15,12 +15,31 @@ const defaultWhen = "success()"
 // compiled-expression environment, so it is safe for concurrent use and
 // Decide stays a pure function of its arguments.
 type Engine struct {
-	env       *expr.Env
-	jobSchema *jsonschema.Schema
+	env          *expr.Env
+	jobSchema    *jsonschema.Schema
+	finallyGrace time.Duration
+}
+
+// DefaultFinallyGrace is how long finally blocks may keep running after a
+// cancel or the job timeout (ADR-0037).
+const DefaultFinallyGrace = 2 * time.Minute
+
+// Option configures an Engine.
+type Option func(*Engine)
+
+// WithFinallyGrace sets the grace period for finally blocks after a cancel; a
+// value of zero or less selects DefaultFinallyGrace. It must be the same on
+// every controller, as the engine's decisions are shared through the database.
+func WithFinallyGrace(d time.Duration) Option {
+	return func(e *Engine) {
+		if d > 0 {
+			e.finallyGrace = d
+		}
+	}
 }
 
 // New builds an Engine whose expressions run under the given limits.
-func New(limits expr.Limits) (*Engine, error) {
+func New(limits expr.Limits, opts ...Option) (*Engine, error) {
 	env, err := expr.NewEnv(limits)
 	if err != nil {
 		return nil, err
@@ -29,7 +48,11 @@ func New(limits expr.Limits) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Engine{env: env, jobSchema: schema}, nil
+	e := &Engine{env: env, jobSchema: schema, finallyGrace: DefaultFinallyGrace}
+	for _, o := range opts {
+		o(e)
+	}
+	return e, nil
 }
 
 // Decide computes the next actions for a run. job must have passed Parse or
@@ -150,16 +173,31 @@ func finalStatus(failed, anyCancelled, timedOut bool) RunStatus {
 	return RunSucceeded
 }
 
-// cancelActive asks for cancellation of in-flight attempts that started
-// before the cancel request. Steps created at or after it (an always()
-// cleanup, which may be created in the very Decide that records the cancel,
-// at the same instant) are left to finish.
+// cancelActive asks for cancellation of in-flight attempts when the run is
+// being cancelled. The attempts of steps that started before the cancel
+// request are cancelled; steps created at or after it (an always() cleanup,
+// which may be created in the very Decide that records the cancel, at the same
+// instant) are left to finish. Steps inside a finally list are protected: they
+// are cancelled only once the finally grace has passed (the cancel instant plus
+// the engine's grace), whenever they started, and a wake is asked for at that
+// instant so the cancel does not wait for the sweep.
 func (d *decider) cancelActive() {
 	if !d.canceling {
 		return
 	}
+	wantWake := false
 	for _, inst := range d.st.Steps {
-		if inst.Status.Terminal() || !inst.CreatedAt.Before(*d.cancelAt) {
+		if inst.Status.Terminal() {
+			continue
+		}
+		if InFinally(inst.Path) {
+			if d.now.Before(d.graceAt()) {
+				for _, ex := range inst.Executions {
+					wantWake = wantWake || (!ex.State.Terminal() && !ex.CancelRequested)
+				}
+				continue
+			}
+		} else if !inst.CreatedAt.Before(*d.cancelAt) {
 			continue
 		}
 		for _, ex := range inst.Executions {
@@ -168,7 +206,17 @@ func (d *decider) cancelActive() {
 			}
 		}
 	}
+	if wantWake {
+		d.emit(ScheduleWake{At: d.graceAt()})
+	}
 }
+
+// graceAt is the instant the finally grace ends: the cancel request plus the
+// engine's grace. Only meaningful while the run is being cancelled.
+func (d *decider) graceAt() time.Time { return d.cancelAt.Add(d.e.finallyGrace) }
+
+// graceOver reports whether the finally grace has ended.
+func (d *decider) graceOver() bool { return d.canceling && !d.now.Before(d.graceAt()) }
 
 // evalWhen evaluates a step's `when` (default success()) in its scope.
 func (d *decider) evalWhen(sc *scope, step Step, failed bool) (bool, error) {
@@ -184,6 +232,10 @@ func (d *decider) evalWhen(sc *scope, step Step, failed bool) (bool, error) {
 // cancelled, or failed before start), and settled=false once its first
 // execution has been scheduled.
 func (d *decider) begin(sc *scope, step Step, path string, failed bool) (settled bool, err error) {
+	if sc.finally && d.graceOver() {
+		d.skipGraceExpired(step, path, "")
+		return true, nil
+	}
 	ok, werr := d.evalWhen(sc, step, failed)
 	if werr != nil {
 		d.fail(step, path, "", fmt.Errorf("evaluating when: %w", werr))
@@ -202,6 +254,16 @@ func (d *decider) begin(sc *scope, step Step, path string, failed bool) (settled
 	if err != nil {
 		return false, err
 	}
+	capped := false
+	if sc.finally && d.canceling {
+		// A finally step that starts during a cancel gets at most the time left
+		// in the grace; the agent enforces it, so it holds even if the agent is
+		// cut off, and a wake at the end of the grace cancels what is left.
+		if left := Duration(d.graceAt().Sub(d.now)); timeout == 0 || left < timeout {
+			timeout = left
+		}
+		capped = true
+	}
 	d.emit(
 		CreateStepInstance{
 			Path: path, StepID: step.ID, Plugin: step.Plugin, Input: input,
@@ -209,8 +271,18 @@ func (d *decider) begin(sc *scope, step Step, path string, failed bool) (settled
 		},
 		ScheduleExecution{Path: path, Attempt: 1, ScheduledAt: d.now, Timeout: timeout},
 	)
+	if capped {
+		d.emit(ScheduleWake{At: d.graceAt()})
+	}
 	d.byPath[path] = StepInstanceState{Path: path, StepID: step.ID, Status: StepPending, CreatedAt: d.now}
 	return false, nil
+}
+
+// skipGraceExpired cancels a finally step that has not started when the grace
+// has ended.
+func (d *decider) skipGraceExpired(step Step, path, kind string) {
+	d.emit(SkipStep{Path: path, StepID: step.ID, Kind: kind, Status: StepCancelled, Reason: "finally grace expired"})
+	d.byPath[path] = StepInstanceState{Path: path, StepID: step.ID, Kind: kind, Status: StepCancelled, CreatedAt: d.now}
 }
 
 func (d *decider) skip(sc *scope, step Step, path, kind string, failed bool) {
