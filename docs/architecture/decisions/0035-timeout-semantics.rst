@@ -64,7 +64,9 @@ Job timeout (the whole run)
   ``timed_out`` run status. The API shows ``cancel_reason: timeout``.
 - The wake-up is a River job scheduled for the deadline, queued in the
   transaction that starts the run (so it cannot be lost without the start).
-  If the database's clock is ahead of the controller's, the job snoozes until
+  River's scheduler moves scheduled jobs to available every 5 seconds, so the
+  job runs up to about 5 seconds after the deadline (a cost of using the queue
+  rather than a timer). If the database's clock is ahead of the controller's, the job snoozes until
   the controller's clock reaches the deadline (a snooze does not count as an
   attempt). If the wake job is lost, or the run started before this change,
   the sweep (:doc:`0010-river-for-background-work`) times the run out within

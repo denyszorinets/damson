@@ -31,8 +31,11 @@ func TestJobTimeoutWakesRunWithoutSweep(t *testing.T) {
 		started := time.Now()
 
 		eventually(t, "the timeout to be recorded", func() bool { return loadTree(t, st, id).CancelRequestedAt != nil })
-		if waited := time.Since(started); waited > 5*time.Second {
-			t.Fatalf("timeout took %v; the wake job should fire about 1s after the start", waited)
+		// The deadline is 1s after the start; River moves scheduled jobs to
+		// available every 5s, so the wake fires up to ~5s later. The bound only
+		// proves it was the wake job (the sweep is disabled), not the sweep.
+		if waited := time.Since(started); waited > 30*time.Second {
+			t.Fatalf("timeout took %v; the wake job should fire within a scheduler cycle of the deadline", waited)
 		}
 		tree := loadTree(t, st, id)
 		if tree.CancelReason != store.CancelReasonTimeout {

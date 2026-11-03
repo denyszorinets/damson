@@ -173,7 +173,10 @@ When the run starts, ``ScheduleWake`` becomes a River job scheduled for the
 deadline, inserted in the same transaction (``Args.Wake`` is the deadline in
 milliseconds, version 0, so its unique key meets no other job's). A worker that
 runs it before the controller's clock reaches the deadline returns
-``river.JobSnooze``, which does not count as an attempt. If the wake job is
+``river.JobSnooze``, which does not count as an attempt. River moves scheduled
+jobs to available every 5 seconds (its scheduler interval, not configurable
+through its public config), so a wake runs up to about 5 seconds after its
+deadline; the same holds for the end of a finally grace. If the wake job is
 lost, the sweep times the run out within one interval.
 
 Permanent errors
