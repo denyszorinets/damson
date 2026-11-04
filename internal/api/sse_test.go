@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -371,5 +372,48 @@ func TestExecutionLogsNeverLogLines(t *testing.T) {
 		evs := s.until("end")
 		assert.Contains(t, evs[0].Data, "password=***")
 		assert.NotContains(t, f.logs.String(), "password=")
+	})
+}
+
+// flakyTail has no live tail at first (the owner is unreachable), then hands
+// one out.
+type flakyTail struct {
+	mu    sync.Mutex
+	calls int
+	ch    chan api.LogLine
+}
+
+func (f *flakyTail) Subscribe(context.Context, string, int64) (<-chan api.LogLine, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.calls == 1 {
+		return nil, api.ErrNoLiveTail
+	}
+	return f.ch, nil
+}
+
+// A stream that fell back to polling picks a live tail up again later, and
+// lines it already sent from the store are not repeated.
+func TestExecutionLogsResubscribes(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		tail := &flakyTail{ch: make(chan api.LogLine, 8)}
+		f := newJRStream(t, st, tail, api.StreamConfig{PollInterval: 20 * time.Millisecond, Heartbeat: 50 * time.Millisecond, ResubscribeInterval: 60 * time.Millisecond})
+		srv := httptest.NewServer(f.h)
+		defer srv.Close()
+		run, e := f.startedRun(t)
+		f.putChunk(t, e, 1, 1, "one")
+
+		s := openSSE(t, srv, "/api/v1/executions/"+e.ID+"/logs", nil)
+		assert.Equal(t, "1", s.mustNext().ID)
+		require.Eventually(t, func() bool { tail.mu.Lock(); defer tail.mu.Unlock(); return tail.calls >= 2 }, 5*time.Second, 10*time.Millisecond)
+		tail.ch <- api.LogLine{Seq: 1, Stream: "out", Line: "dup"} // already sent: skipped
+		tail.ch <- api.LogLine{Seq: 2, TS: t0, Stream: "out", Line: "live two"}
+		ev := s.mustNext()
+		assert.Equal(t, "2", ev.ID)
+		assert.Contains(t, ev.Data, "live two")
+		close(tail.ch)
+		f.finish(t, run, e, store.ExecSucceeded)
+		assert.Equal(t, "end", s.mustNext().Name)
 	})
 }

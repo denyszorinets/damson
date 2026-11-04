@@ -133,9 +133,10 @@ type logStream struct {
 	execID string
 	next   int64
 
-	pass      int  // poll counter; a hole is confirmed by a later pass
-	terminal  bool // the execution had finished when this pass began
-	blocked   bool // drainStored stopped at an unconfirmed hole
+	lastSub   time.Time // when the live tail was last asked for
+	pass      int       // poll counter; a hole is confirmed by a later pass
+	terminal  bool      // the execution had finished when this pass began
+	blocked   bool      // drainStored stopped at an unconfirmed hole
 	hole      *holeObs
 	held      []LogLine // live lines waiting behind an unconfirmed hole
 	lastStamp store.LogStamp
@@ -155,16 +156,27 @@ const (
 	maxHeld = 5000
 )
 
+// A stream without a live tail asks for one again every ResubscribeInterval:
+// the owner may have changed (adoption after a crash) or a proxied tail may
+// have ended while the execution still runs.
+
+// subscribe opens the live tail from the next line, if there is one.
+func (l *logStream) subscribe(ctx context.Context) <-chan LogLine {
+	l.lastSub = time.Now()
+	ch, err := l.d.tail.Subscribe(ctx, l.execID, l.next-1)
+	switch {
+	case err == nil:
+		return ch
+	case !errors.Is(err, ErrNoLiveTail) && ctx.Err() == nil:
+		loggerFromCtx(ctx).Warn("log tail unavailable, polling", "execution_id", l.execID, "error", err)
+	}
+	return nil
+}
+
 func (l *logStream) run(ctx context.Context) {
 	var live <-chan LogLine
 	if l.d.tail != nil {
-		ch, err := l.d.tail.Subscribe(ctx, l.execID, l.next-1)
-		switch {
-		case err == nil:
-			live = ch
-		case !errors.Is(err, ErrNoLiveTail) && ctx.Err() == nil:
-			loggerFromCtx(ctx).Warn("log tail unavailable, polling", "execution_id", l.execID, "error", err)
-		}
+		live = l.subscribe(ctx)
 	}
 	beat := time.NewTicker(l.d.stream.Heartbeat)
 	defer beat.Stop()
@@ -172,6 +184,9 @@ func (l *logStream) run(ctx context.Context) {
 		l.pass++
 		if cont, ok := l.poll(ctx); !ok || !cont {
 			return
+		}
+		if live == nil && l.d.tail != nil && time.Since(l.lastSub) >= l.d.stream.ResubscribeInterval {
+			live = l.subscribe(ctx)
 		}
 		timer := time.NewTimer(jitter(l.d.stream.PollInterval))
 		ok := l.wait(ctx, &live, timer.C, beat.C)

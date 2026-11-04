@@ -825,8 +825,12 @@ Action = CreateStepInstance | ScheduleExecution | SettleStep | SkipStep | Comple
 
 - `controller_instances(id, internal_url, started_at, last_seen)`, heartbeated every 5s.
 - The reaper leader deletes rows whose `last_seen` is older than 1 minute (crashed controllers never deregister). Agent rows are not touched.
-- **Log tail:** a UI request to controller X for an execution owned by controller Y is proxied to `Y/internal/v1/executions/{id}/tail`.
-  - Internal endpoints are authenticated with a cluster shared secret (HMAC) and should be on an internal listener or port.
+- **Log tail:** a UI request to controller X for an execution owned by controller Y is proxied to `Y/internal/v1/executions/{id}/tail` (ADR-0040).
+  - The endpoint is on a separate internal listener (`controller.internal_listen`, default `:8081`), started only when a cluster secret is set and never in the dev role. The public mux answers 404 for `/internal/`.
+  - Requests are signed with an HMAC of a cluster shared secret (`controller.cluster_secret`, with `cluster_secret_previous` for rotation). Postgres controllers must set the secret and `controller.internal_url`; SQLite and dev need neither.
+  - X tries its own ring first, then the owner named by the execution's `controller_id` and `controller_instances.internal_url`. There is no live tail when the owner has not been seen for 15s, or the execution is terminal, unowned or ours. The owner serves only its own ring and never forwards.
+  - Any failure means no live tail: the SSE log stream polls stored chunks and dedupes by `seq`, and retries the live tail every 5s so an adopting controller is picked up.
+  - Transport is plain HTTP, so log lines cross the controller network unencrypted. It needs a private network; TLS can follow.
 - **Graceful shutdown:**
   1. Stop the HTTP listener for new work.
   2. Send `agent.reconnect` to all sockets.
@@ -905,7 +909,7 @@ type SecretStore interface {
   - `s3` (optional): any S3-compatible endpoint, for installations whose log volume would bloat the database. Switching is a config change; old chunks stay readable through their stored backend id.
 - **Object key:** `logs/<execution-id>/<attempt-id>/<seq_from>-<seq_to>.ndjson[.gz]` (the execution id is globally unique, so the project and run ids are not part of the key; sequence numbers restart for every attempt, so the attempt id is part of the key, and claiming an execution under a new attempt deletes the previous attempt's chunk rows and objects). Each line is `{"t":<unix ns>, "s":"out|err|sys", "l":"..."}`; the sequence number is implicit (line i of a chunk has `seq_from + i`), so a chunk holds a contiguous run and a declared gap splits a flush into two chunks.
 - **UI read path:** `GET /api/v1/executions/{id}/logs?after_seq=N` via SSE.
-  - Serves stored chunks first, then switches to live tail from the owning controller's ring buffer (proxied if needed).
+  - Serves stored chunks first, then switches to live tail from the owning controller's ring buffer. If another controller owns the execution, the tail is proxied over the signed internal endpoint (8.5); when that is unavailable the stream keeps polling stored chunks and retries every 5s.
   - Gaps are reported explicitly.
 - **Retention** is per project (default 30 days), enforced by the retention duty plus optional S3 lifecycle rules.
 
@@ -1143,7 +1147,7 @@ An activity-diagram view (UML-like) of a job's structure. It appears in three pl
 
 ## 18. Security summary
 
-- TLS everywhere: `wss://` for agents, HTTPS for the UI and API. Internal controller endpoints use HMAC with a cluster secret.
+- TLS everywhere: `wss://` for agents, HTTPS for the UI and API. Internal controller endpoints (ADR-0040) are on a separate listener and use HMAC-SHA256 with a cluster secret (timestamp window 30s, bound to caller and target controller, read-only). They use plain HTTP, so log lines between controllers are unencrypted and the network between controllers must be private.
 - Secrets are encrypted at rest (db backend) or kept in OpenBao. They are delivered just-in-time, never persisted on agents, and masked in logs and outputs.
 - SSH host keys are strict by default.
 - All tokens (pool, service account, webhook, session) are random and stored hashed.

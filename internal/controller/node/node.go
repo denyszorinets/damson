@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -16,8 +17,11 @@ import (
 	"github.com/denyszorinets/damson/internal/controller"
 	"github.com/denyszorinets/damson/internal/controller/advance"
 	"github.com/denyszorinets/damson/internal/controller/dispatch"
+	"github.com/denyszorinets/damson/internal/controller/internalapi"
+	"github.com/denyszorinets/damson/internal/controller/internalauth"
 	"github.com/denyszorinets/damson/internal/controller/leader"
 	"github.com/denyszorinets/damson/internal/controller/logs"
+	"github.com/denyszorinets/damson/internal/controller/tailproxy"
 	"github.com/denyszorinets/damson/internal/devnodes"
 	"github.com/denyszorinets/damson/internal/engine"
 	"github.com/denyszorinets/damson/internal/expr"
@@ -51,6 +55,16 @@ type Config struct {
 	// DevNodes replaces inventory and secret authorization (development
 	// only, ADR-0034). Nil in production.
 	DevNodes *devnodes.File
+	// ClusterSecret enables the internal listener and the proxying of live log
+	// tails between controllers (ADR-0040); ClusterSecretPrevious is also
+	// accepted when verifying, for rotation. Both are secrets. Without a secret
+	// a tail is served only by the controller that owns the execution.
+	ClusterSecret, ClusterSecretPrevious string
+	// InternalListen is the address of the internal listener. InternalListener,
+	// if set, is used instead (tests bind port 0 first to learn the address
+	// they register as InternalURL).
+	InternalListen   string
+	InternalListener net.Listener
 
 	InsecureDev         bool
 	TrustForwardedProto bool
@@ -70,6 +84,9 @@ type Node struct {
 	logs *logs.Ingest
 	disp *dispatch.Dispatcher
 	lead *leader.Elector
+	tail api.LogTail
+	intl *internalapi.Server
+	intL net.Listener
 	srv  *api.Server
 }
 
@@ -104,6 +121,7 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	}
 	if n.adv != nil {
 		apiCfg.Advance, apiCfg.RunNotify = n.adv, n.adv.Hub()
+		apiCfg.LogTail = n.tail
 	}
 	if cfg.DevNodes != nil { // a nil *File must not become a non-nil interface
 		apiCfg.Targets = cfg.DevNodes
@@ -156,6 +174,9 @@ func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 	if n.disp, err = dispatch.New(dcfg); err != nil {
 		return fmt.Errorf("creating dispatcher: %w", err)
 	}
+	if err := n.setupTail(cfg); err != nil {
+		return err
+	}
 	for _, h := range []controller.SessionHook{n.logs, n.disp} {
 		if err := gw.AddHook(h); err != nil {
 			return err
@@ -165,7 +186,7 @@ func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 	for _, step := range []struct {
 		name  string
 		start func(context.Context) error
-	}{{"run.advance", n.adv.Start}, {"log ingest", n.logs.Start}, {"leader elector", n.lead.Start}, {"dispatcher", n.disp.Start}, {"agent gateway", gw.Start}} {
+	}{{"run.advance", n.adv.Start}, {"log ingest", n.logs.Start}, {"leader elector", n.lead.Start}, {"dispatcher", n.disp.Start}, {"internal listener", n.startInternal}, {"agent gateway", gw.Start}} {
 		if err := step.start(ctx); err != nil {
 			return errors.Join(fmt.Errorf("starting %s: %w", step.name, err), n.stopOrchestration(context.WithoutCancel(ctx)))
 		}
@@ -197,5 +218,51 @@ func (n *Node) stopOrchestration(ctx context.Context) error {
 	if n.disp == nil { // unmigrated, or construction failed part-way
 		return n.gw.Stop(ctx)
 	}
-	return errors.Join(n.disp.Stop(ctx), n.lead.Stop(ctx), n.gw.Stop(ctx), n.logs.Stop(ctx), n.adv.Stop(ctx))
+	return errors.Join(n.stopInternal(ctx), n.disp.Stop(ctx), n.lead.Stop(ctx), n.gw.Stop(ctx), n.logs.Stop(ctx), n.adv.Stop(ctx))
+}
+
+// setupTail chooses the live log tail of the API: this controller's own buffer,
+// or, with a cluster secret, one that also relays the tail of executions owned
+// by other controllers. The internal listener (serving ours to them) is
+// started with the other components.
+func (n *Node) setupTail(cfg Config) error {
+	if cfg.ClusterSecret == "" {
+		n.tail = n.logs
+		return nil
+	}
+	keys, err := internalauth.NewKeyring(cfg.ClusterSecret, cfg.ClusterSecretPrevious)
+	if err != nil {
+		return fmt.Errorf("building cluster keyring: %w", err)
+	}
+	if n.tail, err = tailproxy.New(tailproxy.Config{
+		Local: n.logs, Store: cfg.Store, Self: cfg.ControllerID, Keys: keys, Logger: cfg.Logger,
+	}); err != nil {
+		return fmt.Errorf("creating log tail proxy: %w", err)
+	}
+	if n.intl, err = internalapi.New(internalapi.Config{Keys: keys, Self: cfg.ControllerID, Tail: n.logs, Logger: cfg.Logger}); err != nil {
+		return fmt.Errorf("creating internal listener: %w", err)
+	}
+	n.intL = cfg.InternalListener
+	if n.intL == nil {
+		if n.intL, err = net.Listen("tcp", cfg.InternalListen); err != nil {
+			return fmt.Errorf("listening on the internal address %q: %w", cfg.InternalListen, err)
+		}
+	}
+	return nil
+}
+
+func (n *Node) startInternal(context.Context) error {
+	if n.intl != nil {
+		n.intl.Serve(n.intL)
+	}
+	return nil
+}
+
+func (n *Node) stopInternal(ctx context.Context) error {
+	if n.intl == nil {
+		return nil
+	}
+	err := n.intl.Stop(ctx)
+	_ = n.intL.Close() // already closed once served; frees the port if startup failed first
+	return err
 }

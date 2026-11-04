@@ -17,6 +17,7 @@ const (
 	defaultHeartbeat    = 15 * time.Second
 	defaultMaxStreams   = 256
 	defaultWriteTimeout = 10 * time.Second
+	defaultResubscribe  = 5 * time.Second
 )
 
 // StreamConfig tunes the SSE endpoints.
@@ -33,6 +34,9 @@ type StreamConfig struct {
 	// WriteTimeout is the deadline of each write to a client; a client that
 	// cannot take an event in time is disconnected. Default 10s.
 	WriteTimeout time.Duration
+	// ResubscribeInterval is how often a log stream without a live tail asks
+	// for one again (the owner may have changed). Default 5s.
+	ResubscribeInterval time.Duration
 }
 
 func (c StreamConfig) withDefaults() StreamConfig {
@@ -47,6 +51,9 @@ func (c StreamConfig) withDefaults() StreamConfig {
 	}
 	if c.WriteTimeout <= 0 {
 		c.WriteTimeout = defaultWriteTimeout
+	}
+	if c.ResubscribeInterval <= 0 {
+		c.ResubscribeInterval = defaultResubscribe
 	}
 	return c
 }

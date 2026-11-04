@@ -313,6 +313,20 @@ Server behaviour
 
 .. _reference-agent-gateway:
 
+Internal controller endpoint
+----------------------------
+
+Not part of the public API and not in the OpenAPI document. Controllers call
+``GET /internal/v1/executions/{id}/tail?attempt_id=&after_seq=`` on each
+other's internal listener (``controller.internal_listen``, default ``:8081``),
+which exists only when a cluster secret is set. The public listener answers
+``404`` for ``/internal/``. Requests carry ``X-Damson-Timestamp``,
+``X-Damson-Caller`` and ``X-Damson-Signature`` (HMAC-SHA256, 30 s window). The
+response is ``application/x-ndjson`` with ``line`` and ``heartbeat`` objects.
+Errors: bare ``401``, ``404`` (no buffer), ``409`` (other attempt), ``503``
+(too many tails). The transport is plain HTTP; see
+:doc:`/architecture/decisions/0040-internal-controller-endpoints`.
+
 Agent gateway
 -------------
 
