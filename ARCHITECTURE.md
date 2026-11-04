@@ -1031,7 +1031,7 @@ All routes are under `/api/v1`, with the OpenAPI document at `/api/v1/openapi.js
 
 - `projects` — CRUD, tree, access rules
 - `jobs` — CRUD, versions, `versions/{v}/graph`, validate (dry-run validation of a spec; also returns its graph), runs
-- `runs` — list, get (with step tree), `graph` (graph plus current statuses), cancel, rerun (same version and options), SSE `/runs/{id}/events`
+- `runs` — list, get (with step tree), `graph` (graph plus current step states, `{graph, steps[]}`), cancel, rerun (same version and options), SSE `/runs/{id}/events`
 - `executions` — get, logs (SSE)
 - `schedules`, `webhooks`
 - `nodes`, `inventory/sources/*`
@@ -1081,7 +1081,7 @@ An activity-diagram view (UML-like) of a job's structure. It appears in three pl
 | Run start / end | Filled circle / ringed circle |
 | Plugin step | Rounded box: step id, plugin icon and name, a one-line input summary (command, image, release…) |
 | Sequential steps | Vertical flow with arrows |
-| `when` other than the default | Decision diamond before the step, with the CEL condition as the edge label. The skip path bypasses the step. |
+| `when` other than the default | Decision diamond before the step (drawn from the `when` attribute and the `skip` edge), with the CEL condition as the edge label. The skip path bypasses the step. |
 | `group` | Labeled container box |
 | `catch` / `finally` | Columns inside the group box, joined by a red "on failure" edge and a grey "always" edge |
 | `for_each` | Fork bar → stacked container labeled "× N lanes (max_parallel M)" → join bar. Expandable to per-lane rows in the run view. |
@@ -1090,12 +1090,16 @@ An activity-diagram view (UML-like) of a job's structure. It appears in three pl
 
 **Where the graph comes from**
 
-- `internal/engine` exposes `BuildGraph(spec) Graph`: nodes and edges whose **ids are step paths**, the same paths StepInstances use.
-  - The control-flow semantics stay in one place. The UI never re-implements them.
+- `internal/engine` exposes `BuildGraph(job) Graph` (ADR-0041): nodes and edges, pure and deterministic. The UI never derives control flow from the spec.
+  - Node kinds: `start`, `end`, `step`, `group`, `catch`, `finally`; ids `$start` and `$end`. Edge kinds: `sequence`, `skip`, `catch`, `finally`.
+  - Node ids are step paths. Children of a `for_each` group use the template id `<group>/for_each[*]/<id>` (`*` is never a lane key), so the graph does not grow with the lanes. `GraphNodeOf(path)` maps an instance path to `(node, lane)`; a lane row `g/for_each[k]` maps to node `g`.
+  - `when` is a node attribute plus a `skip` edge that bypasses the step (label: the CEL condition). Catch and finally are container nodes `<g>/catch` and `<g>/finally`; the `catch` edge ("on failure") runs from the last body child, the `finally` edges ("always") from the catch container and the last body child.
+  - Nodes carry no `with`: no step input, no secret surface.
 - `GET …/versions/{v}/graph` returns it.
-- `POST …/validate` returns it for unsaved specs, so the editor preview updates as you type (debounced).
+- `POST …/validate` returns it (`graph`) for valid unsaved specs, so the editor preview updates as you type (debounced).
+- `GET /runs/{id}/graph` returns `{graph, steps[]}`: the static graph of the run's pinned version plus the current state of each step instance, keyed by `node` and `lane`.
 - **Run view status overlay:** pending, queued, running (animated), succeeded, failed, skipped, retry-wait, cancelled, lost.
-  - Updates arrive on the run's SSE stream as `{path, lane, status, attempt}` events.
+  - Updates arrive on the run's SSE stream as `step` events `{path, node, lane, status, attempt, …}`; the graph is fetched once.
 - **Clicking a node** opens a side panel with:
   - resolved inputs (secret refs shown as refs)
   - outputs and error

@@ -1,0 +1,95 @@
+{
+  "nodes": [
+    {
+      "id": "$start",
+      "kind": "start",
+      "label": "start"
+    },
+    {
+      "id": "g",
+      "kind": "group",
+      "label": "g"
+    },
+    {
+      "id": "g/only",
+      "kind": "step",
+      "parent": "g",
+      "label": "only",
+      "plugin": "ssh",
+      "when": "inputs.go"
+    },
+    {
+      "id": "h",
+      "kind": "group",
+      "label": "h"
+    },
+    {
+      "id": "h/a",
+      "kind": "step",
+      "parent": "h",
+      "label": "a",
+      "plugin": "ssh"
+    },
+    {
+      "id": "h/b",
+      "kind": "step",
+      "parent": "h",
+      "label": "b",
+      "plugin": "ssh",
+      "when": "1 == 1"
+    },
+    {
+      "id": "h/finally",
+      "kind": "finally",
+      "parent": "h",
+      "label": "finally"
+    },
+    {
+      "id": "h/finally/tidy",
+      "kind": "step",
+      "parent": "h/finally",
+      "label": "tidy",
+      "plugin": "ssh",
+      "when": "always()"
+    },
+    {
+      "id": "$end",
+      "kind": "end",
+      "label": "end"
+    }
+  ],
+  "edges": [
+    {
+      "from": "$start",
+      "to": "g",
+      "kind": "sequence"
+    },
+    {
+      "from": "h/a",
+      "to": "h/b",
+      "kind": "sequence"
+    },
+    {
+      "from": "h/a",
+      "to": "h/finally",
+      "kind": "skip",
+      "label": "1 == 1"
+    },
+    {
+      "from": "h/b",
+      "to": "h/finally",
+      "kind": "finally",
+      "label": "always"
+    },
+    {
+      "from": "g",
+      "to": "h",
+      "kind": "sequence"
+    },
+    {
+      "from": "h",
+      "to": "$end",
+      "kind": "sequence"
+    }
+  ]
+}

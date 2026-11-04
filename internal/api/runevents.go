@@ -9,6 +9,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/denyszorinets/damson/internal/engine"
 	"github.com/denyszorinets/damson/internal/store"
 )
 
@@ -30,7 +31,8 @@ type RunStatusEvent struct {
 // and its latest attempt.
 type StepEvent struct {
 	Path        string `json:"path"`
-	Lane        string `json:"lane" doc:"for_each lane of the instance; always empty before M3."`
+	Node        string `json:"node" doc:"Id of the graph node the instance belongs to; for an instance in a for_each lane, the template node."`
+	Lane        string `json:"lane" doc:"for_each lane key of the instance, empty outside a for_each."`
 	Status      string `json:"status"`
 	Attempt     int    `json:"attempt" doc:"Latest attempt number, 0 before the first execution."`
 	ExecutionID string `json:"execution_id,omitempty"`
@@ -89,14 +91,20 @@ func fingerprint(t store.RunTree) runFingerprint {
 		steps: make(map[string]StepEvent, len(t.Steps)),
 	}
 	for _, n := range t.Steps {
-		ev := StepEvent{Path: n.Path, Status: string(n.Status)}
-		if k := len(n.Executions); k > 0 {
-			e := n.Executions[k-1]
-			ev.Attempt, ev.ExecutionID, ev.State = e.AttemptNo, e.ID, string(e.State)
-		}
-		fp.steps[n.Path] = ev
+		fp.steps[n.Path] = stepEvent(n)
 	}
 	return fp
+}
+
+// stepEvent is the state of one step instance and its latest attempt.
+func stepEvent(n store.StepNode) StepEvent {
+	node, lane := engine.GraphNodeOf(n.Path)
+	ev := StepEvent{Path: n.Path, Node: node, Lane: lane, Status: string(n.Status)}
+	if k := len(n.Executions); k > 0 {
+		e := n.Executions[k-1]
+		ev.Attempt, ev.ExecutionID, ev.State = e.AttemptNo, e.ID, string(e.State)
+	}
+	return ev
 }
 
 // streamRun sends the snapshot, then polls: a cheap stamp first, and the full

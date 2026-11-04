@@ -1,0 +1,27 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {"project": "default", "name": "graph-single-when"},
+  "spec": {
+    "steps": [
+      {
+        "id": "g",
+        "type": "group",
+        "steps": [
+          {"id": "only", "plugin": "ssh", "when": "inputs.go", "with": {"host": "h"}}
+        ]
+      },
+      {
+        "id": "h",
+        "type": "group",
+        "steps": [
+          {"id": "a", "plugin": "ssh", "with": {"host": "h"}},
+          {"id": "b", "plugin": "ssh", "when": "1 == 1", "with": {"host": "h"}}
+        ],
+        "finally": [
+          {"id": "tidy", "plugin": "ssh", "when": "always()", "with": {"host": "h"}}
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "nodes": [
+    {
+      "id": "$start",
+      "kind": "start",
+      "label": "start"
+    },
+    {
+      "id": "deploy",
+      "kind": "group",
+      "label": "deploy"
+    },
+    {
+      "id": "deploy/unpack",
+      "kind": "step",
+      "parent": "deploy",
+      "label": "unpack",
+      "plugin": "ssh"
+    },
+    {
+      "id": "deploy/build",
+      "kind": "step",
+      "parent": "deploy",
+      "label": "build",
+      "plugin": "ssh"
+    },
+    {
+      "id": "deploy/catch",
+      "kind": "catch",
+      "parent": "deploy",
+      "label": "catch"
+    },
+    {
+      "id": "deploy/catch/rollback",
+      "kind": "step",
+      "parent": "deploy/catch",
+      "label": "rollback",
+      "plugin": "ssh"
+    },
+    {
+      "id": "deploy/catch/notify",
+      "kind": "step",
+      "parent": "deploy/catch",
+      "label": "notify",
+      "plugin": "ssh"
+    },
+    {
+      "id": "deploy/finally",
+      "kind": "finally",
+      "parent": "deploy",
+      "label": "finally"
+    },
+    {
+      "id": "deploy/finally/cleanup",
+      "kind": "step",
+      "parent": "deploy/finally",
+      "label": "cleanup",
+      "plugin": "ssh"
+    },
+    {
+      "id": "report",
+      "kind": "step",
+      "label": "report",
+      "plugin": "ssh"
+    },
+    {
+      "id": "$end",
+      "kind": "end",
+      "label": "end"
+    }
+  ],
+  "edges": [
+    {
+      "from": "$start",
+      "to": "deploy",
+      "kind": "sequence"
+    },
+    {
+      "from": "deploy/unpack",
+      "to": "deploy/build",
+      "kind": "sequence"
+    },
+    {
+      "from": "deploy/catch/rollback",
+      "to": "deploy/catch/notify",
+      "kind": "sequence"
+    },
+    {
+      "from": "deploy/build",
+      "to": "deploy/catch",
+      "kind": "catch",
+      "label": "on failure"
+    },
+    {
+      "from": "deploy/catch",
+      "to": "deploy/finally",
+      "kind": "finally",
+      "label": "always"
+    },
+    {
+      "from": "deploy/build",
+      "to": "deploy/finally",
+      "kind": "finally",
+      "label": "always"
+    },
+    {
+      "from": "deploy",
+      "to": "report",
+      "kind": "sequence"
+    },
+    {
+      "from": "report",
+      "to": "$end",
+      "kind": "sequence"
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "nodes": [
+    {
+      "id": "$start",
+      "kind": "start",
+      "label": "start"
+    },
+    {
+      "id": "g",
+      "kind": "group",
+      "label": "g",
+      "when": "false"
+    },
+    {
+      "id": "g/a",
+      "kind": "step",
+      "parent": "g",
+      "label": "a",
+      "plugin": "ssh"
+    },
+    {
+      "id": "after",
+      "kind": "step",
+      "label": "after",
+      "plugin": "ssh"
+    },
+    {
+      "id": "$end",
+      "kind": "end",
+      "label": "end"
+    }
+  ],
+  "edges": [
+    {
+      "from": "$start",
+      "to": "g",
+      "kind": "sequence"
+    },
+    {
+      "from": "$start",
+      "to": "after",
+      "kind": "skip",
+      "label": "false"
+    },
+    {
+      "from": "g",
+      "to": "after",
+      "kind": "sequence"
+    },
+    {
+      "from": "after",
+      "to": "$end",
+      "kind": "sequence"
+    }
+  ]
+}

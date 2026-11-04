@@ -1,0 +1,92 @@
+{
+  "nodes": [
+    {
+      "id": "$start",
+      "kind": "start",
+      "label": "start"
+    },
+    {
+      "id": "build",
+      "kind": "step",
+      "label": "build",
+      "plugin": "ssh"
+    },
+    {
+      "id": "test",
+      "kind": "step",
+      "label": "test",
+      "plugin": "ssh",
+      "timeout": "5m"
+    },
+    {
+      "id": "notify",
+      "kind": "step",
+      "label": "notify",
+      "plugin": "ssh",
+      "when": "failure()"
+    },
+    {
+      "id": "cleanup",
+      "kind": "step",
+      "label": "cleanup",
+      "plugin": "ssh",
+      "when": "always()"
+    },
+    {
+      "id": "publish",
+      "kind": "step",
+      "label": "publish",
+      "plugin": "ssh",
+      "when": "inputs.env == 'prod'"
+    },
+    {
+      "id": "$end",
+      "kind": "end",
+      "label": "end"
+    }
+  ],
+  "edges": [
+    {
+      "from": "$start",
+      "to": "build",
+      "kind": "sequence"
+    },
+    {
+      "from": "build",
+      "to": "test",
+      "kind": "sequence"
+    },
+    {
+      "from": "test",
+      "to": "notify",
+      "kind": "sequence"
+    },
+    {
+      "from": "test",
+      "to": "cleanup",
+      "kind": "skip",
+      "label": "failure()"
+    },
+    {
+      "from": "notify",
+      "to": "cleanup",
+      "kind": "sequence"
+    },
+    {
+      "from": "cleanup",
+      "to": "publish",
+      "kind": "sequence"
+    },
+    {
+      "from": "cleanup",
+      "to": "$end",
+      "kind": "skip",
+      "label": "inputs.env == 'prod'"
+    },
+    {
+      "from": "publish",
+      "to": "$end",
+      "kind": "sequence"
+    }
+  ]
+}

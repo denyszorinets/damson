@@ -104,7 +104,7 @@ export interface paths {
         put?: never;
         /**
          * Dry-run validation of a job spec
-         * @description Always answers 200; invalid specs are reported in errors, with spec paths. Plugins no agent has reported are warnings. The job graph is added in M3.
+         * @description Always answers 200; invalid specs are reported in errors, with spec paths. Plugins no agent has reported are warnings. The job graph is returned when the spec is valid.
          */
         post: operations["validate-job"];
         delete?: never;
@@ -174,6 +174,26 @@ export interface paths {
         };
         /** Get one version with its spec */
         get: operations["get-job-version"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{id}/versions/{v}/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the graph of one job version
+         * @description Built by the server from the stored spec (engine.BuildGraph); clients lay it out and draw it and never derive control flow from the spec.
+         */
+        get: operations["get-job-version-graph"];
         put?: never;
         post?: never;
         delete?: never;
@@ -307,6 +327,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/runs/{id}/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the graph of a run with the state of its steps */
+        get: operations["get-run-graph"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -399,6 +436,45 @@ export interface components {
             /** @enum {string} */
             state: "queued" | "dispatched" | "running" | "succeeded" | "failed" | "canceled" | "timed_out" | "lost";
             step_path: string;
+        };
+        Graph: {
+            edges: components["schemas"]["GraphEdge"][] | null;
+            nodes: components["schemas"]["GraphNode"][] | null;
+        };
+        GraphEdge: {
+            from: string;
+            /**
+             * @description skip bypasses a step whose condition is not the default; catch leads from a group's body to its catch list on failure; finally leads to the finally list, which always runs.
+             * @enum {string}
+             */
+            kind: "sequence" | "skip" | "catch" | "finally";
+            label?: string;
+            to: string;
+        };
+        GraphForEach: {
+            /** @description CEL expression that yields the lanes; evaluated once when the group starts. */
+            expr: string;
+            /** Format: int64 */
+            fail_threshold?: number;
+            /** Format: int64 */
+            max_parallel?: number;
+        };
+        GraphNode: {
+            continue_on_error?: boolean;
+            for_each?: components["schemas"]["GraphForEach"];
+            id: string;
+            /** @enum {string} */
+            kind: "start" | "end" | "step" | "group" | "catch" | "finally";
+            label: string;
+            /** @description Id of the containing group, catch or finally node. */
+            parent?: string;
+            plugin?: string;
+            rethrow?: boolean;
+            /** Format: int64 */
+            retry_max_attempts?: number;
+            timeout?: string;
+            /** @description The step's condition when it is not the default success(). */
+            when?: string;
         };
         Job: {
             /** Format: date-time */
@@ -578,6 +654,11 @@ export interface components {
             steps: components["schemas"]["Step"][] | null;
             trigger?: unknown;
         };
+        RunGraph: {
+            graph: components["schemas"]["Graph"];
+            /** @description Step instances in creation order. */
+            steps: components["schemas"]["StepEvent"][] | null;
+        };
         SpecIssue: {
             message: string;
             path: string;
@@ -599,6 +680,10 @@ export interface components {
             input?: unknown;
             /** @enum {string} */
             kind: "step" | "group";
+            /** @description for_each lane key of the instance, empty outside a for_each. */
+            lane?: string;
+            /** @description Id of the graph node this instance belongs to; for an instance in a for_each lane, the template node. */
+            node: string;
             outputs?: unknown;
             path: string;
             plugin?: string;
@@ -606,6 +691,22 @@ export interface components {
             started_at?: string;
             /** @enum {string} */
             status: "pending" | "running" | "succeeded" | "failed" | "skipped" | "canceled";
+        };
+        StepEvent: {
+            /**
+             * Format: int64
+             * @description Latest attempt number, 0 before the first execution.
+             */
+            attempt: number;
+            execution_id?: string;
+            /** @description for_each lane key of the instance, empty outside a for_each. */
+            lane: string;
+            /** @description Id of the graph node the instance belongs to; for an instance in a for_each lane, the template node. */
+            node: string;
+            path: string;
+            /** @description State of the latest execution. */
+            state?: string;
+            status: string;
         };
         Telemetry: {
             /**
@@ -657,6 +758,8 @@ export interface components {
         };
         ValidateOutputBody: {
             errors: components["schemas"]["SpecIssue"][] | null;
+            /** @description The job graph; present only when the spec is valid. */
+            graph?: components["schemas"]["Graph"];
             valid: boolean;
             warnings: components["schemas"]["SpecIssue"][] | null;
         };
@@ -1271,6 +1374,56 @@ export interface operations {
             };
         };
     };
+    "get-job-version-graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                v: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Graph"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "list-plugins": {
         parameters: {
             query?: never;
@@ -1580,6 +1733,55 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "get-run-graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunGraph"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
