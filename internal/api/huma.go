@@ -54,6 +54,7 @@ type DataStore interface {
 	GetExecution(ctx context.Context, id string) (store.Execution, error)
 	ListLogChunks(ctx context.Context, executionID string, fromSeq, toSeq int64, limit int) ([]store.LogChunk, error)
 	GetLogData(ctx context.Context, key string) ([]byte, error)
+	GetSetting(ctx context.Context, key string) (store.Setting, error)
 	GetRunStamp(ctx context.Context, runID string) (store.RunStamp, error)
 	GetLogStamp(ctx context.Context, executionID string) (store.LogStamp, error)
 }
@@ -122,6 +123,9 @@ func newHuma(mux *http.ServeMux, d deps) huma.API {
 	cfg.DocsPath = "" // the bundled docs page loads assets from a CDN
 	cfg.SchemasPath = ""
 	cfg.CreateHooks = nil // no $schema link headers or fields
+	cfg.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
+		"bearerAuth": {Type: "http", Scheme: "bearer", Description: "The admin bootstrap token (damson admin admin-token create)."},
+	}
 	api := humago.NewWithPrefix(mux, APIPrefix, cfg)
 	registerAgents(api, d.ds)
 	registerPools(api, d.ds)
@@ -129,6 +133,7 @@ func newHuma(mux *http.ServeMux, d deps) huma.API {
 	registerJobs(api, d)
 	registerRuns(api, d)
 	registerExecutions(api, d)
+	registerSecrets(api, d)
 	return api
 }
 

@@ -37,6 +37,9 @@ type Config struct {
 	// AuthorizeSecretRefs makes spec validation reject literal secret refs the
 	// job project may not use. On with the db secret backend, off with --dev-nodes.
 	AuthorizeSecretRefs bool
+	// Secrets serves the secrets endpoints (admin token required). Nil answers
+	// them with 503: secrets are disabled without a KEK.
+	Secrets SecretBackend
 	// Mounts maps extra mux patterns (for example "/agent/v1/connect") to
 	// handlers owned by other components. They are wrapped by the same
 	// request logging as the API.

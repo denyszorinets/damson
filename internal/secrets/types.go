@@ -68,17 +68,17 @@ func (t Type) ValidateFields(fields map[string]string) error {
 	total := 0
 	for _, name := range sortedKeys(fields) {
 		if !fieldRE.MatchString(name) {
-			return fmt.Errorf("%w: bad field name %q", ErrBadFields, name)
+			return fmt.Errorf("%w: bad field name %q", ErrBadFields, truncate(name, 64))
 		}
 		if len(fields[name]) > MaxFieldBytes {
-			return fmt.Errorf("%w: field %q over %d bytes", ErrTooLarge, name, MaxFieldBytes)
+			return fmt.Errorf("%w: field %q over %d bytes", ErrTooLarge, truncate(name, 64), MaxFieldBytes)
 		}
 		if !utf8.ValidString(fields[name]) {
-			return fmt.Errorf("%w: field %q is not valid UTF-8", ErrBadFields, name)
+			return fmt.Errorf("%w: field %q is not valid UTF-8", ErrBadFields, truncate(name, 64))
 		}
 		total += len(fields[name])
 		if t.Fields != nil && !t.has(name) {
-			return fmt.Errorf("%w: type %s has no field %q", ErrBadFields, t.Name, name)
+			return fmt.Errorf("%w: type %s has no field %q", ErrBadFields, t.Name, truncate(name, 64))
 		}
 	}
 	if total > MaxTotalBytes {
@@ -99,6 +99,14 @@ func (t Type) has(name string) bool {
 		}
 	}
 	return false
+}
+
+// truncate caps a client-supplied name before it is echoed in an error.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 func sortedKeys(m map[string]string) []string {

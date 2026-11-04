@@ -18,7 +18,7 @@ Damson ships as one binary, ``damson``. The role is chosen by subcommand
    * - ``damson dev``
      - Run a controller and an agent in one process with SQLite.
    * - ``damson admin``
-     - Manage agent pools and pool tokens (see :ref:`cli-admin`).
+     - Manage agent pools, pool tokens, the admin token and the secret encryption key (see :ref:`cli-admin`).
    * - ``damson version``
      - Print the version.
 
@@ -135,6 +135,13 @@ error saying so.
        Revoked tokens stay listed. Hashes are never shown.
    * - ``damson admin token revoke <token-id>``
      - Revoke a token. A revoked token can no longer authenticate.
+   * - ``damson admin admin-token create``
+     - Create the admin token for the secrets API. Replaces any earlier one.
+   * - ``damson admin admin-token revoke``
+     - Remove the admin token; the secrets API then refuses every request.
+       An error if there is none.
+   * - ``damson admin kek generate``
+     - Print a new key encryption key for the db secret backend.
 
 ``damson admin help`` (also ``-h`` or ``--help``) prints the list of resources
 and actions to stdout and exits 0. Running ``damson admin`` with missing or
@@ -144,6 +151,19 @@ unknown arguments prints the same text to stderr and exits 2.
 token, or a JSON object with ``--json``) and a reminder to store it on stderr.
 Only its SHA-256 hash is stored, so a lost token cannot be recovered; create a
 new one and revoke the old one. Treat the token as a secret and do not log it.
+
+``admin-token create`` makes a token of the form ``dma_`` plus base64url of 32
+random bytes and prints it **exactly once** on stdout (``--json`` gives
+``{"token": ...}``) with a reminder on stderr. Only its SHA-256 hash is stored
+(``instance_settings`` key ``auth.admin_token_hash``). Creating again replaces
+it and the old token stops working immediately; that is how you rotate it. It
+is one shared token until OIDC arrives in M8, which keeps it as the recovery
+token.
+
+``kek generate`` prints a new 32-byte base64 key on stdout and the ``kek_id``
+plus a warning on stderr. It needs no database or config. Keep the key safe:
+losing it loses every secret in the db backend
+(:doc:`/architecture/decisions/0042-db-secret-backend-keyring`).
 
 Exit status is 0 on success, 1 for operational errors (unmigrated database,
 unknown pool or token, duplicate pool, already-revoked token) and 2 for usage

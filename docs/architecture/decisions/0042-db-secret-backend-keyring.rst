@@ -128,8 +128,7 @@ The db backend is the secret source when a KEK is configured and
 Out of scope
 ~~~~~~~~~~~~
 
-The admin API and bootstrap token (next PR of :issue:`112`), the UI,
-``rotate-kek`` (:issue:`119`) and controller re-masking on ingest
+The UI, ``rotate-kek`` (:issue:`119`) and controller re-masking on ingest
 (:issue:`120`). The last remains an accepted gap, as in ADR-0034.
 
 Refs are authorized by project scope (ARCHITECTURE 9.1, :issue:`114`); see
@@ -188,12 +187,50 @@ Risks
 
 - A leaked KEK together with a database dump exposes all secrets. Keep the key
   out of the config file, logs and backups of the database.
+- ``if_version`` is a compare-and-swap on the version number, and a recreated
+  secret starts again at version 1. A client that read version 1, while another
+  caller deleted and recreated the secret, can therefore overwrite the new
+  secret with ``if_version`` 1. The window needs a delete in between and the
+  admin token is one shared credential, so the risk is accepted for now; keeping
+  version numbers rising across recreation would need a schema change.
+- Request bodies pass through the HTTP stack's buffers before the handler clears
+  the decoded fields; those buffers are not scrubbed. The same limit as for Go
+  strings applies (see Decision).
+- Secret writes and deletes are not audited yet (ARCHITECTURE 19).
 
 Follow-up
 ~~~~~~~~~
 
-- ``damson admin rotate-kek`` (:issue:`119`), the admin API, the UI and
-  controller re-masking (:issue:`120`).
+- ``damson admin rotate-kek`` (:issue:`119`), the UI and controller
+  re-masking (:issue:`120`).
+
+Until M8 the admin token is one shared credential: there are no per-user
+identities or audit of who used it. Rotate it by creating a new one.
+
+Admin token and API
+~~~~~~~~~~~~~~~~~~~
+
+The secrets HTTP API is guarded by an admin bootstrap token, the interim form
+of the local recovery token of ARCHITECTURE 12.2. It stays as the recovery
+token when OIDC arrives in M8.
+
+- ``damson admin admin-token create`` makes ``dma_`` plus base64url of 32 random
+  bytes and prints it once. Only its SHA-256 hex is stored, in
+  ``instance_settings`` key ``auth.admin_token_hash``. Creating again replaces
+  the hash with a compare-and-swap update, so the old token dies at once;
+  ``admin-token revoke`` sets the value empty.
+- The API reads the hash on every request, so the database stays the truth and
+  any controller serves any request. A missing or wrong token is a ``401``
+  problem with ``WWW-Authenticate: Bearer realm="damson-admin"``, checked
+  before the body is parsed. Pool tokens (``dmp_``) are never accepted, and the
+  admin token is not accepted on ``/agent/v1/connect``.
+- Routes: ``GET /api/v1/secrets`` (metadata only), ``PUT
+  /api/v1/secrets/{scope}/{name}`` and ``DELETE`` on the same path; ``GET
+  /api/v1/secret-types`` is public. Values are write-only and never returned
+  (:doc:`/reference/http-api`). With no KEK configured the secrets routes answer
+  ``503`` after authentication.
+- ``damson admin kek generate`` prints a new KEK for the config and needs no
+  database.
 
 Validation
 ----------

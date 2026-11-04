@@ -12,19 +12,32 @@ import (
 	"io"
 )
 
-// Prefix marks a Damson pool token.
-const Prefix = "dmp_"
+// Prefix marks a Damson pool token; AdminPrefix the admin bootstrap token
+// (ARCHITECTURE 12.2), which is never accepted where a pool token is.
+const (
+	Prefix      = "dmp_"
+	AdminPrefix = "dma_"
+)
+
+// AdminSettingKey is the instance_settings key that holds the SHA-256 of the
+// admin token; an empty value means the token was revoked.
+const AdminSettingKey = "auth.admin_token_hash"
 
 const secretBytes = 32
 
 // Generate returns a new random token read from r (crypto/rand.Reader in
 // production; injectable for tests) and its hash.
 func Generate(r io.Reader) (plaintext, hash string, err error) {
+	return GenerateWithPrefix(r, Prefix)
+}
+
+// GenerateWithPrefix is Generate for a token kind with its own prefix.
+func GenerateWithPrefix(r io.Reader, prefix string) (plaintext, hash string, err error) {
 	b := make([]byte, secretBytes)
 	if _, err := io.ReadFull(r, b); err != nil {
-		return "", "", fmt.Errorf("generating pool token: %w", err)
+		return "", "", fmt.Errorf("generating token: %w", err)
 	}
-	plaintext = Prefix + base64.RawURLEncoding.EncodeToString(b)
+	plaintext = prefix + base64.RawURLEncoding.EncodeToString(b)
 	return plaintext, Hash(plaintext), nil
 }
 
