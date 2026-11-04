@@ -852,8 +852,8 @@ Action = CreateStepInstance | ScheduleExecution | SettleStep | SkipStep | Comple
 ### 9.1 References
 
 - Format: `secret://<scope>/<name>[#<field>]`, for example `secret://infra/billing/deploy-key#private_key`. The scope is all segments but the last.
-- A job may reference secrets in its own project or any **ancestor** project.
-- Inventory-level credentials live under the reserved `secret://_inventory/...` scope (`_inventory` is allowed only as the whole scope). They are usable by any job whose project node scope includes the node.
+- A job may reference secrets in its own project or any **ancestor** project (prefix match on a `/` boundary). Siblings, children and other projects are denied. The dispatcher enforces this before any secret is read; a denied ref fails the execution as `unknown secret`, so existence is not revealed. API spec validation rejects literal refs that are not authorized.
+- Inventory-level credentials live under the reserved `secret://_inventory/...` scope (`_inventory` is allowed only as the whole scope). They are usable only as the credential of the node a step targets, never as a literal `secret://_inventory/...` in step input, by any job whose project node scope includes the node.
 - Grammar (ADR-0042):
   - A scope segment matches `[a-z0-9][a-z0-9-]{0,62}`, 1 to 8 segments, so a leading `_` is impossible.
   - `name` matches `[A-Za-z0-9][A-Za-z0-9._-]{0,127}` and has no `..`.

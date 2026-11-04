@@ -13,6 +13,7 @@ import (
 	"github.com/denyszorinets/damson/internal/controller/dispatch"
 	"github.com/denyszorinets/damson/internal/secrets"
 	secretsdb "github.com/denyszorinets/damson/internal/secrets/db"
+	"github.com/denyszorinets/damson/internal/store"
 )
 
 // startSecrets applies the KEK startup rules and builds the db backend. It
@@ -73,4 +74,29 @@ func (s *secretSource) Secret(ctx context.Context, _, ref string) (map[string]st
 		return nil, dispatch.ErrSecretUnavailable
 	}
 	return nil, err
+}
+
+// projectOf resolves the project path of a run: run, job, project. Projects
+// are flat names until nested projects exist.
+func projectOf(st store.Store) func(ctx context.Context, runID string) (string, error) {
+	return func(ctx context.Context, runID string) (string, error) {
+		run, err := st.GetRun(ctx, runID)
+		if err != nil {
+			return "", err
+		}
+		job, err := st.GetJob(ctx, run.JobID)
+		if err != nil {
+			return "", err
+		}
+		projects, err := st.ListProjects(ctx)
+		if err != nil {
+			return "", err
+		}
+		for _, p := range projects {
+			if p.ID == job.ProjectID {
+				return p.Name, nil
+			}
+		}
+		return "", fmt.Errorf("project %q of job %q: %w", job.ProjectID, job.ID, store.ErrNotFound)
+	}
 }

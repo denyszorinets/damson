@@ -100,6 +100,17 @@ Rules (``CLAUDE.md`` hard rule 5):
 - **Losing the KEK means losing every secret in the db backend.** Back it up
   separately from the database.
 
+Authorization: with the ``db`` backend a job may use secrets whose scope equals
+its project path or is an ancestor of it (prefix on a ``/`` boundary). Siblings,
+children and other projects are denied. The scope ``_inventory`` is allowed only
+as the credential of the node a step targets, never as a literal in step input
+(that part waits for inventory, :issue:`113`). The dispatcher is authoritative
+and checks every ref before reading any secret; a denied ref fails the execution
+permanently as ``unknown secret``, naming only the ref, so existence is not
+revealed. A ``#field`` that the secret lacks fails permanently as unavailable.
+API spec validation applies the same rule to literal refs and reports the path
+only. ``--dev-nodes`` stays unauthorized (ADR-0034).
+
 See :doc:`decisions/0015-secret-references-and-envelope-encryption`.
 
 .. danger::

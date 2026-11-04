@@ -132,10 +132,10 @@ The admin API and bootstrap token (next PR of :issue:`112`), the UI,
 ``rotate-kek`` (:issue:`119`) and controller re-masking on ingest
 (:issue:`120`). The last remains an accepted gap, as in ADR-0034.
 
-Authorization of refs by project scope (ARCHITECTURE 9.1) is also not part of
-this change: until :issue:`114` lands the dispatcher resolves any well-formed
-ref. Nothing can write secrets through the API yet, and :issue:`114` is a gate
-before the admin API of :issue:`112` merges.
+Refs are authorized by project scope (ARCHITECTURE 9.1, :issue:`114`); see
+:doc:`security </architecture/security>`. The node-credential allowance for the
+``_inventory`` scope waits for inventory (:issue:`113`), which does not exist
+yet.
 
 Alternatives Considered
 -----------------------

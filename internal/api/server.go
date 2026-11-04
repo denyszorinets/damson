@@ -34,6 +34,9 @@ type Config struct {
 	// source run.advance uses, or the first Decide would freeze an empty list).
 	// Nil means none.
 	Targets TargetSource
+	// AuthorizeSecretRefs makes spec validation reject literal secret refs the
+	// job project may not use. On with the db secret backend, off with --dev-nodes.
+	AuthorizeSecretRefs bool
 	// Mounts maps extra mux patterns (for example "/agent/v1/connect") to
 	// handlers owned by other components. They are wrapped by the same
 	// request logging as the API.
