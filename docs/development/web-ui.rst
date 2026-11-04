@@ -12,8 +12,9 @@ Building
 .. code-block:: console
 
    $ make web          # npm ci + vite build into web/build
-   $ make web-check    # prettier + eslint + svelte-check
+   $ make web-check    # prettier + eslint + svelte-check + vitest unit tests
    $ cd web && npm run dev      # Vite dev server with hot reload
+   $ cd web && npm run test:unit # vitest unit tests (layout)
    $ cd web && npm run test:e2e # Playwright tests (builds the UI and runs damson dev)
 
 ``make check`` runs ``make web-check`` automatically when ``web/node_modules``
@@ -85,6 +86,58 @@ Pages
    (RFC 9457) is shown in an alert while the last good data stays visible.
    Telemetry and free slots come from the agent's last heartbeat snapshot and
    show ``-`` until the first one is stored.
+
+``/jobs``
+   Lists the default project's jobs (``GET /jobs``, at most 200).
+
+``/jobs/[id]``
+   Shows the graph of the job's current version, fetched from
+   ``GET /jobs/{id}/versions/{v}/graph`` (``lib/jobs.ts``). Errors
+   (problem+json) are shown in an alert. The run view with live status comes
+   in a later change.
+
+Job graph view
+--------------
+
+The graph comes only from ``engine.BuildGraph`` on the server (CLAUDE.md,
+rule 10, :doc:`/architecture/decisions/0020-server-built-job-graph-with-in-house-layout`).
+The UI lays it out and renders it; it never reads the job spec. Files in
+``web/src/lib/graph``:
+
+``layout.ts``
+   Pure function ``layout(graph)`` that places what the server sent as nested
+   boxes. Lists stack top to bottom; a group wraps its body, with its ``catch``
+   and ``finally`` lists as columns to the right of the body. Positions are
+   relative to the parent box. The output is deterministic.
+``GraphView.svelte``
+   Renders the layout with ``@xyflow/svelte``. Each edge gets the class
+   ``edge-<kind>`` (for example ``edge-skip``, ``edge-catch``) and is styled by it.
+``GraphBox.svelte``
+   The node component: label, plugin and badges for ``when``, ``retry``,
+   ``for_each`` and ``continue_on_error``. It sets ``data-testid="graph-node-<id>"``
+   and ``data-kind``.
+
+Testing
+~~~~~~~
+
+``layout.test.ts`` (vitest, ``npm run test:unit``) runs the layout over every
+engine golden, ``testdata/engine/graph-*.golden.json``, and checks that
+children are contained in their parent, siblings do not overlap, ``catch`` and
+``finally`` are right of the body, and the result is deterministic. To add or
+refresh a case, change the engine fixtures and regenerate the goldens with
+``go test ./internal/engine -run Graph -update``; the unit test picks the files
+up without changes. ``web/e2e/jobs.test.ts`` creates a job through the API and
+checks nodes by ``graph-node-<id>`` and ``data-kind``, the edge classes, that
+the console has no errors, and the problem+json error path.
+
+Dependencies and licenses
+-------------------------
+
+``@xyflow/svelte`` 1.7.1 (MIT) renders the graph; it brings ``@xyflow/system``
+(MIT), ``d3-*`` (ISC) and ``@svelte-put/shortcut`` (MIT). The production tree
+contains only MIT, ISC, Apache-2.0 and BSD-3-Clause. ``vitest`` (MIT) is a dev
+dependency; its dev tree includes MPL-2.0, BlueOak-1.0.0 and Python-2.0, which
+are never shipped (:doc:`/architecture/decisions/0033-blueoak-licensed-dev-only-tooling-dependencies`).
 
 End-to-end tests
 ----------------

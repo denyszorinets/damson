@@ -36,7 +36,7 @@ Jobs
        a run without ``PASS`` lines fail the job. ``make check`` does not run it.
    * - ``web``
      - ``make web`` (build), ``make web-check`` (prettier, eslint,
-       svelte-check) and the Playwright e2e tests, using the Google Chrome
+       svelte-check, vitest unit tests via ``npm run test:unit``) and the Playwright e2e tests, using the Google Chrome
        preinstalled on the runner (``CHROME_PATH``). The e2e tests build and
        run ``damson dev``, so the job also installs Go.
    * - ``generated``
