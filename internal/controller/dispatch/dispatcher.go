@@ -70,8 +70,11 @@ type Config struct {
 	Plugins Resolver
 	// Nodes and Secrets fill the nodes and secret bundle of step.execute.
 	// Both are optional: without them a step gets neither (ADR-0034 until M4).
-	Nodes        NodeSource
-	Secrets      SecretSource
+	Nodes   NodeSource
+	Secrets SecretSource
+	// Project returns the project path of a run. When set, secret refs are
+	// authorized against it (ARCHITECTURE 9.1); the dev-nodes source leaves it nil.
+	Project      func(ctx context.Context, runID string) (string, error)
 	Advance      Enqueuer
 	ControllerID string
 	// Leader gates the reaper and the dead-controller cleanup to the holder of

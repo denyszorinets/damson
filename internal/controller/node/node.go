@@ -145,6 +145,8 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	}
 	if cfg.DevNodes != nil { // a nil *File must not become a non-nil interface
 		apiCfg.Targets = cfg.DevNodes
+	} else if n.secrets != nil {
+		apiCfg.AuthorizeSecretRefs = true
 	}
 	n.srv = api.NewServer(apiCfg)
 	return n, nil
@@ -197,6 +199,7 @@ func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 		dcfg.Nodes, dcfg.Secrets = cfg.DevNodes, cfg.DevNodes
 	} else if n.secrets != nil {
 		dcfg.Secrets = &secretSource{b: n.secrets, log: log}
+		dcfg.Project = projectOf(cfg.Store)
 	}
 	if n.disp, err = dispatch.New(dcfg); err != nil {
 		return fmt.Errorf("creating dispatcher: %w", err)

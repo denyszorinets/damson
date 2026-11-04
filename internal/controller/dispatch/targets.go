@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/denyszorinets/damson/internal/protocol"
+	"github.com/denyszorinets/damson/internal/secrets"
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 )
 
@@ -42,11 +43,34 @@ type permanent struct{ err error }
 func (p *permanent) Error() string { return p.err.Error() }
 func (p *permanent) Unwrap() error { return p.err }
 
+// refUse records how a step uses one secret ref: where it came from decides
+// which scopes are allowed, and the fields it names must exist.
+type refUse struct {
+	literal bool // appears in step input
+	node    bool // is a targeted node's credential
+	fields  map[string]struct{}
+}
+
+type refSet map[string]*refUse
+
+func (s refSet) use(ref string) *refUse {
+	base, field, hasField := strings.Cut(ref, "#")
+	u := s[base]
+	if u == nil {
+		u = &refUse{fields: map[string]struct{}{}}
+		s[base] = u
+	}
+	if hasField {
+		u.fields[field] = struct{}{}
+	}
+	return u
+}
+
 // resolveTargets builds the Nodes and Secrets of a step.execute. With no
 // sources configured it returns nothing, as before.
 func (d *Dispatcher) resolveTargets(ctx context.Context, runID string, m pluginsdk.Manifest, input map[string]any) (map[string]pluginsdk.NodeInfo, protocol.SecretBundle, error) {
 	var nodes map[string]pluginsdk.NodeInfo
-	refs := map[string]struct{}{}
+	refs := refSet{}
 	if d.cfg.Nodes != nil && m.TargetMode == pluginsdk.TargetSingleNode {
 		name, ok := input["node"].(string)
 		if !ok || name == "" {
@@ -58,7 +82,7 @@ func (d *Dispatcher) resolveTargets(ctx context.Context, runID string, m plugins
 		}
 		nodes = map[string]pluginsdk.NodeInfo{name: n}
 		if n.Credential != "" {
-			refs[baseRef(n.Credential)] = struct{}{}
+			refs.use(n.Credential).node = true
 		}
 	}
 	collectRefs(input, refs)
@@ -71,16 +95,49 @@ func (d *Dispatcher) resolveTargets(ctx context.Context, runID string, m plugins
 	if len(refs) > maxSecretRefs {
 		return nil, nil, &permanent{fmt.Errorf("step uses %d secret refs; at most %d", len(refs), maxSecretRefs)}
 	}
+	if err := d.authorizeRefs(ctx, runID, refs); err != nil {
+		return nil, nil, err
+	}
 	bundle := protocol.SecretBundle{}
-	for ref := range refs {
+	for ref, use := range refs {
 		fields, err := d.cfg.Secrets.Secret(ctx, runID, ref)
 		if err != nil {
 			wipe(bundle)
 			return nil, nil, secretError(ref, err)
 		}
 		bundle[ref] = fields
+		for f := range use.fields {
+			if _, ok := fields[f]; !ok {
+				wipe(bundle)
+				return nil, nil, &permanent{fmt.Errorf("secret %q has no field %q: %w", ref, f, ErrSecretUnavailable)}
+			}
+		}
 	}
 	return nodes, bundle, nil
+}
+
+// authorizeRefs applies the scope rule of ARCHITECTURE 9.1 before any secret
+// is read. A denied ref reads as an unknown one, so it does not reveal whether
+// the secret exists. Off unless Config.Project is set (the db backend).
+func (d *Dispatcher) authorizeRefs(ctx context.Context, runID string, refs refSet) error {
+	if d.cfg.Project == nil {
+		return nil
+	}
+	project, err := d.cfg.Project(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("resolving the project of run %q: %w", runID, err)
+	}
+	for ref, use := range refs {
+		r, perr := secrets.ParseRef(ref)
+		if perr != nil {
+			return &permanent{fmt.Errorf("secret %q: %w", ref, ErrSecretUnavailable)}
+		}
+		// A ref used both ways gets the stricter literal rule.
+		if secrets.Authorize(project, r, use.node && !use.literal) != nil {
+			return &permanent{fmt.Errorf("secret %q: %w", ref, ErrUnknownSecret)}
+		}
+	}
+	return nil
 }
 
 // sourceError keeps only the ref or node name in the message, never what the
@@ -100,17 +157,12 @@ func secretError(ref string, err error) error {
 	return sourceError(fmt.Sprintf("secret %q", ref), ErrUnknownSecret, err)
 }
 
-func baseRef(ref string) string {
-	base, _, _ := strings.Cut(ref, "#")
-	return base
-}
-
-// collectRefs adds the base ref of every secret:// string in v.
-func collectRefs(v any, refs map[string]struct{}) {
+// collectRefs records every secret:// string in v as a literal use.
+func collectRefs(v any, refs refSet) {
 	switch x := v.(type) {
 	case string:
 		if strings.HasPrefix(x, "secret://") {
-			refs[baseRef(x)] = struct{}{}
+			refs.use(x).literal = true
 		}
 	case map[string]any:
 		for _, e := range x {

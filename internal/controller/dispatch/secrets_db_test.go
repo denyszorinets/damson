@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -87,6 +88,99 @@ func TestDBSecretMissingOrUnreadableFails(t *testing.T) {
 		}
 		if strings.Contains(logs.String(), secretMarker) {
 			t.Fatalf("a secret value reached the controller log: %s", logs.String())
+		}
+	})
+}
+
+func putIn(t *testing.T, b *secretsdb.Backend, scope, name string, fields map[string]string) {
+	t.Helper()
+	if _, _, err := b.Put(context.Background(), scope, name, "generic", fields, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Refs are authorized against the run's project: own scope and ancestors pass,
+// siblings and other projects do not, _inventory only as a node credential.
+// A denied ref reads as unknown, names only the ref, and no secret is read.
+func TestDBSecretAuthorization(t *testing.T) {
+	kv := map[string]string{"value": secretMarker, "username": "u", "private_key": "k"}
+	for _, tc := range []struct {
+		name, ref, cred string
+		ok              bool
+	}{
+		{"own project", "secret://default/token", "secret://default/cred", true},
+		{"other project", "secret://other/token", "secret://default/cred", false},
+		{"literal inventory", "secret://_inventory/cred", "secret://default/cred", false},
+		{"node credential from inventory", "secret://default/token", "secret://_inventory/cred", true},
+		{"node credential from another project", "secret://default/token", "secret://other/token", false},
+		{"inventory as literal and credential", "secret://_inventory/cred", "secret://_inventory/cred", false},
+		{"missing field", "secret://default/token#nope", "secret://default/cred", false},
+		{"present field", "secret://default/token#value", "secret://default/cred", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			forEachBackend(t, func(t *testing.T, st store.Store) {
+				b := newSecretBackend(t, st)
+				for _, s := range [][2]string{{"default", "token"}, {"default", "cred"}, {"other", "token"}, {"_inventory", "cred"}} {
+					putIn(t, b, s[0], s[1], kv)
+				}
+				logs := &lockedBuf{}
+				log := slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+				counting := &countingSource{inner: node.NewSecretSource(b, log)}
+				c := startClusterLog(t, st, nodeSpec, log, func(c *dispatch.Config) {
+					c.Nodes, c.Secrets = &fakeSources{credRef: tc.cred}, counting
+					c.Project = func(context.Context, string) (string, error) { return "default", nil }
+				})
+				want := store.RunSucceeded
+				if !tc.ok {
+					want = store.RunFailed
+				}
+				tree := c.waitRun(c.triggerInput("nodedemo", `{"node":"n1","token":"`+tc.ref+`"}`), want)
+				ex := tree.Steps[0].Executions[0]
+				if !tc.ok && (ex.State != store.ExecFailed || strings.Contains(ex.Error, secretMarker)) {
+					t.Fatalf("execution = %s %q", ex.State, ex.Error)
+				}
+				if strings.Contains(logs.String(), secretMarker) {
+					t.Fatal("a secret value reached the controller log")
+				}
+				if tc.name == "other project" && counting.reads.Load() != 0 {
+					t.Fatalf("a denied ref was read (%d reads)", counting.reads.Load())
+				}
+			})
+		})
+	}
+}
+
+// countingSource counts reads, to show a denied ref is never read.
+type countingSource struct {
+	inner dispatch.SecretSource
+	reads atomic.Int32
+}
+
+func (c *countingSource) Secret(ctx context.Context, runID, ref string) (map[string]string, error) {
+	c.reads.Add(1)
+	return c.inner.Secret(ctx, runID, ref)
+}
+
+// A denied ref that exists and a missing ref fail with the same message shape,
+// so a job cannot probe which secrets exist in other projects.
+func TestDBSecretDeniedLooksLikeMissing(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		b := newSecretBackend(t, st)
+		kv := map[string]string{"value": secretMarker, "username": "u", "private_key": "k"}
+		putIn(t, b, "default", "cred", kv)
+		putIn(t, b, "other", "token", kv)
+		log := slog.New(slog.DiscardHandler)
+		c := startClusterLog(t, st, nodeSpec, log, func(c *dispatch.Config) {
+			c.Nodes, c.Secrets = &fakeSources{credRef: "secret://default/cred"}, node.NewSecretSource(b, log)
+			c.Project = func(context.Context, string) (string, error) { return "default", nil }
+		})
+		errOf := func(ref string) string {
+			tree := c.waitRun(c.triggerInput("nodedemo", `{"node":"n1","token":"`+ref+`"}`), store.RunFailed)
+			return strings.ReplaceAll(tree.Steps[0].Executions[0].Error, ref, "REF")
+		}
+		denied, missing := errOf("secret://other/token"), errOf("secret://default/missing")
+		if denied != missing || !strings.Contains(denied, "unknown secret") {
+			t.Fatalf("denied %q differs from missing %q", denied, missing)
 		}
 	})
 }

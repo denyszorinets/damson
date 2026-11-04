@@ -236,6 +236,16 @@ Secrets are never values in the context. ``secret://`` references are plain
 strings that pass through resolution unchanged and are resolved at dispatch
 time.
 
+With the ``db`` secret backend, every literal ``secret://`` string in a step's
+``with`` (including groups, ``catch`` and ``finally``) and in ``spec.options``
+(``default``, ``const``, ``enum``) is checked when a job is
+created, a version is added or a spec is validated. It must parse and refer to a
+secret in the job's project or an ancestor project; a violation is a ``422``
+naming only the path in the spec, never the ref. The scope ``_inventory`` is not
+allowed as a literal. A ref that contains a ``${{ }}`` expression is only known
+at run time and is not checked here. The dispatcher checks every ref again
+before reading any secret.
+
 .. _job-spec-secret-options:
 
 Secret options

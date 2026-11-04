@@ -50,6 +50,9 @@ func (d deps) checkSpec(raw json.RawMessage) specCheck {
 		}
 		return c
 	}
+	if d.authRefs {
+		c.checkSecretRefs(job)
+	}
 	if d.plugins != nil {
 		c.checkPlugins(d.plugins, job)
 	}

@@ -27,13 +27,21 @@ type fakeSources struct {
 	nodeErr  error
 	tokenErr error
 	secrets  int
+	credRef  string // the node credential ref; default secret://dev/cred
 }
 
 func (f *fakeSources) Node(_ context.Context, _, name string) (pluginsdk.NodeInfo, error) {
 	if name != "n1" {
 		return pluginsdk.NodeInfo{}, dispatch.ErrUnknownNode
 	}
-	return pluginsdk.NodeInfo{Name: name, Address: "10.0.0.7", Credential: "secret://dev/cred", HostKeyPolicy: "strict"}, f.nodeErr
+	return pluginsdk.NodeInfo{Name: name, Address: "10.0.0.7", Credential: f.cred(), HostKeyPolicy: "strict"}, f.nodeErr
+}
+
+func (f *fakeSources) cred() string {
+	if f.credRef != "" {
+		return f.credRef
+	}
+	return "secret://dev/cred"
 }
 
 func (f *fakeSources) Secret(_ context.Context, _, ref string) (map[string]string, error) {
