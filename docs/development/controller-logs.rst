@@ -119,6 +119,22 @@ a subscriber: a subscriber whose queue (replay size plus
 the client reconnects with ``after_seq``. The channel also closes on context
 cancellation, ``Finish`` and ``Stop``.
 
+Tail from another controller
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``Ingest`` only knows the executions this controller owns. The API is given
+``tailproxy.Tail`` instead (``node.Start`` wires it): it tries the local
+``Ingest`` first and, on ``ErrNoLiveTail``, resolves the owner from the
+execution's ``controller_id`` and ``controller_instances.internal_url`` and
+relays ``GET /internal/v1/executions/{id}/tail`` from the owner's
+``internalapi.Server``, signed with ``internalauth``. The owner serves its own
+ring only. Any failure (stale owner, redirect, 401/404/409/503, silence for
+30 s) returns ``ErrNoLiveTail`` and the SSE log stream falls back to polling
+stored chunks, deduplicating by ``seq``; it re-subscribes every
+``StreamConfig.ResubscribeInterval`` (5 s). Without a cluster secret the proxy
+is off and only the local ring is used. See
+:doc:`/architecture/decisions/0040-internal-controller-endpoints`.
+
 Wiring (see :doc:`dispatch`)
 -------------------------------------------------
 

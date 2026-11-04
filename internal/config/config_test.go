@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -43,7 +44,7 @@ func TestLoad(t *testing.T) {
 		},
 		{
 			name: "file overrides defaults", role: RoleController,
-			file: "[controller]\nlisten = \"127.0.0.1:9000\"\n[database]\ndriver = \"postgres\"\ndsn = \"postgres://u@h/db\"\n",
+			file: "[controller]\nlisten = \"127.0.0.1:9000\"\ninternal_url = \"http://c1:8081\"\ncluster_secret = \"" + strings.Repeat("s", 32) + "\"\n[database]\ndriver = \"postgres\"\ndsn = \"postgres://u@h/db\"\n",
 			check: func(t *testing.T, c Config) {
 				if c.Controller.Listen != "127.0.0.1:9000" || c.Database.Driver != DriverPostgres {
 					t.Fatalf("file not applied: %+v", c)
@@ -229,9 +230,13 @@ func TestConfigEnvVarIsNotAKey(t *testing.T) {
 // Secrets must not leak through the loggable form of the config.
 func TestRedactedMasksSecrets(t *testing.T) {
 	c := Config{
-		Database: Database{DSN: "postgres://u:hunter2@h/db"},
-		Agent:    Agent{Token: "tok-123"},
+		Database:   Database{DSN: "postgres://u:hunter2@h/db"},
+		Agent:      Agent{Token: "tok-123"},
+		Controller: Controller{ClusterSecret: "cur", ClusterSecretPrevious: "prev"},
 	}.Redacted()
+	if c.Controller.ClusterSecret != "***" || c.Controller.ClusterSecretPrevious != "***" {
+		t.Fatalf("cluster secrets not masked: %+v", c.Controller)
+	}
 	if c.Database.DSN != "***" || c.Agent.Token != "***" {
 		t.Fatalf("secrets not masked: %+v", c)
 	}
@@ -303,5 +308,82 @@ func TestFinallyGrace(t *testing.T) {
 	}
 	if got := c.FinallyGraceDuration(); got != 45*time.Second {
 		t.Fatalf("finally grace = %v; want 45s", got)
+	}
+}
+
+func TestClusterSecretValidation(t *testing.T) {
+	good := strings.Repeat("k", 32)
+	pg := []string{"DAMSON_DATABASE__DRIVER=postgres", "DAMSON_DATABASE__DSN=postgres://u@h/db"}
+	withURL := append(slices.Clone(pg), "DAMSON_CONTROLLER__INTERNAL_URL=http://c1:8081")
+	tests := []struct {
+		name    string
+		role    Role
+		env     []string
+		wantErr string
+	}{
+		{"sqlite needs none", RoleController, nil, ""},
+		{"dev needs none", RoleDev, nil, ""},
+		{"postgres with secret and url", RoleController, append(slices.Clone(withURL), "DAMSON_CONTROLLER__CLUSTER_SECRET="+good), ""},
+		{"short secret", RoleController, append(slices.Clone(withURL), "DAMSON_CONTROLLER__CLUSTER_SECRET=short"), "at least 32 bytes"},
+		{"short previous secret", RoleController, append(slices.Clone(withURL), "DAMSON_CONTROLLER__CLUSTER_SECRET="+good, "DAMSON_CONTROLLER__CLUSTER_SECRET_PREVIOUS=short"), "cluster_secret_previous"},
+		{"secret needs an internal url", RoleController, append(slices.Clone(pg), "DAMSON_CONTROLLER__CLUSTER_SECRET="+good), "controller.internal_url"},
+		{"internal url with credentials", RoleController, append(slices.Clone(pg), "DAMSON_CONTROLLER__CLUSTER_SECRET="+good, "DAMSON_CONTROLLER__INTERNAL_URL=http://u:p@c1:8081"), "controller.internal_url"},
+		{"internal url with a path", RoleController, append(slices.Clone(pg), "DAMSON_CONTROLLER__CLUSTER_SECRET="+good, "DAMSON_CONTROLLER__INTERNAL_URL=http://c1:8081/x"), "controller.internal_url"},
+		{"bad internal listen", RoleController, append(slices.Clone(withURL), "DAMSON_CONTROLLER__CLUSTER_SECRET="+good, "DAMSON_CONTROLLER__INTERNAL_LISTEN=nope"), "controller.internal_listen"},
+		{"missing secret file", RoleController, append(slices.Clone(withURL), "DAMSON_CONTROLLER__CLUSTER_SECRET_FILE=/nonexistent/secret"), "cluster_secret_file"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load(tc.role, "", tc.env)
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Fatalf("unexpected error: %v", err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Fatalf("error = %v; want it to mention %q", err, tc.wantErr)
+			}
+			if err != nil && strings.Contains(err.Error(), good) {
+				t.Fatalf("error leaks the secret: %v", err)
+			}
+		})
+	}
+}
+
+func TestClusterSecretFile(t *testing.T) {
+	secret := strings.Repeat("f", 40)
+	p := writeFile(t, secret+"\n")
+	c, err := Load(RoleController, "", []string{"DAMSON_CONTROLLER__CLUSTER_SECRET_FILE=" + p, "DAMSON_CONTROLLER__INTERNAL_URL=http://c1:8081", "DAMSON_CONTROLLER__CLUSTER_SECRET_PREVIOUS=" + strings.Repeat("p", 32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur, prev, err := c.ClusterSecrets()
+	if err != nil || cur != secret || prev != strings.Repeat("p", 32) {
+		t.Fatalf("ClusterSecrets = %q, %q, %v", cur, prev, err)
+	}
+	// An explicit secret wins over the file.
+	c.Controller.ClusterSecret = strings.Repeat("e", 32)
+	if cur, _, _ := c.ClusterSecrets(); cur != strings.Repeat("e", 32) {
+		t.Fatalf("explicit secret not preferred: %q", cur)
+	}
+}
+
+func TestValidateServing(t *testing.T) {
+	pg := []string{"DAMSON_DATABASE__DRIVER=postgres", "DAMSON_DATABASE__DSN=postgres://u@h/db"}
+	c, err := Load(RoleController, "", pg) // admin commands load it too: no secret needed
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.ValidateServing(RoleController); err == nil || !strings.Contains(err.Error(), "controller.cluster_secret") {
+		t.Fatalf("a postgres controller without a secret: %v", err)
+	}
+	if err := c.ValidateServing(RoleDev); err != nil {
+		t.Fatalf("dev: %v", err)
+	}
+	sq, _ := Load(RoleController, "", nil)
+	if err := sq.ValidateServing(RoleController); err != nil {
+		t.Fatalf("sqlite: %v", err)
+	}
+	c.Controller.ClusterSecret = strings.Repeat("k", 32)
+	if err := c.ValidateServing(RoleController); err != nil {
+		t.Fatalf("with a secret: %v", err)
 	}
 }

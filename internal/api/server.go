@@ -82,6 +82,7 @@ func routes(cfg Config) http.Handler {
 	mux.HandleFunc("/readyz", readyz(cfg.Store))
 	newHuma(mux, newDeps(cfg))
 	mux.HandleFunc("/api/", notFound)
+	mux.HandleFunc("/internal/", notFound) // served only on the internal listener (ADR-0040)
 	for pattern, h := range cfg.Mounts {
 		mux.Handle(pattern, h)
 	}

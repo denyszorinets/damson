@@ -33,6 +33,9 @@ var timing = node.Timing{
 	LeaseTTL: 1500 * time.Millisecond, LeaderTTL: 2 * time.Second, LeaderRenew: 500 * time.Millisecond, AdvancePoll: 20 * time.Millisecond, AdvanceSweep: 500 * time.Millisecond,
 }
 
+// clusterSecret is the HMAC secret every chaos controller shares.
+const clusterSecret = "chaos-cluster-secret-0123456789abcdef"
+
 const (
 	leaseTTL    = 1500 * time.Millisecond
 	waitTimeout = 30 * time.Second
@@ -150,8 +153,15 @@ func (c *Cluster) startController(st store.Store, id string, tm node.Timing) *co
 	if err != nil {
 		c.t.Fatal(err)
 	}
+	// Controllers reach each other's internal listener (log tail proxy) on a
+	// real port, bound first so its address can be registered.
+	iln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		c.t.Fatal(err)
+	}
 	n, err := node.Start(context.Background(), node.Config{
-		Store: st, ControllerID: id, InternalURL: "http://" + id + ":8080", Plugins: reg, InsecureDev: true,
+		Store: st, ControllerID: id, InternalURL: "http://" + iln.Addr().String(), Plugins: reg, InsecureDev: true,
+		ClusterSecret: clusterSecret, InternalListener: iln,
 		Timing: tm, Logger: log,
 	})
 	if err != nil {

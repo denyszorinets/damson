@@ -52,6 +52,7 @@ func (g *gatePlugin) Execute(ctx context.Context, req pluginsdk.ExecRequest, emi
 		case <-g.gate:
 		case <-ctx.Done():
 		}
+		emit.Log(pluginsdk.Stdout, in.Word+" resumed") // a line after the gate
 	}
 	if in.Word == "hold" { // runs until cancelled, then fails the way a cancelled plugin does
 		<-ctx.Done()

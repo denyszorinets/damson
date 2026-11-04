@@ -58,7 +58,15 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 	if err != nil {
 		return err
 	}
+	secret, previous, err := cfg.ClusterSecrets()
+	if err != nil {
+		return err
+	}
+	if dev { // one process: nothing to proxy to
+		secret, previous = "", ""
+	}
 	n, err := node.Start(ctx, node.Config{
+		ClusterSecret: secret, ClusterSecretPrevious: previous, InternalListen: cfg.Controller.InternalListen,
 		Store: st, ControllerID: id, InternalURL: cfg.Controller.InternalURL, Plugins: plugins, DevNodes: devNodes, FinallyGrace: cfg.FinallyGraceDuration(),
 		InsecureDev: cfg.Controller.InsecureDev, TrustForwardedProto: cfg.Controller.TrustForwardedProto,
 		Addr: cfg.Controller.Listen, UI: webui.Handler(web.Build()), Logger: log,

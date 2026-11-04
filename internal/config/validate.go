@@ -33,6 +33,7 @@ func (c Config) Validate(role Role) error {
 		if _, port, err := net.SplitHostPort(c.Controller.Listen); err != nil || port == "" {
 			add("controller.listen", "must be host:port such as \":8080\"; got %q", c.Controller.Listen)
 		}
+		c.validateCluster(role, add)
 		if d, err := time.ParseDuration(c.Engine.FinallyGrace); err != nil || d <= 0 || d > MaxFinallyGrace {
 			add("engine.finally_grace", "must be a duration such as \"2m\", positive and at most %s; got %q", MaxFinallyGrace, c.Engine.FinallyGrace)
 		}

@@ -82,6 +82,21 @@ func (i *Ingest) Stop(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+// Attempt returns the attempt whose lines this controller buffers for the
+// execution, or "" when it holds none.
+func (i *Ingest) Attempt(executionID string) string {
+	st := i.state(executionID)
+	if st == nil {
+		return ""
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.closed {
+		return ""
+	}
+	return st.attempt
+}
+
 // Subscribe replays the buffered lines with seq > afterSeq, then delivers new
 // lines until ctx ends, the execution is finished (the channel closes) or the
 // subscriber falls so far behind that its queue fills up (the channel closes

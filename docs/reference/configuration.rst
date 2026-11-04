@@ -58,8 +58,35 @@ written as a double underscore: ``agent.controller_url`` is
    * - ``controller.internal_url``
      - controller, dev
      - empty
-     - URL other controllers use to reach this one; stored in
-       ``controller_instances``.
+     - Address of this controller's internal listener as other controllers
+       reach it (for example ``http://damson-1.internal:8081``); stored in
+       ``controller_instances``. Required when a cluster secret is set. Only
+       scheme, host and port: ``http`` or ``https``, no credentials, path,
+       query or fragment.
+   * - ``controller.internal_listen``
+     - controller
+     - ``:8081``
+     - ``host:port`` of the internal listener that serves other controllers
+       (:doc:`/architecture/decisions/0040-internal-controller-endpoints`).
+       Started only when a cluster secret is set; never in ``dev``. Plain HTTP:
+       keep it on a private network, because log lines cross it unencrypted.
+   * - ``controller.cluster_secret``
+     - controller
+     - none
+     - Shared secret that authenticates requests between controllers (at
+       least 32 bytes; env ``DAMSON_CONTROLLER__CLUSTER_SECRET``). Required,
+       together with ``internal_url``, with the postgres driver; SQLite needs
+       none. Redacted in the effective configuration and never logged.
+   * - ``controller.cluster_secret_file``
+     - controller
+     - none
+     - File to read the secret from when ``cluster_secret`` is empty;
+       surrounding whitespace is trimmed.
+   * - ``controller.cluster_secret_previous``
+     - controller
+     - none
+     - Old secret that is still accepted for verification (never used to sign),
+       for rotation. At least 32 bytes; redacted.
    * - ``engine.finally_grace``
      - controller, dev
      - ``2m``
@@ -100,6 +127,23 @@ written as a double underscore: ``agent.controller_url`` is
      - ``false``
      - Let the ``ssh`` plugin connect to nodes with host key policy
        ``insecure``.
+
+Rotating the cluster secret
+---------------------------
+
+Verification accepts the current and the previous secret; signing uses the
+current one. Rotate from secret A to B with two rolling restarts, so that
+controllers never disagree on what they accept:
+
+1. On every controller set ``cluster_secret = A`` and
+   ``cluster_secret_previous = B``. All controllers now accept both.
+2. On every controller set ``cluster_secret = B`` and
+   ``cluster_secret_previous = A``. They now sign with B and still accept A
+   from controllers not yet restarted.
+3. Remove ``cluster_secret_previous``.
+
+A failed request only costs the live tail (the log stream falls back to stored
+chunks), never data.
 
 Example:
 

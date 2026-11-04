@@ -54,6 +54,17 @@ type Controller struct {
 	InsecureDev bool `koanf:"insecure_dev"`
 	// InternalURL is where other controllers reach this one (ARCHITECTURE 8.5).
 	InternalURL string `koanf:"internal_url"`
+	// InternalListen is the host:port of the internal listener that serves other
+	// controllers (log tail proxy). It starts only when a cluster secret is
+	// configured; the dev role never starts it.
+	InternalListen string `koanf:"internal_listen"`
+	// ClusterSecret authenticates controllers to each other (HMAC, ADR-0040);
+	// at least MinClusterSecretBytes. ClusterSecretFile is read instead when
+	// the secret itself is empty. ClusterSecretPrevious is also accepted when
+	// verifying, for rotation. All three are secrets.
+	ClusterSecret         string `koanf:"cluster_secret"`
+	ClusterSecretFile     string `koanf:"cluster_secret_file"`
+	ClusterSecretPrevious string `koanf:"cluster_secret_previous"`
 	// TrustForwardedProto honors X-Forwarded-Proto: https from a TLS-terminating
 	// proxy when deciding whether an agent connection is secure.
 	TrustForwardedProto bool `koanf:"trust_forwarded_proto"`
@@ -108,6 +119,8 @@ func (c Config) SlogLevel() slog.Level {
 func (c Config) Redacted() Config {
 	c.Database.DSN = redact(c.Database.DSN)
 	c.Agent.Token = redact(c.Agent.Token)
+	c.Controller.ClusterSecret = redact(c.Controller.ClusterSecret)
+	c.Controller.ClusterSecretPrevious = redact(c.Controller.ClusterSecretPrevious)
 	return c
 }
 
@@ -120,20 +133,24 @@ func redact(s string) string {
 
 func defaults() map[string]any {
 	return map[string]any{
-		"log.level":                        "info",
-		"database.driver":                  DriverSQLite,
-		"database.dsn":                     "file:damson.db",
-		"controller.listen":                ":8080",
-		"controller.insecure_dev":          false,
-		"controller.internal_url":          "",
-		"controller.trust_forwarded_proto": false,
-		"engine.finally_grace":             "2m",
-		"agent.controller_url":             "",
-		"agent.token":                      "",
-		"agent.pool":                       "default",
-		"agent.slots":                      0,
-		"agent.spool_dir":                  "",
-		"agent.spool_max_bytes":            0,
-		"agent.allow_insecure_host_keys":   false,
+		"log.level":                          "info",
+		"database.driver":                    DriverSQLite,
+		"database.dsn":                       "file:damson.db",
+		"controller.listen":                  ":8080",
+		"controller.insecure_dev":            false,
+		"controller.internal_url":            "",
+		"controller.internal_listen":         ":8081",
+		"controller.cluster_secret":          "",
+		"controller.cluster_secret_file":     "",
+		"controller.cluster_secret_previous": "",
+		"controller.trust_forwarded_proto":   false,
+		"engine.finally_grace":               "2m",
+		"agent.controller_url":               "",
+		"agent.token":                        "",
+		"agent.pool":                         "default",
+		"agent.slots":                        0,
+		"agent.spool_dir":                    "",
+		"agent.spool_max_bytes":              0,
+		"agent.allow_insecure_host_keys":     false,
 	}
 }
