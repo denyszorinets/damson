@@ -85,6 +85,7 @@ type Node struct {
 	disp *dispatch.Dispatcher
 	lead *leader.Elector
 	tail api.LogTail
+	prox *tailproxy.Tail
 	intl *internalapi.Server
 	intL net.Listener
 	srv  *api.Server
@@ -174,13 +175,13 @@ func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 	if n.disp, err = dispatch.New(dcfg); err != nil {
 		return fmt.Errorf("creating dispatcher: %w", err)
 	}
-	if err := n.setupTail(cfg); err != nil {
-		return err
-	}
 	for _, h := range []controller.SessionHook{n.logs, n.disp} {
 		if err := gw.AddHook(h); err != nil {
 			return err
 		}
+	}
+	if err := n.setupTail(cfg); err != nil {
+		return errors.Join(err, n.stopOrchestration(context.WithoutCancel(ctx)))
 	}
 	// Each step is started in order; on failure the ones already running stop.
 	for _, step := range []struct {
@@ -234,11 +235,12 @@ func (n *Node) setupTail(cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("building cluster keyring: %w", err)
 	}
-	if n.tail, err = tailproxy.New(tailproxy.Config{
+	if n.prox, err = tailproxy.New(tailproxy.Config{
 		Local: n.logs, Store: cfg.Store, Self: cfg.ControllerID, Keys: keys, Logger: cfg.Logger,
 	}); err != nil {
 		return fmt.Errorf("creating log tail proxy: %w", err)
 	}
+	n.tail = n.prox
 	if n.intl, err = internalapi.New(internalapi.Config{Keys: keys, Self: cfg.ControllerID, Tail: n.logs, Logger: cfg.Logger}); err != nil {
 		return fmt.Errorf("creating internal listener: %w", err)
 	}
@@ -259,6 +261,9 @@ func (n *Node) startInternal(context.Context) error {
 }
 
 func (n *Node) stopInternal(ctx context.Context) error {
+	if n.prox != nil {
+		defer n.prox.Close()
+	}
 	if n.intl == nil {
 		return nil
 	}

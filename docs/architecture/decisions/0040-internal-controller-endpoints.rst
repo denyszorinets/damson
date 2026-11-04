@@ -124,5 +124,11 @@ Negative
 - Log lines cross the controller network unencrypted, and the secret protects
   only integrity and caller identity. A private network is required.
 - A new port to open between controllers, and a secret to distribute.
+- The tail response is not signed. Anyone on the path between two controllers
+  could inject log lines into a proxied stream (bounded by the stream's queue
+  and line size); stored chunks are unaffected.
+- Every re-subscribe of a proxied stream costs two reads of the registry
+  (about 100 queries a second at 256 streams); acceptable, and the interval is
+  ``StreamConfig.ResubscribeInterval``.
 - Within the 30 s window a captured request can be replayed to read the same
   tail; the endpoint has no side effects.

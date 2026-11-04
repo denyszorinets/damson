@@ -162,7 +162,9 @@ const (
 
 // subscribe opens the live tail from the next line, if there is one.
 func (l *logStream) subscribe(ctx context.Context) <-chan LogLine {
-	l.lastSub = time.Now()
+	// Stamped when the call returns: an unreachable owner makes it block for
+	// seconds, and the next attempt must wait a full interval after that.
+	defer func() { l.lastSub = time.Now() }()
 	ch, err := l.d.tail.Subscribe(ctx, l.execID, l.next-1)
 	switch {
 	case err == nil:

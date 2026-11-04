@@ -37,11 +37,11 @@ const (
 )
 
 // Reasons a verification fails. They are safe to log and to count; nothing
-// about the expected signature is ever included.
+// about the expected signature is ever included. A request signed for another
+// controller is an ErrSignature, since the target is part of the signed string.
 var (
 	ErrMissing   = errors.New("missing authentication headers")
 	ErrTimestamp = errors.New("timestamp outside the allowed window")
-	ErrTarget    = errors.New("request is for another controller")
 	ErrSignature = errors.New("signature mismatch")
 )
 

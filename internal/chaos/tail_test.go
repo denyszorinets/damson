@@ -104,6 +104,8 @@ func TestLogTailThroughOtherControllerSurvivesOwnerCrash(t *testing.T) {
 		}
 		seen = append(seen, n)
 	}
+	// (The controller's log flush interval is its 5s default, which the chaos
+	// timing does not change; this check depends on that.)
 	if n := c.logChunks(ex.ID); n != 0 {
 		t.Fatalf("%d chunks stored before the tail delivered: the lines did not come over the proxy", n)
 	}
@@ -139,7 +141,7 @@ func TestLogTailThroughOtherControllerSurvivesOwnerCrash(t *testing.T) {
 		}
 		seen = append(seen, n)
 	}
-	if len(seen) < 3 {
-		t.Fatalf("saw %v", seen)
+	if len(seen) < 4 {
+		t.Fatalf("saw %v; want the line written after the gate too", seen)
 	}
 }

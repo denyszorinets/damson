@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/denyszorinets/damson/internal/api"
@@ -70,6 +71,9 @@ type Server struct {
 	http  *http.Server
 	slots chan struct{}
 
+	handlers sync.WaitGroup // tail handlers in flight
+	lastWarn atomic.Int64   // unix nanoseconds of the last rejection warning
+
 	mu   sync.Mutex
 	done chan struct{}
 }
@@ -93,7 +97,7 @@ func New(cfg Config) (*Server, error) {
 		log = slog.Default()
 	}
 	s := &Server{cfg: cfg, log: log, slots: make(chan struct{}, cfg.MaxTails)}
-	s.http = &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	s.http = &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: time.Minute}
 	return s, nil
 }
 
@@ -110,7 +114,7 @@ func (s *Server) authed(next func(http.ResponseWriter, *http.Request, string)) h
 	return func(w http.ResponseWriter, r *http.Request) {
 		caller, err := s.cfg.Keys.Verify(r, s.cfg.Self, s.cfg.Now())
 		if err != nil {
-			s.log.Warn("internal request rejected", "reason", err.Error(), "caller_id", r.Header.Get(internalauth.HeaderCaller), "path", r.URL.Path)
+			s.warnRejected(err, r)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -118,11 +122,28 @@ func (s *Server) authed(next func(http.ResponseWriter, *http.Request, string)) h
 	}
 }
 
+// warnRejected logs a rejected request, at most once every 10 seconds: the
+// caller header is unauthenticated, so it is truncated and the rate is bounded
+// against a client that floods the port.
+func (s *Server) warnRejected(reason error, r *http.Request) {
+	now := time.Now().UnixNano()
+	if last := s.lastWarn.Load(); now-last < int64(10*time.Second) || !s.lastWarn.CompareAndSwap(last, now) {
+		return
+	}
+	caller := r.Header.Get(internalauth.HeaderCaller)
+	if len(caller) > 64 {
+		caller = caller[:64]
+	}
+	s.log.Warn("internal request rejected", "reason", reason.Error(), "caller_id", caller)
+}
+
 // tail streams the buffered lines after after_seq and then the live ones. 404
 // means this controller has no buffer for the execution; 409 means it buffers
 // another attempt than the caller expects (sequence numbers restart per
 // attempt). Either way the caller reads the stored chunks instead.
 func (s *Server) tail(w http.ResponseWriter, r *http.Request, caller string) {
+	s.handlers.Add(1)
+	defer s.handlers.Done()
 	id, attempt := r.PathValue("id"), r.URL.Query().Get("attempt_id")
 	after, err := strconv.ParseInt(r.URL.Query().Get("after_seq"), 10, 64)
 	if r.URL.Query().Get("after_seq") == "" {
@@ -207,10 +228,14 @@ func (s *Server) Stop(ctx context.Context) error {
 	if err := s.http.Close(); err != nil {
 		return fmt.Errorf("closing internal listener: %w", err)
 	}
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("waiting for internal listener: %w", ctx.Err())
+	handlersDone := make(chan struct{})
+	go func() { s.handlers.Wait(); close(handlersDone) }()
+	for _, c := range []chan struct{}{done, handlersDone} {
+		select {
+		case <-c:
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for internal listener: %w", ctx.Err())
+		}
 	}
+	return nil
 }

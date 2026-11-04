@@ -98,11 +98,15 @@ func newClient() *http.Client {
 			DialContext:           (&net.Dialer{Timeout: 3 * time.Second}).DialContext,
 			TLSHandshakeTimeout:   3 * time.Second,
 			ResponseHeaderTimeout: 5 * time.Second,
+			IdleConnTimeout:       time.Minute,
 			Proxy:                 nil,
 		},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 }
+
+// Close drops the idle connections to peers.
+func (t *Tail) Close() { t.cfg.Client.CloseIdleConnections() }
 
 // Subscribe tries the local buffer, then the owner's.
 func (t *Tail) Subscribe(ctx context.Context, executionID string, afterSeq int64) (<-chan api.LogLine, error) {
@@ -157,8 +161,7 @@ func (t *Tail) open(ctx context.Context, o ownerRef, executionID string, afterSe
 	if err != nil {
 		return nil, fmt.Errorf("parsing internal url: %w", err)
 	}
-	u.Path = fmt.Sprintf(internalapi.TailPath, url.PathEscape(executionID))
-	u.RawPath = ""
+	u = u.JoinPath("internal", "v1", "executions", executionID, "tail")
 	q := url.Values{"attempt_id": {o.attempt}, "after_seq": {fmt.Sprint(afterSeq)}}
 	u.RawQuery = q.Encode()
 	rctx, cancel := context.WithCancel(ctx)
