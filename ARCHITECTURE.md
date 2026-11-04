@@ -851,10 +851,21 @@ Action = CreateStepInstance | ScheduleExecution | SettleStep | SkipStep | Comple
 
 ### 9.1 References
 
-- Format: `secret://<project-path>/<name>[#<key>]`, for example `secret://infra/billing/deploy-key#private_key`.
+- Format: `secret://<scope>/<name>[#<field>]`, for example `secret://infra/billing/deploy-key#private_key`. The scope is all segments but the last.
 - A job may reference secrets in its own project or any **ancestor** project.
-- Inventory-level credentials live under the reserved `secret://_inventory/...` scope. They are usable by any job whose project node scope includes the node.
-- Types: `ssh_key` (private_key, passphrase, username), `password` (username, password), `token`, `s3` (endpoint, region, access_key, secret_key, path_style), `registry` (server, username, password), `kubeconfig` (kubeconfig, context), `generic` (arbitrary key/value).
+- Inventory-level credentials live under the reserved `secret://_inventory/...` scope (`_inventory` is allowed only as the whole scope). They are usable by any job whose project node scope includes the node.
+- Grammar (ADR-0042):
+  - A scope segment matches `[a-z0-9][a-z0-9-]{0,62}`, 1 to 8 segments, so a leading `_` is impossible.
+  - `name` matches `[A-Za-z0-9][A-Za-z0-9._-]{0,127}` and has no `..`.
+  - `field` matches `[a-z][a-z0-9_]{0,63}`.
+  - At most 512 bytes, ASCII only.
+- Types (the type of a secret cannot change):
+  - `generic`: any fields.
+  - `password`: `username`, `password` (required).
+  - `ssh_key`: `username`, `private_key` (required, multiline), `passphrase`.
+  - `token`: `token` (required).
+  - Other types (`s3`, `registry`, `kubeconfig`) are not implemented yet.
+- Limits: 64 KiB per field, 256 KiB per secret, 32 fields.
 
 ### 9.2 Backends
 
@@ -867,10 +878,14 @@ type SecretStore interface {
 }
 ```
 
-- **`db` (default).** AES-256-GCM envelope encryption.
-  - Each secret version gets a random DEK, which is wrapped by the KEK.
-  - The KEK comes from a file or env var (`DAMSON_KEK`, 32 bytes base64). `kek_id` is stored per row.
-  - `damson admin rotate-kek` re-wraps the DEKs.
+- **`db` (default).** AES-256-GCM envelope encryption (ADR-0042).
+  - Each secret version gets a random 32-byte DEK. `data` is AES-256-GCM over the JSON `{field: value}` with a random 12-byte nonce; `wrapped_dek` is a 12-byte wrap nonce followed by AES-256-GCM(KEK, DEK).
+  - The KEK is 32 bytes in standard base64, from `DAMSON_KEK` or the file `secrets.kek_file` (both set is a config error). `DAMSON_KEK_PREVIOUS` or `secrets.kek_previous_file` holds the previous key during rotation.
+  - `kek_id` = `hex(SHA-256("damson-kek-id/v1" || key))[:16]`, stored per version. Only `kek_id`s appear in logs and errors.
+  - AAD of the data is `"damson-secret/v1\0" + scope + "\0" + name + "\0" + version`; the wrap uses the same AAD plus `"\0" + kek_id`. A ciphertext moved to another row or version fails to decrypt.
+  - Canary: the `instance_settings` key `secrets.kek_canary` holds `{kek_id, nonce, ct}` of a fixed plaintext under AAD `"damson-canary/v1"`. Controller start: no KEK and no canary disables secrets (WARN; dispatch of a `secret://` step fails permanently); no KEK with a canary refuses to start; a KEK without a canary stores it (a canary written by a peer is verified); a canary under the active key starts; under the previous key starts with a WARN to run `damson admin rotate-kek`; under neither refuses to start.
+  - The last 10 versions are kept. Listing never reads encrypted columns.
+  - `damson admin rotate-kek` re-wraps the DEKs (M4, later issue).
   - Losing the KEK means losing the secrets. The docs must say so loudly.
 - **`openbao`** (Vault-API compatible). KV v2.
   - Ref mapping: `<mount>/data/<prefix>/<project-path>/<name>`.

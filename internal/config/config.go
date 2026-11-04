@@ -32,6 +32,7 @@ type Config struct {
 	Controller Controller `koanf:"controller"`
 	Engine     Engine     `koanf:"engine"`
 	Agent      Agent      `koanf:"agent"`
+	Secrets    Secrets    `koanf:"secrets"`
 }
 
 // Log configures the slog JSON logger.
@@ -121,6 +122,8 @@ func (c Config) Redacted() Config {
 	c.Agent.Token = redact(c.Agent.Token)
 	c.Controller.ClusterSecret = redact(c.Controller.ClusterSecret)
 	c.Controller.ClusterSecretPrevious = redact(c.Controller.ClusterSecretPrevious)
+	c.Secrets.KEK = redact(c.Secrets.KEK)
+	c.Secrets.KEKPrevious = redact(c.Secrets.KEKPrevious)
 	return c
 }
 
@@ -143,6 +146,8 @@ func defaults() map[string]any {
 		"controller.cluster_secret":          "",
 		"controller.cluster_secret_file":     "",
 		"controller.cluster_secret_previous": "",
+		"secrets.kek_file":                   "",
+		"secrets.kek_previous_file":          "",
 		"controller.trust_forwarded_proto":   false,
 		"engine.finally_grace":               "2m",
 		"agent.controller_url":               "",

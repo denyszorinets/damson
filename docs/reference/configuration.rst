@@ -87,6 +87,18 @@ written as a double underscore: ``agent.controller_url`` is
      - none
      - Old secret that is still accepted for verification (never used to sign),
        for rotation. At least 32 bytes; redacted.
+   * - ``secrets.kek_file``
+     - controller
+     - none
+     - File holding the key encryption key (KEK) of the ``db`` secret backend:
+       32 bytes in standard base64, whitespace trimmed. Alternatively set
+       ``DAMSON_KEK``. Setting both is a configuration error. See
+       :ref:`reference-config-kek`.
+   * - ``secrets.kek_previous_file``
+     - controller
+     - none
+     - File holding the previous KEK, for rotation. Alternatively set
+       ``DAMSON_KEK_PREVIOUS``; not both.
    * - ``engine.finally_grace``
      - controller, dev
      - ``2m``
@@ -127,6 +139,35 @@ written as a double underscore: ``agent.controller_url`` is
      - ``false``
      - Let the ``ssh`` plugin connect to nodes with host key policy
        ``insecure``.
+
+.. _reference-config-kek:
+
+Secret encryption key (KEK)
+---------------------------
+
+The ``db`` secret backend encrypts every secret with keys wrapped by one KEK
+(:doc:`/architecture/decisions/0042-db-secret-backend-keyring`). Provide it
+either in the environment variable ``DAMSON_KEK`` or in a file named by
+``secrets.kek_file``, never both. The previous key uses ``DAMSON_KEK_PREVIOUS``
+or ``secrets.kek_previous_file``. The value is exactly 32 bytes in standard
+base64. Generate one with:
+
+.. code-block:: console
+
+   $ openssl rand -base64 32
+
+Keep the key out of the config file and the logs. ``DAMSON_KEK`` and
+``DAMSON_KEK_PREVIOUS`` are not TOML keys; they are never logged and are masked
+in the redacted config. Only a short ``kek_id`` is ever logged.
+
+.. warning::
+
+   Losing the KEK loses every secret in the ``db`` backend; there is no
+   recovery. Back it up separately from the database.
+
+Without a KEK and without stored secrets, secrets are disabled (a WARN at
+start) and steps that use ``secret://`` refs fail. A controller without a KEK
+refuses to start against a database that already holds secrets.
 
 Rotating the cluster secret
 ---------------------------

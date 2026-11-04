@@ -27,6 +27,7 @@ import (
 	"github.com/denyszorinets/damson/internal/expr"
 	"github.com/denyszorinets/damson/internal/pluginreg"
 	"github.com/denyszorinets/damson/internal/protocol"
+	secretsdb "github.com/denyszorinets/damson/internal/secrets/db"
 	"github.com/denyszorinets/damson/internal/store"
 )
 
@@ -55,6 +56,10 @@ type Config struct {
 	// DevNodes replaces inventory and secret authorization (development
 	// only, ADR-0034). Nil in production.
 	DevNodes *devnodes.File
+	// KEK and KEKPrevious are the base64 key encryption keys of the db secret
+	// backend (ARCHITECTURE 9.2). Without a KEK secrets are disabled, unless
+	// the database holds encrypted secrets, which refuses the start.
+	KEK, KEKPrevious string
 	// ClusterSecret enables the internal listener and the proxying of live log
 	// tails between controllers (ADR-0040); ClusterSecretPrevious is also
 	// accepted when verifying, for rotation. Both are secrets. Without a secret
@@ -98,6 +103,8 @@ type Node struct {
 	intl *internalapi.Server
 	intL net.Listener
 	srv  *api.Server
+	// secrets is the db secret backend, nil while secrets are disabled.
+	secrets *secretsdb.Backend
 }
 
 // Start builds the components on the store and starts the run machinery. On
@@ -122,6 +129,8 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 		return nil, fmt.Errorf("reading migration version: %w", err)
 	} else if v == 0 {
 		cfg.Logger.Warn("database is not migrated; agent gateway and run.advance disabled (run with --auto-migrate)")
+	} else if err := n.startSecrets(ctx, cfg); err != nil {
+		return nil, err
 	} else if err := n.startOrchestration(ctx, cfg); err != nil {
 		return nil, errors.Join(err, n.stopGuard(context.WithoutCancel(ctx)))
 	}
@@ -186,6 +195,8 @@ func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 	}
 	if cfg.DevNodes != nil { // a nil *File must not become a non-nil interface
 		dcfg.Nodes, dcfg.Secrets = cfg.DevNodes, cfg.DevNodes
+	} else if n.secrets != nil {
+		dcfg.Secrets = &secretSource{b: n.secrets, log: log}
 	}
 	if n.disp, err = dispatch.New(dcfg); err != nil {
 		return fmt.Errorf("creating dispatcher: %w", err)
