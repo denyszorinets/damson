@@ -41,6 +41,14 @@ Edges
   ``<g>/for_each[*]/finally``). The ``catch`` edge runs from the last body child
   to the catch container (label ``on failure``). ``finally`` edges run from the
   catch container and from the last body child (label ``always``).
+- A ``skip`` edge bypasses a step whose ``when`` is not ``success()`` or
+  ``always()`` (an ``always()`` step is never skipped by its condition). It
+  joins the step before to the step after, and the ends of a list are ``$start``
+  and ``$end`` at the top of a job. Inside a group, a catch or a finally list
+  there is no box boundary to draw to, so the ends are the finally list for a
+  body or catch list (where control goes next) and nothing otherwise: such a
+  skip edge exists only between steps that have both neighbours. No edge joins
+  a node to itself or to its own container.
 
 Node ids and lanes
 ~~~~~~~~~~~~~~~~~~
@@ -69,8 +77,9 @@ Endpoints
 - ``POST /jobs/validate`` adds ``graph`` when the spec is valid
 - ``GET /runs/{id}/graph``
 
-A stored spec that no longer parses answers a problem ``500`` and is logged;
-stored versions were validated when saved, so this is a defect, not user error.
+A stored spec that no longer parses answers a problem ``500``, which the API's
+error handling logs. Versions were validated when saved, so the cause is an
+engine or expression-limit change since then (or a defect), not user error.
 
 Tests
 ~~~~~

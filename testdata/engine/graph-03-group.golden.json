@@ -68,12 +68,6 @@
       "kind": "sequence"
     },
     {
-      "from": "deploy/build",
-      "to": "deploy",
-      "kind": "skip",
-      "label": "steps.unpack.status == 'succeeded'"
-    },
-    {
       "from": "fetch",
       "to": "deploy",
       "kind": "sequence"

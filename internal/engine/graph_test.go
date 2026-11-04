@@ -76,6 +76,9 @@ func TestBuildGraphWellFormed(t *testing.T) {
 			}
 		}
 		for _, e := range g.Edges {
+			if e.From == e.To {
+				t.Errorf("%s: self-loop on %q", p, e.From)
+			}
 			if !ids[e.From] || !ids[e.To] {
 				t.Errorf("%s: edge %+v joins a missing node", p, e)
 			}

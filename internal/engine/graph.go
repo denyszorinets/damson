@@ -105,7 +105,11 @@ func (b *graphBuilder) edge(from, to, kind, label string) {
 // list adds the steps of one list. prefix is the path prefix of its instances
 // ("" at the top, "g/" in a body, "g/for_each[*]/" in a lane body); parent is
 // the node they belong to; head and tail are the nodes before and after the
-// list, which the skip edges of its first and last step connect to.
+// list, which the skip edges of its first and last step connect to. At the top
+// of a job they are $start and $end. In a group they are empty (the group's
+// box is the boundary, and an edge to one's own container would be a loop),
+// except that the tail of a body or catch list is the finally list, which is
+// where control goes next: a skip edge needs both ends.
 func (b *graphBuilder) list(steps []Step, prefix, parent, head, tail string) {
 	ids := make([]string, len(steps))
 	for i, s := range steps {
@@ -121,7 +125,7 @@ func (b *graphBuilder) list(steps []Step, prefix, parent, head, tail string) {
 		if i < len(steps)-1 {
 			after = ids[i+1]
 		}
-		if s.When != "" && s.When != "success()" {
+		if s.When != "" && s.When != "success()" && s.When != "always()" && before != "" && after != "" {
 			b.edge(before, after, EdgeSkip, s.When)
 		}
 	}
@@ -150,22 +154,26 @@ func (b *graphBuilder) step(s Step, id, prefix, parent string) {
 		body = LanePath(id, laneTemplate) + "/"
 	}
 	b.add(n)
-	b.list(s.Steps, body, id, id, id)
+	catch, finally := body+SegCatch, body+SegFinally
+	next := "" // where the body and catch lists lead on: the finally list, if any
+	if len(s.Finally) > 0 {
+		next = finally
+	}
+	b.list(s.Steps, body, id, "", next)
 	var last string
 	if len(s.Steps) > 0 {
 		last = ChildPath(body, s.Steps[len(s.Steps)-1].ID)
 	}
-	catch, finally := body+SegCatch, body+SegFinally
 	if len(s.Catch) > 0 {
 		b.add(GraphNode{ID: catch, Kind: NodeCatch, Parent: id, Label: SegCatch})
-		b.list(s.Catch, catch+"/", catch, catch, catch)
+		b.list(s.Catch, catch+"/", catch, "", next)
 		if last != "" {
 			b.edge(last, catch, EdgeCatch, "on failure")
 		}
 	}
 	if len(s.Finally) > 0 {
 		b.add(GraphNode{ID: finally, Kind: NodeFinally, Parent: id, Label: SegFinally})
-		b.list(s.Finally, finally+"/", finally, finally, finally)
+		b.list(s.Finally, finally+"/", finally, "", "")
 		if len(s.Catch) > 0 {
 			b.edge(catch, finally, EdgeFinally, "always")
 		}

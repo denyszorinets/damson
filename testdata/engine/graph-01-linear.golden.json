@@ -73,12 +73,6 @@
       "kind": "sequence"
     },
     {
-      "from": "notify",
-      "to": "publish",
-      "kind": "skip",
-      "label": "always()"
-    },
-    {
       "from": "cleanup",
       "to": "publish",
       "kind": "sequence"

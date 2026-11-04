@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -95,7 +94,6 @@ func registerGraph(api huma.API, d deps) {
 		}
 		g, err := d.graphOf(v.Spec)
 		if err != nil {
-			loggerFromCtx(ctx).Error("building the graph of a stored job version", "job_id", in.ID, "version", in.Version, "error", err)
 			return nil, apiError(ctx, err)
 		}
 		return &getGraphOutput{Body: g}, nil
@@ -117,7 +115,6 @@ func registerGraph(api huma.API, d deps) {
 		}
 		g, err := d.graphOf(ver.Spec)
 		if err != nil {
-			loggerFromCtx(ctx).Error("building the graph of a run", slog.String("run_id", in.ID), "error", err)
 			return nil, apiError(ctx, err)
 		}
 		out := &getRunGraphOutput{Body: RunGraph{Graph: g, Steps: make([]StepEvent, 0, len(tree.Steps))}}
@@ -128,8 +125,9 @@ func registerGraph(api huma.API, d deps) {
 	})
 }
 
-// graphOf builds the graph of a stored spec. A spec that no longer parses is an
-// internal error: stored versions were validated when they were saved.
+// graphOf builds the graph of a stored spec. A spec that no longer parses (an
+// engine or expression-limit change since it was saved) is an internal error,
+// answered as a 500 problem that the API's error handling logs.
 func (d deps) graphOf(spec []byte) (Graph, error) {
 	job, err := d.eng.Parse(spec)
 	if err != nil {

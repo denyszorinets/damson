@@ -1,6 +1,8 @@
 package api_test
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -131,5 +133,33 @@ func TestRunGraphCarriesNodeAndLane(t *testing.T) {
 		}
 		assert.Equal(t, map[string]bool{"a": true}, lanes, "only the first lane starts (max_parallel 1); steps: %+v", rg.Steps)
 		assert.Equal(t, http.StatusNotFound, f.call(t, http.MethodGet, "/api/v1/runs/nope/graph", "").Code)
+	})
+}
+
+// A stored version the engine can no longer parse answers 500, not a graph.
+func TestGraphOfAnUnparsableStoredVersionIs500(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		f := newJR(t, st, nil)
+		job, _, err := st.CreateJob(context.Background(), store.NewJob{
+			ProjectID: store.DefaultProjectID, Name: "broken", Spec: json.RawMessage(`{"apiVersion":"nope"}`), Checksum: "x",
+		}, t0)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusInternalServerError, f.call(t, http.MethodGet, "/api/v1/jobs/"+job.ID+"/versions/1/graph", "").Code)
+	})
+}
+
+// A spec that parses but whose plugin input is wrong is invalid: no graph.
+func TestValidateNoGraphForAnInvalidPluginInput(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		f := newJR(t, st, nil)
+		var out struct {
+			Valid  bool       `json:"valid"`
+			Errors []struct{} `json:"errors"`
+			Graph  *graphBody `json:"graph"`
+		}
+		f.callOK(t, http.MethodPost, "/api/v1/jobs/validate", wrapSpec(specDoc("badinput", "", "ssh", `{"host":123}`)), http.StatusOK, &out)
+		assert.False(t, out.Valid)
+		assert.NotEmpty(t, out.Errors)
+		assert.Nil(t, out.Graph)
 	})
 }
