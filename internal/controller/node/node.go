@@ -73,6 +73,10 @@ type Config struct {
 	InsecureDev         bool
 	TrustForwardedProto bool
 
+	// Stream tunes the API's server-sent event endpoints (tests shorten the
+	// intervals); zero fields take the defaults.
+	Stream api.StreamConfig
+
 	// Addr and UI configure the HTTP server returned by Server.
 	Addr string
 	UI   http.Handler
@@ -123,6 +127,7 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	}
 	apiCfg := api.Config{
 		Addr: cfg.Addr, Store: cfg.Store, Data: cfg.Store, Plugins: cfg.Plugins, UI: cfg.UI, Logger: cfg.Logger,
+		Stream: cfg.Stream,
 		Mounts: map[string]http.Handler{controller.ConnectPath: gw.Handler()},
 	}
 	if n.adv != nil {
