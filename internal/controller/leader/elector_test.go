@@ -158,3 +158,31 @@ func TestNewValidates(t *testing.T) {
 		}
 	}
 }
+
+func TestStartExclusive(t *testing.T) {
+	fs := &fakeStore{}
+	mk := func(holder string) *Elector {
+		e, err := New(Config{Store: fs, Name: "only", Holder: holder, TTL: 600 * time.Millisecond, Renew: 200 * time.Millisecond})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	a, b := mk("a"), mk("b")
+	if err := a.StartExclusive(context.Background(), time.Second); err != nil {
+		t.Fatal(err)
+	}
+	// a renews in the background, so b never gets it and gives up.
+	if err := b.StartExclusive(context.Background(), 700*time.Millisecond); !errors.Is(err, ErrHeld) {
+		t.Fatalf("b = %v; want ErrHeld", err)
+	}
+	if err := a.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.StartExclusive(context.Background(), time.Second); err != nil {
+		t.Fatalf("b after a released: %v", err)
+	}
+	if err := b.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -99,6 +99,35 @@ func (e *Elector) Start(ctx context.Context) error {
 	return nil
 }
 
+// ErrHeld means another holder's lease was still valid when StartExclusive
+// gave up.
+var ErrHeld = errors.New("leader: the lease is held by another controller")
+
+// StartExclusive acquires the lease before returning, retrying until wait has
+// passed (a lease left by a crashed holder runs out within the ttl), then
+// starts renewing it like Start. It returns ErrHeld when the lease is still
+// someone else's.
+func (e *Elector) StartExclusive(ctx context.Context, wait time.Duration) error {
+	deadline := time.Now().Add(wait)
+	for {
+		e.tick(ctx)
+		if _, ok := e.Term(); ok {
+			return e.Start(ctx)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return ErrHeld
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(min(250*time.Millisecond, e.cfg.Renew)):
+		}
+	}
+}
+
 func (e *Elector) run(ctx context.Context, done chan struct{}) {
 	defer close(done)
 	e.tick(ctx)

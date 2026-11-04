@@ -49,8 +49,10 @@ case-insensitive filesystems are not normalized). This
 covers several ``Store`` values opened on one file in the same process; a later
 caller finds the schema up to date and does nothing. SQLite is
 single-controller (ARCHITECTURE section 8.1), so concurrent migration from
-several **processes** on one SQLite file is not supported; the planned
-single-controller lock row will guard that.
+several **processes** on one SQLite file is not supported; the
+single-controller lease row (``sqlite-controller`` in ``leader_leases``, see
+:doc:`/architecture/decisions/0039-leader-lease`) keeps a second controller off
+the database, but migrating from several processes is still not supported.
 
 ``Store.Migrate`` also applies River's own migrations (``river_*`` tables,
 tracked in ``river_migration``) to the same database after goose, for the

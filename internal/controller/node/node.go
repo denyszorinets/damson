@@ -65,6 +65,10 @@ type Config struct {
 	// they register as InternalURL).
 	InternalListen   string
 	InternalListener net.Listener
+	// SingleController makes the node refuse to start while another controller
+	// holds the single-controller lease of this database, for backends that
+	// support only one controller (SQLite). Misconfiguration guard, not a fence.
+	SingleController bool
 
 	InsecureDev         bool
 	TrustForwardedProto bool
@@ -84,6 +88,7 @@ type Node struct {
 	logs *logs.Ingest
 	disp *dispatch.Dispatcher
 	lead *leader.Elector
+	only *leader.Elector // single-controller guard, nil unless SingleController
 	tail api.LogTail
 	prox *tailproxy.Tail
 	intl *internalapi.Server
@@ -114,7 +119,7 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	} else if v == 0 {
 		cfg.Logger.Warn("database is not migrated; agent gateway and run.advance disabled (run with --auto-migrate)")
 	} else if err := n.startOrchestration(ctx, cfg); err != nil {
-		return nil, err
+		return nil, errors.Join(err, n.stopGuard(context.WithoutCancel(ctx)))
 	}
 	apiCfg := api.Config{
 		Addr: cfg.Addr, Store: cfg.Store, Data: cfg.Store, Plugins: cfg.Plugins, UI: cfg.UI, Logger: cfg.Logger,
@@ -136,6 +141,11 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 // handler exists.
 func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 	log, t := cfg.Logger, cfg.Timing
+	if cfg.SingleController {
+		if err := n.guardSingleController(ctx, cfg); err != nil {
+			return err
+		}
+	}
 	eng, err := engine.New(expr.Limits{}, engine.WithFinallyGrace(cfg.FinallyGrace))
 	if err != nil {
 		return fmt.Errorf("building engine: %w", err)
@@ -217,9 +227,9 @@ func (n *Node) Stop(ctx context.Context) error {
 
 func (n *Node) stopOrchestration(ctx context.Context) error {
 	if n.disp == nil { // unmigrated, or construction failed part-way
-		return n.gw.Stop(ctx)
+		return errors.Join(n.gw.Stop(ctx), n.stopGuard(ctx))
 	}
-	return errors.Join(n.stopInternal(ctx), n.disp.Stop(ctx), n.lead.Stop(ctx), n.gw.Stop(ctx), n.logs.Stop(ctx), n.adv.Stop(ctx))
+	return errors.Join(n.stopInternal(ctx), n.disp.Stop(ctx), n.lead.Stop(ctx), n.gw.Stop(ctx), n.logs.Stop(ctx), n.adv.Stop(ctx), n.stopGuard(ctx))
 }
 
 // setupTail chooses the live log tail of the API: this controller's own buffer,
@@ -270,4 +280,40 @@ func (n *Node) stopInternal(ctx context.Context) error {
 	err := n.intl.Stop(ctx)
 	_ = n.intL.Close() // already closed once served; frees the port if startup failed first
 	return err
+}
+
+// sqliteGuard is the lease that keeps a second controller off a SQLite database.
+const sqliteGuard = "sqlite-controller"
+
+// guardSingleController takes the single-controller lease, waiting out the
+// lease of a controller that crashed. A live controller on the same database
+// makes the start fail.
+func (n *Node) guardSingleController(ctx context.Context, cfg Config) error {
+	t := cfg.Timing
+	g, err := leader.New(leader.Config{Store: cfg.Store, Name: sqliteGuard, Holder: cfg.ControllerID, TTL: t.LeaderTTL, Renew: t.LeaderRenew, Logger: cfg.Logger})
+	if err != nil {
+		return fmt.Errorf("creating the single-controller guard: %w", err)
+	}
+	ttl, renew := t.LeaderTTL, t.LeaderRenew
+	if ttl <= 0 {
+		ttl = leader.DefaultTTL
+	}
+	if renew <= 0 {
+		renew = leader.DefaultRenew
+	}
+	if err := g.StartExclusive(ctx, ttl+renew); err != nil {
+		if errors.Is(err, leader.ErrHeld) {
+			return errors.New("another controller is using this SQLite database; SQLite supports one controller, use PostgreSQL for several")
+		}
+		return fmt.Errorf("taking the single-controller lease: %w", err)
+	}
+	n.only = g
+	return nil
+}
+
+func (n *Node) stopGuard(ctx context.Context) error {
+	if n.only == nil {
+		return nil
+	}
+	return n.only.Stop(ctx)
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/denyszorinets/damson/internal/controller/internalauth"
 	"github.com/denyszorinets/damson/internal/controller/node"
 	"github.com/denyszorinets/damson/internal/pluginreg"
+	"github.com/denyszorinets/damson/internal/store"
 	"github.com/denyszorinets/damson/internal/store/sqlite"
 )
 
@@ -144,5 +145,99 @@ func TestNodeInternalListener(t *testing.T) {
 	stop()
 	if _, err := http.Get(url); err == nil {
 		t.Fatal("the internal listener still answers after Stop")
+	}
+}
+
+func startSingle(t *testing.T, st store.Store, id string) (*node.Node, error) {
+	t.Helper()
+	reg, err := pluginreg.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return node.Start(context.Background(), node.Config{
+		Store: st, ControllerID: id, Plugins: reg, InsecureDev: true, SingleController: true,
+		Timing: node.Timing{LeaderTTL: 600 * time.Millisecond, LeaderRenew: 200 * time.Millisecond},
+	})
+}
+
+func stopNode(t *testing.T, n *node.Node) {
+	t.Helper()
+	sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := n.Stop(sctx); err != nil {
+		t.Errorf("Stop: %v", err)
+	}
+}
+
+func migratedStore(t *testing.T) store.Store {
+	t.Helper()
+	st, err := sqlite.Open(context.Background(), "file:"+filepath.Join(t.TempDir(), "n.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
+// A second controller on the same SQLite database refuses to start while the
+// first one is alive, and may start as soon as the first one stopped.
+func TestSingleControllerGuard(t *testing.T) {
+	st := migratedStore(t)
+	first, err := startSingle(t, st, "ctl-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := startSingle(t, st, "ctl-2"); err == nil {
+		stopNode(t, n)
+		t.Fatal("a second controller started on a SQLite database in use")
+	} else if !strings.Contains(err.Error(), "SQLite supports one controller") {
+		t.Fatalf("error = %v", err)
+	}
+	stopNode(t, first) // releases the lease
+	start := time.Now()
+	second, err := startSingle(t, st, "ctl-2")
+	if err != nil {
+		t.Fatalf("start after a graceful stop: %v", err)
+	}
+	defer stopNode(t, second)
+	if took := time.Since(start); took > 400*time.Millisecond {
+		t.Fatalf("start after a graceful stop waited %s", took)
+	}
+}
+
+// A crashed controller leaves its lease behind; the next start waits it out.
+func TestSingleControllerGuardWaitsOutACrash(t *testing.T) {
+	st := migratedStore(t)
+	now := time.Now()
+	if _, ok, err := st.AcquireLeader(context.Background(), "sqlite-controller", "crashed", now, now.Add(500*time.Millisecond)); err != nil || !ok {
+		t.Fatalf("seeding the stale lease: %v %v", ok, err)
+	}
+	n, err := startSingle(t, st, "ctl-2")
+	if err != nil {
+		t.Fatalf("start with a stale lease: %v", err)
+	}
+	defer stopNode(t, n)
+	if time.Since(now) < 450*time.Millisecond {
+		t.Fatal("started before the stale lease expired")
+	}
+}
+
+// Without the flag (PostgreSQL) several controllers share a database.
+func TestNoGuardWithoutTheFlag(t *testing.T) {
+	st := migratedStore(t)
+	reg, _ := pluginreg.New(nil, nil)
+	var nodes []*node.Node
+	for _, id := range []string{"a", "b"} {
+		n, err := node.Start(context.Background(), node.Config{Store: st, ControllerID: id, Plugins: reg, InsecureDev: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodes = append(nodes, n)
+	}
+	for _, n := range nodes {
+		stopNode(t, n)
 	}
 }
