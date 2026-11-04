@@ -1084,7 +1084,7 @@ An activity-diagram view (UML-like) of a job's structure. It appears in three pl
 | `when` other than the default | Decision diamond before the step (drawn from the `when` attribute and the `skip` edge), with the CEL condition as the edge label. The skip path bypasses the step. |
 | `group` | Labeled container box |
 | `catch` / `finally` | Columns inside the group box, joined by a red "on failure" edge and a grey "always" edge |
-| `for_each` | Fork bar → stacked container labeled "× N lanes (max_parallel M)" → join bar. Expandable to per-lane rows in the run view. |
+| `for_each` | Fork bar → stacked container labeled "× N lanes (max_parallel M)" → join bar. In the run view it shows lane counts by status ("N lanes: 50 failed, 200 succeeded") and a bounded table lists at most 200 instances. |
 | `retry` | Badge on the step (`↻ 4`). In a run: current attempt (`2/4`) and a countdown to the next retry. |
 | `continue_on_error` | Dashed border |
 
