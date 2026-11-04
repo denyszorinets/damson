@@ -93,8 +93,11 @@ Pages
 ``/jobs/[id]``
    Shows the graph of the job's current version, fetched from
    ``GET /jobs/{id}/versions/{v}/graph`` (``lib/jobs.ts``). Errors
-   (problem+json) are shown in an alert. The run view with live status comes
-   in a later change.
+   (problem+json) are shown in an alert.
+
+``/runs/[id]``
+   The run view: the run's graph with live status, and a table of step
+   instances below it (see :ref:`web-ui-run-view`).
 
 Job graph view
 --------------
@@ -129,6 +132,72 @@ refresh a case, change the engine fixtures and regenerate the goldens with
 up without changes. ``web/e2e/jobs.test.ts`` creates a job through the API and
 checks nodes by ``graph-node-<id>`` and ``data-kind``, the edge classes, that
 the console has no errors, and the problem+json error path.
+
+.. _web-ui-run-view:
+
+Run view
+--------
+
+Data flow
+~~~~~~~~~
+
+``/runs/[id]`` fetches ``GET /runs/{id}/graph`` once (``lib/runs.ts``): the
+static graph of the run's pinned version plus the current step states. It then
+opens the run stream ``/api/v1/runs/{id}/events`` through ``lib/sse.ts``. Events:
+
+``snapshot``
+   Sent first on every connection; replaces the client's state.
+``step``
+   Upserts one step instance by its path.
+``run``
+   Updates the run status.
+``end``
+   The run is finished; the stream is closed.
+
+SSE helper
+~~~~~~~~~~
+
+``openStream(url, options)`` in ``lib/sse.ts`` wraps ``EventSource`` and
+returns a function that closes it for good. After a dropped connection the
+browser reconnects itself and sends ``Last-Event-ID``; the server answers every
+connection with a fresh ``snapshot``, so the handler never has to merge a gap.
+If the browser gives up (the connection was refused or answered with an error
+status) the helper closes the source and reopens the stream with a delay that
+starts at 1 s and doubles up to 30 s; a successful open resets it. Malformed
+events are ignored, and an event listed in ``endOn`` (``end``) stops the stream
+without a reconnect. ``onState`` reports ``connecting``, ``live``,
+``reconnecting`` and ``closed``.
+
+Overlay
+~~~~~~~
+
+``overlay()`` in ``lib/runs.ts`` groups instances by the ``node`` and ``lane``
+the server supplies. The UI never derives control flow from the spec (CLAUDE.md,
+rule 10). A plain step shows its status and attempt. A ``for_each`` group and its
+template nodes show lane counts by status (for example "250 lanes: 50 failed,
+200 succeeded") instead of one entry per lane. ``GraphView.svelte`` takes the
+result as its ``overlay`` prop and ``GraphBox.svelte`` renders it.
+
+Bounds
+~~~~~~
+
+The DOM stays bounded however many lanes a run has: below the graph a table
+lists at most 200 instances (path, lane, status, attempt, execution state) and
+states how many more exist.
+
+Testing
+~~~~~~~
+
+``runs.test.ts`` (vitest) covers the overlay, including a run with 1000 lanes.
+``web/e2e/runs.test.ts`` (Playwright) covers:
+
+* a real run on ``damson dev`` with a handled group failure: the build fails,
+  the catch step is skipped, the group and the run succeed; the state survives
+  a reload;
+* a retried step showing attempt 2;
+* a missing run, which shows the problem+json error;
+* a mocked many-lanes run with the bounded list;
+* a refused stream (503) that is reopened.
 
 Dependencies and licenses
 -------------------------

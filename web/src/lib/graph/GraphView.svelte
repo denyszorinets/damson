@@ -3,8 +3,10 @@
 	import '@xyflow/svelte/dist/style.css';
 	import GraphBox from './GraphBox.svelte';
 	import { layout, type Graph } from './layout';
+	import type { NodeState } from '$lib/runs';
 
-	let { graph }: { graph: Graph } = $props();
+	/** overlay is the state of a run's steps by node; absent for a job without a run. */
+	let { graph, overlay }: { graph: Graph; overlay?: Map<string, NodeState> } = $props();
 
 	const nodeTypes = { box: GraphBox };
 
@@ -18,7 +20,7 @@
 				type: 'box',
 				position: { x: p.x, y: p.y },
 				parentId: p.parentId,
-				data: { node: p.node },
+				data: { node: p.node, state: overlay?.get(p.node.id) },
 				style: container ? `width:${p.w}px;height:${p.h}px` : `width:${p.w}px`,
 				draggable: false,
 				selectable: false,
