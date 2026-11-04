@@ -46,6 +46,11 @@ func runRole(ctx context.Context, name string, args []string, stderr io.Writer, 
 		return exitError
 	}
 
+	if err := cfg.ValidateServing(config.Role(name)); err != nil {
+		fmt.Fprintf(stderr, "damson %s: invalid configuration: %v\n", name, err)
+		return exitError
+	}
+
 	log := logging.New(stderr, cfg.SlogLevel(), name)
 	log.Info("starting", "version", version.Version, "config", slog.AnyValue(cfg.Redacted()))
 	if name == string(config.RoleAgent) {

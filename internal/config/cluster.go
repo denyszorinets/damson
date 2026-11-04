@@ -26,20 +26,32 @@ func (c Config) ClusterSecrets() (current, previous string, err error) {
 	return current, c.Controller.ClusterSecretPrevious, nil
 }
 
-// validateCluster checks the inter-controller settings. On Postgres a
-// controller needs a secret and a reachable internal URL: several controllers
-// may share the database, and the log tail of an execution owned by another
-// one is proxied to it (ADR-0040).
+// ValidateServing is the check that only applies to a process that serves as a
+// controller (not to admin commands that read the same configuration): on
+// Postgres several controllers may share the database, and the log tail of an
+// execution owned by another one is proxied to it, which needs a cluster
+// secret (ADR-0040). The dev role never needs one.
+func (c Config) ValidateServing(role Role) error {
+	current, _, err := c.ClusterSecrets()
+	if err != nil {
+		return err
+	}
+	if current == "" && role == RoleController && c.Database.Driver == DriverPostgres {
+		return fmt.Errorf("controller.cluster_secret (%s): is required with the postgres driver (at least %d bytes, or set controller.cluster_secret_file)",
+			envName("controller.cluster_secret"), MinClusterSecretBytes)
+	}
+	return nil
+}
+
+// validateCluster checks the inter-controller settings that are set: the
+// secrets' length, and, with a secret, the internal listener and URL.
 func (c Config) validateCluster(role Role, add func(key, format string, args ...any)) {
 	current, previous, err := c.ClusterSecrets()
 	if err != nil {
 		add("controller.cluster_secret_file", "%v", err)
 		return
 	}
-	switch {
-	case current == "" && role == RoleController && c.Database.Driver == DriverPostgres:
-		add("controller.cluster_secret", "is required with the postgres driver (at least %d bytes, or set controller.cluster_secret_file)", MinClusterSecretBytes)
-	case current != "" && len(current) < MinClusterSecretBytes:
+	if current != "" && len(current) < MinClusterSecretBytes {
 		add("controller.cluster_secret", "must be at least %d bytes", MinClusterSecretBytes)
 	}
 	if previous != "" && len(previous) < MinClusterSecretBytes {

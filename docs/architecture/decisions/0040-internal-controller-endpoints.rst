@@ -58,9 +58,10 @@ Secret
 ``controller.cluster_secret_file``, at least 32 bytes. ``controller.
 cluster_secret_previous`` is accepted for verification only, so the secret can
 be rotated without downtime. Secrets are redacted in ``Config.Redacted`` and
-never logged. Config validation fails for a Postgres controller without a
-secret or without a valid ``controller.internal_url``; SQLite and dev need
-neither. ``internal_url`` is checked structurally: http or https, a host, no
+never logged. Starting a Postgres controller (``damson controller``) fails without a
+secret, and a configured secret requires a valid ``controller.internal_url``
+and ``controller.internal_listen``; admin commands that only read the
+configuration, SQLite and dev need no secret. ``internal_url`` is checked structurally: http or https, a host, no
 userinfo, query, fragment or path.
 
 Proxy

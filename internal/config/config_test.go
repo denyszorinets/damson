@@ -323,7 +323,6 @@ func TestClusterSecretValidation(t *testing.T) {
 	}{
 		{"sqlite needs none", RoleController, nil, ""},
 		{"dev needs none", RoleDev, nil, ""},
-		{"postgres needs a secret", RoleController, pg, "controller.cluster_secret"},
 		{"postgres with secret and url", RoleController, append(slices.Clone(withURL), "DAMSON_CONTROLLER__CLUSTER_SECRET="+good), ""},
 		{"short secret", RoleController, append(slices.Clone(withURL), "DAMSON_CONTROLLER__CLUSTER_SECRET=short"), "at least 32 bytes"},
 		{"short previous secret", RoleController, append(slices.Clone(withURL), "DAMSON_CONTROLLER__CLUSTER_SECRET="+good, "DAMSON_CONTROLLER__CLUSTER_SECRET_PREVIOUS=short"), "cluster_secret_previous"},
@@ -364,5 +363,27 @@ func TestClusterSecretFile(t *testing.T) {
 	c.Controller.ClusterSecret = strings.Repeat("e", 32)
 	if cur, _, _ := c.ClusterSecrets(); cur != strings.Repeat("e", 32) {
 		t.Fatalf("explicit secret not preferred: %q", cur)
+	}
+}
+
+func TestValidateServing(t *testing.T) {
+	pg := []string{"DAMSON_DATABASE__DRIVER=postgres", "DAMSON_DATABASE__DSN=postgres://u@h/db"}
+	c, err := Load(RoleController, "", pg) // admin commands load it too: no secret needed
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.ValidateServing(RoleController); err == nil || !strings.Contains(err.Error(), "controller.cluster_secret") {
+		t.Fatalf("a postgres controller without a secret: %v", err)
+	}
+	if err := c.ValidateServing(RoleDev); err != nil {
+		t.Fatalf("dev: %v", err)
+	}
+	sq, _ := Load(RoleController, "", nil)
+	if err := sq.ValidateServing(RoleController); err != nil {
+		t.Fatalf("sqlite: %v", err)
+	}
+	c.Controller.ClusterSecret = strings.Repeat("k", 32)
+	if err := c.ValidateServing(RoleController); err != nil {
+		t.Fatalf("with a secret: %v", err)
 	}
 }

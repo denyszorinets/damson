@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/denyszorinets/damson/internal/config"
@@ -50,7 +51,12 @@ func adminEnv(t *testing.T, be adminBackend, migrate bool) []string {
 			t.Fatal(err)
 		}
 	}
-	return []string{"DAMSON_DATABASE__DRIVER=" + be.driver, "DAMSON_DATABASE__DSN=" + dsn}
+	env := []string{"DAMSON_DATABASE__DRIVER=" + be.driver, "DAMSON_DATABASE__DSN=" + dsn}
+	if be.driver == config.DriverPostgres { // a Postgres controller needs a cluster secret and an internal address
+		env = append(env, "DAMSON_CONTROLLER__CLUSTER_SECRET="+strings.Repeat("t", 40),
+			"DAMSON_CONTROLLER__INTERNAL_URL=http://127.0.0.1:1", "DAMSON_CONTROLLER__INTERNAL_LISTEN=127.0.0.1:0")
+	}
+	return env
 }
 
 // openStore opens the database named by env, as built by adminEnv.
