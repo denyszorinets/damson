@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -161,5 +162,33 @@ func TestValidateNoGraphForAnInvalidPluginInput(t *testing.T) {
 		assert.False(t, out.Valid)
 		assert.NotEmpty(t, out.Errors)
 		assert.Nil(t, out.Graph)
+	})
+}
+
+// The rows a trigger creates are what run.advance expects to find: a group is
+// a group (not a step), and the first step carries its timeout.
+func TestTriggerCreatesGroupAndTimeoutRows(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		f := newJR(t, st, nil)
+		job := f.createJob(t, graphSpec) // the first step is a for_each group
+		run := f.trigger(t, job.Job.ID, `{}`)
+		tree, err := st.GetRunTree(context.Background(), run.ID)
+		require.NoError(t, err)
+		kinds := map[string]string{}
+		for _, s := range tree.Steps {
+			kinds[s.Path] = s.Kind
+		}
+		assert.Equal(t, "group", kinds["g"])
+		assert.Equal(t, "group", kinds["g/for_each[a]"])
+		assert.Equal(t, "step", kinds["g/for_each[a]/x"])
+
+		timed := f.createJob(t, `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"timed"},`+
+			`"spec":{"steps":[{"id":"s","plugin":"ssh","with":{"host":"h"},"timeout":"30s"}]}}`)
+		tr := f.trigger(t, timed.Job.ID, `{}`)
+		tree, err = st.GetRunTree(context.Background(), tr.ID)
+		require.NoError(t, err)
+		require.Len(t, tree.Steps, 1)
+		require.Len(t, tree.Steps[0].Executions, 1)
+		assert.Equal(t, 30*time.Second, tree.Steps[0].Executions[0].Timeout)
 	})
 }
