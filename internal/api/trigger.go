@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/denyszorinets/damson/internal/engine"
 	"github.com/denyszorinets/damson/internal/pluginreg"
@@ -228,13 +229,13 @@ func initialSteps(actions []engine.Action) []store.NewStepInstance {
 			if c.RunsOn != nil && c.RunsOn.Pool != "" {
 				pools[c.Path] = c.RunsOn.Pool
 			}
-			steps = append(steps, store.NewStepInstance{Path: c.Path, Plugin: c.Plugin, Input: c.Input})
+			steps = append(steps, store.NewStepInstance{Path: c.Path, Kind: c.Kind, Plugin: c.Plugin, Input: c.Input})
 		}
 	}
 	for _, a := range actions {
 		if s, ok := a.(engine.ScheduleExecution); ok {
 			if i, found := index[s.Path]; found {
-				steps[i].Execution = &store.NewExecution{Pool: pools[s.Path], ScheduledAt: s.ScheduledAt}
+				steps[i].Execution = &store.NewExecution{Pool: pools[s.Path], ScheduledAt: s.ScheduledAt, Timeout: time.Duration(s.Timeout)}
 			}
 		}
 	}
