@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/denyszorinets/damson/internal/agent"
+	"github.com/denyszorinets/damson/internal/api"
 	"github.com/denyszorinets/damson/internal/controller/advance"
 	"github.com/denyszorinets/damson/internal/controller/node"
 	"github.com/denyszorinets/damson/internal/pluginreg"
@@ -162,6 +163,9 @@ func (c *Cluster) startController(st store.Store, id string, tm node.Timing) *co
 	n, err := node.Start(context.Background(), node.Config{
 		Store: st, ControllerID: id, InternalURL: "http://" + iln.Addr().String(), Plugins: reg, InsecureDev: true,
 		ClusterSecret: clusterSecret, InternalListener: iln,
+		// A log stream opened before the owner buffers its first line asks for
+		// the live tail again quickly instead of after the default 5s.
+		Stream: api.StreamConfig{ResubscribeInterval: 100 * time.Millisecond},
 		Timing: tm, Logger: log,
 	})
 	if err != nil {
