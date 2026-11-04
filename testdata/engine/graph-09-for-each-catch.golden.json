@@ -1,0 +1,98 @@
+{
+  "nodes": [
+    {
+      "id": "$start",
+      "kind": "start",
+      "label": "start"
+    },
+    {
+      "id": "per-node",
+      "kind": "group",
+      "label": "per-node",
+      "for_each": {
+        "expr": "inputs.hosts",
+        "max_parallel": 2,
+        "fail_threshold": 1
+      }
+    },
+    {
+      "id": "per-node/for_each[*]/install",
+      "kind": "step",
+      "parent": "per-node",
+      "label": "install",
+      "plugin": "ssh"
+    },
+    {
+      "id": "per-node/for_each[*]/catch",
+      "kind": "catch",
+      "parent": "per-node",
+      "label": "catch"
+    },
+    {
+      "id": "per-node/for_each[*]/catch/rollback",
+      "kind": "step",
+      "parent": "per-node/for_each[*]/catch",
+      "label": "rollback",
+      "plugin": "ssh"
+    },
+    {
+      "id": "per-node/for_each[*]/finally",
+      "kind": "finally",
+      "parent": "per-node",
+      "label": "finally"
+    },
+    {
+      "id": "per-node/for_each[*]/finally/tidy",
+      "kind": "step",
+      "parent": "per-node/for_each[*]/finally",
+      "label": "tidy",
+      "plugin": "ssh"
+    },
+    {
+      "id": "after",
+      "kind": "step",
+      "label": "after",
+      "plugin": "ssh"
+    },
+    {
+      "id": "$end",
+      "kind": "end",
+      "label": "end"
+    }
+  ],
+  "edges": [
+    {
+      "from": "$start",
+      "to": "per-node",
+      "kind": "sequence"
+    },
+    {
+      "from": "per-node/for_each[*]/install",
+      "to": "per-node/for_each[*]/catch",
+      "kind": "catch",
+      "label": "on failure"
+    },
+    {
+      "from": "per-node/for_each[*]/catch",
+      "to": "per-node/for_each[*]/finally",
+      "kind": "finally",
+      "label": "always"
+    },
+    {
+      "from": "per-node/for_each[*]/install",
+      "to": "per-node/for_each[*]/finally",
+      "kind": "finally",
+      "label": "always"
+    },
+    {
+      "from": "per-node",
+      "to": "after",
+      "kind": "sequence"
+    },
+    {
+      "from": "after",
+      "to": "$end",
+      "kind": "sequence"
+    }
+  ]
+}

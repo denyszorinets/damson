@@ -73,6 +73,7 @@ type logsInput struct {
 
 func registerExecutions(api huma.API, d deps) {
 	registerRunEvents(api, d)
+	registerGraph(api, d)
 	huma.Register(api, huma.Operation{
 		OperationID: "get-execution", Method: http.MethodGet, Path: "/executions/{id}",
 		Summary: "Get one execution attempt", Tags: []string{"executions"}, Errors: []int{http.StatusNotFound},

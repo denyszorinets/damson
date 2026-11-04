@@ -140,6 +140,7 @@ type validateOutput struct {
 		Valid    bool        `json:"valid"`
 		Errors   []SpecIssue `json:"errors"`
 		Warnings []SpecIssue `json:"warnings"`
+		Graph    *Graph      `json:"graph,omitempty" doc:"The job graph; present only when the spec is valid."`
 	}
 }
 
@@ -147,7 +148,7 @@ func registerJobs(api huma.API, d deps) {
 	huma.Register(api, huma.Operation{
 		OperationID: "validate-job", Method: http.MethodPost, Path: "/jobs/validate",
 		Summary: "Dry-run validation of a job spec", Tags: []string{"jobs"},
-		Description: "Always answers 200; invalid specs are reported in errors, with spec paths. Plugins no agent has reported are warnings. The job graph is added in M3.",
+		Description: "Always answers 200; invalid specs are reported in errors, with spec paths. Plugins no agent has reported are warnings. The job graph is returned when the spec is valid.",
 	}, func(ctx context.Context, in *validateInput) (*validateOutput, error) {
 		if err := d.ready(); err != nil {
 			return nil, apiError(ctx, err)
@@ -157,6 +158,10 @@ func registerJobs(api huma.API, d deps) {
 		out.Body.Valid = len(c.errors) == 0
 		out.Body.Errors = nonNilIssues(c.errors)
 		out.Body.Warnings = nonNilIssues(c.warnings)
+		if c.job != nil {
+			g := toGraph(engine.BuildGraph(c.job))
+			out.Body.Graph = &g
+		}
 		return out, nil
 	})
 	huma.Register(api, huma.Operation{

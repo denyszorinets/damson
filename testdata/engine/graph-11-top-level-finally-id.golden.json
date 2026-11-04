@@ -1,0 +1,43 @@
+{
+  "nodes": [
+    {
+      "id": "$start",
+      "kind": "start",
+      "label": "start"
+    },
+    {
+      "id": "finally",
+      "kind": "step",
+      "label": "finally",
+      "plugin": "ssh"
+    },
+    {
+      "id": "x",
+      "kind": "step",
+      "label": "x",
+      "plugin": "ssh"
+    },
+    {
+      "id": "$end",
+      "kind": "end",
+      "label": "end"
+    }
+  ],
+  "edges": [
+    {
+      "from": "$start",
+      "to": "finally",
+      "kind": "sequence"
+    },
+    {
+      "from": "finally",
+      "to": "x",
+      "kind": "sequence"
+    },
+    {
+      "from": "x",
+      "to": "$end",
+      "kind": "sequence"
+    }
+  ]
+}

@@ -217,6 +217,16 @@ backoff. Cancelling a queued execution moves its step from ``pending`` or
 ``running``, because an execution that lost its lease goes back to ``queued``
 while its step is still ``running``.
 
+Job graph
+---------
+
+``engine.BuildGraph(job)`` (``internal/engine/graph.go``) is pure: it returns
+the nodes and edges of a job for the UI (ADR-0041). Ids are step paths;
+``for_each`` children use ``<group>/for_each[*]/<id>`` and
+``GraphNodeOf(path)`` maps an instance path to ``(node, lane)``. The golden
+tests are ``testdata/engine/graph-NN-*.input.json`` (a job) with
+``graph-NN-*.golden.json`` (the graph), refreshed with ``-update``.
+
 Testing
 -------
 

@@ -1,0 +1,53 @@
+{
+  "nodes": [
+    {
+      "id": "$start",
+      "kind": "start",
+      "label": "start"
+    },
+    {
+      "id": "per-node",
+      "kind": "group",
+      "label": "per-node",
+      "for_each": {
+        "expr": "inputs.hosts",
+        "max_parallel": 2
+      }
+    },
+    {
+      "id": "per-node/for_each[*]/install",
+      "kind": "step",
+      "parent": "per-node",
+      "label": "install",
+      "plugin": "ssh"
+    },
+    {
+      "id": "after",
+      "kind": "step",
+      "label": "after",
+      "plugin": "ssh"
+    },
+    {
+      "id": "$end",
+      "kind": "end",
+      "label": "end"
+    }
+  ],
+  "edges": [
+    {
+      "from": "$start",
+      "to": "per-node",
+      "kind": "sequence"
+    },
+    {
+      "from": "per-node",
+      "to": "after",
+      "kind": "sequence"
+    },
+    {
+      "from": "after",
+      "to": "$end",
+      "kind": "sequence"
+    }
+  ]
+}

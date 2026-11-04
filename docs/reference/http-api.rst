@@ -99,7 +99,8 @@ Go test fails when ``web/openapi.json`` differs from the live document.
        built-in provides is a **warning**, not an error: its agents may not
        be connected yet, and its input is not checked. A ``with`` value that
        holds a ``${{ }}`` expression is not checked either (it is resolved,
-       then validated, at run time). The graph is added in M3.
+       then validated, at run time). When the spec is valid the
+       body also has ``graph`` (see ``GET /jobs/{id}/versions/{v}/graph``).
    * - ``POST /api/v1/jobs``
      - ``{"name"?, "spec"}``. Validates like ``validate`` (errors are a
        ``422`` with a ``location`` per problem; warnings come back in the
@@ -123,6 +124,16 @@ Go test fails when ``web/openapi.json`` differs from the live document.
      - Versions ascending, without ``spec``, paged.
    * - ``GET /api/v1/jobs/{id}/versions/{v}``
      - One version with its ``spec``.
+   * - ``GET /api/v1/jobs/{id}/versions/{v}/graph``
+     - The graph of one version, built by ``engine.BuildGraph``: ``nodes``
+       (``id``, ``kind`` of ``start``, ``end``, ``step``, ``group``, ``catch``,
+       ``finally``, ``parent``, ``label``, ``plugin``, ``when``,
+       ``continue_on_error``, ``retry_max_attempts``, ``timeout``, ``rethrow``,
+       ``for_each``) and ``edges`` (``from``, ``to``, ``kind`` of ``sequence``,
+       ``skip``, ``catch``, ``finally``, ``label``). Ids are step paths;
+       children of a ``for_each`` group use ``<group>/for_each[*]/<id>``.
+       Nodes carry no step input. ``404`` if unknown; ``500`` if the stored
+       spec no longer parses. See ADR-0041.
    * - ``POST /api/v1/jobs/{id}/runs``
      - API trigger, optional body ``{"options"?, "version"?,
        "concurrency_policy"?}`` (see :ref:`reference-trigger`). ``201`` with
@@ -138,6 +149,11 @@ Go test fails when ``web/openapi.json`` differs from the live document.
        ``executions`` (attempt number, state, pool, agent, outputs, ``error`` message and
        ``error_kind``).
        The attempt id, which fences agent reports, is never exposed.
+   * - ``GET /api/v1/runs/{id}/graph``
+     - ``{graph, steps}``: the graph of the run's pinned version and every
+       step instance in creation order (``path``, ``node``, ``lane``,
+       ``status``, ``attempt``, ``execution_id``, ``state``). Match an
+       instance to its box by ``node`` and ``lane``.
    * - ``POST /api/v1/runs/{id}/cancel``
      - Records the cancel request (``cancel_requested_at``); the orchestrator
        cancels the run on its next advance. Idempotent: repeating it while
@@ -235,9 +251,10 @@ disconnects or after the final ``end`` event.
 
 ``GET /runs/{id}/events`` sends ``snapshot`` (the full run, as
 ``GET /runs/{id}``), then ``run`` (``{status, cancel_requested}``) and
-``step`` (``{path, lane, status, attempt, execution_id, state}``) whenever
-something changed, then ``end``. ``lane`` is the ``for_each`` lane and is
-empty before M3; ``attempt`` and ``state`` describe the latest execution. The
+``step`` (``{path, node, lane, status, attempt, execution_id, state}``) whenever
+something changed, then ``end``. ``node`` is the graph node of the instance
+(the template id inside a ``for_each``) and ``lane`` the ``for_each`` lane key,
+empty outside a ``for_each``; ``attempt`` and ``state`` describe the latest execution. The
 server polls the database about once a second and compares states, so a
 change is delivered within that interval; a ``RunNotifier`` can later wake the
 stream earlier. Events carry numeric ids. The server cannot replay missed

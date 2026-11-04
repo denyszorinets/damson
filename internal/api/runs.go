@@ -9,6 +9,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/denyszorinets/damson/internal/engine"
 	"github.com/denyszorinets/damson/internal/store"
 )
 
@@ -32,6 +33,8 @@ type Execution struct {
 type Step struct {
 	ID         string          `json:"id"`
 	Path       string          `json:"path"`
+	Node       string          `json:"node" doc:"Id of the graph node this instance belongs to; for an instance in a for_each lane, the template node."`
+	Lane       string          `json:"lane,omitempty" doc:"for_each lane key of the instance, empty outside a for_each."`
 	Kind       string          `json:"kind" enum:"step,group"`
 	Plugin     string          `json:"plugin,omitempty"`
 	Input      json.RawMessage `json:"input,omitempty" doc:"Resolved plugin input; holds secret:// references, never secret values. For a for_each group: the frozen lane list."`
@@ -107,7 +110,9 @@ func toStep(n store.StepNode) Step {
 			kind = store.ErrKindCancelled
 		}
 	}
+	node, lane := engine.GraphNodeOf(n.Path)
 	s := Step{
+		Node: node, Lane: lane,
 		Error: msg, ErrorKind: kind,
 		ID: n.ID, Path: n.Path, Kind: n.Kind, Plugin: n.Plugin, Input: rawJSON(n.Input), Status: string(n.Status),
 		Outputs: rawJSON(n.Outputs), CreatedAt: n.CreatedAt, StartedAt: n.StartedAt, FinishedAt: n.FinishedAt,
