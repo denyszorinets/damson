@@ -747,7 +747,7 @@ The `secrets` member is the only place secret values cross the wire. The Go type
   - row-level compare-and-swap (`UPDATE … WHERE state = $expected` + rows-affected check)
   - `SELECT … FOR UPDATE SKIP LOCKED` (Postgres)
   - one **leader lease** row per singleton duty
-- **SQLite mode runs exactly one controller.** This is enforced with a lock row at startup.
+- **SQLite mode runs exactly one controller.** This is enforced with a `leader_leases` row named `sqlite-controller` (§8.4): the controller takes it at startup and renews it, a second controller on the same database refuses to start while it is held (and waits out the lease of one that crashed, at most the lease TTL), and a graceful stop releases it. It is a misconfiguration guard, not a fence (correctness rests on compare-and-swap), and it protects a database on local disk only, not one on a network file system.
 
 ### 8.2 The engine is a pure function
 

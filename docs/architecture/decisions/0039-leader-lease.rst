@@ -103,5 +103,10 @@ Negative
 - After a crash the reaper pauses for up to the TTL plus clock skew.
 - On Postgres the fence is best effort, so a short double leader is possible and
   relies on idempotent duties.
-- The SQLite startup lock row claimed in ARCHITECTURE 8.1 does not exist
-  (issue #101).
+- The SQLite startup lock row claimed in ARCHITECTURE 8.1 did not exist when
+  this ADR was written. *Update (issue #101):* it is now the lease row
+  ``sqlite-controller``, taken at startup through ``node.Config.SingleController``
+  (set for the SQLite backend by ``damson controller``/``dev``): a second
+  controller fails to start while it is held and waits out a crashed one's lease
+  (at most the ttl plus one renewal); losing it later only logs, since
+  correctness rests on compare-and-swap.
