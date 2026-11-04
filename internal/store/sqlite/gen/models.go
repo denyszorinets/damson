@@ -159,6 +159,27 @@ type Run struct {
 	CancelReason      string
 }
 
+type Secret struct {
+	ID             string
+	ScopePath      string
+	Name           string
+	Type           string
+	CurrentVersion int64
+	CreatedAt      string
+	UpdatedAt      string
+}
+
+type SecretVersion struct {
+	SecretID   string
+	Version    int64
+	KekID      string
+	WrappedDek []byte
+	Nonce      []byte
+	Ciphertext []byte
+	FieldNames string
+	CreatedAt  string
+}
+
 type StepInstance struct {
 	ID         string
 	RunID      string

@@ -132,6 +132,9 @@ change nothing until accepted.
    * - 0038
      - :doc:`0038-for-each-lanes`
      - Accepted
+   * - 0042
+     - :doc:`0042-db-secret-backend-keyring`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -177,3 +180,4 @@ change nothing until accepted.
    0039-leader-lease
    0040-internal-controller-endpoints
    0041-job-graph
+   0042-db-secret-backend-keyring

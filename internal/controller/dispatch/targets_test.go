@@ -45,6 +45,8 @@ func (f *fakeSources) Secret(_ context.Context, _, ref string) (map[string]strin
 		return map[string]string{"username": "damson", "private_key": secretMarker + "-KEY"}, nil
 	case "secret://dev/token":
 		return map[string]string{"value": secretMarker}, f.tokenErr
+	case "secret://dev/broken":
+		return nil, dispatch.ErrSecretUnavailable
 	}
 	return nil, dispatch.ErrUnknownSecret
 }
@@ -92,6 +94,7 @@ func TestUnknownNodeOrSecretFailsExecution(t *testing.T) {
 	for _, tc := range []struct{ input, names string }{
 		{`{"node":"missing","token":"secret://dev/token"}`, "missing"},
 		{`{"node":"n1","token":"secret://dev/nope"}`, "secret://dev/nope"},
+		{`{"node":"n1","token":"secret://dev/broken"}`, "secret://dev/broken"},
 	} {
 		t.Run(tc.names, func(t *testing.T) {
 			forEachBackend(t, func(t *testing.T, st store.Store) {

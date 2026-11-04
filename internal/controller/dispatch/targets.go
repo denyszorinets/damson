@@ -15,6 +15,9 @@ import (
 var (
 	ErrUnknownNode   = errors.New("unknown node")
 	ErrUnknownSecret = errors.New("unknown secret")
+	// ErrSecretUnavailable is a secret that exists but cannot be used: a
+	// malformed ref, or a version that cannot be decrypted. Permanent too.
+	ErrSecretUnavailable = errors.New("secret unavailable")
 )
 
 // maxSecretRefs bounds the refs one step.execute may carry.
@@ -73,7 +76,7 @@ func (d *Dispatcher) resolveTargets(ctx context.Context, runID string, m plugins
 		fields, err := d.cfg.Secrets.Secret(ctx, runID, ref)
 		if err != nil {
 			wipe(bundle)
-			return nil, nil, sourceError(fmt.Sprintf("secret %q", ref), ErrUnknownSecret, err)
+			return nil, nil, secretError(ref, err)
 		}
 		bundle[ref] = fields
 	}
@@ -87,6 +90,14 @@ func sourceError(what string, unknown, err error) error {
 		return &permanent{fmt.Errorf("%s: %w", what, unknown)}
 	}
 	return fmt.Errorf("resolving %s: %w", what, err)
+}
+
+// secretError is sourceError for secrets, which also have an unusable state.
+func secretError(ref string, err error) error {
+	if errors.Is(err, ErrSecretUnavailable) {
+		return &permanent{fmt.Errorf("secret %q: %w", ref, ErrSecretUnavailable)}
+	}
+	return sourceError(fmt.Sprintf("secret %q", ref), ErrUnknownSecret, err)
 }
 
 func baseRef(ref string) string {

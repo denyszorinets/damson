@@ -54,6 +54,7 @@ type Store interface {
 	ExecutionStore
 	LogStore
 	StampStore
+	SecretStore
 	TxRunner
 
 	// GetSetting returns ErrNotFound if the key is absent.

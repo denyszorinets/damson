@@ -169,6 +169,36 @@ are ``JobStore``, ``RunStore``, ``ExecutionStore`` and ``LogStore``
    ``object_key``, ``bytes``, ``ts_first``/``ts_last``) and the bytes of the
    default ``db`` LogStore (``object_key`` to blob).
 
+Secret tables (migration 00010)
+-------------------------------
+
+Migration ``00010_secrets`` adds ``secrets`` (``id``, ``scope_path``, ``name``,
+``type``, ``current_version``, timestamps; unique ``(scope_path, name)``) and
+``secret_versions`` (``secret_id``, ``version``, ``kek_id``, ``wrapped_dek``,
+``nonce``, ``ciphertext``, ``field_names`` JSON array, ``created_at``; primary
+key ``(secret_id, version)``; index on ``kek_id``). The store only holds
+opaque ``SecretBlob`` values; encryption is the caller's job
+(:doc:`/architecture/decisions/0042-db-secret-backend-keyring`). The
+interface is ``SecretStore`` (``internal/store/secrets.go``), part of
+``Store``:
+
+``CreateSecret``
+   Inserts version 1; ``ErrConflict`` if ``(scope, name)`` exists.
+``AddSecretVersion``
+   Compare-and-swap on ``current_version``: adds ``expected+1``. Returns
+   ``ErrNotFound`` for an unknown secret and ``ErrStale`` if the counter moved.
+   Versions beyond the last ``SecretVersionsKept`` (10) are pruned in the same
+   transaction.
+``GetSecret``
+   Metadata plus the encrypted current version; ``ErrNotFound``.
+``GetSecretMeta``
+   Metadata only, including ``field_names``; ``ErrNotFound``.
+``ListSecrets``
+   Keyset pagination on ``(scope, name)`` with an ``afterScope``/``afterName``
+   cursor; an empty scope lists all. It never selects encrypted columns.
+``DeleteSecret``
+   Removes the secret and all its versions; ``ErrNotFound``.
+
 Advance primitives
 ~~~~~~~~~~~~~~~~~~
 

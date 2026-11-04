@@ -102,6 +102,24 @@ Rules (``CLAUDE.md`` hard rule 5):
 
 See :doc:`decisions/0015-secret-references-and-envelope-encryption`.
 
+.. danger::
+
+   The KEK of the ``db`` backend (``DAMSON_KEK`` or ``secrets.kek_file``) is
+   the only way to read stored secrets. If it is lost, every secret is lost
+   and there is no recovery. Back it up separately from the database, and
+   keep it out of the config file, the logs and database backups.
+
+Memory handling: the DEK and plaintext byte slices are zeroed after use, but
+the Go strings in the decrypted field map cannot be wiped; they stay in the
+controller's memory until garbage collected. Bundle values are dropped from
+the dispatch request after the send, which shortens but does not eliminate
+that window.
+
+Each ciphertext is bound to its scope, name and version (and the wrap to the
+``kek_id``) through authenticated data, so copying it to another row fails to
+decrypt. A controller refuses to start with a KEK that does not match the
+stored canary. See :doc:`decisions/0042-db-secret-backend-keyring`.
+
 Other controls
 --------------
 
