@@ -73,8 +73,8 @@ endif
 web: ## Build the SvelteKit SPA into web/build (embedded by the binary)
 	cd web && npm ci && npm run build
 
-web-check: ## Web lint (prettier + eslint) and typecheck (svelte-check)
-	cd web && npm run lint && npm run check
+web-check: ## Web lint (prettier + eslint), typecheck (svelte-check) and unit tests (vitest)
+	cd web && npm run lint && npm run check && npm run test:unit
 
 docs: ## Build the documentation site into docs/_build/html
 	$(SPHINX) sphinx-build -b html . _build/html
