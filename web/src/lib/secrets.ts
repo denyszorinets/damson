@@ -1,42 +1,12 @@
 import { api, type components } from '$lib/api/client';
-import { problemMessage } from '$lib/agents';
+import { check, headers, problemMessage } from '$lib/admin';
 
 export { problemMessage };
 
 export type SecretMeta = components['schemas']['SecretMeta'];
 export type SecretType = components['schemas']['Type'];
 
-const TOKEN_KEY = 'damson.admin_token';
-
-/** The admin token lives in sessionStorage only: gone when the tab closes. */
-export function loadToken(): string {
-	try {
-		return sessionStorage.getItem(TOKEN_KEY) ?? '';
-	} catch {
-		return '';
-	}
-}
-
-export function saveToken(token: string): void {
-	try {
-		if (token) sessionStorage.setItem(TOKEN_KEY, token);
-		else sessionStorage.removeItem(TOKEN_KEY);
-	} catch {
-		// storage blocked: the token then lasts for this page view only
-	}
-}
-
-/** Thrown for a 401, so the page can ask for the token again. */
-export class Unauthorized extends Error {}
-
-function headers(token: string) {
-	return { Authorization: `Bearer ${token}` };
-}
-
-function check(res: { response: Response; error?: unknown }): void {
-	if (res.response.status === 401) throw new Unauthorized(problemMessage(res.error));
-	if (res.error !== undefined) throw res.error;
-}
+export { Unauthorized, loadToken, saveToken } from '$lib/admin';
 
 export async function fetchSecrets(token: string, signal?: AbortSignal): Promise<SecretMeta[]> {
 	const res = await api.GET('/secrets', {

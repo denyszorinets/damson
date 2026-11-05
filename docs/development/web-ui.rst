@@ -102,6 +102,10 @@ Pages
 ``/secrets``
    Secret metadata and management (see :ref:`web-ui-secrets`).
 
+``/nodes``, ``/nodes/[name]``
+   The node inventory list and the node detail page (see
+   :ref:`web-ui-nodes`).
+
 Job graph view
 --------------
 
@@ -225,11 +229,49 @@ plain shadcn inputs (``input``, ``label``, ``select``, ``textarea``,
 The admin token is asked for on first use and again after a 401. It is kept in
 ``sessionStorage`` only (gone when the tab closes) and sent as
 ``Authorization: Bearer`` on each call through the generated client. A
-"Forget token" button removes it.
+"Forget token" button removes it. The token helpers are shared with the nodes
+pages (``lib/admin.ts`` and the ``TokenGate`` component).
 
 Tests: ``lib/secrets.test.ts`` (vitest) covers field handling; the Playwright
 test ``web/e2e/secrets.test.ts`` mocks the secrets API, because the dev
 controller has no KEK until #115.
+
+.. _web-ui-nodes:
+
+Nodes pages
+-----------
+
+All ``/nodes`` routes need the admin token, reads included. Token handling is
+the same as on the secrets page: the shared helpers in ``lib/admin.ts`` and the
+``TokenGate`` component, ``sessionStorage`` only, a "Forget token" button and a
+new prompt after a 401. Form parsing and field logic live in ``lib/nodes.ts``.
+The form uses plain shadcn inputs and ``Select``, not ``SchemaForm``.
+
+``/nodes`` lists nodes: name (a link to the detail page), ``address:port``,
+transport, OS, pool, tags as badges, source, enabled or disabled, and the host
+key state (pinned, observed or none) with the host key policy. The list has
+source and enabled filters and a "Load more" button that follows the API
+cursor, 50 nodes per page.
+
+**New node** opens a form with name, address, port, transport (select), OS,
+pool, tags (comma separated), attributes (a JSON object), credential
+(``secret://`` ref), host key, host key policy (select) and enabled. It sends
+``POST /nodes``. Validation problems returned by the API are shown in the form.
+
+``/nodes/[name]`` shows all fields, the pinned and observed host key
+fingerprints (SHA256), the source and the version.
+
+* **Edit** sends ``PATCH`` with ``if_version`` set to the version the page
+  read. If someone changed the node in between, the API answers 409.
+* A node owned by a sync source (source other than ``manual``) can be saved or
+  deleted only after ticking the explicit "Force" box. Its next sync
+  overwrites the edit, and the source is kept. The box resets after each
+  forced write.
+* **Delete** asks for confirmation first.
+
+Tests: ``lib/nodes.test.ts`` (vitest) covers form parsing and ``formOf`` with
+null tags and attributes. The Playwright test ``web/e2e/nodes.test.ts`` mocks
+the nodes API.
 
 Dependencies and licenses
 -------------------------
