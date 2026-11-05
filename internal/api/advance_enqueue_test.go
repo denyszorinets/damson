@@ -81,7 +81,7 @@ func TestTriggerRollsBackWhenEnqueueFails(t *testing.T) {
 
 type fixedTargets []map[string]any
 
-func (f fixedTargets) Targets() []map[string]any { return f }
+func (f fixedTargets) Targets(context.Context, string) ([]map[string]any, error) { return f, nil }
 
 // A for_each over targets that is the first step is decided at trigger time:
 // it must see the targets, or it freezes an empty lane list.

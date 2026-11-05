@@ -166,7 +166,7 @@ func (f *File) Names() []string {
 // the expression context: name, address, tags (none in a dev file), attributes,
 // pool, os and transport. It never carries the credential ref, the host key or
 // the host key policy.
-func (f *File) Targets() []map[string]any {
+func (f *File) Targets(_ context.Context, _ string) ([]map[string]any, error) {
 	out := make([]map[string]any, 0, len(f.nodes))
 	for _, name := range f.Names() {
 		n := f.nodes[name]
@@ -179,7 +179,7 @@ func (f *File) Targets() []map[string]any {
 			"pool": "", "os": n.OS, "transport": n.Transport,
 		})
 	}
-	return out
+	return out, nil
 }
 
 // Node implements dispatch.NodeSource.
