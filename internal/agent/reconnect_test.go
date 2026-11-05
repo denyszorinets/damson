@@ -293,8 +293,19 @@ func TestSpoolOverflowEndToEnd(t *testing.T) {
 	ctl.autoAck.Store(true)
 	_ = ctl.latest().peer.Close()
 	ctl.waitHellos(2)
-	eventually(t, "resend", func() bool { return len(ctl.logsOf("a1")) > before })
-	first := ctl.logsOf("a1")[before]
+	// A batch of the old connection may still arrive after before was taken;
+	// the resent one is the first batch after it that starts at sequence 1.
+	var first protocol.LogAppend
+	eventually(t, "resend", func() bool {
+		bs := ctl.logsOf("a1")
+		for _, b := range bs[min(before, len(bs)):] {
+			if b.SeqFrom == 1 {
+				first = b
+				return true
+			}
+		}
+		return false
+	})
 	if first.SeqFrom != 1 || first.GapTo < 1 || len(first.Entries) != 1 || first.Entries[0].Stream != pluginsdk.System {
 		t.Errorf("first resent batch = from %d gap_to %d entries %d; want the declared gap with its System line", first.SeqFrom, first.GapTo, len(first.Entries))
 	}
