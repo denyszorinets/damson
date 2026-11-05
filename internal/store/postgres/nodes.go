@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/denyszorinets/damson/internal/store"
 	"github.com/denyszorinets/damson/internal/store/postgres/gen"
@@ -43,11 +44,7 @@ func (s *Store) CreateNode(ctx context.Context, n store.Node, now time.Time) (st
 	if err != nil {
 		return store.Node{}, err
 	}
-	err = s.q.InsertNode(ctx, gen.InsertNodeParams{
-		ID: n.ID, Name: n.Name, Address: n.Address, Port: int32(n.Port), Transport: n.Transport, Os: n.OS, Pool: n.Pool,
-		Tags: tags, Attributes: attrs, Credential: n.Credential, HostKey: n.HostKey, HostKeyPolicy: n.HostKeyPolicy,
-		Source: n.Source, ExternalID: n.ExternalID, Enabled: n.Enabled, CreatedAt: ts(now), UpdatedAt: ts(now),
-	})
+	err = s.q.InsertNode(ctx, insertNodeParams(n, tags, attrs, now))
 	if isUniqueViolation(err) {
 		return store.Node{}, fmt.Errorf("node %q: %w", n.Name, store.ErrConflict)
 	}
@@ -76,6 +73,18 @@ func (s *Store) GetNode(ctx context.Context, name string) (store.Node, error) {
 	}
 	if err != nil {
 		return store.Node{}, fmt.Errorf("getting node %q: %w", name, err)
+	}
+	return toNode(r)
+}
+
+// FindNodeByName implements store.NodeStore.
+func (s *Store) FindNodeByName(ctx context.Context, name string) (store.Node, error) {
+	r, err := s.q.GetNodeByLowerName(ctx, name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.Node{}, fmt.Errorf("node %q: %w", name, store.ErrNotFound)
+	}
+	if err != nil {
+		return store.Node{}, fmt.Errorf("finding node %q: %w", name, err)
 	}
 	return toNode(r)
 }
@@ -143,4 +152,86 @@ func (s *Store) casMiss(ctx context.Context, id string, expected int64) error {
 		return err
 	}
 	return fmt.Errorf("node %q at version %d: %w", id, expected, store.ErrStale)
+}
+
+func insertNodeParams(n store.Node, tags, attrs string, now time.Time) gen.InsertNodeParams {
+	return gen.InsertNodeParams{
+		ID: n.ID, Name: n.Name, Address: n.Address, Port: int32(n.Port), Transport: n.Transport, Os: n.OS, Pool: n.Pool,
+		Tags: tags, Attributes: attrs, Credential: n.Credential, HostKey: n.HostKey, HostKeyPolicy: n.HostKeyPolicy,
+		Source: n.Source, ExternalID: n.ExternalID, Enabled: n.Enabled, CreatedAt: ts(now), UpdatedAt: ts(now),
+	}
+}
+
+// ApplyNodeDiff implements store.NodeStore.
+func (s *Store) ApplyNodeDiff(ctx context.Context, d store.NodeDiff, now time.Time) error {
+	err := s.applyNodeDiff(ctx, d, now)
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && (pe.Code == deadlockDetected || pe.Code == serializationFailure) {
+		// Two syncs took row locks in different orders: the loser re-plans.
+		return fmt.Errorf("applying node diff: %w", store.ErrStale)
+	}
+	return err
+}
+
+const (
+	deadlockDetected     = "40P01"
+	serializationFailure = "40001"
+)
+
+func (s *Store) applyNodeDiff(ctx context.Context, d store.NodeDiff, now time.Time) error {
+	return s.WithTx(ctx, func(tx store.Tx) error {
+		q := tx.(*txn).q
+		for _, del := range d.Delete {
+			rows, err := q.DeleteNodeCAS(ctx, gen.DeleteNodeCASParams{ID: del.ID, ExpectedVersion: del.Expected})
+			if err != nil {
+				return fmt.Errorf("deleting node %q: %w", del.ID, err)
+			}
+			if rows == 0 {
+				return fmt.Errorf("node %q at version %d: %w", del.ID, del.Expected, store.ErrStale)
+			}
+		}
+		for _, u := range d.Update {
+			n := u.Node
+			tags, err := store.EncodeTags(n.Tags)
+			if err != nil {
+				return err
+			}
+			attrs, err := store.EncodeAttributes(n.Attributes)
+			if err != nil {
+				return err
+			}
+			rows, err := q.UpdateNodeSyncCAS(ctx, gen.UpdateNodeSyncCASParams{
+				Name: n.Name, ExternalID: n.ExternalID, Address: n.Address, Port: int32(n.Port), Transport: n.Transport,
+				Os: n.OS, Pool: n.Pool, Tags: tags, Attributes: attrs, Credential: n.Credential, HostKey: n.HostKey,
+				HostKeyPolicy: n.HostKeyPolicy, Enabled: n.Enabled, UpdatedAt: ts(now), ID: n.ID, ExpectedVersion: u.Expected,
+			})
+			if isUniqueViolation(err) {
+				return fmt.Errorf("node %q: %w", n.Name, store.ErrConflict)
+			}
+			if err != nil {
+				return fmt.Errorf("updating node %q: %w", n.ID, err)
+			}
+			if rows == 0 {
+				return fmt.Errorf("node %q at version %d: %w", n.ID, u.Expected, store.ErrStale)
+			}
+		}
+		for _, n := range d.Create {
+			tags, err := store.EncodeTags(n.Tags)
+			if err != nil {
+				return err
+			}
+			attrs, err := store.EncodeAttributes(n.Attributes)
+			if err != nil {
+				return err
+			}
+			err = q.InsertNode(ctx, insertNodeParams(n, tags, attrs, now))
+			if isUniqueViolation(err) {
+				return fmt.Errorf("node %q: %w", n.Name, store.ErrConflict)
+			}
+			if err != nil {
+				return fmt.Errorf("creating node %q: %w", n.Name, err)
+			}
+		}
+		return nil
+	})
 }
