@@ -44,7 +44,7 @@ type core struct {
 	// wake schedules the job-level timeout wake-up (nil: none, in tests).
 	wake func(ctx context.Context, tx store.Tx, runID string, at time.Time) error
 	// targets selects the nodes of a run (nil: none).
-	targets func(job *engine.Job, inputs map[string]any) []map[string]any
+	targets func(ctx context.Context, job *engine.Job, inputs map[string]any) ([]map[string]any, error)
 	notify  func(runID string)
 }
 
@@ -91,7 +91,9 @@ func (c *core) once(ctx context.Context, runID string) (changed bool, err error)
 		return false, err
 	}
 	if c.targets != nil {
-		state.Targets = c.targets(job, state.Inputs)
+		if state.Targets, err = c.targets(ctx, job, state.Inputs); err != nil {
+			return false, err // not permanent: River retries
+		}
 	}
 	acts, err := c.eng.Decide(job, state, now)
 	if err != nil {

@@ -64,7 +64,7 @@ func triggerRun(ctx context.Context, d deps, in *triggerRunInput) (*runDetailOut
 	if err != nil {
 		return nil, apiError(ctx, err)
 	}
-	nr, err := d.newRun(job, ver, spec, opts)
+	nr, err := d.newRun(ctx, job, ver, spec, opts)
 	if err != nil {
 		return nil, apiError(ctx, err)
 	}
@@ -150,7 +150,7 @@ func hasLocation(fields []ProblemDetail, loc string) bool {
 // newRun builds the run insert from what Decide returns for a queued run: the
 // step instances it creates and their first executions. The other actions
 // (start, skip, fail, complete) are applied by run.advance.
-func (d deps) newRun(job store.Job, ver store.JobVersion, spec *engine.Job, opts map[string]any) (store.NewRun, error) {
+func (d deps) newRun(ctx context.Context, job store.Job, ver store.JobVersion, spec *engine.Job, opts map[string]any) (store.NewRun, error) {
 	id, err := store.NewID()
 	if err != nil {
 		return store.NewRun{}, err
@@ -168,8 +168,12 @@ func (d deps) newRun(job store.Job, ver store.JobVersion, spec *engine.Job, opts
 		ID: id, Status: engine.RunQueued, Trigger: triggerAPI, Inputs: opts,
 		Job: engine.JobInfo{Name: spec.Metadata.Name, Project: spec.Metadata.Project, Version: strconv.Itoa(ver.Version)},
 	}
-	if d.targets != nil {
-		state.Targets = d.eng.SelectTargets(spec, opts, d.targets.Targets())
+	if d.targets != nil && engine.UsesTargets(spec) {
+		nodes, err := d.targets.Targets(ctx, spec.Metadata.Project)
+		if err != nil {
+			return store.NewRun{}, fmt.Errorf("listing targets: %w", err)
+		}
+		state.Targets = d.eng.SelectTargets(spec, opts, nodes)
 	}
 	actions, err := d.eng.Decide(spec, state, now)
 	if err != nil {

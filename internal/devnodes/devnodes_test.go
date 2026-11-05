@@ -131,7 +131,7 @@ func TestTargetsAreSortedAndCarryNoSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	targets := f.Targets()
+	targets, _ := f.Targets(context.Background(), "default")
 	var names []string
 	for _, n := range targets {
 		names = append(names, n["name"].(string))
@@ -158,7 +158,7 @@ func TestTargetsAreSortedAndCarryNoSecrets(t *testing.T) {
 	}
 	// A copy: changing it does not change the file's nodes.
 	targets[2]["attributes"].(map[string]any)["role"] = "changed"
-	if again := f.Targets(); again[2]["attributes"].(map[string]any)["role"] != "web" {
+	if again, _ := f.Targets(context.Background(), "default"); again[2]["attributes"].(map[string]any)["role"] != "web" {
 		t.Fatal("Targets shares the node attributes with the file")
 	}
 }

@@ -48,7 +48,11 @@ type Config struct {
 }
 
 // TargetSource lists the nodes `targets` is built from.
-type TargetSource interface{ Targets() []map[string]any }
+type TargetSource interface {
+	// Targets returns the nodes a job of project can target. An error fails the
+	// request (nothing is created).
+	Targets(ctx context.Context, project string) ([]map[string]any, error)
+}
 
 // Server is the controller's HTTP server component. Start listens and serves
 // in the background; Stop drains in-flight requests.

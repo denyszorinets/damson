@@ -168,15 +168,17 @@ file serves nodes, secrets and targets as before.
 * The node credential goes through the secret authorization
   (``secrets.Authorize`` with ``fromNode``); ``_inventory`` is allowed only as
   a node credential.
-* Inventory nodes are reachable only through a literal ``node: <name>`` in step
-  input.
+* Inventory nodes are reachable through a literal ``node: <name>`` in step
+  input and through ``targets``.
 
 Not yet implemented
 -------------------
 
 * Step timeout (``timeout_ms``).
-* Inventory nodes in ``for_each: targets`` and the selector, and routing from
-  ``node.pool`` (:issue:`117`). Until then they use only the dev-only
-  ``--dev-nodes`` file (ADR-0034, see :doc:`/reference/cli`).
+* Frozen run targets and routing from ``node.pool`` (:issue:`117`). Until then
+  ``targets`` is read live from the inventory (enabled nodes in the project's
+  scope, at most 1000, sorted by name) when the job can read it, so a node added
+  or disabled mid-run can appear or vanish; with ``--dev-nodes`` the file
+  (ADR-0034, see :doc:`/reference/cli`) serves it.
 * A notify hint for dispatch and cancel (the 1 s and 2 s polls are the only triggers).
 * Retries (M3).

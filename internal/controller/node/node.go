@@ -146,7 +146,10 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	}
 	if cfg.DevNodes != nil { // a nil *File must not become a non-nil interface
 		apiCfg.Targets = cfg.DevNodes
-	} else if n.secrets != nil {
+	} else {
+		apiCfg.Targets = &InventoryTargets{Store: cfg.Store, Scope: inventory.AllNodes{}}
+	}
+	if n.secrets != nil && cfg.DevNodes == nil {
 		apiCfg.AuthorizeSecretRefs = true
 	}
 	if n.secrets != nil { // a nil *Backend must not become a non-nil interface
@@ -175,6 +178,8 @@ func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 	}
 	if cfg.DevNodes != nil { // a nil *File must not become a non-nil interface
 		acfg.Targets = cfg.DevNodes
+	} else {
+		acfg.Targets = &InventoryTargets{Store: cfg.Store, Scope: inventory.AllNodes{}}
 	}
 	if n.adv, err = advance.New(acfg); err != nil {
 		return fmt.Errorf("creating run advancer: %w", err)

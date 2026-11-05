@@ -50,7 +50,9 @@ type Config struct {
 // maps for the expression context (name, address, tags, attributes, pool, os,
 // transport), without credentials or host keys.
 type TargetSource interface {
-	Targets() []map[string]any
+	// Targets returns the nodes a job of project can target. An error is not
+	// permanent: the advance job is retried.
+	Targets(ctx context.Context, project string) ([]map[string]any, error)
 }
 
 // DefaultSweepInterval is the safety-net sweep period.
@@ -102,8 +104,15 @@ func New(cfg Config) (*Advancer, error) {
 	a.core = &core{st: cfg.Store, eng: cfg.Engine, now: now, log: a.log, enqueue: a.Enqueue, wake: a.enqueueWake, notify: a.hub.Notify}
 	if cfg.Targets != nil {
 		src, eng := cfg.Targets, cfg.Engine
-		a.core.targets = func(job *engine.Job, inputs map[string]any) []map[string]any {
-			return eng.SelectTargets(job, inputs, src.Targets())
+		a.core.targets = func(ctx context.Context, job *engine.Job, inputs map[string]any) ([]map[string]any, error) {
+			if !engine.UsesTargets(job) {
+				return nil, nil // do not list the inventory for a job that cannot read it
+			}
+			nodes, err := src.Targets(ctx, job.Metadata.Project)
+			if err != nil {
+				return nil, fmt.Errorf("listing targets: %w", err)
+			}
+			return eng.SelectTargets(job, inputs, nodes), nil
 		}
 	}
 	q, err := newQueue(cfg, a.core, a.log)

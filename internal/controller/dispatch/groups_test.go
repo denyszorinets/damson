@@ -3,13 +3,17 @@ package dispatch_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/denyszorinets/damson/internal/controller/node"
 	"github.com/denyszorinets/damson/internal/devnodes"
+	"github.com/denyszorinets/damson/internal/inventory"
 	"github.com/denyszorinets/damson/internal/store"
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 )
@@ -590,6 +594,95 @@ func TestForEachOverTargetsWithoutNodesIsEmpty(t *testing.T) {
 			if strings.Contains(p, "for_each[") {
 				t.Fatalf("created %q without any target", p)
 			}
+		}
+	})
+}
+
+// for_each over `targets` from the inventory: enabled nodes only, the selector
+// applies, the node is bound in each lane, and the lane list is frozen.
+func TestForEachOverTargetsFromInventory(t *testing.T) {
+	spec := `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"lin"},
+"spec":{"targets":{"selector":"node.os == 'linux'"},"steps":[{"id":"s1","plugin":"demo","with":{"word":"one"}},
+{"id":"per-node","type":"group","for_each":"targets",
+  "steps":[{"id":"install","plugin":"demo","with":{"word":"on ${{ node.name }} ${{ node.address }} ${{ node.attributes.role }}"}}]}]}}`
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		for _, n := range []struct {
+			name, os string
+			enabled  bool
+		}{{"web-01", "linux", true}, {"web-02", "linux", true}, {"off-01", "linux", false}, {"win-01", "windows", true}} {
+			if _, err := st.CreateNode(context.Background(), store.Node{
+				ID: "id-" + n.name, Name: n.name, Address: "10.0.0." + n.name[len(n.name)-1:], Port: 22, Transport: "ssh", OS: n.os,
+				Attributes: map[string]any{"role": "web"}, HostKeyPolicy: "strict", Source: "manual", Enabled: n.enabled,
+			}, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		c := startClusterTargets(t, st, spec, &node.InventoryTargets{Store: st, Scope: inventory.AllNodes{}})
+		tree := c.waitRun(c.trigger("one"), store.RunSucceeded)
+		by := stepsByPath(tree)
+		for _, name := range []string{"web-01", "web-02"} {
+			if by["per-node/for_each["+name+"]/install"].Status != store.StepSucceeded {
+				t.Fatalf("lane %s did not succeed (steps %v)", name, paths(tree))
+			}
+		}
+		for _, name := range []string{"off-01", "win-01"} {
+			if _, ran := by["per-node/for_each["+name+"]"]; ran {
+				t.Fatalf("lane for %s ran", name)
+			}
+		}
+		waitLog(t, st, by["per-node/for_each[web-02]/install"].Executions[0].ID, "said on web-02 10.0.0.2 web")
+	})
+}
+
+// flakyTargets fails a number of calls, then lists one node; it counts calls.
+type flakyTargets struct {
+	mu       sync.Mutex
+	calls    int
+	failures int
+}
+
+func (f *flakyTargets) Targets(context.Context, string) ([]map[string]any, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.calls <= f.failures {
+		return nil, errors.New("inventory unavailable")
+	}
+	return []map[string]any{{"name": "n1", "address": "10.0.0.1", "tags": []any{}, "attributes": map[string]any{}, "pool": "", "os": "linux", "transport": "ssh"}}, nil
+}
+
+func (f *flakyTargets) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+// A failing target source retries the advance instead of failing the run.
+func TestTargetsErrorRetriesTheAdvance(t *testing.T) {
+	spec := lanesSpec(`{"id":"per-node","type":"group","for_each":"targets","steps":[{"id":"install","plugin":"demo","with":{"word":"x"}}]}`)
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		src := &flakyTargets{failures: 2}
+		c := startClusterTargets(t, st, spec, src)
+		tree := c.waitRun(c.trigger("one"), store.RunSucceeded)
+		if by := stepsByPath(tree); by["per-node/for_each[n1]/install"].Status != store.StepSucceeded {
+			t.Fatalf("the lane did not run after the source recovered: %v", paths(tree))
+		}
+		if src.count() < 3 {
+			t.Fatalf("source called %d times; want the failures retried", src.count())
+		}
+	})
+}
+
+// A job that cannot read `targets` never lists the inventory.
+func TestTargetsNotListedForJobsThatDoNotUseThem(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		src := &flakyTargets{}
+		plain := `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"lin"},
+"spec":{"steps":[{"id":"s1","plugin":"demo","with":{"word":"one"}}]}}`
+		c := startClusterTargets(t, st, plain, src)
+		c.waitRun(c.trigger("one"), store.RunSucceeded)
+		if n := src.count(); n != 0 {
+			t.Fatalf("the inventory was listed %d times for a job without targets", n)
 		}
 	})
 }
