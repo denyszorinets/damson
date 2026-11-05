@@ -21,6 +21,11 @@ step, masked in all logs and outputs, and dropped when the step ends. By
 default they are stored in the database with envelope encryption; OpenBao is
 the optional alternative (:doc:`/architecture/security`).
 
+In the web UI, the ``/secrets`` page lists secret metadata (ref, type, field
+names, version; never values) and lets an admin create, version and delete
+secrets. It asks for the admin token, keeps it for the browser tab only and
+clears entered values after every submit.
+
 Access control
 --------------
 

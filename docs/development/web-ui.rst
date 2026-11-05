@@ -99,6 +99,9 @@ Pages
    The run view: the run's graph with live status, and a table of step
    instances below it (see :ref:`web-ui-run-view`).
 
+``/secrets``
+   Secret metadata and management (see :ref:`web-ui-secrets`).
+
 Job graph view
 --------------
 
@@ -199,6 +202,35 @@ Testing
 * a mocked many-lanes run with the bounded list;
 * a refused stream (503) that is reopened.
 
+.. _web-ui-secrets:
+
+Secrets page
+------------
+
+``/secrets`` lists secret metadata in a table: ref, type, field names and
+version. Values are never shown. The page is not schema-driven, so it uses
+plain shadcn inputs (``input``, ``label``, ``select``, ``textarea``,
+``separator``) and not ``SchemaForm``. Logic lives in ``lib/secrets.ts``.
+
+* **New secret** opens the form: scope, name and type (a select). The fields
+  come from ``GET /secret-types``; the generic type lets you add named fields.
+  Create sends ``if_version`` 0.
+* **New version** on a row opens the same form for that ref and sends
+  ``if_version`` equal to the row's current version.
+* **Delete** on a row asks for an inline confirm first.
+* Multiline fields use a textarea; all others use a password input. Autocomplete
+  is off. Values are never pre-filled, are cleared after every submit (success
+  or failure) and are not kept in the DOM after saving.
+
+The admin token is asked for on first use and again after a 401. It is kept in
+``sessionStorage`` only (gone when the tab closes) and sent as
+``Authorization: Bearer`` on each call through the generated client. A
+"Forget token" button removes it.
+
+Tests: ``lib/secrets.test.ts`` (vitest) covers field handling; the Playwright
+test ``web/e2e/secrets.test.ts`` mocks the secrets API, because the dev
+controller has no KEK until #115.
+
 Dependencies and licenses
 -------------------------
 
@@ -207,6 +239,9 @@ Dependencies and licenses
 contains only MIT, ISC, Apache-2.0 and BSD-3-Clause. ``vitest`` (MIT) is a dev
 dependency; its dev tree includes MPL-2.0, BlueOak-1.0.0 and Python-2.0, which
 are never shipped (:doc:`/architecture/decisions/0033-blueoak-licensed-dev-only-tooling-dependencies`).
+
+The secrets page adds, via shadcn-svelte, ``bits-ui`` (MIT), ``@lucide/svelte``
+(ISC) and ``@internationalized/date`` (Apache-2.0).
 
 End-to-end tests
 ----------------
