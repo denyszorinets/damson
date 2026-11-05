@@ -135,6 +135,9 @@ change nothing until accepted.
    * - 0042
      - :doc:`0042-db-secret-backend-keyring`
      - Accepted
+   * - 0043
+     - :doc:`0043-inventory-nodes`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -181,3 +184,4 @@ change nothing until accepted.
    0040-internal-controller-endpoints
    0041-job-graph
    0042-db-secret-backend-keyring
+   0043-inventory-nodes

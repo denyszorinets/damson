@@ -25,6 +25,7 @@ import (
 	"github.com/denyszorinets/damson/internal/devnodes"
 	"github.com/denyszorinets/damson/internal/engine"
 	"github.com/denyszorinets/damson/internal/expr"
+	"github.com/denyszorinets/damson/internal/inventory"
 	"github.com/denyszorinets/damson/internal/pluginreg"
 	"github.com/denyszorinets/damson/internal/protocol"
 	secretsdb "github.com/denyszorinets/damson/internal/secrets/db"
@@ -198,12 +199,7 @@ func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 		Leader: n.lead, Invalidate: n.logs.Invalidate, Finish: n.logs.Finish,
 		DispatchInterval: t.Dispatch, RenewInterval: t.Renew, ReapInterval: t.Reap, CancelInterval: t.Cancel, IncapableRetry: t.IncapableRetry, LeaseTTL: t.LeaseTTL,
 	}
-	if cfg.DevNodes != nil { // a nil *File must not become a non-nil interface
-		dcfg.Nodes, dcfg.Secrets = cfg.DevNodes, cfg.DevNodes
-	} else if n.secrets != nil {
-		dcfg.Secrets = &secretSource{b: n.secrets, log: log}
-		dcfg.Project = projectOf(cfg.Store)
-	}
+	dcfg.Nodes, dcfg.Secrets, dcfg.Project = n.dispatchSources(cfg, log)
 	if n.disp, err = dispatch.New(dcfg); err != nil {
 		return fmt.Errorf("creating dispatcher: %w", err)
 	}
@@ -338,4 +334,19 @@ func (n *Node) stopGuard(ctx context.Context) error {
 		return nil
 	}
 	return n.only.Stop(ctx)
+}
+
+// dispatchSources picks where the dispatcher reads nodes and secrets, and the
+// project lookup that authorizes secret refs. With --dev-nodes the file serves
+// both and nothing is authorized (ADR-0034). Otherwise nodes come from the
+// inventory, and secrets from the db backend when a KEK is configured.
+func (n *Node) dispatchSources(cfg Config, log *slog.Logger) (dispatch.NodeSource, dispatch.SecretSource, func(context.Context, string) (string, error)) {
+	if cfg.DevNodes != nil { // a nil *File must not become a non-nil interface
+		return cfg.DevNodes, cfg.DevNodes, nil
+	}
+	nodes := &InventoryNodes{Store: cfg.Store, Scope: inventory.AllNodes{}, Project: projectOf(cfg.Store)}
+	if n.secrets == nil {
+		return nodes, nil, nil
+	}
+	return nodes, &secretSource{b: n.secrets, log: log}, projectOf(cfg.Store)
 }

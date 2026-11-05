@@ -15,6 +15,7 @@ import (
 
 	"github.com/denyszorinets/damson/internal/controller/dispatch"
 	"github.com/denyszorinets/damson/internal/controller/node"
+	"github.com/denyszorinets/damson/internal/inventory"
 	"github.com/denyszorinets/damson/internal/secrets"
 	secretsdb "github.com/denyszorinets/damson/internal/secrets/db"
 	"github.com/denyszorinets/damson/internal/store"
@@ -183,4 +184,80 @@ func TestDBSecretDeniedLooksLikeMissing(t *testing.T) {
 			t.Fatalf("denied %q differs from missing %q", denied, missing)
 		}
 	})
+}
+
+func addNode(t *testing.T, st store.Store, name string, enabled bool) store.Node {
+	t.Helper()
+	n, err := st.CreateNode(context.Background(), store.Node{
+		ID: "id-" + name, Name: name, Address: "10.0.0.7", Port: 22, Transport: "ssh", OS: "linux",
+		Credential: "secret://_inventory/cred", HostKeyPolicy: "strict", Source: "manual", Enabled: enabled,
+	}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func inventoryCluster(t *testing.T, st store.Store, b *secretsdb.Backend, log *slog.Logger) *cluster {
+	t.Helper()
+	return startClusterLog(t, st, nodeSpec, log, func(c *dispatch.Config) {
+		project := func(context.Context, string) (string, error) { return "default", nil }
+		c.Nodes = &node.InventoryNodes{Store: st, Scope: inventory.AllNodes{}, Project: project}
+		c.Secrets, c.Project = node.NewSecretSource(b, log), project
+	})
+}
+
+// A node from the inventory delivers its _inventory credential, which is
+// masked in the stored log and appears in no controller log or stored input.
+func TestInventoryNodeCredentialDeliveredAndMasked(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		b := newSecretBackend(t, st)
+		putIn(t, b, "_inventory", "cred", map[string]string{"username": "damson", "private_key": secretMarker + "-KEY", "value": secretMarker})
+		putIn(t, b, "default", "token", map[string]string{"value": secretMarker})
+		addNode(t, st, "n1", true)
+		logs := &lockedBuf{}
+		log := slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		c := inventoryCluster(t, st, b, log)
+		tree := c.waitRun(c.triggerInput("nodedemo", `{"node":"n1","token":"secret://default/token"}`), store.RunSucceeded)
+		waitLog(t, st, tree.Steps[0].Executions[0].ID, "node 10.0.0.7 user *** token-len "+strconv.Itoa(len(secretMarker)))
+		if strings.Contains(logs.String(), secretMarker) {
+			t.Fatalf("a secret value reached the controller log: %s", logs.String())
+		}
+		if strings.Contains(string(tree.Steps[0].Input), secretMarker) {
+			t.Fatal("a secret value was stored")
+		}
+	})
+}
+
+// A node that is deleted or disabled fails the step for good, naming the node.
+func TestInventoryNodeGoneOrDisabledFails(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		enabled bool
+		remove  bool
+		want    string
+	}{
+		{"deleted", true, true, "unknown node"},
+		{"disabled", false, false, "node is disabled"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			forEachBackend(t, func(t *testing.T, st store.Store) {
+				b := newSecretBackend(t, st)
+				putIn(t, b, "_inventory", "cred", map[string]string{"username": "u", "private_key": "k"})
+				putIn(t, b, "default", "token", map[string]string{"value": "v"})
+				n := addNode(t, st, "n1", tc.enabled)
+				if tc.remove {
+					if err := st.DeleteNode(context.Background(), n.ID, n.Version); err != nil {
+						t.Fatal(err)
+					}
+				}
+				c := inventoryCluster(t, st, b, slog.New(slog.DiscardHandler))
+				tree := c.waitRun(c.triggerInput("nodedemo", `{"node":"n1","token":"secret://default/token"}`), store.RunFailed)
+				ex := tree.Steps[0].Executions[0]
+				if ex.State != store.ExecFailed || !strings.Contains(ex.Error, tc.want) || !strings.Contains(ex.Error, "n1") {
+					t.Fatalf("execution = %s %q; want failed with %q naming n1", ex.State, ex.Error, tc.want)
+				}
+			})
+		})
+	}
 }
