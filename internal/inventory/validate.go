@@ -26,7 +26,8 @@ const (
 	PolicyTOFU     = "tofu"
 	PolicyInsecure = "insecure"
 
-	SourceManual = "manual"
+	SourceManual  = "manual"
+	SourceDevfile = "devfile"
 )
 
 // Limits.
@@ -291,3 +292,16 @@ func Fingerprint(authorizedKey string) string {
 // ErrSourceConflict means a write targets a node owned by another source
 // without force: the owner's next sync would overwrite it.
 var ErrSourceConflict = errors.New("node is owned by another source")
+
+// ValidateSource checks the name of a sync source. manual and devfile belong
+// to the nodes API and the --dev-nodes seeder, so an external source cannot
+// take them.
+func ValidateSource(source string) error {
+	if !sourcePattern.MatchString(source) {
+		return errors.New("a source is a lowercase name (letters, digits, -; at most 63)")
+	}
+	if source == SourceManual || source == SourceDevfile {
+		return fmt.Errorf("the source %q is reserved", source)
+	}
+	return nil
+}

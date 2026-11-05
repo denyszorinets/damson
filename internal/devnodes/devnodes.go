@@ -26,7 +26,7 @@ import (
 )
 
 // Source is the inventory source name of the nodes this file creates.
-const Source = "devfile"
+const Source = inventory.SourceDevfile
 
 const (
 	fileVersion  = 1

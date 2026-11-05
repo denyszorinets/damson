@@ -270,6 +270,84 @@ Names match the 63-character lane-key grammar
 ``^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$``, because the name is a ``for_each`` path
 segment. Put an FQDN in ``address``.
 
+.. _reference-inventory-sync:
+
+Inventory sync
+~~~~~~~~~~~~~~
+
+External systems push the nodes they own, one source at a time. Damson has no
+schedule and no pull: a source's own tooling calls these routes. Both routes
+need the admin token (a missing and a wrong token get the same ``401`` as the
+other admin routes), accept a body of at most 16 MiB, and take at most 5000
+nodes per call. The whole call is one transaction.
+
+``{source}`` is a lowercase name (letters, digits and ``-``, at most 63
+characters). ``manual`` and ``devfile`` are reserved (``422``).
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Endpoint
+     - Behaviour
+   * - ``PUT /api/v1/inventory/sources/{source}/nodes?dry_run=&prune=``
+     - Full desired state of the source. Body ``{"nodes": [SyncNode]}``. With
+       ``prune=true`` the source's nodes missing from the body are deleted.
+   * - ``POST /api/v1/inventory/sources/{source}/nodes:batch?dry_run=``
+     - Incremental. Body ``{"upserts": [SyncNode], "deletes": [{"external_id"
+       | "name"}]}``. It never prunes. A delete matches this source's nodes
+       by ``external_id``, else by ``name``; a node that is not there is
+       ignored (idempotent), and a delete never reaches another source's
+       node. Upserting and deleting the same node in one call is a ``422``.
+
+``SyncNode`` fields: ``name`` (required, lane-key grammar), ``external_id``
+(optional, the source's own id, at most 255), ``address`` (required), ``port``
+(default 22 for ``ssh``, 5986 for ``winrm``), ``transport`` (``ssh`` default,
+or ``winrm``), ``os``, ``pool``, ``tags``, ``attributes``, ``credential`` (a
+``secret://`` reference to a whole secret), ``host_key`` (the source owns the
+pinned key; the observed key is never touched), ``host_key_policy``
+(``strict`` default, ``tofu`` or ``insecure``) and ``enabled`` (default true).
+
+Matching is by ``external_id`` first, else by ``name`` (a node of the source
+without an external id is adopted). A changed name for the same
+``external_id`` is a rename. Unchanged nodes are not written and keep their
+version. Nodes of other sources are never touched. The source owns every field
+it sends, so a node sent by name only loses its stored ``external_id``: send
+the id every time.
+
+A delete frees the name of the node it removes, so a host can be re-identified
+in one batch: delete the old ``external_id`` and upsert the same name with the
+new one. A source with more than 5000 nodes cannot use the full-state ``PUT``
+(a pruning ``PUT`` would delete the rest): use ``:batch``.
+
+A ``null`` ``nodes`` list is a ``422`` (it must not read as an empty desired
+state, which with ``prune`` deletes the whole source), and so is a flag that is
+present but empty (``?dry_run``): give ``true`` or ``false``. The body must be
+read within 30 seconds.
+
+``200`` returns ``{dry_run, created, updated, deleted, unchanged, conflicts}``;
+the first four are lists of node names and ``conflicts`` is always empty here
+(a conflict is a ``409``, also in a dry run). With ``dry_run=true`` nothing is written and the same
+diff is returned.
+
+Errors:
+
+- ``401``.
+- ``409`` of type ``urn:damson:problem:inventory-sync-conflict`` when a desired
+  name is held by a node of another source (also case-only), or by an own node
+  that stays. This covers name swaps and rename chains: split them into two
+  calls. ``errors`` has one entry per conflict with ``location``
+  ``node.<name>`` and ``message`` ``held by <source>``. Nothing is written,
+  also in a dry run.
+- ``409`` (stale) when a node was changed concurrently and 3 re-plans did not
+  settle it.
+- ``422`` for an invalid node, duplicate names or external ids in the body, a
+  reserved source, or an upsert and delete of the same node; the error names
+  the node and the field.
+
+Nodes owned by a sync source are edited through the nodes API only with
+``force=true``, and the next sync overwrites the edit.
+
 .. _reference-trigger:
 
 Triggering a run

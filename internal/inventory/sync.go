@@ -152,6 +152,24 @@ func nonNilAttrs(a map[string]any) map[string]any {
 // before anything is written (ErrSyncConflict, the Diff lists them). A node
 // that moves between the read and the write re-plans, up to three times.
 func Sync(ctx context.Context, st store.NodeStore, source string, desired []store.Node, prune, dryRun bool, now time.Time) (Diff, error) {
+	return run(ctx, st, source, desired, nil, prune, dryRun, now)
+}
+
+// DeleteRef names a node of the source to delete, by external id or, without
+// one, by name. A node that is not there is ignored, so a delete can be repeated.
+type DeleteRef struct {
+	ExternalID string
+	Name       string
+}
+
+// Batch applies incremental changes to the nodes of source: upserts as Sync
+// does but never pruning, and deletes of that source's nodes. A node cannot be
+// upserted and deleted in the same call (ErrBadDesired).
+func Batch(ctx context.Context, st store.NodeStore, source string, upserts []store.Node, deletes []DeleteRef, dryRun bool, now time.Time) (Diff, error) {
+	return run(ctx, st, source, upserts, deletes, false, dryRun, now)
+}
+
+func run(ctx context.Context, st store.NodeStore, source string, desired []store.Node, deletes []DeleteRef, prune, dryRun bool, now time.Time) (Diff, error) {
 	nodes, err := prepare(source, desired)
 	if err != nil {
 		return Diff{}, err
@@ -166,14 +184,20 @@ func Sync(ctx context.Context, st store.NodeStore, source string, desired []stor
 		if err != nil {
 			return Diff{}, err
 		}
-		plan, diff := PlanSync(source, nodes, own, others, prune)
+		dropped, err := resolveDeletes(own, nodes, deletes)
+		if err != nil {
+			return Diff{}, err
+		}
+		// The deleted nodes are planned away first, so the names they held are free.
+		plan, diff := PlanSync(source, nodes, withoutNodes(own, dropped), others, prune)
+		for _, n := range dropped {
+			plan.Delete = append(plan.Delete, store.NodeDelete{ID: n.ID, Expected: n.Version})
+			diff.Deleted = append(diff.Deleted, n.Name)
+		}
 		if len(diff.Conflicts) > 0 {
 			return diff, fmt.Errorf("%w: %d node(s)", ErrSyncConflict, len(diff.Conflicts))
 		}
-		if dryRun {
-			return diff, nil
-		}
-		if len(plan.Create)+len(plan.Update)+len(plan.Delete) == 0 {
+		if dryRun || len(plan.Create)+len(plan.Update)+len(plan.Delete) == 0 {
 			return diff, nil // a replay writes nothing, not even an empty transaction
 		}
 		if err := assignIDs(&plan); err != nil {
@@ -190,6 +214,80 @@ func Sync(ctx context.Context, st store.NodeStore, source string, desired []stor
 		lastErr = err
 	}
 	return Diff{}, fmt.Errorf("syncing source %q: %w", source, lastErr)
+}
+
+// resolveDeletes picks the own nodes a batch deletes. A ref matches by external
+// id, else by name; one that matches nothing is ignored (a delete can be
+// repeated). A ref that names the identity of an upsert (the same external id,
+// or the same name when it has no external id) is refused, so a node is never
+// upserted and deleted in one call. Re-using the name of a deleted node for a
+// node with another external id is fine: the delete frees the name.
+func resolveDeletes(own, upserts []store.Node, deletes []DeleteRef) ([]store.Node, error) {
+	if len(deletes) == 0 {
+		return nil, nil
+	}
+	upExt, upName := map[string]bool{}, map[string]bool{}
+	for _, u := range upserts {
+		if u.ExternalID != "" {
+			upExt[u.ExternalID] = true
+		}
+		upName[strings.ToLower(u.Name)] = true
+	}
+	byExt, byName := map[string]store.Node{}, map[string]store.Node{}
+	for _, n := range own {
+		if n.ExternalID != "" {
+			byExt[n.ExternalID] = n
+		}
+		byName[strings.ToLower(n.Name)] = n
+	}
+	seen := map[string]bool{}
+	var out []store.Node
+	for _, d := range deletes {
+		var n store.Node
+		var found bool
+		switch {
+		case d.ExternalID != "":
+			if upExt[d.ExternalID] {
+				return nil, fmt.Errorf("%w: external id %q is both upserted and deleted", ErrBadDesired, d.ExternalID)
+			}
+			n, found = byExt[d.ExternalID]
+		case d.Name != "":
+			if upName[strings.ToLower(d.Name)] {
+				return nil, fmt.Errorf("%w: %q is both upserted and deleted", ErrBadDesired, d.Name)
+			}
+			n, found = byName[strings.ToLower(d.Name)]
+		default:
+			return nil, fmt.Errorf("%w: a delete needs an external id or a name", ErrBadDesired)
+		}
+		if !found || seen[n.ID] {
+			continue
+		}
+		// An upsert with the deleted node's external id would match it too.
+		if n.ExternalID != "" && upExt[n.ExternalID] {
+			return nil, fmt.Errorf("%w: %q is both upserted and deleted", ErrBadDesired, n.Name)
+		}
+		seen[n.ID] = true
+		out = append(out, n)
+	}
+	return out, nil
+}
+
+// withoutNodes returns own minus the given nodes.
+func withoutNodes(own, drop []store.Node) []store.Node {
+	if len(drop) == 0 {
+		return own
+	}
+	gone := make(map[string]bool, len(drop))
+	for _, n := range drop {
+		gone[n.ID] = true
+	}
+	kept := make([]store.Node, 0, len(own))
+	for _, n := range own {
+		if !gone[n.ID] {
+			kept = append(kept, n)
+		}
+	}
+	return kept
 }
 
 // prepare validates and normalizes the desired set and rejects duplicates.

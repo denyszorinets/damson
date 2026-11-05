@@ -136,6 +136,7 @@ func newHuma(mux *http.ServeMux, d deps) huma.API {
 	registerExecutions(api, d)
 	registerSecrets(api, d)
 	registerNodes(api, d)
+	registerInventorySync(api, d)
 	return api
 }
 

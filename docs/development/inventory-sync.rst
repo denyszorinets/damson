@@ -3,8 +3,9 @@ Node sync core
 
 ``internal/inventory`` holds the logic behind full-state inventory sync
 (ARCHITECTURE section 11). The HTTP endpoints
-(``PUT /inventory/sources/{source}/nodes`` and ``:batch``) come with #116
-part 2; ``--dev-nodes`` is its first client, as source ``devfile`` (ADR-0044).
+(``PUT /inventory/sources/{source}/nodes`` and ``:batch``, see
+:ref:`reference-inventory-sync`) are a thin layer over it; ``--dev-nodes`` is
+another client, as source ``devfile`` (ADR-0044).
 
 Flow
 ----
@@ -58,3 +59,26 @@ Result
 
 ``Diff`` has the node names in ``Created``, ``Updated``, ``Deleted``,
 ``Unchanged`` and ``Conflicts``.
+
+Batch and DeleteRef
+-------------------
+
+``inventory.Batch(ctx, store, source, upserts, deletes, dryRun, now)`` is the
+incremental form. Upserts go through the same validation, matching and
+conflict rules as ``Sync``, but it never prunes. Each ``DeleteRef`` names a
+node of the source by ``ExternalID`` or, without one, by ``Name``. A delete
+looks only at the source's own nodes, so it never reaches another source; a
+node that is not there is ignored. Upserting and deleting the same node in one
+call is an error (``ErrBadDesired``, a ``422``).
+
+HTTP layer
+----------
+
+``internal/api/inventory_sync.go`` binds the two routes. It requires the admin
+token, limits the body to 16 MiB and 5000 nodes, and rejects the reserved
+sources ``manual`` and ``devfile``. ``ErrBadDesired`` becomes a ``422`` naming
+the node and field; ``ErrSyncConflict`` becomes a ``409`` of type
+``urn:damson:problem:inventory-sync-conflict`` with one ``errors`` entry per
+conflict (``node.<name>``, ``held by <source>``); ``ErrStale`` after the 3
+re-plans is a ``409``. The response carries ``dry_run`` and the ``Diff`` lists.
+There is no schedule or pull: sources push.

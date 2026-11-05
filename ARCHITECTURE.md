@@ -949,8 +949,10 @@ Inventory is maintained by external systems (for example a ServiceNow CMDB sync 
 | `POST` | `/api/v1/nodes` | Create (`source=manual`) |
 | `PATCH` | `/api/v1/nodes/{name}?force=` | Update fields; optional `if_version` |
 | `DELETE` | `/api/v1/nodes/{name}?force=&if_version=` | Delete |
-| `PUT` | `/api/v1/inventory/sources/{source}/nodes?dry_run=bool&prune=bool` | **Full-state sync** for one source: upsert all nodes in the body (matched by `external_id`, falling back to `name`). With `prune`, it deletes nodes of that source missing from the body. Returns a diff `{created, updated, deleted, unchanged, conflicts}`; any conflict (a desired name held by another source or by an own node that is not pruned) fails the sync with nothing written. Idempotent. |
-| `POST` | `/api/v1/inventory/sources/{source}/nodes:batch` | Incremental upserts and deletes |
+| `PUT` | `/api/v1/inventory/sources/{source}/nodes?dry_run=bool&prune=bool` | **Full-state sync** for one source; body `{nodes: [SyncNode]}`. Upserts all nodes (matched by `external_id`, falling back to `name`). With `prune`, it deletes nodes of that source missing from the body. Returns `{dry_run, created, updated, deleted, unchanged, conflicts}` (node names; conflicts are `{name, owned_by}`). Any conflict (a desired name held by another source or by an own node that stays) is a `409` of type `urn:damson:problem:inventory-sync-conflict` with nothing written, also in dry run. Idempotent. |
+| `POST` | `/api/v1/inventory/sources/{source}/nodes:batch?dry_run=bool` | Incremental; body `{upserts: [SyncNode], deletes: [{external_id \| name}]}`. Never prunes. A delete matches the source's own nodes by `external_id`, else by `name`; a missing node is ignored; it never reaches another source. Upsert and delete of the same node is a `422`. Same response and conflicts as `PUT`. |
+
+Both sync routes need the admin token, accept at most 16 MiB and 5000 nodes, and run in one transaction (a concurrently changed node re-plans up to 3 times, then `409`). Push-only: Damson has no schedule or pull.
 
 **Validation** (`inventory.Validate`)
 
@@ -976,7 +978,7 @@ Inventory is maintained by external systems (for example a ServiceNow CMDB sync 
 **Rules**
 
 - A node belongs to exactly one source. Writing a node whose source is not `manual` without `force=true` is a `409` of type `urn:damson:problem:inventory-source-conflict`. With `force=true` the write happens but keeps `source`, so the owner's next sync overwrites the edit. Until M8 `force` needs only the admin token.
-- Sync calls use **service account tokens** with the `inventory:write` scope.
+- Until service account tokens exist (M8), sync calls use the admin token; later they use **service account tokens** with the `inventory:write` scope.
 - Node changes don't affect running runs, which froze their targets at start.
 
 ---
@@ -1073,7 +1075,7 @@ All routes are under `/api/v1`, with the OpenAPI document at `/api/v1/openapi.js
 - `runs` — list, get (with step tree), `graph` (graph plus current step states, `{graph, steps[]}`), cancel, rerun (same version and options), SSE `/runs/{id}/events`
 - `executions` — get, logs (SSE)
 - `schedules`, `webhooks`
-- `nodes` — list (`GET /nodes`), get, create (`POST`, `source=manual`), update (`PATCH`, optional `if_version`), delete; `?force=true` is needed to write a node of another source (it keeps the source). All nodes routes need the admin token (§12.2), reads included. `inventory/sources/*` is not implemented yet.
+- `nodes` — list (`GET /nodes`), get, create (`POST`, `source=manual`), update (`PATCH`, optional `if_version`), delete; `?force=true` is needed to write a node of another source (it keeps the source). All nodes routes need the admin token (§12.2), reads included. The sync routes (`PUT /inventory/sources/{source}/nodes` and `:batch`) are in §11; they need the admin token too.
 - `agents` — list, get (telemetry), drain; `pools` and pool tokens
 - `secrets` — metadata list (`GET /secrets`), create or add a version (`PUT /secrets/{scope}/{name}`, write-only values, optional `if_version`), delete; `scope` is one percent-encoded path segment. `GET /secret-types` is public. All other secrets routes need the admin token (§12.2) and answer 503 when no KEK is configured.
 - `plugins` — manifests with input and output schemas (drives the UI forms)

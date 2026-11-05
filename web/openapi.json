@@ -72,6 +72,27 @@
         ],
         "type": "object"
       },
+      "BatchInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "deletes": {
+            "description": "Nodes of this source to delete; one that is not there is ignored.",
+            "items": {
+              "$ref": "#/components/schemas/DeleteNodeRef"
+            },
+            "maxItems": 5000,
+            "type": "array"
+          },
+          "upserts": {
+            "items": {
+              "$ref": "#/components/schemas/SyncNode"
+            },
+            "maxItems": 5000,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "CreateJobInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -164,6 +185,21 @@
         "required": [
           "spec"
         ],
+        "type": "object"
+      },
+      "DeleteNodeRef": {
+        "additionalProperties": false,
+        "properties": {
+          "external_id": {
+            "maxLength": 255,
+            "type": "string"
+          },
+          "name": {
+            "description": "Used when there is no external_id.",
+            "maxLength": 63,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "Execution": {
@@ -1525,6 +1561,169 @@
         ],
         "type": "object"
       },
+      "SyncConflict": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "owned_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "owned_by"
+        ],
+        "type": "object"
+      },
+      "SyncInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "nodes": {
+            "description": "The full desired state of the source.",
+            "items": {
+              "$ref": "#/components/schemas/SyncNode"
+            },
+            "maxItems": 5000,
+            "type": "array"
+          }
+        },
+        "required": [
+          "nodes"
+        ],
+        "type": "object"
+      },
+      "SyncNode": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "maxLength": 253,
+            "type": "string"
+          },
+          "attributes": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "credential": {
+            "description": "A secret:// reference to a whole secret.",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Default true.",
+            "type": "boolean"
+          },
+          "external_id": {
+            "maxLength": 255,
+            "type": "string"
+          },
+          "host_key": {
+            "description": "The source owns the pinned key; an observed key is never touched.",
+            "type": "string"
+          },
+          "host_key_policy": {
+            "description": "strict (default), tofu or insecure.",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 63,
+            "type": "string"
+          },
+          "os": {
+            "type": "string"
+          },
+          "pool": {
+            "type": "string"
+          },
+          "port": {
+            "description": "Defaults to 22 for ssh and 5986 for winrm.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "transport": {
+            "description": "ssh (default) or winrm.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "address"
+        ],
+        "type": "object"
+      },
+      "SyncResult": {
+        "additionalProperties": false,
+        "properties": {
+          "conflicts": {
+            "description": "Always empty in a 200: a conflict is a 409, also in a dry run.",
+            "items": {
+              "$ref": "#/components/schemas/SyncConflict"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "created": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "deleted": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "dry_run": {
+            "description": "True: nothing was written.",
+            "type": "boolean"
+          },
+          "unchanged": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "updated": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "dry_run",
+          "created",
+          "updated",
+          "deleted",
+          "unchanged",
+          "conflicts"
+        ],
+        "type": "object"
+      },
       "Telemetry": {
         "additionalProperties": false,
         "properties": {
@@ -1948,6 +2147,230 @@
         "summary": "Server-sent events of an execution's log",
         "tags": [
           "executions"
+        ]
+      }
+    },
+    "/inventory/sources/{source}/nodes": {
+      "put": {
+        "description": "Makes the nodes of the source equal to the body in one transaction: nodes are matched by external_id, then by name; unchanged nodes are not written and keep their version; with prune, the source's other nodes are deleted. Nodes of other sources are never touched; a name they hold is a 409 conflict and nothing is written.",
+        "operationId": "sync-nodes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source",
+            "required": true,
+            "schema": {
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Report what would change; write nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "dry_run",
+            "schema": {
+              "description": "Report what would change; write nothing.",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Delete the nodes of this source that are not in the body.",
+            "explode": false,
+            "in": "query",
+            "name": "prune",
+            "schema": {
+              "description": "Delete the nodes of this source that are not in the body.",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Full-state sync of one source",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/inventory/sources/{source}/nodes:batch": {
+      "post": {
+        "description": "Upserts as the full-state sync does, without pruning, plus deletes of this source's nodes by external_id or name. A node cannot be upserted and deleted in one call.",
+        "operationId": "batch-nodes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source",
+            "required": true,
+            "schema": {
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "dry_run",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Incremental upserts and deletes for one source",
+        "tags": [
+          "inventory"
         ]
       }
     },
