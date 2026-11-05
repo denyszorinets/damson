@@ -237,3 +237,68 @@ func testNodeSyncRace(t *testing.T, s store.Store) {
 		t.Fatalf("%d nodes after concurrent syncs, want 2", len(all))
 	}
 }
+
+func testNodeBatch(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	batch := func(dry bool, ups []store.Node, dels ...inventory.DeleteRef) (inventory.Diff, error) {
+		return inventory.Batch(ctx, s, "sync1", ups, dels, dry, t0)
+	}
+	if _, err := inventory.Sync(ctx, s, "sync1", []store.Node{desired("a", "1"), desired("b", "2"), desired("c", "3")}, true, false, t0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateNode(ctx, node("m1", "manual-1"), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	// Upserts never prune: b and c stay when only a is sent.
+	changed := desired("a", "1")
+	changed.Address = "10.0.0.1"
+	d, err := batch(false, []store.Node{changed})
+	if err != nil || len(d.Updated) != 1 || len(d.Deleted) != 0 {
+		t.Fatalf("upsert = %+v, %v", d, err)
+	}
+	if _, err := s.GetNode(ctx, "b"); err != nil {
+		t.Fatalf("a batch pruned: %v", err)
+	}
+
+	// Deletes by external id and by name; dry run writes nothing.
+	if d, err = batch(true, nil, inventory.DeleteRef{ExternalID: "2"}, inventory.DeleteRef{Name: "c"}); err != nil || len(d.Deleted) != 2 {
+		t.Fatalf("dry run = %+v, %v", d, err)
+	}
+	if _, err := s.GetNode(ctx, "b"); err != nil {
+		t.Fatal("a dry run deleted")
+	}
+	if d, err = batch(false, nil, inventory.DeleteRef{ExternalID: "2"}, inventory.DeleteRef{Name: "c"}); err != nil || len(d.Deleted) != 2 {
+		t.Fatalf("delete = %+v, %v", d, err)
+	}
+	for _, name := range []string{"b", "c"} {
+		if _, err := s.GetNode(ctx, name); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("%s still there: %v", name, err)
+		}
+	}
+	// Repeating a delete is fine, and a delete never reaches another source's node.
+	if d, err = batch(false, nil, inventory.DeleteRef{ExternalID: "2"}, inventory.DeleteRef{Name: "manual-1"}); err != nil || len(d.Deleted) != 0 {
+		t.Fatalf("repeat = %+v, %v", d, err)
+	}
+	if _, err := s.GetNode(ctx, "manual-1"); err != nil {
+		t.Fatalf("a batch deleted another source's node: %v", err)
+	}
+	// Re-identifying a host: the delete frees the name for a node with a new external id.
+	if _, err := inventory.Sync(ctx, s, "sync1", []store.Node{desired("a", "1"), desired("b", "2")}, true, false, t0); err != nil {
+		t.Fatal(err)
+	}
+	if d, err = batch(false, []store.Node{desired("b", "9")}, inventory.DeleteRef{ExternalID: "2"}); err != nil || len(d.Deleted) != 1 || len(d.Created) != 1 {
+		t.Fatalf("re-identification = %+v, %v", d, err)
+	}
+	if n, _ := s.GetNode(ctx, "b"); n.ExternalID != "9" {
+		t.Fatalf("b = %+v", n)
+	}
+	// Upsert and delete of the same node in one call, and an empty delete, are refused.
+	if _, err = batch(false, []store.Node{desired("a", "1")}, inventory.DeleteRef{ExternalID: "1"}); !errors.Is(err, inventory.ErrBadDesired) {
+		t.Fatalf("upsert + delete: %v", err)
+	}
+	if _, err = batch(false, nil, inventory.DeleteRef{}); !errors.Is(err, inventory.ErrBadDesired) {
+		t.Fatalf("empty delete: %v", err)
+	}
+}

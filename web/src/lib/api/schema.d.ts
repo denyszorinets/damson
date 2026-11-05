@@ -75,6 +75,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/inventory/sources/{source}/nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Full-state sync of one source
+         * @description Makes the nodes of the source equal to the body in one transaction: nodes are matched by external_id, then by name; unchanged nodes are not written and keep their version; with prune, the source's other nodes are deleted. Nodes of other sources are never touched; a name they hold is a 409 conflict and nothing is written.
+         */
+        put: operations["sync-nodes"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/inventory/sources/{source}/nodes:batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Incremental upserts and deletes for one source
+         * @description Upserts as the full-state sync does, without pruning, plus deletes of this source's nodes by external_id or name. A node cannot be upserted and deleted in one call.
+         */
+        post: operations["batch-nodes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jobs": {
         parameters: {
             query?: never;
@@ -469,6 +509,11 @@ export interface components {
             telemetry?: components["schemas"]["Telemetry"];
             version: string;
         };
+        BatchInputBody: {
+            /** @description Nodes of this source to delete; one that is not there is ignored. */
+            deletes?: components["schemas"]["DeleteNodeRef"][];
+            upserts?: components["schemas"]["SyncNode"][];
+        };
         CreateJobInputBody: {
             /** @description Job name; defaults to spec.metadata.name and must equal it when given. */
             name?: string;
@@ -506,6 +551,11 @@ export interface components {
              */
             expected_version?: number;
             spec: unknown;
+        };
+        DeleteNodeRef: {
+            external_id?: string;
+            /** @description Used when there is no external_id. */
+            name?: string;
         };
         Execution: {
             agent_id?: string;
@@ -929,6 +979,50 @@ export interface components {
             state?: string;
             status: string;
         };
+        SyncConflict: {
+            name: string;
+            owned_by: string;
+        };
+        SyncInputBody: {
+            /** @description The full desired state of the source. */
+            nodes: components["schemas"]["SyncNode"][];
+        };
+        SyncNode: {
+            address: string;
+            attributes?: {
+                [key: string]: unknown;
+            };
+            /** @description A secret:// reference to a whole secret. */
+            credential?: string;
+            /** @description Default true. */
+            enabled?: boolean;
+            external_id?: string;
+            /** @description The source owns the pinned key; an observed key is never touched. */
+            host_key?: string;
+            /** @description strict (default), tofu or insecure. */
+            host_key_policy?: string;
+            name: string;
+            os?: string;
+            pool?: string;
+            /**
+             * Format: int64
+             * @description Defaults to 22 for ssh and 5986 for winrm.
+             */
+            port?: number;
+            tags?: string[] | null;
+            /** @description ssh (default) or winrm. */
+            transport?: string;
+        };
+        SyncResult: {
+            /** @description Always empty in a 200: a conflict is a 409, also in a dry run. */
+            conflicts: components["schemas"]["SyncConflict"][] | null;
+            created: string[] | null;
+            deleted: string[] | null;
+            /** @description True: nothing was written. */
+            dry_run: boolean;
+            unchanged: string[] | null;
+            updated: string[] | null;
+        };
         Telemetry: {
             /**
              * Format: double
@@ -1157,6 +1251,155 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "sync-nodes": {
+        parameters: {
+            query?: {
+                /** @description Report what would change; write nothing. */
+                dry_run?: boolean;
+                /** @description Delete the nodes of this source that are not in the body. */
+                prune?: boolean;
+            };
+            header?: never;
+            path: {
+                source: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SyncInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "batch-nodes": {
+        parameters: {
+            query?: {
+                dry_run?: boolean;
+            };
+            header?: never;
+            path: {
+                source: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

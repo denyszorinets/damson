@@ -50,6 +50,7 @@ func Run(t *testing.T, f Factory) {
 		{"NodeSync", testNodeSync},
 		{"NodeDiffAtomic", testNodeDiffAtomic},
 		{"NodeSyncRace", testNodeSyncRace},
+		{"NodeBatch", testNodeBatch},
 		{"LeaderAcquireRace", testLeaderAcquireRace},
 		{"DeleteDeadControllers", testDeleteDeadControllers},
 		{"Projects", testProjects},
