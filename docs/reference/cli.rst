@@ -50,6 +50,10 @@ loopback. The token is never printed or logged. The agent appears connected
 a moment after the HTTP server starts; ``dev`` stops the agent before the
 controller on shutdown.
 
+``dev`` also needs a KEK for secrets. When none is configured it generates one
+in ``<sqlite database file>.kek`` (mode 0600) and reuses it on later starts;
+``controller`` never does. See :ref:`reference-config-dev-kek`.
+
 .. _cli-dev-nodes:
 
 Dev-only nodes and secrets

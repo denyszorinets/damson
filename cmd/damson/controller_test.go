@@ -130,7 +130,9 @@ func TestControllerServes(t *testing.T) {
 			case <-time.After(10 * time.Second):
 				t.Fatal("did not shut down")
 			}
-			if strings.Contains(errb.String(), strings.TrimPrefix(env[0], "DAMSON_DATABASE__DSN=")) {
+			dsn := strings.TrimPrefix(env[0], "DAMSON_DATABASE__DSN=")
+			// The dev role logs the path of its key file, which sits next to the database.
+			if strings.Contains(strings.ReplaceAll(errb.String(), dsn+".kek", "<key file>"), dsn) {
 				t.Errorf("DSN leaked: %s", errb.String())
 			}
 		})

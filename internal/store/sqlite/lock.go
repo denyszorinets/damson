@@ -62,3 +62,6 @@ func canonicalPath(dsn string) string {
 	}
 	return p
 }
+
+// FilePath is the absolute, symlink-resolved database file of a DSN.
+func FilePath(dsn string) string { return canonicalPath(dsn) }

@@ -128,6 +128,10 @@ See :doc:`decisions/0015-secret-references-and-envelope-encryption`.
    and there is no recovery. Back it up separately from the database, and
    keep it out of the config file, the logs and database backups.
 
+For local development only, ``damson dev`` generates a 0600 key file next to
+the SQLite database when no KEK is configured
+(:ref:`reference-config-dev-kek`); ``damson controller`` never does.
+
 Memory handling: the DEK and plaintext byte slices are zeroed after use, but
 the Go strings in the decrypted field map cannot be wiped; they stay in the
 controller's memory until garbage collected. Bundle values are dropped from
