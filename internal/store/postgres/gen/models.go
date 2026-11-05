@@ -119,6 +119,29 @@ type LogChunksDatum struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type Node struct {
+	ID                string
+	Name              string
+	Address           string
+	Port              int32
+	Transport         string
+	Os                string
+	Pool              string
+	Tags              string
+	Attributes        string
+	Credential        string
+	HostKey           string
+	HostKeyPolicy     string
+	HostKeyObserved   string
+	HostKeyObservedAt pgtype.Timestamptz
+	Source            string
+	ExternalID        string
+	Enabled           bool
+	Version           int64
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+}
+
 type PluginManifest struct {
 	Name      string
 	Version   string

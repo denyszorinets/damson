@@ -119,6 +119,29 @@ type LogChunksDatum struct {
 	CreatedAt string
 }
 
+type Node struct {
+	ID                string
+	Name              string
+	Address           string
+	Port              int64
+	Transport         string
+	Os                string
+	Pool              string
+	Tags              string
+	Attributes        string
+	Credential        string
+	HostKey           string
+	HostKeyPolicy     string
+	HostKeyObserved   string
+	HostKeyObservedAt sql.NullString
+	Source            string
+	ExternalID        string
+	Enabled           int64
+	Version           int64
+	CreatedAt         string
+	UpdatedAt         string
+}
+
 type PluginManifest struct {
 	Name      string
 	Version   string

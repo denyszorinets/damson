@@ -199,6 +199,50 @@ interface is ``SecretStore`` (``internal/store/secrets.go``), part of
 ``DeleteSecret``
    Removes the secret and all its versions; ``ErrNotFound``.
 
+Nodes (migration 00011)
+-----------------------
+
+Migration ``00011_nodes`` adds ``nodes`` (``id``, ``name``, ``address``,
+``port``, ``transport``, ``os``, ``pool``, ``tags`` JSON text, ``attributes``
+JSON text, ``credential`` secret ref, ``host_key``, ``host_key_policy``,
+``host_key_observed``, ``host_key_observed_at``, ``source``, ``external_id``,
+``enabled``, ``version``, ``created_at``, ``updated_at``).
+
+- ``name`` is unique bytewise, and a second unique index on ``lower(name)``
+  makes names that differ only in case conflict. Postgres declares ``name``
+  with ``COLLATE "C"`` so keyset order equals SQLite's bytewise order.
+- A partial unique index on ``(source, external_id)`` where
+  ``external_id <> ''`` identifies synced nodes; manual nodes have an empty
+  ``external_id``.
+- ``transport`` and ``host_key_policy`` are validated in Go
+  (``inventory.Validate``), not by ``CHECK``, because SQLite cannot alter a
+  ``CHECK`` later.
+- ``host_key_observed`` and ``host_key_observed_at`` are written by the
+  trust-on-first-use flow and do not bump ``version``.
+- ``version`` is the compare-and-swap counter for updates.
+
+The interface is ``NodeStore`` (``internal/store/nodes.go``), part of
+``Store``:
+
+``CreateNode``
+   Inserts the node. ``ErrConflict`` if the name exists, if it differs from an
+   existing name only in case, or if ``(source, external_id)`` exists.
+``GetNode``
+   One node; ``ErrNotFound``.
+``ListNodes``
+   Keyset pagination by ``name``, with optional ``source`` and ``enabled``
+   filters.
+``UpdateNode``
+   Compare-and-swap by ``id`` and ``version``. It never writes ``name``,
+   ``source``, ``external_id`` or the observed host key. ``ErrNotFound`` for an
+   unknown id, ``ErrStale`` if the version moved.
+``DeleteNode``
+   Compare-and-swap by ``id``; ``ErrNotFound`` for an unknown id, ``ErrStale``
+   if the version moved.
+
+Update and delete go by ``id``, not name, so a node that was deleted and
+recreated under the same name is never mistaken for the old one.
+
 Advance primitives
 ~~~~~~~~~~~~~~~~~~
 
