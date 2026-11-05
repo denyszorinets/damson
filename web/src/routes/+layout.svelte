@@ -11,6 +11,7 @@
 		<a href={resolve('/')} class="font-semibold">Damson</a>
 		<a href={resolve('/jobs')} class="text-muted-foreground hover:text-foreground">Jobs</a>
 		<a href={resolve('/agents')} class="text-muted-foreground hover:text-foreground">Agents</a>
+		<a href={resolve('/secrets')} class="text-muted-foreground hover:text-foreground">Secrets</a>
 	</div>
 </nav>
 
