@@ -328,7 +328,7 @@ The engine evaluates these rules deterministically:
 - `spec.targets.selector` is a CEL expression over `node` (name, tags, attributes, pool, os, transport).
   - It is evaluated against the inventory intersected with the project's node scope (§12).
   - From M4 it is evaluated once, at run start, and the node list is frozen into the run (a run-level snapshot, which needs a schema change). Before that, each `for_each` group freezes the list it iterates (below).
-- `targets` is the enabled inventory nodes (ADR-0043) that the project's node scope allows (`inventory.Scope`; `AllNodes` until M8), at most 1000, sorted by name, filtered by the selector. Each is a plain map of `name`, `address`, `tags`, `attributes`, `pool`, `os` and `transport`, and never a credential ref, host key, host key policy or port. The list is read only when the job can use it: `engine.UsesTargets` is true if `spec.targets` is set or the word `targets` appears anywhere in the spec (conservative). A failed read fails the trigger with a 5xx and creates no run; in `run.advance` it is not permanent, so the advance job is retried. With the dev-only `--dev-nodes` file (ADR-0034) the file still serves `targets` (its nodes have no tags and an empty pool). Without either, `targets` is empty. A node for which the selector does not evaluate to true, or fails to, does not match. A `for_each` group freezes the list it iterates when it starts (ADR-0038), so the lanes of a run do not change.
+- `targets` is the enabled inventory nodes (ADR-0043) that the project's node scope allows (`inventory.Scope`; `AllNodes` until M8), at most 1000, sorted by name, filtered by the selector. Each is a plain map of `name`, `address`, `tags`, `attributes`, `pool`, `os` and `transport`, and never a credential ref, host key, host key policy or port. The list is read only when the job can use it: `engine.UsesTargets` is true if `spec.targets` is set or the word `targets` appears anywhere in the spec (conservative). A failed read fails the trigger with a 5xx and creates no run; in `run.advance` it is not permanent, so the advance job is retried. `--dev-nodes` seeds its file into the inventory at startup (ADR-0044), so seeded nodes are served like any other. With no nodes, `targets` is empty. A node for which the selector does not evaluate to true, or fails to, does not match. A `for_each` group freezes the list it iterates when it starts (ADR-0038), so the lanes of a run do not change.
 - Interim until frozen run targets (#117): the target list is read live, so a node added or disabled between trigger and a group start can appear or vanish. Each `for_each` group still freezes its lane list at group start. #117 will store node ids and require the node to be in the run's targets. A literal `node: <name>` in step input also reaches inventory nodes (ADR-0043). `node.pool` is stored but does not route yet: `runs_on` still defaults to the `default` pool.
 - Plugins that accept a whole inventory (Ansible) receive `targets` directly. Plugins that work on one node (SSH, WinRM) take a `node` field, usually `${{ node.name }}` inside `for_each`.
 
@@ -902,7 +902,7 @@ type SecretStore interface {
 - The bundle is sent inside `step.execute` over TLS.
 - It is never persisted by the controller (only refs are stored) and never written to disk by the agent, except as short-lived 0600 credential files that Ansible requires, on tmpfs when available.
 - The agent drops the bundle when the execution ends.
-- In M2 the refs can be served by the dev-only `--dev-nodes` file instead of the secret store (ADR-0034); M4 replaces it.
+- `--dev-nodes` seeds its secrets into the secret store at startup (ADR-0044); there is no separate dev path for refs.
 
 ### 9.4 Masking
 
@@ -934,7 +934,7 @@ type SecretStore interface {
 
 ## 11. Inventory API
 
-Nodes are stored in the `nodes` table and managed through the API below (ADR-0043). The dev-only `--dev-nodes` file (ADR-0034) still serves nodes, secrets and targets when given, and then replaces the store at dispatch.
+Nodes are stored in the `nodes` table and managed through the API below (ADR-0043). The dev-only `--dev-nodes` file is a seeder (ADR-0044): at startup it syncs its nodes into the table as source `devfile` and writes its secrets to the secret store; dispatch and targets then use the store as without the flag.
 
 Inventory is maintained by external systems (for example a ServiceNow CMDB sync running elsewhere). Damson only exposes an API.
 
@@ -1262,7 +1262,7 @@ testdata/                   # spec fixtures, golden files
 | M1 | Agent link | WS + MessagePack JSON-RPC, pool tokens, hello/heartbeat/telemetry, reconnect; agents page |
 | M2 | First run end to end | Job spec v1 (linear), `ssh` plugin built on the public SDK, plugin registry from agent manifests, dispatch with leases and fencing, live logs (db log store), run page, API trigger |
 | M3 | Engine complete + HA | `when`, groups, try/catch/finally, retries/backoff, timeouts, cancel, `for_each` lanes; multi-controller on Postgres; reaper/leader leases; cross-controller tail; job and run graph (`BuildGraph` + Svelte Flow view with live status); **chaos test green** |
-| M4 | Secrets + inventory | db secret backend, delivery, masking; inventory API including source sync; targets/selectors; host key policies; replaces the M2 dev-only `devnodes` sources (ADR-0034) |
+| M4 | Secrets + inventory | db secret backend, delivery, masking; inventory API including source sync; targets/selectors; host key policies; replaces the M2 dev-only `devnodes` sources (ADR-0034, superseded by ADR-0044: the dev file is a seeder) |
 | M5 | Transfer + WinRM + plugin tooling | `transfer` (SFTP/SCP/FTP/FTPS/S3, copy/move, verify), `winrm`; `damson build --with`, `examples/plugins/hello`, `damson plugin new/run/validate` |
 | M6 | Ansible, Buildah, Helm | Shared git checkout; Ansible inventory and callback events; Buildah build and push with digest output; Helm upgrade/rollback/status; `damson-agent` and `damson-agent-build` images; build → deploy example job |
 | M7 | Triggers | Schedules, webhooks, service accounts and tokens, run dialog from options |

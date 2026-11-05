@@ -8,7 +8,7 @@ import (
 )
 
 // loadDevNodes loads the --dev-nodes file, or returns nil without a path. It
-// warns loudly: the file replaces inventory and secret authorization (ADR-0034).
+// seeds it at start (ADR-0044).
 func loadDevNodes(path string, log *slog.Logger) (*devnodes.File, error) {
 	if path == "" {
 		return nil, nil
@@ -17,6 +17,6 @@ func loadDevNodes(path string, log *slog.Logger) (*devnodes.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading --dev-nodes: %w", err)
 	}
-	log.Warn("dev nodes: no inventory, no secret authorization; development only", "path", path, "nodes", f.Names())
+	log.Info("dev nodes file loaded", "path", path, "nodes", f.Names())
 	return f, nil
 }

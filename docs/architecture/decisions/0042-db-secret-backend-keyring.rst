@@ -117,6 +117,11 @@ The db backend is the secret source when a KEK is configured and
 ``--dev-nodes`` is not given; ``--dev-nodes`` stays the only source when set
 (:doc:`0034-dev-only-inline-nodes-and-secrets`).
 
+.. note::
+
+   Superseded in part: see :doc:`0044-dev-nodes-is-a-seeder`. ``--dev-nodes``
+   now seeds the stores and is no longer a source.
+
 - A missing secret fails the execution permanently (``ErrUnknownSecret``).
 - A malformed ref, an unknown ``kek_id`` or a decryption failure fails it
   permanently with ``ErrSecretUnavailable``. The message names only the ref;

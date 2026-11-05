@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -92,11 +93,11 @@ func startE2ESSH(t *testing.T) *e2eSSH {
 		"nodes": map[string]any{"sshd": map[string]any{
 			"address": host, "port": port.Num(), "transport": "ssh", "os": "linux",
 			"host_key_policy": "strict", "host_key": learnHostKey(t, host, port.Port()),
-			"credential": "secret://dev/sshd",
+			"credential": "secret://_inventory/sshd",
 		}},
 		"secrets": map[string]any{
-			"secret://dev/sshd":  map[string]string{"username": sshUser, "private_key_file": keyFile},
-			"secret://dev/token": map[string]string{"value_file": tokenFile},
+			"secret://_inventory/sshd": map[string]string{"username": sshUser, "private_key_file": keyFile},
+			"secret://default/token":   map[string]string{"value_file": tokenFile},
 		},
 	}
 	raw, _ := json.Marshal(nodes)
@@ -154,6 +155,10 @@ type e2eCluster struct {
 func startE2E(t *testing.T, be adminBackend, o *e2eSSH) *e2eCluster {
 	t.Helper()
 	env := append(adminEnv(t, be, true), "DAMSON_CONTROLLER__LISTEN=127.0.0.1:0", "DAMSON_AGENT__ALLOW_INSECURE_HOST_KEYS=false")
+	if be.driver != config.DriverSQLite {
+		// `damson dev` (SQLite) makes its own key file; a controller needs one given.
+		env = append(env, "DAMSON_KEK="+base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)))
+	}
 	c := &e2eCluster{}
 	launch := func(args, env []string) *syncBuf {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -227,7 +232,7 @@ func (c *e2eCluster) sseLines(t *testing.T, execID string) string {
 }
 
 const e2eSpec = `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"hello-ssh"},
-"spec":{"steps":[{"id":"hello","plugin":"ssh","with":{"node":"sshd","command":"echo hello-from-sshd; echo t=$TOKEN","env":{"TOKEN":"secret://dev/token"}}}]}}`
+"spec":{"steps":[{"id":"hello","plugin":"ssh","with":{"node":"sshd","command":"echo hello-from-sshd; echo t=$TOKEN","env":{"TOKEN":"secret://default/token"}}}]}}`
 
 // TestE2ESSHRun creates a job over the API, triggers it and checks the step
 // outputs, the masked log and the run status; SQLite runs `damson dev`,

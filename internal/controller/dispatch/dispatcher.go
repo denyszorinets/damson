@@ -69,7 +69,7 @@ type Config struct {
 	Agents  Agents
 	Plugins Resolver
 	// Nodes and Secrets fill the nodes and secret bundle of step.execute.
-	// Both are optional: without them a step gets neither (ADR-0034 until M4).
+	// Both are optional: without them a step gets neither (the inventory and secret sources, ADR-0043).
 	Nodes   NodeSource
 	Secrets SecretSource
 	// Project returns the project path of a run. When set, secret refs are

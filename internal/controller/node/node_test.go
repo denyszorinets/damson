@@ -2,6 +2,7 @@ package node_test
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -239,5 +240,32 @@ func TestNoGuardWithoutTheFlag(t *testing.T) {
 	}
 	for _, n := range nodes {
 		stopNode(t, n)
+	}
+}
+
+// A second process on an SQLite database that is already in use is refused
+// before it seeds anything: the running controller's inventory stays as it is.
+func TestSecondProcessDoesNotSeed(t *testing.T) {
+	st := migratedStore(t)
+	first, err := startSingle(t, st, "ctl-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stopNode(t, first)
+
+	reg, err := pluginreg.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := node.Start(context.Background(), node.Config{
+		Store: st, ControllerID: "ctl-2", Plugins: reg, InsecureDev: true, SingleController: true, DevFile: devFile(t, false),
+		Timing: node.Timing{LeaderTTL: 600 * time.Millisecond, LeaderRenew: 200 * time.Millisecond},
+	})
+	if err == nil {
+		stopNode(t, second)
+		t.Fatal("a second process started on a database in use")
+	}
+	if _, err := st.GetNode(context.Background(), "dev-1"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the refused process seeded the inventory: %v", err)
 	}
 }

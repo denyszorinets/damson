@@ -155,9 +155,9 @@ There is no notify hint yet; the poll is the only trigger.
 Node sources
 ------------
 
-Without ``--dev-nodes`` the dispatcher reads node rows from the store at
-dispatch time (``node.InventoryNodes``, ADR-0043). With ``--dev-nodes`` the
-file serves nodes, secrets and targets as before.
+The dispatcher reads node rows from the store at dispatch time
+(``node.InventoryNodes``, ADR-0043) and secrets from the db backend. There is
+no other source: ``--dev-nodes`` only seeds these stores at startup (ADR-0044).
 
 * A missing node, or one outside the project's node scope (``inventory.Scope``;
   ``AllNodes`` until M8), fails the step permanently as ``unknown node``. There
@@ -178,7 +178,7 @@ Not yet implemented
 * Frozen run targets and routing from ``node.pool`` (:issue:`117`). Until then
   ``targets`` is read live from the inventory (enabled nodes in the project's
   scope, at most 1000, sorted by name) when the job can read it, so a node added
-  or disabled mid-run can appear or vanish; with ``--dev-nodes`` the file
-  (ADR-0034, see :doc:`/reference/cli`) serves it.
+  or disabled mid-run can appear or vanish. Nodes seeded by ``--dev-nodes``
+  (ADR-0044, see :doc:`/reference/cli`) are served the same way.
 * A notify hint for dispatch and cancel (the 1 s and 2 s polls are the only triggers).
 * Retries (M3).

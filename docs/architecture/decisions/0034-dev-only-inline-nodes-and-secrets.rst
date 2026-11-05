@@ -1,7 +1,7 @@
 ADR-0034: Dev-only inline nodes and secrets (--dev-nodes) until inventory and secrets land in M4
 ================================================================================================
 
-:Status: Accepted
+:Status: Superseded by :doc:`0044-dev-nodes-is-a-seeder`
 :Date: 2026-10-29
 
 Context
@@ -81,3 +81,4 @@ References
 - :doc:`/reference/cli`
 - :doc:`/tutorial/ssh-job`
 - :doc:`0015-secret-references-and-envelope-encryption`
+- :doc:`0044-dev-nodes-is-a-seeder` (supersedes this ADR)

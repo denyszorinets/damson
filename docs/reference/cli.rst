@@ -59,23 +59,30 @@ in ``<sqlite database file>.kek`` (mode 0600) and reuses it on later starts;
 Dev-only nodes and secrets
 --------------------------
 
-``--dev-nodes <file>`` loads inline nodes and secret files from a JSON file so
-that ``ssh`` steps can run before inventory and the secret store exist (M4;
-:doc:`/architecture/decisions/0034-dev-only-inline-nodes-and-secrets`). It is a
-flag only: there is no config key and no environment variable. ``dev`` accepts
-it; ``controller`` accepts it only with ``--insecure-dev``; ``agent`` rejects
-it (usage error, exit 2). A file that cannot be loaded fails startup with exit
-status 1. Startup logs a WARN naming the file path and the node names.
+``--dev-nodes <file>`` seeds nodes and secrets from a JSON file into the
+inventory and the secret store at startup
+(:doc:`/architecture/decisions/0044-dev-nodes-is-a-seeder`). It is a flag only:
+there is no config key and no environment variable. ``dev`` accepts it;
+``controller`` accepts it only with ``--insecure-dev``; ``agent`` rejects it
+(usage error, exit 2). A file that cannot be loaded or seeded fails startup with
+exit status 1.
 
-The nodes are also the ``targets`` of a job: ``for_each: "targets"`` runs a
-group once per node, after ``spec.targets.selector`` has filtered them, with
-``node`` bound (``name``, ``address``, ``tags``, ``attributes``, ``pool``,
-``os``, ``transport``). The credential, host key and host key policy are never
-part of ``node``; a plugin step takes ``node: "${{ node.name }}"`` and the
-dispatcher resolves the rest. A dev file has no ``tags`` (always empty).
-``attributes`` are not secret: they are stored with the run and shown by the
-API and the UI, so a ``secret://`` value in them is rejected when the file is
-loaded.
+After the secret backend is ready, the file is seeded:
+
+- Nodes go through inventory sync as source ``devfile`` (``external_id`` is the
+  node name). Devfile nodes that are no longer in the file are deleted. A node of
+  another source (for example ``manual``) with the same name makes the start fail
+  with a conflict naming the owner.
+- Secrets are written to the ``db`` backend. They are never pruned: delete them
+  through the API or UI. A secret whose ``type`` differs from the stored one
+  fails startup naming the ref.
+- From then on dispatch, ``targets`` (``for_each: "targets"``,
+  ``spec.targets.selector``), spec validation and ref authorization use the real
+  stores exactly as without the flag. ``attributes`` are not secret, so a
+  ``secret://`` value in them is rejected.
+- A file with secrets needs a KEK. ``damson dev`` makes its own key (see
+  :ref:`reference-config-dev-kek`); a ``controller`` needs ``DAMSON_KEK``.
+  Without one, or on a database that is not migrated, startup fails.
 
 .. code-block:: json
 
@@ -87,29 +94,48 @@ loaded.
          "port": 2222,
          "transport": "ssh",
          "os": "linux",
+         "pool": "default",
+         "tags": ["dev"],
          "attributes": {},
-         "credential": "secret://dev/sshd",
+         "credential": "secret://_inventory/sshd",
          "host_key": "ssh-ed25519 AAAA...",
          "host_key_policy": "strict"
        }
      },
      "secrets": {
-       "secret://dev/sshd": {"username": "demo", "private_key_file": "/abs/path/id_ed25519"},
-       "secret://dev/token": {"value_file": "/abs/path/token.txt"}
+       "secret://_inventory/sshd": {"type": "ssh_key", "username": "demo", "private_key_file": "/abs/path/id_ed25519"},
+       "secret://default/token": {"token_file": "/abs/path/token.txt"}
      }
    }
 
 - ``version`` must be ``1``. Unknown fields are rejected.
 - A node has ``address``, ``port`` (default 22), ``transport``, ``os``,
-  ``attributes``, ``credential`` (a ref under ``secrets``), ``host_key`` and
-  ``host_key_policy`` (``strict``, ``tofu`` or ``insecure``). No handler stores
-  ``tofu`` host keys yet; use ``strict`` with a pinned ``host_key``.
-- A secret is keyed by its ref without ``#field``. ``username`` may be inline.
-  Every other field is given as ``<field>_file``, an absolute path. Secret
-  values come only from files, which must be regular, mode 0600 or stricter and
-  at most 64 KiB. They are read at every dispatch and never cached.
-- A step referencing an unknown node or ref fails permanently; the message
-  names only the node or ref.
+  ``pool``, ``tags``, ``attributes``, ``credential``, ``host_key`` and
+  ``host_key_policy`` (``strict``, ``tofu`` or ``insecure``).
+- Refs follow the real grammar and authorization: node credentials should be
+  ``secret://_inventory/<name>`` and step secrets ``secret://<project>/<name>``.
+  A node's credential does not have to be defined in the file; its existence is
+  checked at dispatch.
+- A secret is keyed by its ref without ``#field``. The optional literal key
+  ``type`` is the secret type (default ``generic``). Only ``username`` may be a
+  literal; every other field is ``<field>_file``, an absolute path read at seed
+  time (a regular file, mode 0600 or stricter, at most 64 KiB), not at dispatch.
+- Re-seeding is idempotent. Each start compares the stored and file values and
+  writes a new secret version only when a value changed; unchanged nodes keep
+  their version. Concurrent seeders are safe. A restart re-reads the files, so
+  a value changed through the API is overwritten if the file differs.
+- Host key policies are not exempt: ``insecure``, and ``tofu`` without a pinned
+  ``host_key``, are seeded but refused at dispatch until the host key flow
+  lands (:issue:`118`). Use ``strict`` with a pinned ``host_key``. Startup warns
+  about such nodes and about ``_inventory`` secrets that no node uses.
+- Startup logs a WARN with the file's node names and an INFO with the created,
+  updated, deleted and unchanged counts and the refs written, never values.
+
+.. warning::
+
+   Breaking change: files using ``secret://dev/...`` refs no longer work. The
+   literal ref fails spec validation with ``422`` and dispatch fails with
+   ``unknown secret``. Rename the refs as above.
 
 .. _cli-admin:
 

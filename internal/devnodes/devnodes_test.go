@@ -1,15 +1,10 @@
 package devnodes
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/denyszorinets/damson/internal/controller/dispatch"
 )
 
 const marker = "PRIVATE-KEY-MARKER"
@@ -28,137 +23,101 @@ func write(t *testing.T, dir, name, content string, mode os.FileMode) string {
 
 func fileJSON(keyPath string) string {
 	return `{"version":1,
-"nodes":{"sshd":{"address":"127.0.0.1","port":2222,"host_key_policy":"strict","host_key":"ssh-ed25519 AAAA","credential":"secret://dev/sshd"}},
-"secrets":{"secret://dev/sshd":{"username":"damson","private_key_file":"` + keyPath + `"}}}`
+"nodes":{"sshd":{"address":"127.0.0.1","port":2222,"host_key_policy":"strict","host_key":"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl","credential":"secret://_inventory/sshd","tags":["dev"],"attributes":{"role":"web"}}},
+"secrets":{"secret://_inventory/sshd":{"username":"damson","private_key_file":"` + keyPath + `"},
+"secret://default/token":{"type":"token","token_file":"` + keyPath + `"}}}`
 }
 
-func TestLoadAndResolve(t *testing.T) {
+func TestLoadAndDesired(t *testing.T) {
 	dir := t.TempDir()
 	key := write(t, dir, "key", marker, 0o600)
 	f, err := Load(write(t, dir, "nodes.json", fileJSON(key), 0o600))
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := f.Node(context.Background(), "r", "sshd")
-	if err != nil || n.Address != "127.0.0.1" || n.Port != 2222 || n.Transport != "ssh" || n.Name != "sshd" || n.Credential != "secret://dev/sshd" {
-		t.Fatalf("node = %+v, %v", n, err)
+	ds := f.Desired()
+	if len(ds) != 1 {
+		t.Fatalf("Desired = %+v", ds)
 	}
-	if _, err := f.Node(context.Background(), "r", "nope"); !errors.Is(err, dispatch.ErrUnknownNode) {
-		t.Fatalf("unknown node err = %v", err)
+	n := ds[0]
+	if n.Name != "sshd" || n.ExternalID != "sshd" || n.Source != Source || n.Address != "127.0.0.1" || n.Port != 2222 ||
+		n.Transport != "ssh" || !n.Enabled || n.Credential != "secret://_inventory/sshd" || n.Tags[0] != "dev" || n.Attributes["role"] != "web" {
+		t.Fatalf("node = %+v", n)
 	}
-	got, err := f.Secret(context.Background(), "r", "secret://dev/sshd")
-	if err != nil || got["private_key"] != marker || got["username"] != "damson" {
-		t.Fatalf("secret = %v, %v", got, err)
+	if !f.HasSecrets() || len(f.secrets) != 2 {
+		t.Fatalf("secrets = %+v", f.secrets)
 	}
-	// Nothing is cached: a rewritten key is served at the next call.
-	write(t, dir, "key", "rotated", 0o600)
-	if got, _ := f.Secret(context.Background(), "r", "secret://dev/sshd"); got["private_key"] != "rotated" {
-		t.Fatalf("key after rotation = %q", got["private_key"])
+	// The default port follows the transport; a credential need not be defined in the file.
+	f, err = Load(write(t, dir, "win.json", `{"version":1,"nodes":{"w":{"address":"10.0.0.9","transport":"winrm","host_key_policy":"strict","credential":"secret://default/elsewhere"}}}`, 0o600))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := f.Secret(context.Background(), "r", "secret://dev/other"); !errors.Is(err, dispatch.ErrUnknownSecret) {
-		t.Fatalf("unknown secret err = %v", err)
+	if w := f.Desired()[0]; w.Port != 5986 || w.Transport != "winrm" {
+		t.Fatalf("winrm node = %+v", w)
 	}
-	if names := f.Names(); len(names) != 1 || names[0] != "sshd" {
-		t.Fatalf("names = %v", names)
+	// Desired returns a copy.
+	f.Desired()[0].Name = "changed"
+	if f.Desired()[0].Name != "w" {
+		t.Fatal("Desired shares its slice with the file")
 	}
 }
 
 func TestLoadRejects(t *testing.T) {
 	dir := t.TempDir()
-	key := write(t, dir, "key", marker, 0o600)
-	tests := []struct{ name, body string }{
-		{"unknown field", `{"version":1,"nodes":{},"secrets":{},"extra":1}`},
-		{"bad version", `{"version":2}`},
-		{"inline private key", `{"version":1,"secrets":{"secret://a":{"private_key":"` + marker + `"}}}`},
-		{"relative path", `{"version":1,"secrets":{"secret://a":{"private_key_file":"key"}}}`},
-		{"ref with field", `{"version":1,"secrets":{"secret://a#f":{"username":"x"}}}`},
-		{"not a ref", `{"version":1,"secrets":{"a":{"username":"x"}}}`},
-		{"undefined credential", `{"version":1,"nodes":{"n":{"address":"h","host_key_policy":"strict","credential":"secret://zz"}}}`},
-		{"bad policy", `{"version":1,"nodes":{"n":{"address":"h","host_key_policy":"yolo"}}}`},
-		{"no address", `{"version":1,"nodes":{"n":{"host_key_policy":"strict"}}}`},
-		{"bad port", `{"version":1,"nodes":{"n":{"address":"h","port":70000,"host_key_policy":"strict"}}}`},
-		{"secret ref in attributes", `{"version":1,"nodes":{"n":{"address":"h","host_key_policy":"strict","attributes":{"a":{"b":["secret://x"]}}}}}`},
-		{"not json", `nope`},
+	node := `"nodes":{"n":{"address":"10.0.0.1","host_key_policy":"strict"}}`
+	tests := map[string]struct{ json, want string }{
+		"unknown field":        {`{"version":1,"unknown":true}`, "unknown"},
+		"wrong version":        {`{"version":2}`, "version 2"},
+		"empty address":        {`{"version":1,"nodes":{"n":{"host_key_policy":"strict"}}}`, "address"},
+		"address with port":    {`{"version":1,"nodes":{"n":{"address":"h:22","host_key_policy":"strict"}}}`, "address"},
+		"bad policy":           {`{"version":1,"nodes":{"n":{"address":"h","host_key_policy":"lax"}}}`, "host_key_policy"},
+		"missing policy":       {`{"version":1,"nodes":{"n":{"address":"h"}}}`, "host_key_policy"},
+		"bad node name":        {`{"version":1,"nodes":{"a/b":{"address":"h","host_key_policy":"strict"}}}`, "name"},
+		"case-only duplicates": {`{"version":1,"nodes":{"a":{"address":"h","host_key_policy":"strict"},"A":{"address":"h","host_key_policy":"strict"}}}`, "differ only in case"},
+		"credential not a ref": {`{"version":1,"nodes":{"n":{"address":"h","host_key_policy":"strict","credential":"hunter2"}}}`, "credential"},
+		"secret ref in attrs":  {`{"version":1,"nodes":{"n":{"address":"h","host_key_policy":"strict","attributes":{"a":"secret://x/y"}}}}`, "attributes"},
+		"ref with field":       {`{"version":1,` + node + `,"secrets":{"secret://default/a#f":{"username":"u"}}}`, "without #field"},
+		"underscore project":   {`{"version":1,` + node + `,"secrets":{"secret://_x/a":{"username":"u"}}}`, "scope"},
+		"old style no scope":   {`{"version":1,` + node + `,"secrets":{"secret://a":{"username":"u"}}}`, "scope"},
+		"inline value":         {`{"version":1,` + node + `,"secrets":{"secret://default/a":{"password":"hunter2"}}}`, `"password_file"`},
+		"relative path":        {`{"version":1,` + node + `,"secrets":{"secret://default/a":{"password_file":"rel"}}}`, "absolute"},
+		"unknown type":         {`{"version":1,` + node + `,"secrets":{"secret://default/a":{"type":"nope","username":"u"}}}`, "type"},
+		"missing required":     {`{"version":1,` + node + `,"secrets":{"secret://default/a":{"type":"token","username":"u"}}}`, "token"},
+		"no fields":            {`{"version":1,` + node + `,"secrets":{"secret://default/a":{"type":"generic"}}}`, "no fields"},
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := Load(write(t, dir, "bad.json", tc.body, 0o600))
-			if err == nil {
-				t.Fatal("expected an error")
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(write(t, dir, "bad.json", tc.json, 0o600))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v; want one mentioning %q", err, tc.want)
 			}
-			if strings.Contains(err.Error(), marker) {
-				t.Fatalf("error leaks a value: %v", err)
+			if strings.Contains(err.Error(), "hunter2") {
+				t.Fatalf("error echoes a value: %v", err)
 			}
 		})
 	}
 	if _, err := Load(filepath.Join(dir, "missing.json")); err == nil {
-		t.Fatal("missing file accepted")
+		t.Fatal("a missing file loaded")
 	}
-	_ = key
 }
 
 func TestSecretFileChecks(t *testing.T) {
 	dir := t.TempDir()
-	open := write(t, dir, "open", marker, 0o644)
-	big := write(t, dir, "big", strings.Repeat("x", maxKeyBytes+1), 0o600)
-	for name, path := range map[string]string{"group/world readable": open, "too large": big, "missing": filepath.Join(dir, "gone"), "directory": dir} {
-		t.Run(name, func(t *testing.T) {
-			f, err := Load(write(t, dir, "n.json", `{"version":1,"secrets":{"secret://a":{"value_file":"`+path+`"}}}`, 0o600))
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = f.Secret(context.Background(), "r", "secret://a")
-			if err == nil {
-				t.Fatal("expected an error")
-			}
-			if strings.Contains(err.Error(), marker) {
-				t.Fatalf("error leaks file content: %v", err)
-			}
-		})
+	good := write(t, dir, "good", marker, 0o600)
+	if b, err := readSecretFile(good); err != nil || string(b) != marker {
+		t.Fatalf("good file: %q, %v", b, err)
 	}
-}
-
-func TestTargetsAreSortedAndCarryNoSecrets(t *testing.T) {
-	dir := t.TempDir()
-	key := write(t, dir, "key", marker, 0o600)
-	content := `{"version":1,
-"nodes":{
- "web-02":{"address":"10.0.0.2","os":"linux","host_key_policy":"insecure","attributes":{"role":"web","rack":3}},
- "db-01":{"address":"10.0.0.9","port":5022,"transport":"ssh","host_key_policy":"strict","host_key":"ssh-ed25519 AAAA","credential":"secret://dev/sshd"},
- "web-01":{"address":"10.0.0.1","os":"linux","host_key_policy":"insecure","attributes":{"role":"web"}}},
-"secrets":{"secret://dev/sshd":{"username":"damson","private_key_file":"` + key + `"}}}`
-	f, err := Load(write(t, dir, "nodes.json", content, 0o600))
-	if err != nil {
-		t.Fatal(err)
-	}
-	targets, _ := f.Targets(context.Background(), "default")
-	var names []string
-	for _, n := range targets {
-		names = append(names, n["name"].(string))
-	}
-	if strings.Join(names, ",") != "db-01,web-01,web-02" {
-		t.Fatalf("targets = %v; want them sorted by name", names)
-	}
-	web := targets[2]
-	if web["address"] != "10.0.0.2" || web["os"] != "linux" || web["transport"] != "ssh" || web["pool"] != "" {
-		t.Fatalf("web-02 = %v", web)
-	}
-	if attrs := web["attributes"].(map[string]any); attrs["role"] != "web" || attrs["rack"] != float64(3) {
-		t.Fatalf("attributes = %v", web["attributes"])
-	}
-	if tags, ok := web["tags"].([]any); !ok || len(tags) != 0 {
-		t.Fatalf("tags = %#v; want an empty list", web["tags"])
-	}
-	// The expression context never gets the credential, the host key or the policy.
-	dump := fmt.Sprint(targets)
-	for _, forbidden := range []string{"secret://", "AAAA", "credential", "host_key", marker, "strict", "insecure"} {
-		if strings.Contains(dump, forbidden) {
-			t.Fatalf("targets leak %q: %s", forbidden, dump)
+	for name, path := range map[string]string{
+		"group readable": write(t, dir, "open", marker, 0o640),
+		"directory":      dir,
+		"missing":        filepath.Join(dir, "nope"),
+		"too large":      write(t, dir, "big", strings.Repeat("x", maxKeyBytes+1), 0o600),
+	} {
+		_, err := readSecretFile(path)
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+		} else if strings.Contains(err.Error(), marker) {
+			t.Errorf("%s: error echoes the content: %v", name, err)
 		}
-	}
-	// A copy: changing it does not change the file's nodes.
-	targets[2]["attributes"].(map[string]any)["role"] = "changed"
-	if again, _ := f.Targets(context.Background(), "default"); again[2]["attributes"].(map[string]any)["role"] != "web" {
-		t.Fatal("Targets shares the node attributes with the file")
 	}
 }
