@@ -950,6 +950,18 @@ Inventory is maintained by external systems (for example a ServiceNow CMDB sync 
 | `PUT` | `/api/v1/inventory/sources/{source}/nodes?dry_run=bool&prune=bool` | **Full-state sync** for one source: upsert all nodes in the body (matched by `external_id`, falling back to `name`). With `prune`, it deletes nodes of that source missing from the body. Returns a diff `{created, updated, deleted, unchanged}`. Idempotent. |
 | `POST` | `/api/v1/inventory/sources/{source}/nodes:batch` | Incremental upserts and deletes |
 
+**Validation** (`inventory.Validate`)
+
+- `name`: `^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$` (same as the `for_each` lane key); case-only duplicates conflict. Put an FQDN in `address`.
+- `address`: an IP (no brackets or zone) or an RFC 1123 hostname (no port, scheme or user; at most 253 bytes).
+- `port`: 1..65535; defaults 22 for `ssh`, 5986 for `winrm`.
+- `transport`: `ssh` or `winrm`. `os`: `^[a-z][a-z0-9_-]{0,31}$` or empty. `pool`: a lowercase name or empty (no foreign key).
+- `tags`: each at most 63 bytes, `^[A-Za-z0-9][A-Za-z0-9._:/=-]{0,62}$` and not starting with `secret:`; at most 64 tags; deduplicated and sorted.
+- `attributes`: at most 64 keys (identifiers); values are a string up to 1 KiB, a finite number (stored as a float64; integers above 2^53 are refused) or a bool; no `secret://` strings; at most 16 KiB encoded.
+- `credential`: empty or a whole secret ref (no `#field`) in `_inventory` or project scope; existence is checked at dispatch.
+- `host_key`: empty or exactly one `authorized_keys` key, normalized without comment; not allowed for `winrm`. `host_key_policy`: `strict`, `tofu` or `insecure`. A `strict` node without a `host_key` is accepted at write time (synced nodes may get their key later) and fails at connect.
+- `source`: `^[a-z0-9][a-z0-9-]{0,62}$` (`manual` and `devfile` are reserved for the API and the dev seeder). `external_id`: at most 255 bytes, no control characters, empty for `manual`. Both are in unique indexes, so their size is bounded here. Absolute FQDNs (trailing dot) and hostnames with underscores are not valid addresses.
+
 **Rules**
 
 - A node belongs to exactly one source. Writes from another source fail with a conflict error unless `force=true`, which requires admin.

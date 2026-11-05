@@ -12,7 +12,8 @@ import (
 const InventoryScope = "_inventory"
 
 const (
-	refPrefix  = "secret://"
+	// RefPrefix starts every secret reference.
+	RefPrefix  = "secret://"
 	maxRefLen  = 512
 	maxSegment = 8
 )
@@ -40,9 +41,9 @@ func ParseRef(s string) (Ref, error) {
 	if len(s) > maxRefLen {
 		return Ref{}, fmt.Errorf("%w: longer than %d bytes", ErrBadRef, maxRefLen)
 	}
-	rest, ok := strings.CutPrefix(s, refPrefix)
+	rest, ok := strings.CutPrefix(s, RefPrefix)
 	if !ok {
-		return Ref{}, fmt.Errorf("%w: missing %s prefix", ErrBadRef, refPrefix)
+		return Ref{}, fmt.Errorf("%w: missing %s prefix", ErrBadRef, RefPrefix)
 	}
 	path, field, hasField := strings.Cut(rest, "#")
 	i := strings.LastIndex(path, "/")
@@ -91,7 +92,7 @@ func ValidateName(name string) error {
 }
 
 // Base is the ref without its field.
-func (r Ref) Base() string { return refPrefix + r.Scope + "/" + r.Name }
+func (r Ref) Base() string { return RefPrefix + r.Scope + "/" + r.Name }
 
 // String renders the ref, with "#field" when set.
 func (r Ref) String() string {

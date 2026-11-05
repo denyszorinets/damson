@@ -26,7 +26,7 @@ func toSecretMeta(id, scope, name, typ string, cur int64, c, u pgtype.Timestampt
 	if err != nil {
 		return store.SecretMeta{}, err
 	}
-	return store.SecretMeta{ID: id, Scope: scope, Name: name, Type: typ, CurrentVersion: cur, FieldNames: names, CreatedAt: c.Time, UpdatedAt: u.Time}, nil
+	return store.SecretMeta{ID: id, Scope: scope, Name: name, Type: typ, CurrentVersion: cur, FieldNames: names, CreatedAt: c.Time.UTC(), UpdatedAt: u.Time.UTC()}, nil
 }
 
 func versionParams(id string, version int64, v store.SecretBlob, now time.Time) (gen.InsertSecretVersionParams, error) {
