@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/denyszorinets/damson/internal/agent"
 	"github.com/denyszorinets/damson/internal/config"
 	"github.com/denyszorinets/damson/internal/controller/node"
 	"github.com/denyszorinets/damson/internal/pluginreg"
+	secretsdb "github.com/denyszorinets/damson/internal/secrets/db"
 	"github.com/denyszorinets/damson/internal/store/storefactory"
 	"github.com/denyszorinets/damson/internal/webui"
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
@@ -46,6 +48,12 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 		log.Info("migrations applied")
 	}
 
+	devKEKFile := ""
+	if dev {
+		if devKEKFile, err = ensureDevKEK(ctx, st, &cfg, log); err != nil {
+			return err
+		}
+	}
 	devNodes, err := loadDevNodes(devNodesPath, log)
 	if err != nil {
 		return err
@@ -73,6 +81,9 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 		Addr: cfg.Controller.Listen, UI: webui.Handler(web.Build()), Logger: log,
 	})
 	if err != nil {
+		if devKEKFile != "" && errors.Is(err, secretsdb.ErrKEK) {
+			return fmt.Errorf("%w\n(the dev key file is %s; it belongs to another database or was replaced: restore the matching one, or delete the database files %s, %s-wal, %s-shm and the key file to start over)", err, devKEKFile, strings.TrimSuffix(devKEKFile, ".kek"), strings.TrimSuffix(devKEKFile, ".kek"), strings.TrimSuffix(devKEKFile, ".kek"))
+		}
 		return err
 	}
 	srv := n.Server()

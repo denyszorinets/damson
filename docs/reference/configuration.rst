@@ -169,6 +169,39 @@ Without a KEK and without stored secrets, secrets are disabled (a WARN at
 start) and steps that use ``secret://`` refs fail. A controller without a KEK
 refuses to start against a database that already holds secrets.
 
+.. _reference-config-dev-kek:
+
+Dev key file
+~~~~~~~~~~~~
+
+Only ``damson dev`` (never ``damson controller``) generates a KEK when none is
+configured. It writes a 32-byte base64 key to ``<sqlite database file>.kek``
+(for example ``damson.db.kek``) with mode 0600. The file is created atomically:
+a private temp file in the same directory is synced and then hard-linked into
+place, so there is never an empty or partial key file and two dev processes
+starting together share one key. Later starts reuse the file. The startup log
+carries the key file path and ``kek_id`` (never the key) and warns that losing
+the file loses the dev secrets.
+
+``DAMSON_KEK`` or ``secrets.kek_file`` wins. If a ``.kek`` file also exists, the
+dev role logs a warning and ignores it.
+
+The file is refused, and start fails naming the path, if it is a symlink or not
+a regular file, if group or others can read it (the message says to ``chmod
+600``), or if it is empty or does not hold a valid key.
+
+If the key file is deleted while the database still holds secrets (the KEK
+canary), nothing is wiped and no new key is made, because it would fit nothing:
+the dev role refuses to start with a message naming the key file and the
+database files ("restore it, or delete ... to start over"). Restoring the file
+brings the instance back. ``rm damson.db*`` (which also removes the ``.kek``
+file) resets key and data together. A key file that belongs to another database
+(for example after copying the database alone) is refused with the same advice.
+
+``damson controller``, also with ``--insecure-dev --dev-nodes`` on Postgres,
+never generates a key, because each controller would make its own. Set
+``DAMSON_KEK`` there.
+
 Rotating the cluster secret
 ---------------------------
 

@@ -10,6 +10,10 @@ import (
 	"github.com/denyszorinets/damson/internal/store"
 )
 
+// ErrKEK wraps every startup failure caused by the configured key not fitting
+// the database, so a caller can add advice (the dev role names its key file).
+var ErrKEK = errors.New("secret encryption key problem")
+
 // CanaryKey is the instance_settings key of the KEK canary.
 const CanaryKey = "secrets.kek_canary"
 
@@ -42,7 +46,7 @@ func CheckKEK(ctx context.Context, st Settings, ring *secrets.Keyring, rand io.R
 	}
 	if ring == nil {
 		if !missing {
-			return Startup{}, errors.New("this instance has encrypted secrets but no KEK is configured (set DAMSON_KEK or secrets.kek_file)")
+			return Startup{}, fmt.Errorf("%w: this instance has encrypted secrets but no KEK is configured (set DAMSON_KEK or secrets.kek_file)", ErrKEK)
 		}
 		return Startup{}, nil
 	}
@@ -69,6 +73,6 @@ func CheckKEK(ctx context.Context, st Settings, ring *secrets.Keyring, rand io.R
 	case secrets.CanaryPrevious:
 		return Startup{Enabled: true, RotateDue: true}, nil
 	default:
-		return Startup{}, fmt.Errorf("the KEK does not match this instance (configured kek_id %s, instance kek_id %s)", ring.ActiveID(), id)
+		return Startup{}, fmt.Errorf("%w: the KEK does not match this instance (configured kek_id %s, instance kek_id %s)", ErrKEK, ring.ActiveID(), id)
 	}
 }

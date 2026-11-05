@@ -194,11 +194,11 @@ func TestCheckKEK(t *testing.T) {
 	if st, err := db.CheckKEK(ctx, s, ringOf(a, ""), rand.Reader); err != nil || !st.Enabled {
 		t.Fatalf("restart: %+v %v", st, err)
 	}
-	if _, err := db.CheckKEK(ctx, s, nil, rand.Reader); err == nil {
-		t.Fatal("no KEK with a canary started")
+	if _, err := db.CheckKEK(ctx, s, nil, rand.Reader); !errors.Is(err, db.ErrKEK) {
+		t.Fatalf("no KEK with a canary: %v; want ErrKEK", err)
 	}
 	_, err := db.CheckKEK(ctx, s, ringOf(c, ""), rand.Reader)
-	if err == nil || strings.Contains(err.Error(), a) || strings.Contains(err.Error(), c) {
+	if !errors.Is(err, db.ErrKEK) || strings.Contains(err.Error(), a) || strings.Contains(err.Error(), c) {
 		t.Fatalf("wrong KEK: %v (must fail and not print keys)", err)
 	}
 	if st, err := db.CheckKEK(ctx, s, ringOf(c, a), rand.Reader); err != nil || !st.Enabled || !st.RotateDue {
