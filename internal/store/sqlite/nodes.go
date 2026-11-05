@@ -63,11 +63,7 @@ func (s *Store) CreateNode(ctx context.Context, n store.Node, now time.Time) (st
 	if err != nil {
 		return store.Node{}, err
 	}
-	err = s.q.InsertNode(ctx, gen.InsertNodeParams{
-		ID: n.ID, Name: n.Name, Address: n.Address, Port: int64(n.Port), Transport: n.Transport, Os: n.OS, Pool: n.Pool,
-		Tags: tags, Attributes: attrs, Credential: n.Credential, HostKey: n.HostKey, HostKeyPolicy: n.HostKeyPolicy,
-		Source: n.Source, ExternalID: n.ExternalID, Enabled: b2i(n.Enabled), CreatedAt: fmtTime(now), UpdatedAt: fmtTime(now),
-	})
+	err = s.q.InsertNode(ctx, insertNodeParams(n, tags, attrs, now))
 	if isUnique(err) {
 		return store.Node{}, fmt.Errorf("node %q: %w", n.Name, store.ErrConflict)
 	}
@@ -96,6 +92,18 @@ func (s *Store) GetNode(ctx context.Context, name string) (store.Node, error) {
 	}
 	if err != nil {
 		return store.Node{}, fmt.Errorf("getting node %q: %w", name, err)
+	}
+	return toNode(r)
+}
+
+// FindNodeByName implements store.NodeStore.
+func (s *Store) FindNodeByName(ctx context.Context, name string) (store.Node, error) {
+	r, err := s.q.GetNodeByLowerName(ctx, name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.Node{}, fmt.Errorf("node %q: %w", name, store.ErrNotFound)
+	}
+	if err != nil {
+		return store.Node{}, fmt.Errorf("finding node %q: %w", name, err)
 	}
 	return toNode(r)
 }
@@ -163,4 +171,71 @@ func (s *Store) casMiss(ctx context.Context, id string, expected int64) error {
 		return err
 	}
 	return fmt.Errorf("node %q at version %d: %w", id, expected, store.ErrStale)
+}
+
+func insertNodeParams(n store.Node, tags, attrs string, now time.Time) gen.InsertNodeParams {
+	return gen.InsertNodeParams{
+		ID: n.ID, Name: n.Name, Address: n.Address, Port: int64(n.Port), Transport: n.Transport, Os: n.OS, Pool: n.Pool,
+		Tags: tags, Attributes: attrs, Credential: n.Credential, HostKey: n.HostKey, HostKeyPolicy: n.HostKeyPolicy,
+		Source: n.Source, ExternalID: n.ExternalID, Enabled: b2i(n.Enabled), CreatedAt: fmtTime(now), UpdatedAt: fmtTime(now),
+	}
+}
+
+// ApplyNodeDiff implements store.NodeStore.
+func (s *Store) ApplyNodeDiff(ctx context.Context, d store.NodeDiff, now time.Time) error {
+	return s.WithTx(ctx, func(tx store.Tx) error {
+		q := tx.(*txn).q
+		for _, del := range d.Delete {
+			rows, err := q.DeleteNodeCAS(ctx, gen.DeleteNodeCASParams{ID: del.ID, ExpectedVersion: del.Expected})
+			if err != nil {
+				return fmt.Errorf("deleting node %q: %w", del.ID, err)
+			}
+			if rows == 0 {
+				return fmt.Errorf("node %q at version %d: %w", del.ID, del.Expected, store.ErrStale)
+			}
+		}
+		for _, u := range d.Update {
+			n := u.Node
+			tags, err := store.EncodeTags(n.Tags)
+			if err != nil {
+				return err
+			}
+			attrs, err := store.EncodeAttributes(n.Attributes)
+			if err != nil {
+				return err
+			}
+			rows, err := q.UpdateNodeSyncCAS(ctx, gen.UpdateNodeSyncCASParams{
+				Name: n.Name, ExternalID: n.ExternalID, Address: n.Address, Port: int64(n.Port), Transport: n.Transport,
+				Os: n.OS, Pool: n.Pool, Tags: tags, Attributes: attrs, Credential: n.Credential, HostKey: n.HostKey,
+				HostKeyPolicy: n.HostKeyPolicy, Enabled: b2i(n.Enabled), UpdatedAt: fmtTime(now), ID: n.ID, ExpectedVersion: u.Expected,
+			})
+			if isUnique(err) {
+				return fmt.Errorf("node %q: %w", n.Name, store.ErrConflict)
+			}
+			if err != nil {
+				return fmt.Errorf("updating node %q: %w", n.ID, err)
+			}
+			if rows == 0 {
+				return fmt.Errorf("node %q at version %d: %w", n.ID, u.Expected, store.ErrStale)
+			}
+		}
+		for _, n := range d.Create {
+			tags, err := store.EncodeTags(n.Tags)
+			if err != nil {
+				return err
+			}
+			attrs, err := store.EncodeAttributes(n.Attributes)
+			if err != nil {
+				return err
+			}
+			err = q.InsertNode(ctx, insertNodeParams(n, tags, attrs, now))
+			if isUnique(err) {
+				return fmt.Errorf("node %q: %w", n.Name, store.ErrConflict)
+			}
+			if err != nil {
+				return fmt.Errorf("creating node %q: %w", n.Name, err)
+			}
+		}
+		return nil
+	})
 }

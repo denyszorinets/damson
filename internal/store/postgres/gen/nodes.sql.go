@@ -60,6 +60,39 @@ func (q *Queries) GetNodeByID(ctx context.Context, id string) (Node, error) {
 	return i, err
 }
 
+const getNodeByLowerName = `-- name: GetNodeByLowerName :one
+SELECT id, name, address, port, transport, os, pool, tags, attributes, credential, host_key, host_key_policy, host_key_observed, host_key_observed_at, source, external_id, enabled, version, created_at, updated_at FROM nodes WHERE lower(name) = lower($1)
+`
+
+// Names are unique case-insensitively (the lower(name) index).
+func (q *Queries) GetNodeByLowerName(ctx context.Context, name string) (Node, error) {
+	row := q.db.QueryRow(ctx, getNodeByLowerName, name)
+	var i Node
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Address,
+		&i.Port,
+		&i.Transport,
+		&i.Os,
+		&i.Pool,
+		&i.Tags,
+		&i.Attributes,
+		&i.Credential,
+		&i.HostKey,
+		&i.HostKeyPolicy,
+		&i.HostKeyObserved,
+		&i.HostKeyObservedAt,
+		&i.Source,
+		&i.ExternalID,
+		&i.Enabled,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getNodeByName = `-- name: GetNodeByName :one
 SELECT id, name, address, port, transport, os, pool, tags, attributes, credential, host_key, host_key_policy, host_key_observed, host_key_observed_at, source, external_id, enabled, version, created_at, updated_at FROM nodes WHERE name = $1
 `
@@ -237,6 +270,63 @@ type UpdateNodeCASParams struct {
 // Never writes source, external_id, created_at or the observed host key.
 func (q *Queries) UpdateNodeCAS(ctx context.Context, arg UpdateNodeCASParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateNodeCAS,
+		arg.Address,
+		arg.Port,
+		arg.Transport,
+		arg.Os,
+		arg.Pool,
+		arg.Tags,
+		arg.Attributes,
+		arg.Credential,
+		arg.HostKey,
+		arg.HostKeyPolicy,
+		arg.Enabled,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.ExpectedVersion,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateNodeSyncCAS = `-- name: UpdateNodeSyncCAS :execrows
+UPDATE nodes SET
+    name = $1, external_id = $2,
+    address = $3, port = $4, transport = $5, os = $6,
+    pool = $7, tags = $8, attributes = $9,
+    credential = $10, host_key = $11, host_key_policy = $12,
+    enabled = $13, version = version + 1, updated_at = $14
+WHERE id = $15 AND version = $16
+`
+
+type UpdateNodeSyncCASParams struct {
+	Name            string
+	ExternalID      string
+	Address         string
+	Port            int32
+	Transport       string
+	Os              string
+	Pool            string
+	Tags            string
+	Attributes      string
+	Credential      string
+	HostKey         string
+	HostKeyPolicy   string
+	Enabled         bool
+	UpdatedAt       pgtype.Timestamptz
+	ID              string
+	ExpectedVersion int64
+}
+
+// A sync owns everything a source describes, including the name and the
+// external id (a rename). It never writes source, created_at or the observed
+// host key.
+func (q *Queries) UpdateNodeSyncCAS(ctx context.Context, arg UpdateNodeSyncCASParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateNodeSyncCAS,
+		arg.Name,
+		arg.ExternalID,
 		arg.Address,
 		arg.Port,
 		arg.Transport,

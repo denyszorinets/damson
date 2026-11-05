@@ -949,7 +949,7 @@ Inventory is maintained by external systems (for example a ServiceNow CMDB sync 
 | `POST` | `/api/v1/nodes` | Create (`source=manual`) |
 | `PATCH` | `/api/v1/nodes/{name}?force=` | Update fields; optional `if_version` |
 | `DELETE` | `/api/v1/nodes/{name}?force=&if_version=` | Delete |
-| `PUT` | `/api/v1/inventory/sources/{source}/nodes?dry_run=bool&prune=bool` | **Full-state sync** for one source: upsert all nodes in the body (matched by `external_id`, falling back to `name`). With `prune`, it deletes nodes of that source missing from the body. Returns a diff `{created, updated, deleted, unchanged}`. Idempotent. |
+| `PUT` | `/api/v1/inventory/sources/{source}/nodes?dry_run=bool&prune=bool` | **Full-state sync** for one source: upsert all nodes in the body (matched by `external_id`, falling back to `name`). With `prune`, it deletes nodes of that source missing from the body. Returns a diff `{created, updated, deleted, unchanged, conflicts}`; any conflict (a desired name held by another source or by an own node that is not pruned) fails the sync with nothing written. Idempotent. |
 | `POST` | `/api/v1/inventory/sources/{source}/nodes:batch` | Incremental upserts and deletes |
 
 **Validation** (`inventory.Validate`)

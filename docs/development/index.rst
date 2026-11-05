@@ -10,6 +10,7 @@ How to contribute to Damson.
    ci
    documentation
    store
+   inventory-sync
    orchestration
    dispatch
    plugin-sdk

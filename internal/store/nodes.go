@@ -59,6 +59,8 @@ type NodeStore interface {
 	CreateNode(ctx context.Context, n Node, now time.Time) (Node, error)
 	// GetNode returns ErrNotFound if absent.
 	GetNode(ctx context.Context, name string) (Node, error)
+	// FindNodeByName is GetNode ignoring case, as the unique index does.
+	FindNodeByName(ctx context.Context, name string) (Node, error)
 	// ListNodes pages by name.
 	ListNodes(ctx context.Context, f NodeFilter) ([]Node, error)
 	// UpdateNode replaces the mutable fields of the node with n.ID if its
@@ -69,6 +71,32 @@ type NodeStore interface {
 	// DeleteNode removes the node with that id if its version is expected.
 	// ErrNotFound / ErrStale as for UpdateNode.
 	DeleteNode(ctx context.Context, id string, expected int64) error
+	// ApplyNodeDiff applies d in one transaction: deletes, then updates, then
+	// creates (so a name freed by a delete can be reused). Every update and
+	// delete is a CAS on id and version. ErrStale if a node moved or is gone,
+	// ErrConflict on a name or (source, external_id) clash; either rolls the
+	// whole diff back.
+	ApplyNodeDiff(ctx context.Context, d NodeDiff, now time.Time) error
+}
+
+// NodeUpdate replaces everything a source describes about a node (also its
+// name and external id) if the node is still at Expected.
+type NodeUpdate struct {
+	Node     Node
+	Expected int64
+}
+
+// NodeDelete removes a node if it is still at Expected.
+type NodeDelete struct {
+	ID       string
+	Expected int64
+}
+
+// NodeDiff is a set of changes applied together.
+type NodeDiff struct {
+	Create []Node
+	Update []NodeUpdate
+	Delete []NodeDelete
 }
 
 // EncodeTags renders tags as the JSON array stored in the nodes table.

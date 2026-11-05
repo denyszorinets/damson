@@ -9,6 +9,10 @@ VALUES (sqlc.arg(id), sqlc.arg(name), sqlc.arg(address), sqlc.arg(port), sqlc.ar
 -- name: GetNodeByName :one
 SELECT * FROM nodes WHERE name = sqlc.arg(name);
 
+-- name: GetNodeByLowerName :one
+-- Names are unique case-insensitively (the lower(name) index).
+SELECT * FROM nodes WHERE lower(name) = lower(sqlc.arg(name));
+
 -- name: GetNodeByID :one
 SELECT * FROM nodes WHERE id = sqlc.arg(id);
 
@@ -31,3 +35,15 @@ WHERE id = sqlc.arg(id) AND version = sqlc.arg(expected_version);
 
 -- name: DeleteNodeCAS :execrows
 DELETE FROM nodes WHERE id = sqlc.arg(id) AND version = sqlc.arg(expected_version);
+
+-- name: UpdateNodeSyncCAS :execrows
+-- A sync owns everything a source describes, including the name and the
+-- external id (a rename). It never writes source, created_at or the observed
+-- host key.
+UPDATE nodes SET
+    name = sqlc.arg(name), external_id = sqlc.arg(external_id),
+    address = sqlc.arg(address), port = sqlc.arg(port), transport = sqlc.arg(transport), os = sqlc.arg(os),
+    pool = sqlc.arg(pool), tags = sqlc.arg(tags), attributes = sqlc.arg(attributes),
+    credential = sqlc.arg(credential), host_key = sqlc.arg(host_key), host_key_policy = sqlc.arg(host_key_policy),
+    enabled = sqlc.arg(enabled), version = version + 1, updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id) AND version = sqlc.arg(expected_version);

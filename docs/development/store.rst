@@ -229,6 +229,8 @@ The interface is ``NodeStore`` (``internal/store/nodes.go``), part of
    existing name only in case, or if ``(source, external_id)`` exists.
 ``GetNode``
    One node; ``ErrNotFound``.
+``FindNodeByName``
+   ``GetNode`` ignoring case, as the unique index does; ``ErrNotFound``.
 ``ListNodes``
    Keyset pagination by ``name``, with optional ``source`` and ``enabled``
    filters.
@@ -239,6 +241,16 @@ The interface is ``NodeStore`` (``internal/store/nodes.go``), part of
 ``DeleteNode``
    Compare-and-swap by ``id``; ``ErrNotFound`` for an unknown id, ``ErrStale``
    if the version moved.
+
+``ApplyNodeDiff``
+   Applies a whole sync diff in one transaction: deletes first, then updates,
+   then creates, so a name freed by a delete can be reused by an update or a
+   create. Every update and delete is a compare-and-swap on ``id`` and
+   ``version``. ``ErrStale`` if a node moved or vanished, ``ErrConflict`` on a
+   name or ``(source, external_id)`` clash; either rolls back the whole diff.
+   An update writes everything a source owns, including ``name`` and
+   ``external_id`` (a rename), but never ``source``, ``created_at`` or the
+   observed host key.
 
 Update and delete go by ``id``, not name, so a node that was deleted and
 recreated under the same name is never mistaken for the old one.
