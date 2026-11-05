@@ -25,6 +25,10 @@ Resources and actions:
   token create --pool <name> --name <n>    create a pool token (printed once)
   token list --pool <name>                 list a pool's tokens
   token revoke <token-id>                  revoke a pool token
+  admin-token create                       create the admin bootstrap token (printed once);
+                                           replaces any existing one
+  admin-token revoke                       revoke the admin bootstrap token
+  kek generate                             print a new secret encryption key (no database)
 
 All actions accept --config <path> and --json.
 `
@@ -55,10 +59,13 @@ var adminActions = map[string]adminAction{
 	"token create": {flags: []string{"pool", "name"}, required: []string{"pool", "name"}, run: tokenCreate},
 	"token list":   {flags: []string{"pool"}, required: []string{"pool"}, run: tokenList},
 	"token revoke": {nargs: 1, run: tokenRevoke},
+
+	"admin-token create": {run: adminTokenCreate},
+	"admin-token revoke": {run: adminTokenRevoke},
 }
 
 // runAdmin dispatches `damson admin <resource> <action>`. Only `token create`
-// prints a token (to stdout); nothing here logs one.
+// and `admin-token create` print a token (to stdout); nothing here logs one.
 func runAdmin(ctx context.Context, args []string, stdout, stderr io.Writer, environ []string) int {
 	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
 		fmt.Fprint(stdout, adminUsage)
@@ -69,6 +76,13 @@ func runAdmin(ctx context.Context, args []string, stdout, stderr io.Writer, envi
 		return exitUsage
 	}
 	key := args[0] + " " + args[1]
+	if key == "kek generate" && len(args) == 2 {
+		if err := kekGenerate(stdout, stderr); err != nil {
+			fmt.Fprintf(stderr, "damson admin %s: %v\n", key, err)
+			return exitError
+		}
+		return exitOK
+	}
 	act, ok := adminActions[key]
 	if !ok {
 		fmt.Fprintf(stderr, "damson admin: unknown command %q\n\n%s", key, adminUsage)

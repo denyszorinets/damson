@@ -170,11 +170,49 @@ Lists (except plugins) take ``limit`` (1 to 200, default 50) and ``cursor`` (the
 page's ``next_cursor``, opaque, empty on the last page). An invalid ``limit`` is a
 ``422`` problem with an ``errors`` list; a malformed ``cursor`` is a ``400``.
 
-All endpoints are **unauthenticated** for now: authentication and
+Except the secrets routes (:ref:`reference-secrets-api`), all endpoints are **unauthenticated** for now: authentication and
 authorization arrive in M8 (ARCHITECTURE section 12), so anyone who can reach
 the listener can create jobs and trigger runs. Pool and pool token
 administration stays in the ``damson admin`` CLI until then. No endpoint
 returns a pool token or its hash, a secret value or an attempt id.
+
+.. _reference-secrets-api:
+
+Secrets API
+~~~~~~~~~~~
+
+Secrets routes need ``Authorization: Bearer <admin token>``, the token made by
+``damson admin admin-token create`` (:ref:`cli-admin`), except ``GET
+/api/v1/secret-types``. A missing or wrong token (including a pool token) is a
+``401`` problem with ``WWW-Authenticate: Bearer realm="damson-admin"``, checked
+before the body is parsed. The OpenAPI document declares the security scheme
+``bearerAuth``. With no KEK configured every secrets route answers ``503`` after
+authentication. Values are write-only: no response contains one.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Endpoint
+     - Behaviour
+   * - ``GET /api/v1/secrets?scope=&cursor=&limit=``
+     - ``items`` plus ``next_cursor``. Each item is metadata: ``ref``,
+       ``scope``, ``name``, ``type``, ``fields`` (field names only),
+       ``current_version``, ``created_at`` and ``updated_at``.
+   * - ``PUT /api/v1/secrets/{scope}/{name}``
+     - Body ``{type, fields: {name: value}, if_version?}``. ``scope`` is one
+       percent-encoded path segment: ``infra%2Fbilling`` for scope
+       ``infra/billing``, ``_inventory`` for node credentials. Without
+       ``if_version`` it creates the secret or adds a version; ``0`` means
+       create only; ``n`` must equal ``current_version``. ``201`` on create,
+       ``200`` on a new version; the body is the metadata. Errors: ``401``;
+       ``409`` (version conflict, already exists with ``if_version`` ``0``, or
+       a type change); ``413`` (a field over 64 KiB or the total over 256 KiB);
+       ``422`` (bad scope, name or type; a missing, unknown or invalid field,
+       with messages naming fields, never values); ``503``.
+   * - ``DELETE /api/v1/secrets/{scope}/{name}``
+     - ``204``, or ``404`` if unknown.
+   * - ``GET /api/v1/secret-types`` (public)
+     - ``items`` of ``{name, fields: [{name, required, multiline}]}``.
 
 .. _reference-trigger:
 

@@ -90,6 +90,9 @@ func problemFor(err error) Problem {
 	if errors.As(err, &inv) {
 		return Problem{Type: typeValidation, Title: "Unprocessable Entity", Status: http.StatusUnprocessableEntity, Detail: inv.detail, Errors: inv.fields}
 	}
+	if sp, ok := secretProblem(err); ok {
+		return sp
+	}
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return Problem{Type: typeNotFound, Title: "Not Found", Status: http.StatusNotFound, Detail: "the requested resource does not exist"}

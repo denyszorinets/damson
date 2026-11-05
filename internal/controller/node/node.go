@@ -148,6 +148,9 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	} else if n.secrets != nil {
 		apiCfg.AuthorizeSecretRefs = true
 	}
+	if n.secrets != nil { // a nil *Backend must not become a non-nil interface
+		apiCfg.Secrets = n.secrets
+	}
 	n.srv = api.NewServer(apiCfg)
 	return n, nil
 }

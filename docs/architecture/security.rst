@@ -58,6 +58,14 @@ Authentication
    * - Bootstrap
      - Config CEL rule for admins plus a one-time recovery token.
 
+Until OIDC (M8), the secrets API is guarded by one admin bootstrap token
+(``dma_`` prefix), created with ``damson admin admin-token create``. Only its
+SHA-256 hash is stored, in ``instance_settings``, and the API checks it on every
+request. Pool tokens are not accepted there and the admin token cannot open an
+agent connection. It is a single shared credential with no per-user identity;
+rotate it by creating a new one, which kills the old one at once. M8 keeps it as
+the local recovery token.
+
 All tokens are random and stored hashed. See
 :doc:`decisions/0017-oidc-authentication-and-cel-authorization-on-a-project-tree`.
 

@@ -977,6 +977,7 @@ Inventory is maintained by external systems (for example a ServiceNow CMDB sync 
   - a **service account token**: random, hashed, scoped by project subtree and role, with optional expiry
   - an **OIDC JWT access token** from the configured issuer (optional; for machine-to-machine)
 - **Bootstrap admin:** a config CEL rule over claims, for example `'damson-admins' in claims.groups`, plus a one-time local recovery token printed at first start.
+- **Interim admin token (until OIDC, M8):** the secrets API (§14) is guarded by an **admin bootstrap token** (`dma_` plus base64url of 32 random bytes), created with `damson admin admin-token create` and printed once. Only its SHA-256 hash is stored, in `instance_settings` key `auth.admin_token_hash`; creating a new one replaces it (the old one stops working at once) and `admin-token revoke` clears it. The API reads the hash on every request. Pool tokens are never accepted here and the admin token is not accepted on `/agent/v1/connect`. M8 keeps it as the local recovery token. Until M8 it is one shared token for all admins.
 
 ### 12.3 Triggers
 
@@ -1051,7 +1052,7 @@ All routes are under `/api/v1`, with the OpenAPI document at `/api/v1/openapi.js
 - `schedules`, `webhooks`
 - `nodes`, `inventory/sources/*`
 - `agents` — list, get (telemetry), drain; `pools` and pool tokens
-- `secrets` — metadata list, create or update (write-only values), delete
+- `secrets` — metadata list (`GET /secrets`), create or add a version (`PUT /secrets/{scope}/{name}`, write-only values, optional `if_version`), delete; `scope` is one percent-encoded path segment. `GET /secret-types` is public. All other secrets routes need the admin token (§12.2) and answer 503 when no KEK is configured.
 - `plugins` — manifests with input and output schemas (drives the UI forms)
 - `service-accounts`, `tokens`
 - `audit`
@@ -1169,7 +1170,7 @@ An activity-diagram view (UML-like) of a job's structure. It appears in three pl
 - TLS everywhere: `wss://` for agents, HTTPS for the UI and API. Internal controller endpoints (ADR-0040) are on a separate listener and use HMAC-SHA256 with a cluster secret (timestamp window 30s, bound to caller and target controller, read-only). They use plain HTTP, so log lines between controllers are unencrypted and the network between controllers must be private.
 - Secrets are encrypted at rest (db backend) or kept in OpenBao. They are delivered just-in-time, never persisted on agents, and masked in logs and outputs.
 - SSH host keys are strict by default.
-- All tokens (pool, service account, webhook, session) are random and stored hashed.
+- All tokens (pool, service account, webhook, session) are random and stored hashed. For the interim admin token (§12.2) only the hash is stored, never the token.
 - CEL evaluation has cost limits, and no I/O functions are exposed.
 - Plugin inputs are validated against their schemas on the controller before dispatch.
 - The audit log covers all mutations, triggers, and secret reads (metadata only).

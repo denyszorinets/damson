@@ -344,6 +344,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/secret-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The secret types and their fields */
+        get: operations["list-secret-types"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List secret metadata
+         * @description Names, types, field names and versions. Values are never returned.
+         */
+        get: operations["list-secrets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/secrets/{scope}/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Create a secret or add a version
+         * @description 201 when the secret is created, 200 when a version is added. The response never contains values.
+         */
+        put: operations["put-secret"];
+        post?: never;
+        /** Delete a secret and all its versions */
+        delete: operations["delete-secret"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -436,6 +494,11 @@ export interface components {
             /** @enum {string} */
             state: "queued" | "dispatched" | "running" | "succeeded" | "failed" | "canceled" | "timed_out" | "lost";
             step_path: string;
+        };
+        FieldSpec: {
+            multiline: boolean;
+            name: string;
+            required: boolean;
         };
         Graph: {
             edges: components["schemas"]["GraphEdge"][] | null;
@@ -532,6 +595,11 @@ export interface components {
             /** @description Empty on the last page. */
             next_cursor?: string;
         };
+        ListSecretsOutputBody: {
+            items: components["schemas"]["SecretMeta"][] | null;
+            /** @description Empty on the last page. */
+            next_cursor?: string;
+        };
         ListVersionsOutputBody: {
             /** @description Ascending by version, without the spec. */
             items: components["schemas"]["JobVersion"][] | null;
@@ -599,6 +667,19 @@ export interface components {
             location?: string;
             message?: string;
         };
+        PutSecretInputBody: {
+            /** @description Field values. Never returned by any endpoint. */
+            fields: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description 0 creates only; n requires current_version n; omitted writes a new version of whatever exists.
+             */
+            if_version?: number;
+            /** @description See GET /secret-types. Fixed when the secret is created. */
+            type: string;
+        };
         Run: {
             /**
              * @description Why the cancel was requested; absent for a user or API cancel, timeout for the job-level timeout.
@@ -658,6 +739,24 @@ export interface components {
             graph: components["schemas"]["Graph"];
             /** @description Step instances in creation order. */
             steps: components["schemas"]["StepEvent"][] | null;
+        };
+        SecretMeta: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            current_version: number;
+            /** @description Field names of the current version. */
+            fields: string[] | null;
+            name: string;
+            /** @description secret://<scope>/<name>; append #<field> to use one field. */
+            ref: string;
+            scope: string;
+            type: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        SecretTypesOutputBody: {
+            items: components["schemas"]["Type"][] | null;
         };
         SpecIssue: {
             message: string;
@@ -752,6 +851,10 @@ export interface components {
              * @description Job version to run; defaults to the current version.
              */
             version?: number;
+        };
+        Type: {
+            fields?: components["schemas"]["FieldSpec"][] | null;
+            name: string;
         };
         ValidateInputBody: {
             spec: unknown;
@@ -1782,6 +1885,265 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "list-secret-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretTypesOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "list-secrets": {
+        parameters: {
+            query?: {
+                /** @description Only this scope; empty lists every scope. */
+                scope?: string;
+                /** @description Opaque cursor from a previous page's next_cursor. */
+                cursor?: string;
+                /** @description Page size. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListSecretsOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "put-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The scope, percent-encoded when it has several segments (infra%2Fbilling), or _inventory. */
+                scope: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutSecretInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretMeta"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "delete-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The scope, percent-encoded when it has several segments (infra%2Fbilling), or _inventory. */
+                scope: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
