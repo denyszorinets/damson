@@ -61,6 +61,11 @@ Without ``--dev-nodes`` the dispatcher reads node rows from the store at
 dispatch time (``node.InventoryNodes``). With ``--dev-nodes`` the file still
 serves nodes, secrets and targets as before.
 
+.. note::
+
+   See :doc:`0044-dev-nodes-is-a-seeder`: ``--dev-nodes`` now seeds the
+   inventory and the secret store, so this split no longer exists.
+
 - A missing node, or one outside the project's node scope, fails the step
   permanently as ``unknown node``. There is no probing.
 - A disabled node fails permanently as ``node is disabled``. A node deleted
@@ -102,6 +107,11 @@ Inventory nodes can be used only through a literal ``node: <name>`` in step
 input. ``for_each: targets`` and ``spec.targets.selector`` stay ``--dev-nodes``
 only until :issue:`117`, which freezes node ids into the run and requires the
 node to be in the run's targets.
+
+.. note::
+
+   See :doc:`0044-dev-nodes-is-a-seeder`: ``targets`` are now read from the
+   inventory also for seeded dev nodes.
 
 Alternatives Considered
 -----------------------

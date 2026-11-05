@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/denyszorinets/damson/internal/controller/dispatch"
+	"github.com/denyszorinets/damson/internal/devnodes"
 	"github.com/denyszorinets/damson/internal/secrets"
 	secretsdb "github.com/denyszorinets/damson/internal/secrets/db"
 	"github.com/denyszorinets/damson/internal/store"
@@ -99,4 +100,33 @@ func projectOf(st store.Store) func(ctx context.Context, runID string) (string, 
 		}
 		return "", fmt.Errorf("project %q of job %q: %w", job.ProjectID, job.ID, store.ErrNotFound)
 	}
+}
+
+// seedDevFile writes the --dev-nodes file into the inventory and the secret
+// store (ADR-0044). A file with secrets needs a secret backend.
+func (n *Node) seedDevFile(ctx context.Context, cfg Config) error {
+	f := cfg.DevFile
+	if f == nil {
+		return nil
+	}
+	if f.HasSecrets() && n.secrets == nil {
+		return errors.New("--dev-nodes defines secrets but secrets are disabled: set DAMSON_KEK (damson dev makes a key itself)")
+	}
+	var w devnodes.SecretWriter
+	if n.secrets != nil { // a nil *Backend must not become a non-nil interface
+		w = n.secrets
+	}
+	rep, err := devnodes.Seed(ctx, cfg.Store, w, f, time.Now())
+	if err != nil {
+		return fmt.Errorf("seeding --dev-nodes: %w", err)
+	}
+	log := cfg.Logger
+	log.Warn("dev nodes: seeded into the inventory and the secret store; development only", "nodes", f.Names())
+	log.Info("dev nodes seeded",
+		"created", len(rep.Nodes.Created), "updated", len(rep.Nodes.Updated), "deleted", len(rep.Nodes.Deleted), "unchanged", len(rep.Nodes.Unchanged),
+		"secrets_written", rep.SecretsWritten, "secrets_unchanged", len(rep.SecretsUnchanged))
+	for _, w := range rep.Warnings {
+		log.Warn("dev nodes: " + w)
+	}
+	return nil
 }

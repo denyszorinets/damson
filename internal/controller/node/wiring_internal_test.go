@@ -29,10 +29,11 @@ func TestDispatchSources(t *testing.T) {
 		t.Fatalf("secrets = %T", sec)
 	}
 
-	// --dev-nodes wins and is not authorized (ADR-0034), whatever else is set.
+	// The --dev-nodes file changes nothing here: it is seeded into the same
+	// stores (ADR-0044), so there is no unauthorized path.
 	f := &devnodes.File{}
-	nodes, sec, project = n.dispatchSources(Config{DevNodes: f}, log)
-	if nodes != any(f) || sec != any(f) || project != nil {
-		t.Fatalf("dev nodes: nodes %T, secrets %T, project set %v", nodes, sec, project != nil)
+	nodes, sec, project = n.dispatchSources(Config{DevFile: f}, log)
+	if _, ok := nodes.(*InventoryNodes); !ok || sec == nil || project == nil {
+		t.Fatalf("dev file: nodes %T, secrets %T, project set %v", nodes, sec, project != nil)
 	}
 }

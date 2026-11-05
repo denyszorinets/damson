@@ -54,9 +54,10 @@ type Config struct {
 	// job timeout; zero selects the engine default. All controllers of a
 	// cluster must use the same value.
 	FinallyGrace time.Duration
-	// DevNodes replaces inventory and secret authorization (development
-	// only, ADR-0034). Nil in production.
-	DevNodes *devnodes.File
+	// DevFile is the --dev-nodes file (development only, ADR-0044). Its nodes
+	// and secrets are seeded into the inventory and the secret store at start;
+	// from then on they are ordinary rows. Nil in production.
+	DevFile *devnodes.File
 	// KEK and KEKPrevious are the base64 key encryption keys of the db secret
 	// backend (ARCHITECTURE 9.2). Without a KEK secrets are disabled, unless
 	// the database holds encrypted secrets, which refuses the start.
@@ -129,6 +130,9 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	if v, err := cfg.Store.MigrationVersion(ctx); err != nil {
 		return nil, fmt.Errorf("reading migration version: %w", err)
 	} else if v == 0 {
+		if cfg.DevFile != nil {
+			return nil, errors.New("--dev-nodes needs a migrated database (run with --auto-migrate)")
+		}
 		cfg.Logger.Warn("database is not migrated; agent gateway and run.advance disabled (run with --auto-migrate)")
 	} else if err := n.startSecrets(ctx, cfg); err != nil {
 		return nil, err
@@ -144,14 +148,8 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 		apiCfg.Advance, apiCfg.RunNotify = n.adv, n.adv.Hub()
 		apiCfg.LogTail = n.tail
 	}
-	if cfg.DevNodes != nil { // a nil *File must not become a non-nil interface
-		apiCfg.Targets = cfg.DevNodes
-	} else {
-		apiCfg.Targets = &InventoryTargets{Store: cfg.Store, Scope: inventory.AllNodes{}}
-	}
-	if n.secrets != nil && cfg.DevNodes == nil {
-		apiCfg.AuthorizeSecretRefs = true
-	}
+	apiCfg.Targets = &InventoryTargets{Store: cfg.Store, Scope: inventory.AllNodes{}}
+	apiCfg.AuthorizeSecretRefs = n.secrets != nil
 	if n.secrets != nil { // a nil *Backend must not become a non-nil interface
 		apiCfg.Secrets = n.secrets
 	}
@@ -169,6 +167,12 @@ func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 			return err
 		}
 	}
+	// Seed only once this process is known to be the one using the database: a
+	// second process on an SQLite file must not change the live inventory before
+	// it is refused.
+	if err := n.seedDevFile(ctx, cfg); err != nil {
+		return err
+	}
 	eng, err := engine.New(expr.Limits{}, engine.WithFinallyGrace(cfg.FinallyGrace))
 	if err != nil {
 		return fmt.Errorf("building engine: %w", err)
@@ -176,11 +180,7 @@ func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 	acfg := advance.Config{
 		Store: cfg.Store, Engine: eng, Logger: log, PollInterval: t.AdvancePoll, SweepInterval: t.AdvanceSweep,
 	}
-	if cfg.DevNodes != nil { // a nil *File must not become a non-nil interface
-		acfg.Targets = cfg.DevNodes
-	} else {
-		acfg.Targets = &InventoryTargets{Store: cfg.Store, Scope: inventory.AllNodes{}}
-	}
+	acfg.Targets = &InventoryTargets{Store: cfg.Store, Scope: inventory.AllNodes{}}
 	if n.adv, err = advance.New(acfg); err != nil {
 		return fmt.Errorf("creating run advancer: %w", err)
 	}
@@ -342,13 +342,11 @@ func (n *Node) stopGuard(ctx context.Context) error {
 }
 
 // dispatchSources picks where the dispatcher reads nodes and secrets, and the
-// project lookup that authorizes secret refs. With --dev-nodes the file serves
-// both and nothing is authorized (ADR-0034). Otherwise nodes come from the
-// inventory, and secrets from the db backend when a KEK is configured.
+// project lookup that authorizes secret refs: nodes come from the inventory,
+// secrets from the db backend when a KEK is configured, and refs are then
+// authorized against the run's project (the --dev-nodes file is seeded into
+// these stores, ADR-0044).
 func (n *Node) dispatchSources(cfg Config, log *slog.Logger) (dispatch.NodeSource, dispatch.SecretSource, func(context.Context, string) (string, error)) {
-	if cfg.DevNodes != nil { // a nil *File must not become a non-nil interface
-		return cfg.DevNodes, cfg.DevNodes, nil
-	}
 	nodes := &InventoryNodes{Store: cfg.Store, Scope: inventory.AllNodes{}, Project: projectOf(cfg.Store)}
 	if n.secrets == nil {
 		return nodes, nil, nil

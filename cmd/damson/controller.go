@@ -76,7 +76,7 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 	n, err := node.Start(ctx, node.Config{
 		SingleController: cfg.Database.Driver == config.DriverSQLite,
 		ClusterSecret:    secret, ClusterSecretPrevious: previous, InternalListen: cfg.Controller.InternalListen,
-		Store: st, ControllerID: id, InternalURL: cfg.Controller.InternalURL, Plugins: plugins, DevNodes: devNodes, KEK: cfg.Secrets.KEK, KEKPrevious: cfg.Secrets.KEKPrevious, FinallyGrace: cfg.FinallyGraceDuration(),
+		Store: st, ControllerID: id, InternalURL: cfg.Controller.InternalURL, Plugins: plugins, DevFile: devNodes, KEK: cfg.Secrets.KEK, KEKPrevious: cfg.Secrets.KEKPrevious, FinallyGrace: cfg.FinallyGraceDuration(),
 		InsecureDev: cfg.Controller.InsecureDev, TrustForwardedProto: cfg.Controller.TrustForwardedProto,
 		Addr: cfg.Controller.Listen, UI: webui.Handler(web.Build()), Logger: log,
 	})

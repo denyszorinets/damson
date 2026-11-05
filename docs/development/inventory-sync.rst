@@ -4,7 +4,7 @@ Node sync core
 ``internal/inventory`` holds the logic behind full-state inventory sync
 (ARCHITECTURE section 11). The HTTP endpoints
 (``PUT /inventory/sources/{source}/nodes`` and ``:batch``) come with #116
-part 2; ``--dev-nodes`` will be the first client (#115).
+part 2; ``--dev-nodes`` is its first client, as source ``devfile`` (ADR-0044).
 
 Flow
 ----

@@ -1,15 +1,15 @@
-// Package devnodes serves nodes and secrets from a JSON file, for
-// `damson dev` only (ADR-0034). It stands in for the inventory and the secret
-// store until M4 and implements dispatch.NodeSource and dispatch.SecretSource.
+// Package devnodes loads the --dev-nodes file and seeds its nodes and secrets
+// into the inventory and the secret store at startup (ADR-0044, which replaced
+// the file-backed sources of ADR-0034). After seeding, dispatch, targets and
+// authorization use the real stores exactly as without the flag.
 //
 // The file holds no secret value except usernames: every other field is the
-// path of a file (mode 0600 or stricter) that is read at each dispatch, so the
-// controller never keeps a value in memory between sends.
+// path of a file (mode 0600 or stricter) read when seeding, so the controller
+// keeps no value in memory afterwards.
 package devnodes
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,24 +17,37 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 
-	"github.com/denyszorinets/damson/internal/controller/dispatch"
-	"github.com/denyszorinets/damson/pkg/pluginsdk"
+	"github.com/denyszorinets/damson/internal/inventory"
+	"github.com/denyszorinets/damson/internal/secrets"
+	"github.com/denyszorinets/damson/internal/store"
 )
+
+// Source is the inventory source name of the nodes this file creates.
+const Source = "devfile"
 
 const (
 	fileVersion  = 1
 	maxFileBytes = 1 << 20
 	maxKeyBytes  = 64 << 10
 	filesSuffix  = "_file"
-	defaultPort  = 22
 )
 
 // File is a loaded dev nodes file. Values are not part of it.
 type File struct {
-	nodes   map[string]pluginsdk.NodeInfo
-	secrets map[string]map[string]string // ref -> field -> literal (username) or "<field>_file" -> path
+	nodes   []store.Node // sorted by name
+	secrets []secretDef  // sorted by ref
+}
+
+// secretDef is one secret of the file: literal fields (username) and fields
+// whose value is read from a file when seeding.
+type secretDef struct {
+	ref      secrets.Ref
+	typ      string
+	literals map[string]string // field -> value (username only)
+	files    map[string]string // field -> absolute path
 }
 
 type rawFile struct {
@@ -48,13 +61,16 @@ type rawNode struct {
 	Port          int            `json:"port"`
 	Transport     string         `json:"transport"`
 	OS            string         `json:"os"`
+	Pool          string         `json:"pool"`
+	Tags          []string       `json:"tags"`
 	Attributes    map[string]any `json:"attributes"`
 	Credential    string         `json:"credential"`
 	HostKey       string         `json:"host_key"`
 	HostKeyPolicy string         `json:"host_key_policy"`
 }
 
-// Load reads and validates the file at path.
+// Load reads and validates the file at path. Node and secret errors name the
+// node or ref, never a value.
 func Load(path string) (*File, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -77,142 +93,110 @@ func Load(path string) (*File, error) {
 	if raw.Version != fileVersion {
 		return nil, fmt.Errorf("dev nodes file version %d is not supported (want %d)", raw.Version, fileVersion)
 	}
-	out := &File{nodes: map[string]pluginsdk.NodeInfo{}, secrets: raw.Secrets}
-	if out.secrets == nil {
-		out.secrets = map[string]map[string]string{}
+	out := &File{}
+	for ref, fields := range raw.Secrets {
+		def, err := buildSecret(ref, fields)
+		if err != nil {
+			return nil, err
+		}
+		out.secrets = append(out.secrets, def)
 	}
-	if err := out.validateSecrets(); err != nil {
-		return nil, err
-	}
+	sort.Slice(out.secrets, func(i, j int) bool { return out.secrets[i].ref.Base() < out.secrets[j].ref.Base() })
+	lower := map[string]string{}
 	for name, n := range raw.Nodes {
 		node, err := buildNode(name, n)
 		if err != nil {
 			return nil, err
 		}
-		if node.Credential != "" {
-			if _, ok := out.secrets[node.Credential]; !ok {
-				return nil, fmt.Errorf("node %q: credential %q is not defined in secrets", name, node.Credential)
-			}
+		if other, dup := lower[strings.ToLower(name)]; dup {
+			return nil, fmt.Errorf("nodes %q and %q differ only in case", other, name)
 		}
-		out.nodes[name] = node
+		lower[strings.ToLower(name)] = name
+		out.nodes = append(out.nodes, node)
 	}
+	sort.Slice(out.nodes, func(i, j int) bool { return out.nodes[i].Name < out.nodes[j].Name })
 	return out, nil
 }
 
-func buildNode(name string, n rawNode) (pluginsdk.NodeInfo, error) {
-	switch {
-	case name == "":
-		return pluginsdk.NodeInfo{}, errors.New("a node has an empty name")
-	case n.Address == "":
-		return pluginsdk.NodeInfo{}, fmt.Errorf("node %q: address is empty", name)
-	case n.Credential != "" && !strings.HasPrefix(n.Credential, "secret://"):
-		return pluginsdk.NodeInfo{}, fmt.Errorf("node %q: credential must be a secret:// ref", name)
+func buildNode(name string, n rawNode) (store.Node, error) {
+	transport := n.Transport
+	if transport == "" {
+		transport = inventory.TransportSSH
 	}
 	port := n.Port
 	if port == 0 {
-		port = defaultPort
+		port = inventory.DefaultPort(transport)
 	}
-	if port < 1 || port > 65535 {
-		return pluginsdk.NodeInfo{}, fmt.Errorf("node %q: port %d is out of range", name, port)
+	node := store.Node{
+		Name: name, ExternalID: name, Address: n.Address, Port: port, Transport: transport, OS: n.OS, Pool: n.Pool,
+		Tags: n.Tags, Attributes: n.Attributes, Credential: n.Credential, HostKey: n.HostKey,
+		HostKeyPolicy: n.HostKeyPolicy, Source: Source, Enabled: true,
 	}
-	if !slices.Contains([]string{"strict", "tofu", "insecure"}, n.HostKeyPolicy) {
-		return pluginsdk.NodeInfo{}, fmt.Errorf("node %q: host_key_policy must be strict, tofu or insecure", name)
+	if is := inventory.Validate(&node); len(is) > 0 {
+		return store.Node{}, fmt.Errorf("node %q: %s: %s", name, is[0].Field, is[0].Message)
 	}
-	transport := n.Transport
-	if transport == "" {
-		transport = "ssh"
-	}
-	if err := checkNoSecretRefs(n.Attributes); err != nil {
-		return pluginsdk.NodeInfo{}, fmt.Errorf("node %q: attributes: %w", name, err)
-	}
-	return pluginsdk.NodeInfo{
-		Name: name, Address: n.Address, Port: port, Transport: transport, OS: n.OS, Attributes: n.Attributes,
-		Credential: n.Credential, HostKey: n.HostKey, HostKeyPolicy: n.HostKeyPolicy,
-	}, nil
+	return node, nil
 }
 
-func (f *File) validateSecrets() error {
-	for ref, fields := range f.secrets {
-		if !strings.HasPrefix(ref, "secret://") || strings.Contains(ref, "#") {
-			return fmt.Errorf("secret %q: the key must be a secret:// ref without #field", ref)
-		}
-		for field, v := range fields {
-			switch {
-			case strings.HasSuffix(field, filesSuffix):
-				if !filepath.IsAbs(v) {
-					return fmt.Errorf("secret %q: %s must be an absolute path", ref, field)
-				}
-			case field == "username":
-			default:
-				return fmt.Errorf("secret %q: put the value of %q in a file: use %q", ref, field, field+filesSuffix)
+func buildSecret(ref string, fields map[string]string) (secretDef, error) {
+	r, err := secrets.ParseRef(ref)
+	if err != nil || r.Field != "" {
+		return secretDef{}, fmt.Errorf("secret %q: the key must be a secret://<scope>/<name> ref without #field (a scope is a project such as default, or _inventory for node credentials)", ref)
+	}
+	def := secretDef{ref: r, typ: "generic", literals: map[string]string{}, files: map[string]string{}}
+	for field, v := range fields {
+		switch {
+		case field == "type":
+			def.typ = v
+		case strings.HasSuffix(field, filesSuffix):
+			if !filepath.IsAbs(v) {
+				return secretDef{}, fmt.Errorf("secret %q: %s must be an absolute path", ref, field)
 			}
+			def.files[strings.TrimSuffix(field, filesSuffix)] = v
+		case field == "username":
+			def.literals[field] = v
+		default:
+			return secretDef{}, fmt.Errorf("secret %q: put the value of %q in a file: use %q", ref, field, field+filesSuffix)
 		}
 	}
-	return nil
+	t, err := secrets.LookupType(def.typ)
+	if err != nil {
+		return secretDef{}, fmt.Errorf("secret %q: %w", ref, err)
+	}
+	if len(def.literals)+len(def.files) == 0 {
+		return secretDef{}, fmt.Errorf("secret %q: no fields", ref)
+	}
+	// Check field names and requirements without reading any file.
+	probe := map[string]string{}
+	for f := range def.literals {
+		probe[f] = "x"
+	}
+	for f := range def.files {
+		probe[f] = "x"
+	}
+	if err := t.ValidateFields(probe); err != nil {
+		return secretDef{}, fmt.Errorf("secret %q: %w", ref, err)
+	}
+	return def, nil
 }
 
 // Names returns the node names, sorted, for the startup warning.
 func (f *File) Names() []string {
-	names := make([]string, 0, len(f.nodes))
-	for n := range f.nodes {
-		names = append(names, n)
+	names := make([]string, len(f.nodes))
+	for i, n := range f.nodes {
+		names[i] = n.Name
 	}
-	slices.Sort(names)
 	return names
 }
 
-// Targets is the node list `for_each: "targets"` iterates and
-// `spec.targets.selector` filters, sorted by name. Each node is a plain map for
-// the expression context: name, address, tags (none in a dev file), attributes,
-// pool, os and transport. It never carries the credential ref, the host key or
-// the host key policy.
-func (f *File) Targets(_ context.Context, _ string) ([]map[string]any, error) {
-	out := make([]map[string]any, 0, len(f.nodes))
-	for _, name := range f.Names() {
-		n := f.nodes[name]
-		attrs := map[string]any{}
-		for k, v := range n.Attributes {
-			attrs[k] = v
-		}
-		out = append(out, map[string]any{
-			"name": n.Name, "address": n.Address, "tags": []any{}, "attributes": attrs,
-			"pool": "", "os": n.OS, "transport": n.Transport,
-		})
-	}
-	return out, nil
+// Desired returns the nodes of the file as inventory nodes (source devfile,
+// external id = name), validated and normalized.
+func (f *File) Desired() []store.Node {
+	return slices.Clone(f.nodes)
 }
 
-// Node implements dispatch.NodeSource.
-func (f *File) Node(_ context.Context, _, name string) (pluginsdk.NodeInfo, error) {
-	n, ok := f.nodes[name]
-	if !ok {
-		return pluginsdk.NodeInfo{}, dispatch.ErrUnknownNode
-	}
-	return n, nil
-}
-
-// Secret implements dispatch.SecretSource. It reads the files on every call.
-func (f *File) Secret(_ context.Context, _, ref string) (map[string]string, error) {
-	fields, ok := f.secrets[ref]
-	if !ok {
-		return nil, dispatch.ErrUnknownSecret
-	}
-	out := make(map[string]string, len(fields))
-	for field, v := range fields {
-		name, isFile := strings.CutSuffix(field, filesSuffix)
-		if !isFile {
-			out[field] = v
-			continue
-		}
-		b, err := readSecretFile(v)
-		if err != nil {
-			clear(out)
-			return nil, fmt.Errorf("secret %q field %q: %w", ref, name, err)
-		}
-		out[name] = string(b)
-	}
-	return out, nil
-}
+// HasSecrets reports whether the file defines any secret.
+func (f *File) HasSecrets() bool { return len(f.secrets) > 0 }
 
 // readSecretFile reads a regular, private file. Errors name the path, never
 // the content.
@@ -238,28 +222,4 @@ func readSecretFile(path string) ([]byte, error) {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
 	return b, nil
-}
-
-// checkNoSecretRefs rejects a secret:// string anywhere in v: attributes are
-// stored with the run and shown by the API, so they are never secret.
-func checkNoSecretRefs(v any) error {
-	switch x := v.(type) {
-	case string:
-		if strings.HasPrefix(x, "secret://") {
-			return errors.New("secret:// refs are not allowed (attributes are stored with the run and shown by the API)")
-		}
-	case map[string]any:
-		for _, e := range x {
-			if err := checkNoSecretRefs(e); err != nil {
-				return err
-			}
-		}
-	case []any:
-		for _, e := range x {
-			if err := checkNoSecretRefs(e); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }

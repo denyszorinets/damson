@@ -4,9 +4,9 @@ Run a job over ssh
 This walks through the M2 end-to-end path on a development setup: ``damson
 dev`` with a ``--dev-nodes`` file, one ``ssh`` job created through the API,
 triggered, and its status and logs read back. ``--dev-nodes`` is development
-only and stands in for inventory and the secret store until M4 (see
-:ref:`cli-dev-nodes` and
-:doc:`/architecture/decisions/0034-dev-only-inline-nodes-and-secrets`).
+only: it seeds the node into the inventory and the secrets into the secret store
+at startup (see :ref:`cli-dev-nodes` and
+:doc:`/architecture/decisions/0044-dev-nodes-is-a-seeder`).
 
 Prerequisites
 -------------
@@ -18,7 +18,8 @@ Describe the node and its secrets
 ---------------------------------
 
 Write ``nodes.json`` (file format: :ref:`cli-dev-nodes`). Secret values live in
-separate files that are mode 0600 or stricter:
+separate files that are mode 0600 or stricter; they are read when the file is
+seeded:
 
 .. code-block:: json
 
@@ -30,14 +31,14 @@ separate files that are mode 0600 or stricter:
          "port": 2222,
          "transport": "ssh",
          "os": "linux",
-         "credential": "secret://dev/sshd",
+         "credential": "secret://_inventory/sshd",
          "host_key": "ssh-ed25519 AAAA...",
          "host_key_policy": "strict"
        }
      },
      "secrets": {
-       "secret://dev/sshd": {"username": "demo", "private_key_file": "/home/me/dev/id_ed25519"},
-       "secret://dev/token": {"value_file": "/home/me/dev/token.txt"}
+       "secret://_inventory/sshd": {"type": "ssh_key", "username": "demo", "private_key_file": "/home/me/dev/id_ed25519"},
+       "secret://default/token": {"token_file": "/home/me/dev/token.txt"}
      }
    }
 
@@ -48,7 +49,10 @@ Start Damson
 
    $ damson dev --dev-nodes nodes.json
 
-It logs a WARN naming the file and the node names. The examples below assume
+It seeds the node and the secrets, and logs a WARN naming the node names and an
+INFO with what was written. ``damson dev`` makes its own encryption key for the
+secrets (:ref:`reference-config-dev-kek`); a ``damson controller`` would need
+``DAMSON_KEK``. Restarting re-reads the files and changes only what differs. The examples below assume
 the API on ``localhost:8080``; use the address in ``controller.listen``.
 
 Create the job
@@ -63,7 +67,7 @@ Create the job
          "spec":{"steps":[{"id":"hello","plugin":"ssh","with":{
            "node":"sshd",
            "command":"echo hello-from-sshd; echo t=$TOKEN",
-           "env":{"TOKEN":"secret://dev/token"}}}]}}}'
+           "env":{"TOKEN":"secret://default/token"}}}]}}}'
 
 The response carries the job ``id``.
 

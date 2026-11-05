@@ -51,8 +51,8 @@ Document layout
      - A CEL expression over ``node`` (``name``, ``address``, ``tags``,
        ``attributes``, ``pool``, ``os``, ``transport``) and ``inputs``; the nodes
        for which it is true are ``targets``. The nodes are the enabled inventory nodes
-       in the project's scope (at most 1000, sorted by name); with the
-       :ref:`dev nodes file <cli-dev-nodes>` they are the file's nodes. A node for which it fails does not match.
+       in the project's scope (at most 1000, sorted by name); nodes seeded from a
+       :ref:`dev nodes file <cli-dev-nodes>` are included. A node for which it fails does not match.
    * - ``spec.timeout``
      - Go duration (``30s``, ``10m``), positive. Covers the whole run from its
        start (time spent pending does not count). When it expires the run is

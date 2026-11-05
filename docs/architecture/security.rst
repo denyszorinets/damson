@@ -117,7 +117,8 @@ and checks every ref before reading any secret; a denied ref fails the execution
 permanently as ``unknown secret``, naming only the ref, so existence is not
 revealed. A ``#field`` that the secret lacks fails permanently as unavailable.
 API spec validation applies the same rule to literal refs and reports the path
-only. ``--dev-nodes`` stays unauthorized (ADR-0034).
+only. ``--dev-nodes`` seeds real secrets and nodes at startup (ADR-0044), so its refs
+are authorized like any other.
 
 See :doc:`decisions/0015-secret-references-and-envelope-encryption`.
 

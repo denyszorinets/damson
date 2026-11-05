@@ -119,7 +119,7 @@ change nothing until accepted.
      - Accepted
    * - 0034
      - :doc:`0034-dev-only-inline-nodes-and-secrets`
-     - Accepted
+     - Superseded by 0044
    * - 0035
      - :doc:`0035-timeout-semantics`
      - Accepted
@@ -137,6 +137,9 @@ change nothing until accepted.
      - Accepted
    * - 0043
      - :doc:`0043-inventory-nodes`
+     - Accepted
+   * - 0044
+     - :doc:`0044-dev-nodes-is-a-seeder`
      - Accepted
 
 .. toctree::
@@ -185,3 +188,4 @@ change nothing until accepted.
    0041-job-graph
    0042-db-secret-backend-keyring
    0043-inventory-nodes
+   0044-dev-nodes-is-a-seeder
