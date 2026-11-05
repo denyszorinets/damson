@@ -152,12 +152,31 @@ run. A running attempt is never ended this way.
 
 There is no notify hint yet; the poll is the only trigger.
 
+Node sources
+------------
+
+Without ``--dev-nodes`` the dispatcher reads node rows from the store at
+dispatch time (``node.InventoryNodes``, ADR-0043). With ``--dev-nodes`` the
+file serves nodes, secrets and targets as before.
+
+* A missing node, or one outside the project's node scope (``inventory.Scope``;
+  ``AllNodes`` until M8), fails the step permanently as ``unknown node``. There
+  is no probing.
+* A disabled node fails permanently as ``node is disabled``. A node deleted
+  after the run started fails the same way at dispatch.
+* A database error requeues the execution.
+* The node credential goes through the secret authorization
+  (``secrets.Authorize`` with ``fromNode``); ``_inventory`` is allowed only as
+  a node credential.
+* Inventory nodes are reachable only through a literal ``node: <name>`` in step
+  input.
+
 Not yet implemented
 -------------------
 
 * Step timeout (``timeout_ms``).
-* Real inventory and secret store behind the nodes and secrets bundle of
-  ``step.execute`` (M4). Until then only the dev-only ``--dev-nodes`` file
-  serves them (ADR-0034, see :doc:`/reference/cli`).
+* Inventory nodes in ``for_each: targets`` and the selector, and routing from
+  ``node.pool`` (:issue:`117`). Until then they use only the dev-only
+  ``--dev-nodes`` file (ADR-0034, see :doc:`/reference/cli`).
 * A notify hint for dispatch and cancel (the 1 s and 2 s polls are the only triggers).
 * Retries (M3).

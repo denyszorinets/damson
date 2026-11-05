@@ -29,6 +29,7 @@ type RunEnqueuer interface {
 // DataStore is what the typed endpoints read from the store.
 type DataStore interface {
 	store.TxRunner
+	store.NodeStore
 
 	ListAgents(ctx context.Context, cursor string, limit int) (store.AgentPage, error)
 	GetAgent(ctx context.Context, id string) (store.Agent, error)
@@ -134,6 +135,7 @@ func newHuma(mux *http.ServeMux, d deps) huma.API {
 	registerRuns(api, d)
 	registerExecutions(api, d)
 	registerSecrets(api, d)
+	registerNodes(api, d)
 	return api
 }
 

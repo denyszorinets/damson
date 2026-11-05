@@ -93,6 +93,9 @@ func problemFor(err error) Problem {
 	if sp, ok := secretProblem(err); ok {
 		return sp
 	}
+	if np, ok := nodeProblem(err); ok {
+		return np
+	}
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return Problem{Type: typeNotFound, Title: "Not Found", Status: http.StatusNotFound, Detail: "the requested resource does not exist"}

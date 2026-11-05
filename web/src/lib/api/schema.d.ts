@@ -202,6 +202,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List inventory nodes */
+        get: operations["list-nodes"];
+        put?: never;
+        /** Create a manual node */
+        post: operations["create-node"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/nodes/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a node */
+        get: operations["get-node"];
+        put?: never;
+        post?: never;
+        /** Delete a node */
+        delete: operations["delete-node"];
+        options?: never;
+        head?: never;
+        /** Change a node */
+        patch: operations["patch-node"];
+        trace?: never;
+    };
     "/plugins": {
         parameters: {
             query?: never;
@@ -438,6 +475,30 @@ export interface components {
             /** @description The job document (apiVersion damson.dev/v1, kind Job). */
             spec: unknown;
         };
+        CreateNodeInputBody: {
+            address: string;
+            attributes?: {
+                [key: string]: unknown;
+            };
+            /** @description A secret:// reference to a whole secret. */
+            credential?: string;
+            /** @description Default true. */
+            enabled?: boolean;
+            host_key?: string;
+            /** @description strict (default), tofu or insecure. */
+            host_key_policy?: string;
+            name: string;
+            os?: string;
+            pool?: string;
+            /**
+             * Format: int64
+             * @description Defaults to 22 for ssh and 5986 for winrm.
+             */
+            port?: number;
+            tags?: string[] | null;
+            /** @description ssh (default) or winrm. */
+            transport?: string;
+        };
         CreateVersionInputBody: {
             /**
              * Format: int64
@@ -581,6 +642,11 @@ export interface components {
             /** @description Empty on the last page. */
             next_cursor?: string;
         };
+        ListNodesOutputBody: {
+            items: components["schemas"]["Node"][] | null;
+            /** @description Empty on the last page. */
+            next_cursor?: string;
+        };
         ListPluginsOutputBody: {
             items: components["schemas"]["Plugin"][] | null;
         };
@@ -604,6 +670,62 @@ export interface components {
             /** @description Ascending by version, without the spec. */
             items: components["schemas"]["JobVersion"][] | null;
             next_cursor?: string;
+        };
+        Node: {
+            address: string;
+            attributes: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            created_at: string;
+            /** @description A secret:// reference, or empty. */
+            credential: string;
+            enabled: boolean;
+            external_id: string;
+            /** @description The pinned key in authorized_keys form, or empty. */
+            host_key: string;
+            host_key_fingerprint?: string;
+            /** @description The key seen by the last TOFU connection, or empty. */
+            host_key_observed: string;
+            /** Format: date-time */
+            host_key_observed_at?: string;
+            host_key_observed_fingerprint?: string;
+            host_key_policy: string;
+            id: string;
+            name: string;
+            os: string;
+            pool: string;
+            /** Format: int64 */
+            port: number;
+            /** @description manual for nodes made through this API, otherwise the sync source that owns it. */
+            source: string;
+            tags: string[] | null;
+            transport: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int64 */
+            version: number;
+        };
+        PatchNodeInputBody: {
+            address?: string;
+            attributes?: {
+                [key: string]: unknown;
+            };
+            credential?: string;
+            enabled?: boolean;
+            host_key?: string;
+            host_key_policy?: string;
+            /**
+             * Format: int64
+             * @description The version the caller read; 409 if it moved. Omitted: the version current when handled.
+             */
+            if_version?: number;
+            os?: string;
+            pool?: string;
+            /** Format: int64 */
+            port?: number;
+            tags?: string[];
+            transport?: string;
         };
         Plugin: {
             name: string;
@@ -1518,6 +1640,378 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "list-nodes": {
+        parameters: {
+            query?: {
+                /** @description Only nodes of this source. */
+                source?: string;
+                /** @description Only enabled (true) or only disabled (false) nodes; empty for both. */
+                enabled?: "true" | "false" | "";
+                /** @description Opaque cursor from a previous page's next_cursor. */
+                cursor?: string;
+                /** @description Page size. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListNodesOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "create-node": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateNodeInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Node"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "get-node": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Node"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "delete-node": {
+        parameters: {
+            query?: {
+                /** @description Delete a node owned by a sync source; the next sync may recreate it. */
+                force?: boolean;
+                /** @description The version the caller read; 409 if it moved. 0: the version current when handled. */
+                if_version?: number;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "patch-node": {
+        parameters: {
+            query?: {
+                /** @description Edit a node owned by a sync source; its next sync overwrites the edit. The source does not change. */
+                force?: boolean;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchNodeInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Node"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

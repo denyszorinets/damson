@@ -2,6 +2,7 @@ package inventory
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -273,3 +274,20 @@ func (v *validator) hostKey(s, transport string) string {
 	}
 	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
 }
+
+// Fingerprint returns the SHA256 fingerprint of an authorized_keys entry, or
+// "" for an empty or unparsable one.
+func Fingerprint(authorizedKey string) string {
+	if authorizedKey == "" {
+		return ""
+	}
+	key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(authorizedKey))
+	if err != nil {
+		return ""
+	}
+	return ssh.FingerprintSHA256(key)
+}
+
+// ErrSourceConflict means a write targets a node owned by another source
+// without force: the owner's next sync would overwrite it.
+var ErrSourceConflict = errors.New("node is owned by another source")

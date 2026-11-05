@@ -329,6 +329,7 @@ The engine evaluates these rules deterministically:
   - It is evaluated against the inventory intersected with the project's node scope (§12).
   - From M4 it is evaluated once, at run start, and the node list is frozen into the run (a run-level snapshot, which needs a schema change). Before that, each `for_each` group freezes the list it iterates (below).
 - Before the inventory exists (M4) `targets` is the nodes of the dev-only `--dev-nodes` file (ADR-0034) filtered by the selector, sorted by name; each is a map of `name`, `address`, `tags` (always empty, a dev file has none), `attributes`, `pool` (empty), `os` and `transport`, and never a credential ref, host key or host key policy. Without that file `targets` is empty. A node for which the selector does not evaluate to true, or fails to, does not match. A `for_each` group freezes the list it iterates when it starts (ADR-0038), so the lanes of a run do not change.
+- Inventory nodes (ADR-0043) can be used only through a literal `node: <name>` in step input. `targets`, `for_each: targets` and the selector stay `--dev-nodes`-only until frozen run targets (#117), which will store node ids and require the node to be in the run's targets. `node.pool` is stored but does not route yet: `runs_on` still defaults to the `default` pool.
 - Plugins that accept a whole inventory (Ansible) receive `targets` directly. Plugins that work on one node (SSH, WinRM) take a `node` field, usually `${{ node.name }}` inside `for_each`.
 
 ---
@@ -854,6 +855,7 @@ Action = CreateStepInstance | ScheduleExecution | SettleStep | SkipStep | Comple
 - Format: `secret://<scope>/<name>[#<field>]`, for example `secret://infra/billing/deploy-key#private_key`. The scope is all segments but the last.
 - A job may reference secrets in its own project or any **ancestor** project (prefix match on a `/` boundary). Siblings, children and other projects are denied. The dispatcher enforces this before any secret is read; a denied ref fails the execution as `unknown secret`, so existence is not revealed. API spec validation rejects literal refs that are not authorized.
 - Inventory-level credentials live under the reserved `secret://_inventory/...` scope (`_inventory` is allowed only as the whole scope). They are usable only as the credential of the node a step targets, never as a literal `secret://_inventory/...` in step input, by any job whose project node scope includes the node.
+- Node scope today (ADR-0043): dispatch asks the `inventory.Scope` hook, and `AllNodes` matches every node until M8 builds the project tree and the CEL `node_scope` (§12.1); there is no `projects.node_scope` column yet. A missing node and a node outside the scope both fail the step permanently as `unknown node`, so existence is not revealed. A disabled node fails permanently as `node is disabled`; a node deleted after the run started fails permanently as `unknown node`. Until host key handling lands (#118) a node with policy `insecure`, or `tofu` without a pinned `host_key`, fails permanently as `host key policy not available`, because the controller does not store observed keys yet. A database error requeues. The node credential goes through the same secret authorization, with `_inventory` allowed only as a node credential.
 - Grammar (ADR-0042):
   - A scope segment matches `[a-z0-9][a-z0-9-]{0,62}`, 1 to 8 segments, so a leading `_` is impossible.
   - `name` matches `[A-Za-z0-9][A-Za-z0-9._-]{0,127}` and has no `..`.
@@ -932,7 +934,7 @@ type SecretStore interface {
 
 ## 11. Inventory API
 
-Until M4, the dev-only `--dev-nodes` file stands in for inventory (ADR-0034).
+Nodes are stored in the `nodes` table and managed through the API below (ADR-0043). The dev-only `--dev-nodes` file (ADR-0034) still serves nodes, secrets and targets when given, and then replaces the store at dispatch.
 
 Inventory is maintained by external systems (for example a ServiceNow CMDB sync running elsewhere). Damson only exposes an API.
 
@@ -942,11 +944,11 @@ Inventory is maintained by external systems (for example a ServiceNow CMDB sync 
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/nodes?selector=<CEL>&source=…` | List and filter |
+| `GET` | `/api/v1/nodes?source=&enabled=&cursor=&limit=` | List and filter (the CEL `selector` filter is not implemented yet) |
 | `GET` | `/api/v1/nodes/{name}` | Get one |
 | `POST` | `/api/v1/nodes` | Create (`source=manual`) |
-| `PATCH` | `/api/v1/nodes/{name}` | Update fields |
-| `DELETE` | `/api/v1/nodes/{name}` | Delete |
+| `PATCH` | `/api/v1/nodes/{name}?force=` | Update fields; optional `if_version` |
+| `DELETE` | `/api/v1/nodes/{name}?force=&if_version=` | Delete |
 | `PUT` | `/api/v1/inventory/sources/{source}/nodes?dry_run=bool&prune=bool` | **Full-state sync** for one source: upsert all nodes in the body (matched by `external_id`, falling back to `name`). With `prune`, it deletes nodes of that source missing from the body. Returns a diff `{created, updated, deleted, unchanged}`. Idempotent. |
 | `POST` | `/api/v1/inventory/sources/{source}/nodes:batch` | Incremental upserts and deletes |
 
@@ -962,9 +964,18 @@ Inventory is maintained by external systems (for example a ServiceNow CMDB sync 
 - `host_key`: empty or exactly one `authorized_keys` key, normalized without comment; not allowed for `winrm`. `host_key_policy`: `strict`, `tofu` or `insecure`. A `strict` node without a `host_key` is accepted at write time (synced nodes may get their key later) and fails at connect.
 - `source`: `^[a-z0-9][a-z0-9-]{0,62}$` (`manual` and `devfile` are reserved for the API and the dev seeder). `external_id`: at most 255 bytes, no control characters, empty for `manual`. Both are in unique indexes, so their size is bounded here. Absolute FQDNs (trailing dot) and hostnames with underscores are not valid addresses.
 
+**API semantics** (ADR-0043)
+
+- All nodes routes need the admin token (§12.2), reads included; a missing and a wrong token get the same `401`.
+- `POST` creates a `manual` node: `name` and `address` are required; `port` defaults to 22 (`ssh`) or 5986 (`winrm`), `transport` to `ssh`, `host_key_policy` to `strict`, `enabled` to true. `source`, `external_id`, `version` and `host_key_observed` are read-only and a body that sets them is a `422`.
+- `PATCH` takes every field as optional; `tags` and `attributes` replace the whole value, and an empty `credential` or `host_key` clears it. `name`, `source` and `external_id` cannot change (`422`). With `if_version` a moved node is a `409`; without it the handler merges against the version it read and retries up to 3 times. Updates and deletes address the row by id and version.
+- A node response has every column plus `host_key_fingerprint` and `host_key_observed_fingerprint` (`SHA256:…`), `version`, `created_at` and `updated_at`. `credential` is a ref only.
+- Status codes: `201` create, `200` patch, `204` delete, `404`, `409` (duplicate name including case-only, duplicate `(source, external_id)`, stale version), `422` with locations `body.<field>`.
+- `manual` and `devfile` are reserved sources. `name` is limited to 63 characters because it is a `for_each` path segment.
+
 **Rules**
 
-- A node belongs to exactly one source. Writes from another source fail with a conflict error unless `force=true`, which requires admin.
+- A node belongs to exactly one source. Writing a node whose source is not `manual` without `force=true` is a `409` of type `urn:damson:problem:inventory-source-conflict`. With `force=true` the write happens but keeps `source`, so the owner's next sync overwrites the edit. Until M8 `force` needs only the admin token.
 - Sync calls use **service account tokens** with the `inventory:write` scope.
 - Node changes don't affect running runs, which froze their targets at start.
 
@@ -989,7 +1000,7 @@ Inventory is maintained by external systems (for example a ServiceNow CMDB sync 
   - a **service account token**: random, hashed, scoped by project subtree and role, with optional expiry
   - an **OIDC JWT access token** from the configured issuer (optional; for machine-to-machine)
 - **Bootstrap admin:** a config CEL rule over claims, for example `'damson-admins' in claims.groups`, plus a one-time local recovery token printed at first start.
-- **Interim admin token (until OIDC, M8):** the secrets API (§14) is guarded by an **admin bootstrap token** (`dma_` plus base64url of 32 random bytes), created with `damson admin admin-token create` and printed once. Only its SHA-256 hash is stored, in `instance_settings` key `auth.admin_token_hash`; creating a new one replaces it (the old one stops working at once) and `admin-token revoke` clears it. The API reads the hash on every request. Pool tokens are never accepted here and the admin token is not accepted on `/agent/v1/connect`. M8 keeps it as the local recovery token. Until M8 it is one shared token for all admins.
+- **Interim admin token (until OIDC, M8):** the secrets API and the nodes API (§14) are guarded by an **admin bootstrap token** (`dma_` plus base64url of 32 random bytes), created with `damson admin admin-token create` and printed once. Only its SHA-256 hash is stored, in `instance_settings` key `auth.admin_token_hash`; creating a new one replaces it (the old one stops working at once) and `admin-token revoke` clears it. The API reads the hash on every request. Pool tokens are never accepted here and the admin token is not accepted on `/agent/v1/connect`. M8 keeps it as the local recovery token. Until M8 it is one shared token for all admins.
 
 ### 12.3 Triggers
 
@@ -1062,7 +1073,7 @@ All routes are under `/api/v1`, with the OpenAPI document at `/api/v1/openapi.js
 - `runs` — list, get (with step tree), `graph` (graph plus current step states, `{graph, steps[]}`), cancel, rerun (same version and options), SSE `/runs/{id}/events`
 - `executions` — get, logs (SSE)
 - `schedules`, `webhooks`
-- `nodes`, `inventory/sources/*`
+- `nodes` — list (`GET /nodes`), get, create (`POST`, `source=manual`), update (`PATCH`, optional `if_version`), delete; `?force=true` is needed to write a node of another source (it keeps the source). All nodes routes need the admin token (§12.2), reads included. `inventory/sources/*` is not implemented yet.
 - `agents` — list, get (telemetry), drain; `pools` and pool tokens
 - `secrets` — metadata list (`GET /secrets`), create or add a version (`PUT /secrets/{scope}/{name}`, write-only values, optional `if_version`), delete; `scope` is one percent-encoded path segment. `GET /secret-types` is public. All other secrets routes need the admin token (§12.2) and answer 503 when no KEK is configured.
 - `plugins` — manifests with input and output schemas (drives the UI forms)

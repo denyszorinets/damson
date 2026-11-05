@@ -16,6 +16,12 @@ import (
 var (
 	ErrUnknownNode   = errors.New("unknown node")
 	ErrUnknownSecret = errors.New("unknown secret")
+	// ErrNodeDisabled is a node that exists but is switched off in the
+	// inventory. Permanent as well.
+	ErrNodeDisabled = errors.New("node is disabled")
+	// ErrHostKeyPolicy is a node whose host key policy cannot be honored yet
+	// (tofu without a pinned key, insecure) until host key handling lands.
+	ErrHostKeyPolicy = errors.New("host key policy not available")
 	// ErrSecretUnavailable is a secret that exists but cannot be used: a
 	// malformed ref, or a version that cannot be decrypted. Permanent too.
 	ErrSecretUnavailable = errors.New("secret unavailable")
@@ -78,7 +84,7 @@ func (d *Dispatcher) resolveTargets(ctx context.Context, runID string, m plugins
 		}
 		n, err := d.cfg.Nodes.Node(ctx, runID, name)
 		if err != nil {
-			return nil, nil, sourceError(fmt.Sprintf("node %q", name), ErrUnknownNode, err)
+			return nil, nil, nodeError(name, err)
 		}
 		nodes = map[string]pluginsdk.NodeInfo{name: n}
 		if n.Credential != "" {
@@ -147,6 +153,16 @@ func sourceError(what string, unknown, err error) error {
 		return &permanent{fmt.Errorf("%s: %w", what, unknown)}
 	}
 	return fmt.Errorf("resolving %s: %w", what, err)
+}
+
+// nodeError is sourceError for nodes, which can also be disabled.
+func nodeError(name string, err error) error {
+	for _, perm := range []error{ErrNodeDisabled, ErrHostKeyPolicy} {
+		if errors.Is(err, perm) {
+			return &permanent{fmt.Errorf("node %q: %w", name, perm)}
+		}
+	}
+	return sourceError(fmt.Sprintf("node %q", name), ErrUnknownNode, err)
 }
 
 // secretError is sourceError for secrets, which also have an unusable state.

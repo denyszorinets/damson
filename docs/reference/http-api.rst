@@ -170,7 +170,7 @@ Lists (except plugins) take ``limit`` (1 to 200, default 50) and ``cursor`` (the
 page's ``next_cursor``, opaque, empty on the last page). An invalid ``limit`` is a
 ``422`` problem with an ``errors`` list; a malformed ``cursor`` is a ``400``.
 
-Except the secrets routes (:ref:`reference-secrets-api`), all endpoints are **unauthenticated** for now: authentication and
+Except the secrets routes (:ref:`reference-secrets-api`) and the nodes routes (:ref:`reference-nodes-api`), all endpoints are **unauthenticated** for now: authentication and
 authorization arrive in M8 (ARCHITECTURE section 12), so anyone who can reach
 the listener can create jobs and trigger runs. Pool and pool token
 administration stays in the ``damson admin`` CLI until then. No endpoint
@@ -213,6 +213,62 @@ authentication. Values are write-only: no response contains one.
      - ``204``, or ``404`` if unknown.
    * - ``GET /api/v1/secret-types`` (public)
      - ``items`` of ``{name, fields: [{name, required, multiline}]}``.
+
+.. _reference-nodes-api:
+
+Nodes API
+~~~~~~~~~
+
+Every nodes route, reads included, needs ``Authorization: Bearer <admin token>``
+(see the Secrets API above). A missing or a wrong token gets the identical
+``401`` text. Design: :doc:`/architecture/decisions/0043-inventory-nodes`.
+
+A node response has every column: ``id``, ``name``, ``address``, ``port``,
+``transport``, ``os``, ``pool``, ``tags``, ``attributes``, ``credential`` (a
+secret ref only), ``host_key``, ``host_key_policy``, ``source``,
+``external_id``, ``enabled``, plus ``host_key_fingerprint`` and
+``host_key_observed_fingerprint`` (``SHA256:...``), ``version``, ``created_at``
+and ``updated_at``.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Endpoint
+     - Behaviour
+   * - ``GET /api/v1/nodes?source=&enabled=true|false&cursor=&limit=``
+     - ``items`` plus ``next_cursor``.
+   * - ``GET /api/v1/nodes/{name}``
+     - One node, or ``404``.
+   * - ``POST /api/v1/nodes``
+     - Creates a node with ``source`` ``manual``. ``name`` and ``address`` are
+       required. ``port`` defaults to 22 for ``ssh`` and 5986 for ``winrm``,
+       ``transport`` to ``ssh``, ``host_key_policy`` to ``strict`` and
+       ``enabled`` to true. ``os``, ``pool``, ``tags``, ``attributes``,
+       ``credential`` and ``host_key`` are optional. ``source``,
+       ``external_id``, ``version`` and ``host_key_observed`` are not accepted
+       (``422``). ``201`` with the node.
+   * - ``PATCH /api/v1/nodes/{name}?force=``
+     - Every field is optional. ``tags`` and ``attributes`` replace the whole
+       value; an empty ``credential`` or ``host_key`` clears it. ``name``,
+       ``source`` and ``external_id`` cannot be changed (``422``). The optional
+       body field ``if_version`` gives ``409`` if the node moved; without it
+       the handler merges against the version it read and retries up to 3
+       times. ``200`` with the node.
+   * - ``DELETE /api/v1/nodes/{name}?force=&if_version=``
+     - ``204``, or ``404``.
+
+Errors: ``401``; ``404``; ``409`` (a duplicate name, including a case-only
+duplicate; a duplicate ``(source, external_id)``; a stale ``if_version``);
+``422`` with a location per field, ``body.<field>``.
+
+Writing a node whose source is not ``manual`` without ``force=true`` is a
+``409`` problem of type ``urn:damson:problem:inventory-source-conflict``. With
+``force=true`` the write happens but keeps ``source``, so the owning source's
+next sync overwrites the edit.
+
+Names match the 63-character lane-key grammar
+``^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$``, because the name is a ``for_each`` path
+segment. Put an FQDN in ``address``.
 
 .. _reference-trigger:
 
