@@ -43,7 +43,9 @@ Built-in plugins (v1):
      - Run a command or script on a node; host key policies
        ``strict``/``tofu``/``insecure`` (:doc:`/reference/plugin-ssh`).
    * - ``winrm``
-     - Run a command or PowerShell on Windows (HTTPS, Basic or NTLM).
+     - Run a command or PowerShell on Windows (HTTPS, Basic or NTLM; http
+       only with NTLM and an agent opt-in). Not yet proven on a real Windows
+       host (:doc:`/reference/plugin-winrm`).
    * - ``transfer``
      - Copy or move one file between nodes, streamed through agent memory
        with in-stream SHA-256. SFTP, SCP, FTP, FTPS and S3 endpoints are

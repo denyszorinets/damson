@@ -13,6 +13,7 @@ import (
 	"github.com/denyszorinets/damson/plugins/internal/ftptest"
 	"github.com/denyszorinets/damson/plugins/internal/s3test"
 	"github.com/denyszorinets/damson/plugins/internal/sshtest"
+	"github.com/denyszorinets/damson/plugins/internal/winrmtest"
 )
 
 // contractOptions maps each built-in plugin name to its contract cases. Add an
@@ -52,9 +53,24 @@ func contractOptions(t *testing.T) map[string]plugintest.Options {
 		Nodes:  map[string]pluginsdk.NodeInfo{sshtest.NodeName: f.Node},
 		Bundle: map[string]map[string]string{sshtest.CredentialRef: f.Bundle[sshtest.CredentialRef], "secret://s3/conn": s3srv.Connection()},
 	}
+	// winrm: the password is a bundle value, so the suite checks it never leaks.
+	winSrv := winrmtest.Start(t, winrmtest.Options{User: "svc", Password: "contract-winrm-PASSWORD"})
+	winNode := pluginsdk.NodeInfo{Name: "win1", Address: winSrv.Host(), Port: winSrv.Port(), Transport: "winrm", OS: "windows", Credential: "secret://win/cred"}
+	winCase := func(name, body string) plugintest.Case {
+		return plugintest.Case{
+			Name: name, Input: json.RawMessage(body), Config: map[string]string{"tls_ca_pem": winSrv.CAPEM},
+			Nodes:  map[string]pluginsdk.NodeInfo{"win1": winNode},
+			Bundle: map[string]map[string]string{"secret://win/cred": {"username": "svc", "password": "contract-winrm-PASSWORD"}},
+		}
+	}
+	winBlocking := winCase("blocking", `{"node":"win1","auth":"basic","command":"block"}`)
 	// An endless source keeps the transfer running until it is cancelled.
 	transferBlocking := transferCase("blocking", "/dev/zero", filepath.Join(dir, "never"))
 	return map[string]plugintest.Options{
+		"winrm": {
+			Cases:    []plugintest.Case{winCase("command", `{"node":"win1","auth":"basic","command":"echo hello"}`)},
+			Blocking: &winBlocking,
+		},
 		"transfer": {
 			Cases:    []plugintest.Case{transferCase("copy", src, filepath.Join(dir, "dst")), ftpCase, s3Case},
 			Blocking: &transferBlocking,

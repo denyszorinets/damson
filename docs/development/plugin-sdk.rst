@@ -50,7 +50,8 @@ A plugin package exports one constructor and implements ``pluginsdk.Plugin``:
   ``internal``.
 - **Nodes:** ``ExecRequest.Nodes`` holds ``NodeInfo`` values named after the
   inventory node fields (``transport``, ``os``, ``attributes`` as
-  ``map[string]any``, ``credential`` ref, ``host_key``, ``host_key_policy``).
+  ``map[string]any``, ``credential`` ref, ``host_key``, ``host_key_policy``). ``Port`` is the node's own port; ``0`` means the plugin's
+  default (``winrm`` uses 5986 for https and 5985 for http).
 - **Host keys and config:** ``ExecRequest.HostKeys`` (a ``HostKeyReporter``,
   may be nil) lets a plugin report the host key it observed on a node, in
   ``authorized_keys`` format; the agent forwards it so the controller can store

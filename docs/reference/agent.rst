@@ -63,6 +63,10 @@ is masked before it leaves (plain, base64 and URL-encoded forms).
   ``agent.hello`` so the controller can decide.
 * ``agent.allow_insecure_host_keys`` lets the ``ssh`` and ``transfer`` plugins connect to nodes
   whose host key policy is ``insecure``. Off by default.
+* ``agent.allow_insecure_winrm`` (``DAMSON_AGENT__ALLOW_INSECURE_WINRM``) lets the
+  ``winrm`` plugin use ``transport: http`` and ``insecure_skip_verify``
+  (:doc:`/reference/plugin-winrm`). Off by default. It is separate from
+  ``allow_insecure_host_keys``.
 * ``agent.tls_ca_file`` is a PEM file of extra CA certificates for ``ftps`` and
   ``https`` S3 endpoints (and ``winrm`` over https)
   transfers (:doc:`/reference/plugin-transfer`). A bad file fails agent start. The file is read when the agent starts, so a change needs a restart.

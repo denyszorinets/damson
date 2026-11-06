@@ -139,6 +139,12 @@ written as a double underscore: ``agent.controller_url`` is
      - ``false``
      - Let the ``ssh`` and ``transfer`` plugins connect to nodes with host key policy
        ``insecure``.
+   * - ``agent.allow_insecure_winrm``
+     - agent
+     - ``false``
+     - Let the ``winrm`` plugin use ``transport: http`` and
+       ``insecure_skip_verify``. Environment variable
+       ``DAMSON_AGENT__ALLOW_INSECURE_WINRM`` (:doc:`/reference/plugin-winrm`).
    * - ``agent.tls_ca_file``
      - agent
      - empty

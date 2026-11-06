@@ -11,6 +11,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
+	"github.com/denyszorinets/damson/plugins/internal/scriptout"
 	"github.com/denyszorinets/damson/plugins/internal/sshconn"
 )
 
@@ -60,11 +61,11 @@ func run(ctx context.Context, client *ssh.Client, in Input, call remoteCall, emi
 		return runResult{}, sshconn.CtxOr(ctx, pluginsdk.NewError(pluginsdk.KindConnection, "starting remote command failed: "+err.Error(), err))
 	}
 
-	outC := &collector{emit: emit, stream: pluginsdk.Stdout, proto: true}
-	errC := &collector{emit: emit, stream: pluginsdk.Stderr}
+	outC := scriptout.NewStdout(emit)
+	errC := scriptout.NewStderr(emit)
 	var wg sync.WaitGroup
-	wg.Go(func() { outC.consume(stdout) })
-	wg.Go(func() { errC.consume(stderr) })
+	wg.Go(func() { outC.Consume(stdout) })
+	wg.Go(func() { errC.Consume(stderr) })
 	if stdin != nil {
 		wg.Go(func() {
 			_, _ = io.WriteString(stdin, call.Stdin)
@@ -75,7 +76,7 @@ func run(ctx context.Context, client *ssh.Client, in Input, call remoteCall, emi
 	waitErr := wait(ctx, client, sess)
 	wg.Wait()
 
-	res := runResult{ExitCode: -1, Stdout: outC.tail.String(), Stderr: errC.tail.String(), Values: outC.values}
+	res := runResult{ExitCode: -1, Stdout: outC.Tail(), Stderr: errC.Tail(), Values: outC.Values()}
 	if err := ctx.Err(); err != nil {
 		return res, err
 	}

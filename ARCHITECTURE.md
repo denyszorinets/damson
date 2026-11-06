@@ -455,7 +455,7 @@ type SecretResolver interface {
 type NodeInfo struct { // names and wire tags follow the node fields of §11
     Name          string         `json:"name"`
     Address       string         `json:"address"`
-    Port          int            `json:"port,omitempty"`
+    Port          int            `json:"port,omitempty"`          // the node's own port; 0 = plugin default (winrm: 5986 https, 5985 http)
     Transport     string         `json:"transport,omitempty"`       // ssh | winrm
     OS            string         `json:"os,omitempty"`
     Attributes    map[string]any `json:"attributes,omitempty"`      // string | number | bool
@@ -517,9 +517,15 @@ type StepError struct {
 
 ### 6.2 `winrm`
 
-- **Input:** `node`, `command` *or* `powershell` (sent as an encoded command), `env`, `credential`, `transport` (`https` default, `http` only when explicitly allowed), `auth` (`basic` | `ntlm`), `insecure_skip_verify` (default false).
+Details: `docs/reference/plugin-winrm.rst`, ADR-0049.
+
+- **Input:** `node`, `command` (cmd.exe) *or* `powershell` (script block), `env`, `credential` (fields `username`, `password`; `DOMAIN\user` or `user@domain` for NTLM; `username` may come from the node attribute), `transport` (`https` default | `http`), `auth` (`ntlm` default | `basic`), `insecure_skip_verify`, `success_exit_codes`.
 - **Output:** the same as `ssh`.
-- Kerberos is deferred to after v1.
+- **Connection:** the port is the node's own (inventory default 5986; an `http` node stores 5985). `basic` over `http` is always refused. `http` needs `ntlm` (message encryption) and the agent setting `agent.allow_insecure_winrm`; `insecure_skip_verify` needs the same setting and is invalid over `http`. https verifies against the system roots plus `agent.tls_ca_file`, TLS 1.2 minimum, no environment proxy. `host_key_policy` and `host_key` are ignored (no certificate pinning in v1).
+- **Execution:** the command line is a fixed `powershell.exe ... -EncodedCommand` bootstrap. The script, `env` values and resolved secrets go to its stdin as base64 JSON, so they never appear in the process command line, event 4688 or the 8191-character limit. Exit code: explicit `exit N`; a terminating error gives 1 with text on stderr; otherwise the last native `$LASTEXITCODE`; for `command`, the cmd.exe exit code. Payload limit about 2 MB (`ConvertFrom-Json` in Windows PowerShell 5.1).
+- **Cancel:** terminate signal, then delete the shell (ends the process tree); returns within about 2 s.
+- **Status:** tested only against a fake WinRM server (`plugins/internal/winrmtest`); a run on a Windows host (§19) is still required.
+- Kerberos and CredSSP are deferred to after v1.
 
 ### 6.3 `transfer`
 
