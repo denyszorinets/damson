@@ -51,7 +51,7 @@ type Server struct {
 	port     int
 	attempts atomic.Int32
 	// CAPEM is the PEM certificate that signed the server certificate, for
-	// the ftps_ca_pem plugin setting. Empty for Plain.
+	// the tls_ca_pem plugin setting. Empty for Plain.
 	CAPEM string
 }
 

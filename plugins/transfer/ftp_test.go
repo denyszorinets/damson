@@ -64,7 +64,7 @@ func ftpServer(t *testing.T, mode ftptest.Mode) (*ftptest.Server, map[string]str
 	s := ftptest.Start(t, ftptest.Options{User: ftpUser, Password: ftpPass, Mode: mode})
 	var cfg map[string]string
 	if s.CAPEM != "" {
-		cfg = map[string]string{transfer.ConfigFTPSCAPEM: s.CAPEM}
+		cfg = map[string]string{transfer.ConfigTLSCAPEM: s.CAPEM}
 	}
 	attrs := map[string]any{}
 	if mode == ftptest.Implicit {
@@ -217,7 +217,7 @@ func TestFTPCredentialAndAttributeProblems(t *testing.T) {
 }
 
 // ftps verifies the server certificate: an unknown CA is refused, and the
-// operator's CA makes it work. A bad ftps_ca_pem is refused.
+// operator's CA makes it work. A bad tls_ca_pem is refused.
 func TestFTPSVerifiesCertificates(t *testing.T) {
 	s, cfg, _ := ftpServer(t, ftptest.Explicit)
 	n := ftpNode("ftpnode", s, nil)
@@ -229,7 +229,7 @@ func TestFTPSVerifiesCertificates(t *testing.T) {
 	if o.Result.Error == nil || o.Result.Error.Kind != pluginsdk.KindConnection || !strings.Contains(o.Result.Error.Message, "certificate") {
 		t.Fatalf("without the CA: %v", o.Result.Error)
 	}
-	requireKind(t, exec_(t, ftpCase("c", in, map[string]string{transfer.ConfigFTPSCAPEM: "not pem"}, n)), pluginsdk.KindValidation, transfer.ConfigFTPSCAPEM)
+	requireKind(t, exec_(t, ftpCase("c", in, map[string]string{transfer.ConfigTLSCAPEM: "not pem"}, n)), pluginsdk.KindValidation, transfer.ConfigTLSCAPEM)
 	requireOK(t, exec_(t, ftpCase("c", in, cfg, n)))
 
 	// Plain ftp against an ftps-only server never sends credentials in clear.
@@ -293,7 +293,7 @@ func TestFTPSRefusesServerWithoutTLS(t *testing.T) {
 // node is not accepted by a certificate that has only a DNS name.
 func TestFTPSVerifiesHostnames(t *testing.T) {
 	s := ftptest.Start(t, ftptest.Options{User: ftpUser, Password: ftpPass, Mode: ftptest.Explicit, DNSOnly: true})
-	cfg := map[string]string{transfer.ConfigFTPSCAPEM: s.CAPEM}
+	cfg := map[string]string{transfer.ConfigTLSCAPEM: s.CAPEM}
 	dir := t.TempDir()
 	src := write(t, dir, "src", "x")
 	in := twoSide("copy", side{"ftpnode", "ftps", src}, side{"ftpnode", "ftps", dir + "/d"}, map[string]any{"overwrite": true})

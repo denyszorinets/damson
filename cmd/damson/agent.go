@@ -54,7 +54,7 @@ func newAgent(cfg config.Agent, controllerURL, token string, log *slog.Logger) (
 }
 
 // pluginConfig turns the operator's agent settings into per-plugin
-// pluginsdk.ExecRequest.Config maps. It reads agent.ftps_ca_file, so a bad
+// pluginsdk.ExecRequest.Config maps. It reads agent.tls_ca_file, so a bad
 // path fails the agent at start rather than the first ftps transfer.
 func pluginConfig(cfg config.Agent) (map[string]map[string]string, error) {
 	out := map[string]map[string]string{}
@@ -62,18 +62,18 @@ func pluginConfig(cfg config.Agent) (map[string]map[string]string, error) {
 		out["ssh"] = map[string]string{ssh.ConfigAllowInsecureHostKeys: "true"}
 		out["transfer"] = map[string]string{transfer.ConfigAllowInsecureHostKeys: "true"}
 	}
-	if cfg.FTPSCAFile != "" {
-		pem, err := os.ReadFile(cfg.FTPSCAFile)
+	if cfg.TLSCAFile != "" {
+		pem, err := os.ReadFile(cfg.TLSCAFile)
 		if err != nil {
-			return nil, fmt.Errorf("reading agent.ftps_ca_file: %w", err)
+			return nil, fmt.Errorf("reading agent.tls_ca_file: %w", err)
 		}
 		if !x509.NewCertPool().AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("agent.ftps_ca_file %s holds no PEM certificate", cfg.FTPSCAFile)
+			return nil, fmt.Errorf("agent.tls_ca_file %s holds no PEM certificate", cfg.TLSCAFile)
 		}
 		if out["transfer"] == nil {
 			out["transfer"] = map[string]string{}
 		}
-		out["transfer"][transfer.ConfigFTPSCAPEM] = string(pem)
+		out["transfer"][transfer.ConfigTLSCAPEM] = string(pem)
 	}
 	if len(out) == 0 {
 		return nil, nil

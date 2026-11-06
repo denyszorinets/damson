@@ -3,7 +3,6 @@ package transfer
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -19,15 +18,16 @@ import (
 
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 	"github.com/denyszorinets/damson/plugins/internal/sshconn"
+	"github.com/denyszorinets/damson/plugins/internal/tlsroots"
 )
 
 // statusUserNotAccepted is 430, "invalid username or password" (RFC 2228).
 const statusUserNotAccepted = 430
 
-// ConfigFTPSCAPEM is the ExecRequest.Config key with extra PEM CA certificates
-// trusted for ftps, in addition to the system roots (a private PKI). There is
-// no way to skip verification.
-const ConfigFTPSCAPEM = "ftps_ca_pem"
+// ConfigTLSCAPEM is the ExecRequest.Config key with extra PEM CA certificates
+// trusted for ftps and for https s3 endpoints, in addition to the system roots
+// (a private PKI). There is no way to skip verification.
+const ConfigTLSCAPEM = tlsroots.ConfigKey
 
 const (
 	protoFTP  = "ftp"
@@ -104,12 +104,9 @@ func portOf(v any) (int, error) {
 // ftpsTLSConfig verifies the server certificate against the system roots plus
 // the operator's extra CAs. There is no skip-verify.
 func ftpsTLSConfig(req pluginsdk.ExecRequest, node pluginsdk.NodeInfo) (*tls.Config, error) {
-	pool, err := x509.SystemCertPool()
-	if err != nil || pool == nil {
-		pool = x509.NewCertPool()
-	}
-	if pem := req.Config[ConfigFTPSCAPEM]; pem != "" && !pool.AppendCertsFromPEM([]byte(pem)) {
-		return nil, pluginsdk.ValidationError("%s holds no valid PEM certificate", ConfigFTPSCAPEM)
+	pool, err := tlsroots.Pool(req.Config[ConfigTLSCAPEM])
+	if err != nil {
+		return nil, pluginsdk.ValidationError("%s %v", ConfigTLSCAPEM, err)
 	}
 	return &tls.Config{
 		MinVersion:         tls.VersionTLS12,
