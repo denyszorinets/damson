@@ -12,3 +12,4 @@ Reference
    agent
    plugin-ssh
    plugin-transfer
+   plugin-winrm

@@ -6,6 +6,7 @@ import (
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 	"github.com/denyszorinets/damson/plugins/ssh"
 	"github.com/denyszorinets/damson/plugins/transfer"
+	"github.com/denyszorinets/damson/plugins/winrm"
 )
 
 // Plugins returns every built-in plugin.
@@ -13,5 +14,6 @@ func Plugins() []pluginsdk.Plugin {
 	var ps []pluginsdk.Plugin
 	ps = append(ps, ssh.Plugins()...)
 	ps = append(ps, transfer.Plugins()...)
+	ps = append(ps, winrm.Plugins()...)
 	return ps
 }

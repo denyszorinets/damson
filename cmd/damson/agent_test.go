@@ -25,7 +25,12 @@ func TestPluginConfig(t *testing.T) {
 		t.Errorf("default plugin config = %v, %v; want none (safe default)", got, err)
 	}
 	got, err := pluginConfig(config.Agent{AllowInsecureHostKeys: true})
-	if err != nil || got["ssh"]["allow_insecure_host_keys"] != "true" || got["transfer"]["allow_insecure_host_keys"] != "true" {
+	if err != nil || got["ssh"]["allow_insecure_host_keys"] != "true" || got["transfer"]["allow_insecure_host_keys"] != "true" || got["winrm"] != nil {
+		t.Errorf("plugin config = %v, %v", got, err)
+	}
+	// The winrm gate is its own setting; allow_insecure_host_keys does not open it.
+	got, err = pluginConfig(config.Agent{AllowInsecureWinRM: true})
+	if err != nil || got["winrm"]["allow_insecure_winrm"] != "true" || got["ssh"] != nil || got["transfer"] != nil {
 		t.Errorf("plugin config = %v, %v", got, err)
 	}
 }
@@ -38,7 +43,7 @@ func TestPluginConfigTLSCA(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := pluginConfig(config.Agent{TLSCAFile: good})
-	if err != nil || got["transfer"]["tls_ca_pem"] != testCAPEM || got["ssh"] != nil {
+	if err != nil || got["transfer"]["tls_ca_pem"] != testCAPEM || got["winrm"]["tls_ca_pem"] != testCAPEM || got["ssh"] != nil {
 		t.Fatalf("plugin config = %v, %v", got, err)
 	}
 	bad := filepath.Join(dir, "bad.pem")

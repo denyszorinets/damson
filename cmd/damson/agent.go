@@ -18,6 +18,7 @@ import (
 	"github.com/denyszorinets/damson/plugins/all"
 	"github.com/denyszorinets/damson/plugins/ssh"
 	"github.com/denyszorinets/damson/plugins/transfer"
+	"github.com/denyszorinets/damson/plugins/winrm"
 )
 
 // agentStopTimeout bounds how long the agent may take to close its socket.
@@ -62,6 +63,9 @@ func pluginConfig(cfg config.Agent) (map[string]map[string]string, error) {
 		out["ssh"] = map[string]string{ssh.ConfigAllowInsecureHostKeys: "true"}
 		out["transfer"] = map[string]string{transfer.ConfigAllowInsecureHostKeys: "true"}
 	}
+	if cfg.AllowInsecureWinRM {
+		out["winrm"] = map[string]string{winrm.ConfigAllowInsecureWinRM: "true"}
+	}
 	if cfg.TLSCAFile != "" {
 		pem, err := os.ReadFile(cfg.TLSCAFile)
 		if err != nil {
@@ -74,6 +78,10 @@ func pluginConfig(cfg config.Agent) (map[string]map[string]string, error) {
 			out["transfer"] = map[string]string{}
 		}
 		out["transfer"][transfer.ConfigTLSCAPEM] = string(pem)
+		if out["winrm"] == nil {
+			out["winrm"] = map[string]string{}
+		}
+		out["winrm"][winrm.ConfigTLSCAPEM] = string(pem)
 	}
 	if len(out) == 0 {
 		return nil, nil

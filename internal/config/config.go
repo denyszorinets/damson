@@ -111,6 +111,9 @@ type Agent struct {
 	// trusts for ftps, in addition to the system roots. Empty means system
 	// roots only. Certificate verification cannot be turned off.
 	TLSCAFile string `koanf:"tls_ca_file"`
+	// AllowInsecureWinRM lets the winrm plugin use transport "http" and
+	// insecure_skip_verify. Off by default; a private CA belongs in TLSCAFile.
+	AllowInsecureWinRM bool `koanf:"allow_insecure_winrm"`
 }
 
 // SlogLevel returns the configured level. Validate guarantees it parses.
@@ -162,5 +165,6 @@ func defaults() map[string]any {
 		"agent.spool_max_bytes":              0,
 		"agent.allow_insecure_host_keys":     false,
 		"agent.tls_ca_file":                  "",
+		"agent.allow_insecure_winrm":         false,
 	}
 }

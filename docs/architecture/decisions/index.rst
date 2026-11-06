@@ -144,6 +144,18 @@ change nothing until accepted.
    * - 0045
      - :doc:`0045-frozen-run-targets`
      - Accepted
+   * - 0046
+     - :doc:`0046-tofu-host-key-recording`
+     - Accepted (amended by 0048)
+   * - 0047
+     - :doc:`0047-agent-side-masking-only`
+     - Accepted
+   * - 0048
+     - :doc:`0048-plugins-that-target-several-nodes`
+     - Accepted
+   * - 0049
+     - :doc:`0049-winrm-transport-security-and-remote-execution`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -196,3 +208,4 @@ change nothing until accepted.
    0046-tofu-host-key-recording
    0047-agent-side-masking-only
    0048-plugins-that-target-several-nodes
+   0049-winrm-transport-security-and-remote-execution
