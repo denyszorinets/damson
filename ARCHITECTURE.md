@@ -525,20 +525,22 @@ type StepError struct {
 
 One plugin covers server-to-server copies *and* S3 in both directions. It uses `TargetMode = nodes` with `NodePaths` `/source/node/name` and `/destination/node/name`; an S3 endpoint has no node and is skipped (ADR-0048).
 
+**Status:** implemented are node endpoints with protocol `sftp` (#144). `scp` (#145), `ftp`/`ftps` (#146) and `s3` (#147) are planned; the contract below describes the target state. Details of what runs today: `docs/reference/plugin-transfer.rst`.
+
 - **Input:**
   - `mode` is `copy` or `move`.
   - `source` and `destination` each take **one** of:
     - `node: {name, protocol: sftp|scp|ftp|ftps, path}`
     - `s3: {connection, bucket, key}`, where `connection` is a secret ref holding endpoint, region, access key, secret key, and path-style flag
-  - `verify` is `none`, `size`, or `sha256` (default `size`).
-  - `overwrite` (bool).
+  - `verify` is `none`, `size`, or `sha256` (default `size`). The check runs on the partial file before the rename. `size` requires source size = bytes streamed = destination size; `sha256` also re-reads the written file and compares digests (doubling destination reads). A failure is an `internal` error `verification failed: ...`.
+  - `overwrite` (bool, default false). Without it an existing destination is a validation error, and the final rename is a plain SFTP rename that fails if the target exists (closing the race after the check). With it the rename is `posix-rename`.
   - `mkdirs` (bool).
 - **Behavior:**
   - Streaming: `io.Pipe` from the source reader to the destination writer, with the SHA-256 computed in-stream. **No temporary files.**
   - Atomic write: upload to `<path>.damson-partial-<8 random hex>` (a fresh suffix per attempt, because a lost attempt and its retry could otherwise write the same file; deleted best effort on failure or cancel), then rename. The manifest is `Idempotent=false` (ADR-0048). S3 PUT is already atomic. Multipart is used for objects larger than 64 MiB.
   - If `path` ends with `/`, the source file name is appended.
-  - `move` = copy, then verify, then delete the source. The source is deleted only after verification passes.
-- **Output:** `destination_path` (or `destination_key`), `bytes`, `sha256`, `etag` and `version_id` (S3).
+  - `move` = copy, then verify, then delete the source. The source is deleted only after verification passes and the destination is in place. If the delete fails the step fails with `copied and verified; source not deleted` and the outputs stay set; the destination is never deleted. A move retried after the source is gone fails with `source not found`.
+- **Output:** `destination_path` (or `destination_key`), `bytes`, `sha256`; `etag` and `version_id` only with S3 (planned, #147).
 - **v1 scope:** a single file per step. Globs and directories come in v1.1.
 - **Windows targets:** use SFTP via Windows OpenSSH. WinRM-based file copy is out of scope.
 

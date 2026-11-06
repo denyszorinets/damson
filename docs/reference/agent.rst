@@ -61,7 +61,7 @@ is masked before it leaves (plain, base64 and URL-encoded forms).
 * ``step.complete`` is retried until the controller acknowledges it, across
   reconnects. A result that is not acknowledged is listed in the next
   ``agent.hello`` so the controller can decide.
-* ``agent.allow_insecure_host_keys`` lets the ``ssh`` plugin connect to nodes
+* ``agent.allow_insecure_host_keys`` lets the ``ssh`` and ``transfer`` plugins connect to nodes
   whose host key policy is ``insecure``. Off by default.
 
 Internals are described in :doc:`/development/agent`.

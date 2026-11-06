@@ -11,3 +11,4 @@ Reference
    protocol
    agent
    plugin-ssh
+   plugin-transfer

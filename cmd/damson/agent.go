@@ -15,6 +15,7 @@ import (
 	"github.com/denyszorinets/damson/internal/version"
 	"github.com/denyszorinets/damson/plugins/all"
 	"github.com/denyszorinets/damson/plugins/ssh"
+	"github.com/denyszorinets/damson/plugins/transfer"
 )
 
 // agentStopTimeout bounds how long the agent may take to close its socket.
@@ -52,7 +53,10 @@ func pluginConfig(cfg config.Agent) map[string]map[string]string {
 	if !cfg.AllowInsecureHostKeys {
 		return nil
 	}
-	return map[string]map[string]string{"ssh": {ssh.ConfigAllowInsecureHostKeys: "true"}}
+	return map[string]map[string]string{
+		"ssh":      {ssh.ConfigAllowInsecureHostKeys: "true"},
+		"transfer": {transfer.ConfigAllowInsecureHostKeys: "true"},
+	}
 }
 
 // runAgent connects to the controller and blocks until ctx is cancelled or

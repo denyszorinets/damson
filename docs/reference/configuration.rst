@@ -137,7 +137,7 @@ written as a double underscore: ``agent.controller_url`` is
    * - ``agent.allow_insecure_host_keys``
      - agent
      - ``false``
-     - Let the ``ssh`` plugin connect to nodes with host key policy
+     - Let the ``ssh`` and ``transfer`` plugins connect to nodes with host key policy
        ``insecure``.
 
 .. _reference-config-kek:
