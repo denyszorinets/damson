@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -172,4 +173,88 @@ type modePlugins struct{ mode *pluginsdk.TargetMode }
 
 func (p *modePlugins) Resolve(ref string, _ pluginreg.Filter) (pluginreg.Resolution, error) {
 	return pluginreg.Resolution{Manifest: pluginsdk.Manifest{Name: ref, TargetMode: *p.mode}}, nil
+}
+
+// nodesPlugins resolves every plugin to a TargetNodes manifest.
+type nodesPlugins struct{}
+
+func (nodesPlugins) Resolve(ref string, _ pluginreg.Filter) (pluginreg.Resolution, error) {
+	return pluginreg.Resolution{Manifest: pluginsdk.Manifest{Name: ref, TargetMode: pluginsdk.TargetNodes,
+		NodePaths: []string{"/source/node/name", "/destination/node/name"}}}, nil
+}
+
+// For a TargetNodes step the fence is membership: a report for the source or
+// the destination is recorded, one for a third node or an s3 endpoint is not.
+func TestHostKeyObservedFencingNodesMode(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		ctx := context.Background()
+		now := time.Now()
+		rec := &recordKeys{}
+		d := newBareWith(t, st, func() time.Time { return now }, func(c *dispatch.Config) { c.HostKeys = rec; c.Plugins = nodesPlugins{} })
+		_, jv, err := st.CreateJob(ctx, store.NewJob{ProjectID: store.DefaultProjectID, Name: "hk3", Spec: json.RawMessage(twoStepSpec), Checksum: "s"}, t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input := `{"source":{"node":{"name":"web-1"}},"destination":{"s3":{"bucket":"b"}}}`
+		if _, err := st.CreateRun(ctx, store.NewRun{JobID: jv.JobID, JobVersionID: jv.ID, Steps: []store.NewStepInstance{
+			{Path: "s1", Plugin: "transfer", Input: json.RawMessage(input), Execution: &store.NewExecution{Pool: "default", ScheduledAt: now}}}}, now); err != nil {
+			t.Fatal(err)
+		}
+		got, err := st.ClaimExecutions(ctx, store.ClaimParams{AgentID: "a1", ControllerID: "ctl-1", Pools: []string{"default"}, Limit: 1, LeaseTTL: time.Minute}, now)
+		if err != nil || len(got) != 1 {
+			t.Fatalf("claim = %v, %v", got, err)
+		}
+		ex := got[0]
+		if err := st.MarkExecutionRunning(ctx, ex.ID, ex.AttemptID, now); err != nil {
+			t.Fatal(err)
+		}
+		for _, node := range []string{"db-1", "s3", ""} {
+			m, _ := hostKeyReport(t, ex.AttemptID, node)
+			d.HostKeyObserved(ctx, "a1", m)
+		}
+		if rec.count() != 0 {
+			t.Fatalf("a report for a node outside the step was recorded: %v", rec.seen)
+		}
+		m, key := hostKeyReport(t, ex.AttemptID, "web-1")
+		d.HostKeyObserved(ctx, "a1", m)
+		if rec.count() != 1 || rec.seen[0] != [3]string{ex.RunID, "web-1", key} {
+			t.Fatalf("recorded = %v", rec.seen)
+		}
+	})
+}
+
+type failingPlugins struct{}
+
+func (failingPlugins) Resolve(string, pluginreg.Filter) (pluginreg.Resolution, error) {
+	return pluginreg.Resolution{}, errors.New("no such plugin")
+}
+
+// A report for a step whose plugin cannot be resolved is dropped.
+func TestHostKeyObservedUnresolvablePluginDropped(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		ctx := context.Background()
+		now := time.Now()
+		rec := &recordKeys{}
+		d := newBareWith(t, st, func() time.Time { return now }, func(c *dispatch.Config) { c.HostKeys = rec; c.Plugins = failingPlugins{} })
+		_, jv, err := st.CreateJob(ctx, store.NewJob{ProjectID: store.DefaultProjectID, Name: "hk4", Spec: json.RawMessage(twoStepSpec), Checksum: "s"}, t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.CreateRun(ctx, store.NewRun{JobID: jv.JobID, JobVersionID: jv.ID, Steps: []store.NewStepInstance{
+			{Path: "s1", Plugin: "ssh", Input: json.RawMessage(`{"node":"web-1"}`), Execution: &store.NewExecution{Pool: "default", ScheduledAt: now}}}}, now); err != nil {
+			t.Fatal(err)
+		}
+		got, err := st.ClaimExecutions(ctx, store.ClaimParams{AgentID: "a1", ControllerID: "ctl-1", Pools: []string{"default"}, Limit: 1, LeaseTTL: time.Minute}, now)
+		if err != nil || len(got) != 1 {
+			t.Fatalf("claim = %v, %v", got, err)
+		}
+		if err := st.MarkExecutionRunning(ctx, got[0].ID, got[0].AttemptID, now); err != nil {
+			t.Fatal(err)
+		}
+		m, _ := hostKeyReport(t, got[0].AttemptID, "web-1")
+		d.HostKeyObserved(ctx, "a1", m)
+		if rec.count() != 0 {
+			t.Fatal("a report was recorded for an unresolvable plugin")
+		}
+	})
 }

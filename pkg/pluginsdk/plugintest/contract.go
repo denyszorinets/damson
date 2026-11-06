@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -118,6 +119,7 @@ func RunContract(t *testing.T, p pluginsdk.Plugin, opts Options) {
 	}
 	m := p.Manifest()
 	t.Run("manifest", func(t *testing.T) { checkManifest(t, m) })
+	t.Run("nodes", func(t *testing.T) { checkCaseNodes(t, m, opts) })
 	t.Run("validate", func(t *testing.T) { checkValidate(t, p, opts) })
 	t.Run("execute", func(t *testing.T) { checkExecute(t, p, opts) })
 	t.Run("cancellation", func(t *testing.T) { checkCancel(t, p, opts) })
@@ -364,4 +366,48 @@ func (l *lockedBuffer) String() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.b.String()
+}
+
+// checkCaseNodes requires every case to pass exactly the nodes the manifest's
+// target mode says dispatch would deliver for that input (single_node: the
+// "node" input; nodes: those at node_paths), so a plugin is tested with the
+// node set it will really get.
+func checkCaseNodes(t *testing.T, m pluginsdk.Manifest, opts Options) {
+	for _, p := range caseNodeProblems(m, opts) {
+		t.Error(p)
+	}
+}
+
+// caseNodeProblems lists the cases whose nodes differ from the input's.
+func caseNodeProblems(m pluginsdk.Manifest, opts Options) []string {
+	if m.TargetMode != pluginsdk.TargetSingleNode && m.TargetMode != pluginsdk.TargetNodes {
+		return nil
+	}
+	cases := append([]Case(nil), opts.Cases...)
+	if opts.Blocking != nil {
+		cases = append(cases, *opts.Blocking)
+	}
+	var problems []string
+	for _, c := range cases {
+		var in map[string]any
+		if err := json.Unmarshal(c.Input, &in); err != nil {
+			problems = append(problems, fmt.Sprintf("case %q: input is not a JSON object: %v", c.Name, err))
+			continue
+		}
+		want, err := m.NodeNames(in)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("case %q: %v", c.Name, err))
+			continue
+		}
+		got := make([]string, 0, len(c.Nodes))
+		for name := range c.Nodes {
+			got = append(got, name)
+		}
+		slices.Sort(got)
+		slices.Sort(want)
+		if !slices.Equal(got, want) {
+			problems = append(problems, fmt.Sprintf("case %q passes nodes %v; the input names %v", c.Name, got, want))
+		}
+	}
+	return problems
 }

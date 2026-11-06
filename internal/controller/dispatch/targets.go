@@ -77,18 +77,23 @@ func (s refSet) use(ref string) *refUse {
 func (d *Dispatcher) resolveTargets(ctx context.Context, runID string, m pluginsdk.Manifest, input map[string]any) (map[string]pluginsdk.NodeInfo, protocol.SecretBundle, error) {
 	var nodes map[string]pluginsdk.NodeInfo
 	refs := refSet{}
-	if d.cfg.Nodes != nil && m.TargetMode == pluginsdk.TargetSingleNode {
-		name, ok := input["node"].(string)
-		if !ok || name == "" {
-			return nil, nil, &permanent{errors.New(`step input "node" must be a node name`)}
-		}
-		n, err := d.cfg.Nodes.Node(ctx, runID, name)
+	if d.cfg.Nodes != nil {
+		names, err := m.NodeNames(input)
 		if err != nil {
-			return nil, nil, nodeError(name, err)
+			return nil, nil, &permanent{err}
 		}
-		nodes = map[string]pluginsdk.NodeInfo{name: n}
-		if n.Credential != "" {
-			refs.use(n.Credential).node = true
+		for _, name := range names {
+			n, err := d.cfg.Nodes.Node(ctx, runID, name)
+			if err != nil {
+				return nil, nil, nodeError(name, err)
+			}
+			if nodes == nil {
+				nodes = map[string]pluginsdk.NodeInfo{}
+			}
+			nodes[name] = n
+			if n.Credential != "" {
+				refs.use(n.Credential).node = true
+			}
 		}
 	}
 	collectRefs(input, refs)

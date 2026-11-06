@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
@@ -11,7 +12,6 @@ import (
 	"github.com/denyszorinets/damson/internal/pluginreg"
 	"github.com/denyszorinets/damson/internal/protocol"
 	"github.com/denyszorinets/damson/internal/store"
-	"github.com/denyszorinets/damson/pkg/pluginsdk"
 )
 
 // HostKeyRecorder stores the host key seen on a node, by the run that targeted
@@ -88,14 +88,17 @@ func (d *Dispatcher) applyHostKey(ctx context.Context, agentID string, m protoco
 		drop("loading the step", err)
 		return
 	}
-	if res, err := d.cfg.Plugins.Resolve(step.Plugin, pluginreg.Filter{Pool: ex.Pool}); err != nil || res.Manifest.TargetMode != pluginsdk.TargetSingleNode {
-		drop("the step's plugin does not target a single node", err)
+	res, err := d.cfg.Plugins.Resolve(step.Plugin, pluginreg.Filter{Pool: ex.Pool})
+	if err != nil {
+		drop("resolving the step's plugin", err)
 		return
 	}
-	var input struct {
-		Node string `json:"node"`
+	var input map[string]any
+	if err := json.Unmarshal(step.Input, &input); err != nil {
+		drop("decoding the step input", err)
+		return
 	}
-	if err := json.Unmarshal(step.Input, &input); err != nil || input.Node == "" || input.Node != m.Node {
+	if names, err := res.Manifest.NodeNames(input); err != nil || !slices.Contains(names, m.Node) {
 		drop("the step does not target this node", err)
 		return
 	}

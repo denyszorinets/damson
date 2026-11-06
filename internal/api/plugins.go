@@ -48,7 +48,7 @@ type PluginVersion struct {
 	OutputSchema map[string]any   `json:"output_schema" doc:"JSON Schema of the step outputs."`
 	Idempotent   bool             `json:"idempotent"`
 	Requires     []string         `json:"requires" doc:"Agent capabilities needed, such as bin:git."`
-	TargetMode   string           `json:"target_mode" enum:"none,single_node,inventory"`
+	TargetMode   string           `json:"target_mode" enum:"none,single_node,inventory,nodes"`
 	Builtin      bool             `json:"builtin" doc:"The controller links this exact manifest itself."`
 	Pools        []string         `json:"pools" doc:"Pools with at least one live agent (on any controller) running this version."`
 	Agents       []PluginProvider `json:"agents" doc:"Live agents (on any controller) running this version."`

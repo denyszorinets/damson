@@ -396,9 +396,9 @@ The SDK is semver `0.x` (`pluginsdk.Version`): treated as stable, but breaking c
 ```go
 package pluginsdk
 
-const Version = "0.2.0"
+const Version = "0.3.0"
 
-type TargetMode string // wire values: "none" | "single_node" | "inventory"; Valid() bool
+type TargetMode string // wire values: "none" | "single_node" | "inventory" | "nodes"; Valid() bool
 
 type Manifest struct {
     Name         string             // "ssh": [a-z][a-z0-9_-]*
@@ -410,6 +410,7 @@ type Manifest struct {
     Idempotent   bool               // safe to retry after a "lost" execution
     Requires     []string           // agent capabilities, e.g. "bin:ansible-playbook", "bin:git"
     TargetMode   TargetMode
+    NodePaths    []string           // mode "nodes" only: 1..8 unique RFC 6901 pointers into the input, each naming a node (ADR-0048)
 }
 
 // Validate checks the manifest; Checksum is sha256 over canonical JSON (sorted keys),
@@ -522,7 +523,7 @@ type StepError struct {
 
 ### 6.3 `transfer`
 
-One plugin covers server-to-server copies *and* S3 in both directions.
+One plugin covers server-to-server copies *and* S3 in both directions. It uses `TargetMode = nodes` with `NodePaths` `/source/node/name` and `/destination/node/name`; an S3 endpoint has no node and is skipped (ADR-0048).
 
 - **Input:**
   - `mode` is `copy` or `move`.
@@ -534,7 +535,7 @@ One plugin covers server-to-server copies *and* S3 in both directions.
   - `mkdirs` (bool).
 - **Behavior:**
   - Streaming: `io.Pipe` from the source reader to the destination writer, with the SHA-256 computed in-stream. **No temporary files.**
-  - Atomic write: upload to `<path>.damson-partial`, then rename. S3 PUT is already atomic. Multipart is used for objects larger than 64 MiB.
+  - Atomic write: upload to `<path>.damson-partial-<8 random hex>` (a fresh suffix per attempt, because a lost attempt and its retry could otherwise write the same file; deleted best effort on failure or cancel), then rename. The manifest is `Idempotent=false` (ADR-0048). S3 PUT is already atomic. Multipart is used for objects larger than 64 MiB.
   - If `path` ends with `/`, the source file name is appended.
   - `move` = copy, then verify, then delete the source. The source is deleted only after verification passes.
 - **Output:** `destination_path` (or `destination_key`), `bytes`, `sha256`, `etag` and `version_id` (S3).
@@ -709,7 +710,7 @@ Params and results are MessagePack maps with snake_case keys; unknown keys are i
 | `agent.reconnect` | `jitter_ms`, `reason` |
 | `node.hostkey_observed` | `attempt_id`, `node`, `key_type`, `host_key`, `fingerprint` |
 
-The controller applies `node.hostkey_observed` only if the attempt exists, belongs to the reporting agent and is unfinished, and the step's `input.node` equals `node`. It re-parses the key and recomputes type and fingerprint (a mismatch is dropped), and stores the canonical `authorized_keys` form without comment. Drops are silent (INFO log) (ADR-0046).
+The controller applies `node.hostkey_observed` only if the attempt exists, belongs to the reporting agent and is unfinished, and `node` is one of the step's node names (`Manifest.NodeNames` of the step input; ADR-0046, ADR-0048). It re-parses the key and recomputes type and fingerprint (a mismatch is dropped), and stores the canonical `authorized_keys` form without comment. Drops are silent (INFO log) (ADR-0046).
 
 The `secrets` member is the only place secret values cross the wire. The Go type redacts itself in `fmt`, `slog` and `encoding/json` output.
 
@@ -857,7 +858,7 @@ Action = CreateStepInstance | ScheduleExecution | SettleStep | SkipStep | Comple
 - Format: `secret://<scope>/<name>[#<field>]`, for example `secret://infra/billing/deploy-key#private_key`. The scope is all segments but the last.
 - A job may reference secrets in its own project or any **ancestor** project (prefix match on a `/` boundary). Siblings, children and other projects are denied. The dispatcher enforces this before any secret is read; a denied ref fails the execution as `unknown secret`, so existence is not revealed. API spec validation rejects literal refs that are not authorized.
 - Inventory-level credentials live under the reserved `secret://_inventory/...` scope (`_inventory` is allowed only as the whole scope). They are usable only as the credential of the node a step targets, never as a literal `secret://_inventory/...` in step input, by any job whose project node scope includes the node.
-- Node scope today (ADR-0043): dispatch asks the `inventory.Scope` hook, and `AllNodes` matches every node until M8 builds the project tree and the CEL `node_scope` (§12.1); there is no `projects.node_scope` column yet. A missing node and a node outside the scope both fail the step permanently as `unknown node`, so existence is not revealed. A disabled node fails permanently as `node is disabled`; a node deleted after the run started fails permanently as `unknown node`. Host keys at dispatch (ADR-0046): `strict` sends `host_key` (empty fails at connect); `tofu` sends the pinned `host_key`, else the observed key, else none; a node with policy `insecure` fails permanently as `host key policy not available`. The controller handles `node.hostkey_observed` fenced like `step.complete` and stores the first key only (`ObserveNodeHostKey`); `DELETE /api/v1/nodes/{name}/host-key` forgets it. A database error requeues. The node credential goes through the same secret authorization, with `_inventory` allowed only as a node credential.
+- Node scope today (ADR-0043): dispatch asks the `inventory.Scope` hook, and `AllNodes` matches every node until M8 builds the project tree and the CEL `node_scope` (§12.1); there is no `projects.node_scope` column yet. A missing node and a node outside the scope both fail the step permanently as `unknown node`, so existence is not revealed. A disabled node fails permanently as `node is disabled`; a node deleted after the run started fails permanently as `unknown node`. Host keys at dispatch (ADR-0046): `strict` sends `host_key` (empty fails at connect); `tofu` sends the pinned `host_key`, else the observed key, else none; a node with policy `insecure` fails permanently as `host key policy not available`. The controller handles `node.hostkey_observed` fenced like `step.complete` and stores the first key only (`ObserveNodeHostKey`); `DELETE /api/v1/nodes/{name}/host-key` forgets it. A database error requeues. Plugins with `TargetMode = nodes` (ADR-0048) get every named node resolved, scoped and credentialed this way; `step.execute.nodes` is keyed by name. The node credential goes through the same secret authorization, with `_inventory` allowed only as a node credential.
 - Grammar (ADR-0042):
   - A scope segment matches `[a-z0-9][a-z0-9-]{0,62}`, 1 to 8 segments, so a leading `_` is impossible.
   - `name` matches `[A-Za-z0-9][A-Za-z0-9._-]{0,127}` and has no `..`.

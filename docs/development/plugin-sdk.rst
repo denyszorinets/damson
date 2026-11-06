@@ -66,7 +66,11 @@ Manifest
 ``Manifest`` carries the name (``[a-z][a-z0-9_-]*``), semver version, title,
 generated input and output schemas, ``Idempotent``, ``Requires`` capabilities
 (``bin:git`` style) and ``TargetMode`` (``none``, ``single_node``,
-``inventory``). ``Manifest.Validate`` checks it and ``Manifest.Checksum`` gives
+``inventory``, ``nodes``). ``NodePaths`` (SDK 0.3.0, mode ``nodes`` only) lists 1 to 8 unique JSON
+pointers into the input that each name a node, for example
+``/source/node/name``; ``Manifest.NodeNames(input)`` returns the names. See
+:doc:`/architecture/decisions/0048-plugins-that-target-several-nodes`.
+``Manifest.Validate`` checks it and ``Manifest.Checksum`` gives
 the digest the controller uses to detect schema conflicts between agents. The
 checksum is computed over the canonical JSON (decoded to generic values and
 re-marshaled with sorted keys), so it does not depend on key order or on how the

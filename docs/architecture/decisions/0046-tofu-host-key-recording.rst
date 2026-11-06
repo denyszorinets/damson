@@ -1,7 +1,7 @@
 ADR-0046: The controller records the first host key of tofu nodes
 =================================================================
 
-:Status: Accepted
+:Status: Accepted (amended by :doc:`0048-plugins-that-target-several-nodes`)
 :Date: 2026-11-06
 
 Context
