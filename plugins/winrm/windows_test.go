@@ -9,11 +9,13 @@ package winrm_test
 // self-signed https listener certificate).
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 	"github.com/denyszorinets/damson/pkg/pluginsdk/plugintest"
@@ -60,6 +62,17 @@ func realFixture(t *testing.T, passwordOverride string) func(body map[string]any
 			},
 		}
 	}
+}
+
+// The first shell on a cold host can be slow (profile and assembly loading);
+// this absorbs that, with its time reported, so the tests after it measure the plugin.
+func TestRealWarmUp(t *testing.T) {
+	mk := realFixture(t, "")
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	o := plugintest.Exec(ctx, t, plug(), mk(map[string]any{"powershell": "exit 0"}))
+	t.Logf("first powershell step: %v (%v)", time.Since(start), o.Result.Error)
 }
 
 // The bootstrap runs on a real powershell.exe: UTF-8 output, stderr without
