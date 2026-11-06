@@ -122,3 +122,24 @@ func TestBlockingCase(t *testing.T) {
 		Timeout:  time.Second,
 	})
 }
+
+func TestCaseNodeProblems(t *testing.T) {
+	m := pluginsdk.Manifest{TargetMode: pluginsdk.TargetNodes, NodePaths: []string{"/source/node/name", "/destination/node/name"}}
+	two := map[string]pluginsdk.NodeInfo{"a": {Name: "a"}, "b": {Name: "b"}}
+	in := json.RawMessage(`{"source":{"node":{"name":"a"}},"destination":{"node":{"name":"b"}}}`)
+	for name, tc := range map[string]struct {
+		c    Case
+		want int
+	}{
+		"matches":      {Case{Name: "ok", Input: in, Nodes: two}, 0},
+		"missing node": {Case{Name: "m", Input: in, Nodes: map[string]pluginsdk.NodeInfo{"a": {}}}, 1},
+		"extra node":   {Case{Name: "e", Input: json.RawMessage(`{"source":{"s3":{}}}`), Nodes: two}, 1},
+		"bad name":     {Case{Name: "b", Input: json.RawMessage(`{"source":{"node":{"name":3}}}`)}, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := caseNodeProblems(m, Options{Cases: []Case{tc.c}}); len(got) != tc.want {
+				t.Fatalf("problems = %v; want %d", got, tc.want)
+			}
+		})
+	}
+}

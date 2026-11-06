@@ -848,7 +848,7 @@ export interface components {
             /** @description Agent capabilities needed, such as bin:git. */
             requires: string[] | null;
             /** @enum {string} */
-            target_mode: "none" | "single_node" | "inventory";
+            target_mode: "none" | "single_node" | "inventory" | "nodes";
             title: string;
             /** @description Semantic version. */
             version: string;

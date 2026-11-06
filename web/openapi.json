@@ -1055,7 +1055,8 @@
             "enum": [
               "none",
               "single_node",
-              "inventory"
+              "inventory",
+              "nodes"
             ],
             "type": "string"
           },

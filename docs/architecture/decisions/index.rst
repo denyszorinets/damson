@@ -195,3 +195,4 @@ change nothing until accepted.
    0045-frozen-run-targets
    0046-tofu-host-key-recording
    0047-agent-side-masking-only
+   0048-plugins-that-target-several-nodes
