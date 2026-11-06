@@ -80,7 +80,7 @@ func TestRealWarmUp(t *testing.T) {
 func TestRealPowerShellOutputAndExitCode(t *testing.T) {
 	mk := realFixture(t, "")
 	script := "Write-Output 'héllo wörld'\n[Console]::Error.WriteLine('to-stderr')\nexit 7"
-	o := exec(t, mk(map[string]any{"powershell": script, "success_exit_codes": []int{7}}))
+	o := realExec(t, mk(map[string]any{"powershell": script, "success_exit_codes": []int{7}}))
 	out := requireOK(t, o)
 	if out.ExitCode != 7 || !strings.Contains(out.StdoutTail, "héllo wörld") {
 		t.Fatalf("output = %+v", out)
@@ -88,13 +88,13 @@ func TestRealPowerShellOutputAndExitCode(t *testing.T) {
 	if !strings.Contains(out.StderrTail, "to-stderr") || strings.Contains(out.StderrTail, "CLIXML") {
 		t.Fatalf("stderr = %q", out.StderrTail)
 	}
-	requireKind(t, exec(t, mk(map[string]any{"powershell": "exit 3"})), pluginsdk.KindExitCode, "3")
-	requireKind(t, exec(t, mk(map[string]any{"powershell": "throw 'boom'"})), pluginsdk.KindExitCode, "1")
+	requireKind(t, realExec(t, mk(map[string]any{"powershell": "exit 3"})), pluginsdk.KindExitCode, "3")
+	requireKind(t, realExec(t, mk(map[string]any{"powershell": "throw 'boom'"})), pluginsdk.KindExitCode, "1")
 }
 
 func TestRealCmdCommand(t *testing.T) {
 	mk := realFixture(t, "")
-	out := requireOK(t, exec(t, mk(map[string]any{"command": "echo hi & exit /b 3", "success_exit_codes": []int{3}})))
+	out := requireOK(t, realExec(t, mk(map[string]any{"command": "echo hi & exit /b 3", "success_exit_codes": []int{3}})))
 	if out.ExitCode != 3 || !strings.Contains(out.StdoutTail, "hi") {
 		t.Fatalf("output = %+v", out)
 	}
@@ -106,7 +106,7 @@ func TestRealSecretEnvIsNotOnTheCommandLine(t *testing.T) {
 	mk := realFixture(t, "")
 	script := "Write-Output ('len=' + $env:DAMSON_TOK.Length)\n" +
 		"Write-Output ('cmdline=' + (Get-CimInstance Win32_Process -Filter \"ProcessId=$PID\").CommandLine)"
-	o := exec(t, mk(map[string]any{"powershell": script, "env": map[string]string{"DAMSON_TOK": "secret://win/tok"}}))
+	o := realExec(t, mk(map[string]any{"powershell": script, "env": map[string]string{"DAMSON_TOK": "secret://win/tok"}}))
 	out := requireOK(t, o)
 	if !strings.Contains(out.StdoutTail, "len="+strconv.Itoa(len(winSecret))) {
 		t.Fatalf("the env value did not arrive: %q", out.StdoutTail)
@@ -118,5 +118,22 @@ func TestRealSecretEnvIsNotOnTheCommandLine(t *testing.T) {
 
 func TestRealWrongPasswordIsAnAuthError(t *testing.T) {
 	mk := realFixture(t, "definitely-not-the-password")
-	requireKind(t, exec(t, mk(map[string]any{"powershell": "exit 0"})), pluginsdk.KindAuth, "")
+	requireKind(t, realExec(t, mk(map[string]any{"powershell": "exit 0"})), pluginsdk.KindAuth, "")
+}
+
+// realExec is exec with a retry for the host-side "Class not registered" fault
+// that a freshly enabled WinRM service on a CI runner sometimes returns for
+// the first commands (seen once in the Windows job); anything else is final.
+func realExec(t *testing.T, c plugintest.Case) plugintest.Outcome {
+	t.Helper()
+	var o plugintest.Outcome
+	for attempt := 0; attempt < 4; attempt++ {
+		o = exec(t, c)
+		if o.Result.Error == nil || !strings.Contains(o.Result.Error.Message, "Class not registered") {
+			return o
+		}
+		t.Logf("attempt %d: %v", attempt+1, o.Result.Error)
+		time.Sleep(10 * time.Second)
+	}
+	return o
 }
