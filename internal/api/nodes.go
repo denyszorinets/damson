@@ -9,6 +9,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/denyszorinets/damson/internal/engine"
 	"github.com/denyszorinets/damson/internal/inventory"
 	"github.com/denyszorinets/damson/internal/store"
 )
@@ -67,9 +68,17 @@ type nodeNameInput struct {
 type listNodesInput struct {
 	Source  string `query:"source" maxLength:"63" doc:"Only nodes of this source."`
 	Enabled string `query:"enabled" enum:"true,false," doc:"Only enabled (true) or only disabled (false) nodes; empty for both."`
-	Cursor  string `query:"cursor" doc:"Opaque cursor from a previous page's next_cursor."`
-	Limit   int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Page size."`
+	// Selector previews a spec.targets.selector: only nodes it is true for (over
+	// the node map, with empty inputs). At most nodeScanLimit nodes are
+	// scanned per request, so a page can hold fewer matches than limit and
+	// still carry next_cursor.
+	Selector string `query:"selector" maxLength:"4096" doc:"A CEL selector as in spec.targets.selector; empty for no filter."`
+	Cursor   string `query:"cursor" doc:"Opaque cursor from a previous page's next_cursor."`
+	Limit    int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Page size."`
 }
+
+// nodeScanLimit bounds the rows one selector preview reads.
+const nodeScanLimit = 2000
 
 type listNodesOutput struct {
 	Body struct {
@@ -140,25 +149,33 @@ func registerNodes(api huma.API, d deps) {
 		if err != nil {
 			return nil, err
 		}
-		f := store.NodeFilter{Source: in.Source, AfterName: after, Limit: in.Limit + 1}
+		f := store.NodeFilter{Source: in.Source, AfterName: after}
 		if in.Enabled != "" {
 			on := in.Enabled == "true"
 			f.Enabled = &on
 		}
-		rows, err := d.ds.ListNodes(ctx, f)
-		if err != nil {
-			return nil, apiError(ctx, err)
-		}
 		out := &listNodesOutput{}
 		out.Body.Items = []Node{}
-		if len(rows) > in.Limit {
-			rows = rows[:in.Limit]
-			out.Body.NextCursor = encodeCursor(rows[len(rows)-1].Name)
+		if in.Selector == "" {
+			f.Limit = in.Limit + 1
+			rows, err := d.ds.ListNodes(ctx, f)
+			if err != nil {
+				return nil, apiError(ctx, err)
+			}
+			if len(rows) > in.Limit {
+				rows = rows[:in.Limit]
+				out.Body.NextCursor = encodeCursor(rows[len(rows)-1].Name)
+			}
+			for _, n := range rows {
+				out.Body.Items = append(out.Body.Items, toNode(n))
+			}
+			return out, nil
 		}
-		for _, n := range rows {
-			out.Body.Items = append(out.Body.Items, toNode(n))
+		match, err := d.eng.CompileSelector(in.Selector)
+		if err != nil {
+			return nil, apiError(ctx, invalid("the selector does not compile", ProblemDetail{Message: err.Error(), Location: "query.selector"}))
 		}
-		return out, nil
+		return previewNodes(ctx, d, f, match, in.Limit, out)
 	})
 	huma.Register(api, op("get-node", http.MethodGet, "/nodes/{name}", "Get a node", 0, http.StatusNotFound), func(ctx context.Context, in *nodeNameInput) (*nodeBody, error) {
 		if err := d.ready(); err != nil {
@@ -324,4 +341,36 @@ func applyPatch(n store.Node, in *patchNodeInput) store.Node {
 		n.Enabled = *b.Enabled
 	}
 	return n
+}
+
+// previewNodes pages through the inventory, keeping the nodes the selector
+// matches, until the page is full or nodeScanLimit rows were read. The cursor
+// is the last name scanned, so the next request resumes after it.
+func previewNodes(ctx context.Context, d deps, f store.NodeFilter, match engine.TargetMatcher, limit int, out *listNodesOutput) (*listNodesOutput, error) {
+	scanned := 0
+	last := ""
+	for {
+		f.Limit = 200
+		rows, err := d.ds.ListNodes(ctx, f)
+		if err != nil {
+			return nil, apiError(ctx, err)
+		}
+		for _, n := range rows {
+			scanned++
+			last = n.Name
+			if match(map[string]any{}, inventory.TargetMap(n)) {
+				out.Body.Items = append(out.Body.Items, toNode(n))
+			}
+			if len(out.Body.Items) == limit || scanned >= nodeScanLimit {
+				// Stopped early: resume after the last node looked at, unless
+				// that was the end of the inventory (the next call returns none).
+				out.Body.NextCursor = encodeCursor(last)
+				return out, nil
+			}
+		}
+		if len(rows) < 200 {
+			return out, nil
+		}
+		f.AfterName = last
+	}
 }

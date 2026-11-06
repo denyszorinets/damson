@@ -5,6 +5,7 @@
 	import * as Table from '$lib/components/ui/table';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Skeleton } from '$lib/components/ui/skeleton';
+	import RunTargets from '$lib/components/RunTargets.svelte';
 	import GraphView from '$lib/graph/GraphView.svelte';
 	import type { Graph } from '$lib/graph/layout';
 	import { problemMessage } from '$lib/jobs';
@@ -99,6 +100,8 @@
 		<Skeleton class="h-64 w-full" />
 	{:else}
 		<GraphView {graph} overlay={nodeStates} />
+
+		<RunTargets runId={page.params.id ?? ''} />
 
 		<Table.Root data-testid="instances-table">
 			<Table.Header>

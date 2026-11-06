@@ -250,7 +250,8 @@ The form uses plain shadcn inputs and ``Select``, not ``SchemaForm``.
 ``/nodes`` lists nodes: name (a link to the detail page), ``address:port``,
 transport, OS, pool, tags as badges, source, enabled or disabled, and the host
 key state (pinned, observed or none) with the host key policy. The list has
-source and enabled filters and a "Load more" button that follows the API
+source and enabled filters, a selector box (a CEL selector, debounced 400 ms,
+sent as ``selector``; it previews matches without the project scope) and a "Load more" button that follows the API
 cursor, 50 nodes per page.
 
 **New node** opens a form with name, address, port, transport (select), OS,
@@ -268,6 +269,10 @@ fingerprints (SHA256), the source and the version.
   overwrites the edit, and the source is kept. The box resets after each
   forced write.
 * **Delete** asks for confirmation first.
+
+The run page has a "Show targets" section (same admin token gate) that lists
+the targets frozen at trigger from ``GET /runs/{id}/targets``, with "Load
+more".
 
 Tests: ``lib/nodes.test.ts`` (vitest) covers form parsing and ``formOf`` with
 null tags and attributes. The Playwright test ``web/e2e/nodes.test.ts`` mocks

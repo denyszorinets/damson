@@ -944,7 +944,7 @@ Inventory is maintained by external systems (for example a ServiceNow CMDB sync 
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/nodes?source=&enabled=&cursor=&limit=` | List and filter (the CEL `selector` filter is not implemented yet) |
+| `GET` | `/api/v1/nodes?source=&enabled=&cursor=&limit=` | List and filter; `selector` (≤4096 chars) is a CEL selector as in `spec.targets.selector` over the node map with empty `inputs`, no project scope; at most 2000 nodes scanned per request, so follow `next_cursor` even when a page is short; invalid selector is `422` at `query.selector` |
 | `GET` | `/api/v1/nodes/{name}` | Get one |
 | `POST` | `/api/v1/nodes` | Create (`source=manual`) |
 | `PATCH` | `/api/v1/nodes/{name}?force=` | Update fields; optional `if_version` |
@@ -1076,6 +1076,7 @@ All routes are under `/api/v1`, with the OpenAPI document at `/api/v1/openapi.js
 - `executions` — get, logs (SSE)
 - `schedules`, `webhooks`
 - `nodes` — list (`GET /nodes`), get, create (`POST`, `source=manual`), update (`PATCH`, optional `if_version`), delete; `?force=true` is needed to write a node of another source (it keeps the source). All nodes routes need the admin token (§12.2), reads included. The sync routes (`PUT /inventory/sources/{source}/nodes` and `:batch`) are in §11; they need the admin token too.
+- `runs/{id}/targets` — admin token; the nodes frozen at trigger, cursor-paged (`limit` default 50, max 200), never credential or host key
 - `agents` — list, get (telemetry), drain; `pools` and pool tokens
 - `secrets` — metadata list (`GET /secrets`), create or add a version (`PUT /secrets/{scope}/{name}`, write-only values, optional `if_version`), delete; `scope` is one percent-encoded path segment. `GET /secret-types` is public. All other secrets routes need the admin token (§12.2) and answer 503 when no KEK is configured.
 - `plugins` — manifests with input and output schemas (drives the UI forms)

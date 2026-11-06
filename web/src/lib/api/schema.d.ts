@@ -421,6 +421,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/runs/{id}/targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the nodes a run froze as its targets */
+        get: operations["list-run-targets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/secret-types": {
         parameters: {
             query?: never;
@@ -911,6 +928,23 @@ export interface components {
             graph: components["schemas"]["Graph"];
             /** @description Step instances in creation order. */
             steps: components["schemas"]["StepEvent"][] | null;
+        };
+        RunTarget: {
+            address: string;
+            attributes: {
+                [key: string]: unknown;
+            };
+            name: string;
+            node_id: string;
+            os: string;
+            pool: string;
+            tags: string[] | null;
+            transport: string;
+        };
+        RunTargetsOutputBody: {
+            items: components["schemas"]["RunTarget"][] | null;
+            /** @description Empty on the last page. */
+            next_cursor?: string;
         };
         SecretMeta: {
             /** Format: date-time */
@@ -1899,6 +1933,8 @@ export interface operations {
                 source?: string;
                 /** @description Only enabled (true) or only disabled (false) nodes; empty for both. */
                 enabled?: "true" | "false" | "";
+                /** @description A CEL selector as in spec.targets.selector; empty for no filter. */
+                selector?: string;
                 /** @description Opaque cursor from a previous page's next_cursor. */
                 cursor?: string;
                 /** @description Page size. */
@@ -2622,6 +2658,87 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "list-run-targets": {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from a previous page's next_cursor. */
+                cursor?: string;
+                /** @description Page size. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunTargetsOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

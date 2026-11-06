@@ -154,6 +154,13 @@ Go test fails when ``web/openapi.json`` differs from the live document.
        step instance in creation order (``path``, ``node``, ``lane``,
        ``status``, ``attempt``, ``execution_id``, ``state``). Match an
        instance to its box by ``node`` and ``lane``.
+   * - ``GET /api/v1/runs/{id}/targets?cursor=&limit=``
+     - Needs the admin token (``bearerAuth``). The nodes the run froze at
+       trigger, in snapshot order: ``items`` (``name``, ``node_id``, ``pool``,
+       ``os``, ``transport``, ``address``, ``tags``, ``attributes``) plus
+       ``next_cursor``. Never a credential or host key. ``limit`` defaults to 50,
+       max 200. ``404`` for an unknown run, ``400`` for a bad cursor. A run
+       without snapshot rows returns empty ``items``.
    * - ``POST /api/v1/runs/{id}/cancel``
      - Records the cancel request (``cancel_requested_at``); the orchestrator
        cancels the run on its next advance. Idempotent: repeating it while
@@ -235,8 +242,16 @@ and ``updated_at``.
 
    * - Endpoint
      - Behaviour
-   * - ``GET /api/v1/nodes?source=&enabled=true|false&cursor=&limit=``
-     - ``items`` plus ``next_cursor``.
+   * - ``GET /api/v1/nodes?source=&enabled=true|false&selector=&cursor=&limit=``
+     - ``items`` plus ``next_cursor``. ``selector`` (up to 4096 characters) is a
+       CEL selector as in ``spec.targets.selector``, evaluated over the node
+       map (``id``, ``name``, ``address``, ``tags``, ``attributes``, ``pool``,
+       ``os``, ``transport``) with empty ``inputs``; only matching nodes are
+       returned. An invalid selector is a ``422`` at ``query.selector``. At
+       most 2000 nodes are scanned per request, so a page can hold fewer than
+       ``limit`` matches and still carry ``next_cursor`` (the last name
+       scanned); keep following it. ``source`` and ``enabled`` still apply. The
+       preview does not apply the project's scope and uses empty ``inputs``.
    * - ``GET /api/v1/nodes/{name}``
      - One node, or ``404``.
    * - ``POST /api/v1/nodes``
