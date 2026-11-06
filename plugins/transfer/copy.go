@@ -113,7 +113,7 @@ func copyToPartial(ctx context.Context, in Input, src, dst fileSystem, srcPath, 
 		return result{}, transferError(ctx, err, "opening the source failed")
 	}
 	defer func() { _ = r.Close() }()
-	w, err := dst.Create(ctx, partial)
+	w, err := dst.Create(ctx, partial, size)
 	if err != nil {
 		return result{}, transferError(ctx, err, "creating the destination failed")
 	}

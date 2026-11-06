@@ -19,8 +19,10 @@ type fileSystem interface {
 	Stat(ctx context.Context, path string) (fileInfo, bool, error)
 	// Open reads a file.
 	Open(ctx context.Context, path string) (io.ReadCloser, error)
-	// Create makes a new file; it fails if the path exists.
-	Create(ctx context.Context, path string) (io.WriteCloser, error)
+	// Create makes a new file of exactly size bytes (the protocol may need the
+	// size up front); it fails if the path exists. Close fails if fewer or
+	// more bytes were written than size.
+	Create(ctx context.Context, path string, size int64) (io.WriteCloser, error)
 	// Mkdirs creates dir and its missing parents.
 	Mkdirs(ctx context.Context, dir string) error
 	// Rename moves from to to. Without overwrite it fails if to exists (the

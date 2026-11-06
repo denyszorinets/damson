@@ -525,7 +525,7 @@ type StepError struct {
 
 One plugin covers server-to-server copies *and* S3 in both directions. It uses `TargetMode = nodes` with `NodePaths` `/source/node/name` and `/destination/node/name`; an S3 endpoint has no node and is skipped (ADR-0048).
 
-**Status:** implemented are node endpoints with protocol `sftp` (#144). `scp` (#145), `ftp`/`ftps` (#146) and `s3` (#147) are planned; the contract below describes the target state. Details of what runs today: `docs/reference/plugin-transfer.rst`.
+**Status:** implemented are node endpoints with protocol `sftp` (#144) or `scp` (#145). `ftp`/`ftps` (#146) and `s3` (#147) are planned; the contract below describes the target state. Details of what runs today: `docs/reference/plugin-transfer.rst`.
 
 - **Input:**
   - `mode` is `copy` or `move`.
@@ -533,7 +533,7 @@ One plugin covers server-to-server copies *and* S3 in both directions. It uses `
     - `node: {name, protocol: sftp|scp|ftp|ftps, path}`
     - `s3: {connection, bucket, key}`, where `connection` is a secret ref holding endpoint, region, access key, secret key, and path-style flag
   - `verify` is `none`, `size`, or `sha256` (default `size`). The check runs on the partial file before the rename. `size` requires source size = bytes streamed = destination size; `sha256` also re-reads the written file and compares digests (doubling destination reads). A failure is an `internal` error `verification failed: ...`.
-  - `overwrite` (bool, default false). Without it an existing destination is a validation error, and the final rename is a plain SFTP rename that fails if the target exists (closing the race after the check). With it the rename is `posix-rename`.
+  - `overwrite` (bool, default false). Without it an existing destination is a validation error, and the final rename is a plain SFTP rename that fails if the target exists (closing the race after the check). With it the rename is `posix-rename`. An SCP destination has no atomic no-clobber rename: existence is re-checked (`[ -e ]`) just before the rename, which is best effort, and `overwrite` uses `mv -f`.
   - `mkdirs` (bool).
 - **Behavior:**
   - Streaming: `io.Pipe` from the source reader to the destination writer, with the SHA-256 computed in-stream. **No temporary files.**

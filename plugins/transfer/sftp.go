@@ -24,18 +24,27 @@ type sftpFS struct {
 	once   sync.Once
 }
 
-// dialSFTP connects to the node with the shared SSH client code (host key
-// policy, TOFU, credentials) and opens the sftp subsystem. A trust-on-first-use
-// key is reported once authentication succeeded.
-func dialSFTP(ctx context.Context, req pluginsdk.ExecRequest, node pluginsdk.NodeInfo, emit pluginsdk.Emitter) (fileSystem, error) {
+// dialSSH connects to the node with the shared SSH client code (host key
+// policy, TOFU, credentials). A trust-on-first-use key is reported once
+// authentication succeeded.
+func dialSSH(ctx context.Context, req pluginsdk.ExecRequest, node pluginsdk.NodeInfo, emit pluginsdk.Emitter) (*ssh.Client, error) {
 	if node.Transport != "" && node.Transport != "ssh" {
-		return nil, pluginsdk.ValidationError("node %q uses transport %q; sftp needs an ssh node", node.Name, node.Transport)
+		return nil, pluginsdk.ValidationError("node %q uses transport %q; this protocol needs an ssh node", node.Name, node.Transport)
 	}
 	sc, hk, err := sshconn.Dial(ctx, req, node, "")
 	if err != nil {
 		return nil, err
 	}
 	hk.Report(req, node, emit)
+	return sc, nil
+}
+
+// dialSFTP opens the sftp subsystem on a node.
+func dialSFTP(ctx context.Context, req pluginsdk.ExecRequest, node pluginsdk.NodeInfo, emit pluginsdk.Emitter) (fileSystem, error) {
+	sc, err := dialSSH(ctx, req, node, emit)
+	if err != nil {
+		return nil, err
+	}
 	c, err := sftp.NewClient(sc)
 	if err != nil {
 		_ = sc.Close()
@@ -63,7 +72,7 @@ func (s *sftpFS) Open(_ context.Context, p string) (io.ReadCloser, error) {
 	return f, nil
 }
 
-func (s *sftpFS) Create(_ context.Context, p string) (io.WriteCloser, error) {
+func (s *sftpFS) Create(_ context.Context, p string, _ int64) (io.WriteCloser, error) {
 	// O_EXCL: the name is unique per attempt, so a clash means something is wrong.
 	f, err := s.client.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
 	if err != nil {
