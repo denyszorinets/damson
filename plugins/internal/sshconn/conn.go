@@ -1,4 +1,7 @@
-package ssh
+// Package sshconn is the SSH client side shared by the built-in plugins that
+// talk SSH (ssh, transfer): host key policy with trust on first use,
+// credential resolution and the dial. It uses only pkg/pluginsdk.
+package sshconn
 
 import (
 	"bytes"
@@ -20,63 +23,63 @@ import (
 const ConfigAllowInsecureHostKeys = "allow_insecure_host_keys"
 
 const (
-	policyStrict   = "strict"
-	policyTofu     = "tofu"
-	policyInsecure = "insecure"
+	PolicyStrict   = "strict"
+	PolicyTofu     = "tofu"
+	PolicyInsecure = "insecure"
 
 	handshakeTimeout = 30 * time.Second
 )
 
-// hostKeyCheck verifies host keys under one policy and remembers the key it
+// HostKeyCheck verifies host keys under one policy and remembers the key it
 // observed.
-type hostKeyCheck struct {
-	policy   string
-	pinned   ssh.PublicKey // nil when the node has no host_key
-	observed ssh.PublicKey
+type HostKeyCheck struct {
+	Policy   string
+	Pinned   ssh.PublicKey // nil when the node has no host_key
+	Observed ssh.PublicKey
 	mismatch error
 }
 
 // newHostKeyCheck applies the node's host key policy. strict is the default
 // and needs a pinned host_key; tofu accepts an unknown key but still enforces
 // a pinned one; insecure needs explicit operator opt-in through req.Config.
-func newHostKeyCheck(req pluginsdk.ExecRequest, node pluginsdk.NodeInfo) (*hostKeyCheck, error) {
-	h := &hostKeyCheck{policy: node.HostKeyPolicy}
-	if h.policy == "" {
-		h.policy = policyStrict
+func newHostKeyCheck(req pluginsdk.ExecRequest, node pluginsdk.NodeInfo) (*HostKeyCheck, error) {
+	h := &HostKeyCheck{Policy: node.HostKeyPolicy}
+	if h.Policy == "" {
+		h.Policy = PolicyStrict
 	}
 	if node.HostKey != "" {
 		k, _, _, _, err := ssh.ParseAuthorizedKey([]byte(node.HostKey))
 		if err != nil {
 			return nil, pluginsdk.ValidationError("node %q has an invalid host_key", node.Name)
 		}
-		h.pinned = k
+		h.Pinned = k
 	}
-	switch h.policy {
-	case policyStrict:
-		if h.pinned == nil {
+	switch h.Policy {
+	case PolicyStrict:
+		if h.Pinned == nil {
 			return nil, pluginsdk.ValidationError("node %q uses the strict host key policy but has no host_key", node.Name)
 		}
-	case policyTofu:
-	case policyInsecure:
+	case PolicyTofu:
+	case PolicyInsecure:
 		if req.Config[ConfigAllowInsecureHostKeys] != "true" {
 			return nil, pluginsdk.ValidationError("node %q uses the insecure host key policy, which the operator has not enabled (%s)", node.Name, ConfigAllowInsecureHostKeys)
 		}
 	default:
-		return nil, pluginsdk.ValidationError("node %q has unknown host key policy %q", node.Name, h.policy)
+		return nil, pluginsdk.ValidationError("node %q has unknown host key policy %q", node.Name, h.Policy)
 	}
 	return h, nil
 }
 
 // callback is the ssh.HostKeyCallback. It records the observed key; the plugin
 // reports it only after authentication succeeded.
-func (h *hostKeyCheck) callback(_ string, _ net.Addr, key ssh.PublicKey) error {
-	h.observed = key
-	if h.policy == policyInsecure || h.pinned == nil {
+func (h *HostKeyCheck) callback(_ string, _ net.Addr, key ssh.PublicKey) error {
+	h.Observed = key
+	if h.Policy == PolicyInsecure || h.Pinned == nil {
 		return nil
 	}
-	if !bytes.Equal(h.pinned.Marshal(), key.Marshal()) {
+	if !bytes.Equal(h.Pinned.Marshal(), key.Marshal()) {
 		h.mismatch = fmt.Errorf("host key mismatch: node pins %s, server presented %s",
-			ssh.FingerprintSHA256(h.pinned), ssh.FingerprintSHA256(key))
+			ssh.FingerprintSHA256(h.Pinned), ssh.FingerprintSHA256(key))
 		return h.mismatch
 	}
 	return nil
@@ -84,20 +87,20 @@ func (h *hostKeyCheck) callback(_ string, _ net.Addr, key ssh.PublicKey) error {
 
 // algorithms limits negotiation to the pinned key type, so a server with
 // several host keys presents the one we can verify.
-func (h *hostKeyCheck) algorithms() []string {
-	if h.pinned == nil || h.policy == policyInsecure {
+func (h *HostKeyCheck) algorithms() []string {
+	if h.Pinned == nil || h.Policy == PolicyInsecure {
 		return nil
 	}
-	if h.pinned.Type() == ssh.KeyAlgoRSA {
+	if h.Pinned.Type() == ssh.KeyAlgoRSA {
 		return []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA}
 	}
-	return []string{h.pinned.Type()}
+	return []string{h.Pinned.Type()}
 }
 
 // authConfig resolves the credential into a user name and auth methods. The
 // returned errors never contain secret values.
-func authConfig(req pluginsdk.ExecRequest, node pluginsdk.NodeInfo, in Input) (string, []ssh.AuthMethod, error) {
-	ref := in.Credential
+func authConfig(req pluginsdk.ExecRequest, node pluginsdk.NodeInfo, credential string) (string, []ssh.AuthMethod, error) {
+	ref := credential
 	if ref == "" {
 		ref = node.Credential
 	}
@@ -157,14 +160,14 @@ func parseSigner(privateKey, passphrase string) (ssh.Signer, error) {
 	return signer, nil
 }
 
-// connect dials the node, checks the host key and authenticates. It returns
+// Dial dials the node, checks the host key and authenticates. It returns
 // when the handshake is done or ctx ends.
-func connect(ctx context.Context, req pluginsdk.ExecRequest, node pluginsdk.NodeInfo, in Input) (*ssh.Client, *hostKeyCheck, error) {
+func Dial(ctx context.Context, req pluginsdk.ExecRequest, node pluginsdk.NodeInfo, credential string) (*ssh.Client, *HostKeyCheck, error) {
 	hk, err := newHostKeyCheck(req, node)
 	if err != nil {
 		return nil, nil, err
 	}
-	user, methods, err := authConfig(req, node, in)
+	user, methods, err := authConfig(req, node, credential)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -176,7 +179,7 @@ func connect(ctx context.Context, req pluginsdk.ExecRequest, node pluginsdk.Node
 	dialer := net.Dialer{Timeout: handshakeTimeout}
 	nc, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return nil, nil, ctxOr(ctx, pluginsdk.NewError(pluginsdk.KindConnection, "connecting to "+addr+" failed: "+err.Error(), err))
+		return nil, nil, CtxOr(ctx, pluginsdk.NewError(pluginsdk.KindConnection, "connecting to "+addr+" failed: "+err.Error(), err))
 	}
 	cfg := &ssh.ClientConfig{
 		User:              user,
@@ -190,7 +193,7 @@ func connect(ctx context.Context, req pluginsdk.ExecRequest, node pluginsdk.Node
 	sc, chans, reqs, err := ssh.NewClientConn(nc, addr, cfg)
 	if !stop() || ctx.Err() != nil {
 		_ = nc.Close()
-		return nil, nil, ctxOr(ctx, errors.New("connection aborted"))
+		return nil, nil, CtxOr(ctx, errors.New("connection aborted"))
 	}
 	if err != nil {
 		_ = nc.Close()
@@ -200,7 +203,7 @@ func connect(ctx context.Context, req pluginsdk.ExecRequest, node pluginsdk.Node
 	return ssh.NewClient(sc, chans, reqs), hk, nil
 }
 
-func classifyHandshake(err error, hk *hostKeyCheck, user, addr string) *pluginsdk.StepError {
+func classifyHandshake(err error, hk *HostKeyCheck, user, addr string) *pluginsdk.StepError {
 	switch {
 	case hk.mismatch != nil:
 		return pluginsdk.NewError(pluginsdk.KindConnection, hk.mismatch.Error(), err)
@@ -210,10 +213,25 @@ func classifyHandshake(err error, hk *hostKeyCheck, user, addr string) *pluginsd
 	return pluginsdk.NewError(pluginsdk.KindConnection, "ssh handshake with "+addr+" failed: "+err.Error(), err)
 }
 
-// ctxOr returns the context error when ctx has ended, otherwise fallback.
-func ctxOr(ctx context.Context, fallback error) error {
+// CtxOr returns the context error when ctx has ended, otherwise fallback.
+func CtxOr(ctx context.Context, fallback error) error {
 	if err := ctx.Err(); err != nil {
 		return pluginsdk.AsStepError(err)
 	}
 	return fallback
+}
+
+// Report handles the outcome of a successful connection: it warns when the
+// host key was not verified (insecure policy) and, for a tofu node without a
+// pinned key, hands the observed key to the host (req.HostKeys). Call it only
+// after authentication succeeded. A pinned key that matched is not reported.
+func (h *HostKeyCheck) Report(req pluginsdk.ExecRequest, node pluginsdk.NodeInfo, emit pluginsdk.Emitter) {
+	switch {
+	case h.Policy == PolicyInsecure:
+		emit.Log(pluginsdk.System, "warning: host key of "+node.Name+" was not verified (insecure host key policy)")
+	case h.Policy == PolicyTofu && h.Pinned == nil && h.Observed != nil && req.HostKeys != nil:
+		line := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(h.Observed)))
+		req.HostKeys.ReportHostKey(node.Name, line)
+		emit.Log(pluginsdk.System, "trusting host key "+ssh.FingerprintSHA256(h.Observed)+" of "+node.Name+" on first use")
+	}
 }
