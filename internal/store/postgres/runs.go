@@ -82,6 +82,9 @@ func createRun(ctx context.Context, q *gen.Queries, nr store.NewRun, now time.Ti
 	if err != nil {
 		return store.RunTree{}, err
 	}
+	if err := insertRunTargets(ctx, q, id, nr.Targets); err != nil {
+		return store.RunTree{}, err
+	}
 	run := store.Run{
 		ID: id, JobID: nr.JobID, JobVersionID: nr.JobVersionID, Trigger: trigger, Options: options,
 		Status: store.RunPending, Version: 1, ConcurrencyKey: nr.ConcurrencyKey, CreatedAt: store.NormalizeTime(now),

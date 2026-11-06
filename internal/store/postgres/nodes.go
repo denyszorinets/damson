@@ -51,10 +51,10 @@ func (s *Store) CreateNode(ctx context.Context, n store.Node, now time.Time) (st
 	if err != nil {
 		return store.Node{}, fmt.Errorf("creating node %q: %w", n.Name, err)
 	}
-	return s.getNodeByID(ctx, n.ID)
+	return s.GetNodeByID(ctx, n.ID)
 }
 
-func (s *Store) getNodeByID(ctx context.Context, id string) (store.Node, error) {
+func (s *Store) GetNodeByID(ctx context.Context, id string) (store.Node, error) {
 	r, err := s.q.GetNodeByID(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return store.Node{}, fmt.Errorf("node %q: %w", id, store.ErrNotFound)
@@ -131,7 +131,7 @@ func (s *Store) UpdateNode(ctx context.Context, n store.Node, expected int64, no
 	if rows == 0 {
 		return store.Node{}, s.casMiss(ctx, n.ID, expected)
 	}
-	return s.getNodeByID(ctx, n.ID)
+	return s.GetNodeByID(ctx, n.ID)
 }
 
 // DeleteNode implements store.NodeStore.
@@ -148,7 +148,7 @@ func (s *Store) DeleteNode(ctx context.Context, id string, expected int64) error
 
 // casMiss tells a missing node from a version that moved.
 func (s *Store) casMiss(ctx context.Context, id string, expected int64) error {
-	if _, err := s.getNodeByID(ctx, id); err != nil {
+	if _, err := s.GetNodeByID(ctx, id); err != nil {
 		return err
 	}
 	return fmt.Errorf("node %q at version %d: %w", id, expected, store.ErrStale)
