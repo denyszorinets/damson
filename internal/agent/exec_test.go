@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -9,18 +10,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/denyszorinets/damson/examples/plugins/hello"
 	"github.com/denyszorinets/damson/internal/protocol"
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 )
 
-func TestExecuteHelloPlugin(t *testing.T) {
+func TestExecuteGreetingPlugin(t *testing.T) {
 	ctl := newFakeCtl(t)
 	ctl.autoAck.Store(true)
-	startAgent(t, ctl, hello.Plugins())
+	greeter := plug(func(_ context.Context, r pluginsdk.ExecRequest, emit pluginsdk.Emitter) (pluginsdk.Result, error) {
+		var in struct{ Name string }
+		_ = json.Unmarshal(r.Input, &in)
+		g := "Hello, " + in.Name + "!"
+		emit.Log(pluginsdk.Stdout, g)
+		out, _ := json.Marshal(map[string]string{"greeting": g})
+		return pluginsdk.Result{Outputs: out}, nil
+	})
+	startAgent(t, ctl, []pluginsdk.Plugin{greeter})
 
 	req := protocol.StepExecute{
-		AttemptID: "a1", ExecutionID: "e1", PluginName: "hello", PluginVersion: "0.1.0",
+		AttemptID: "a1", ExecutionID: "e1", PluginName: "demo", PluginVersion: "1.0.0",
 		Input: map[string]any{"name": "damson"},
 	}
 	ctl.mustExecute(req)

@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 	"github.com/denyszorinets/damson/internal/store"
 	"github.com/denyszorinets/damson/internal/store/tokens"
 	"github.com/denyszorinets/damson/internal/version"
-	"github.com/denyszorinets/damson/plugins/all"
+	"github.com/denyszorinets/damson/pkg/pluginsdk"
 	"github.com/denyszorinets/damson/plugins/ssh"
 	"github.com/denyszorinets/damson/plugins/transfer"
 	"github.com/denyszorinets/damson/plugins/winrm"
@@ -28,7 +28,7 @@ const agentStopTimeout = 5 * time.Second
 const devTokenName = "dev-agent"
 
 // newAgent builds an agent from the validated agent settings.
-func newAgent(cfg config.Agent, controllerURL, token string, log *slog.Logger) (*agent.Agent, error) {
+func newAgent(cfg config.Agent, controllerURL, token string, log *slog.Logger, plugins []pluginsdk.Plugin) (*agent.Agent, error) {
 	id, err := agent.NewAgentID()
 	if err != nil {
 		return nil, err
@@ -44,7 +44,7 @@ func newAgent(cfg config.Agent, controllerURL, token string, log *slog.Logger) (
 		Pool:          cfg.Pool,
 		Slots:         cfg.Slots,
 		Version:       version.Version,
-		Plugins:       all.Plugins(),
+		Plugins:       plugins,
 		Logger:        log,
 		ExecConfig: agent.ExecConfig{
 			SpoolDir:     cfg.SpoolDir,
@@ -91,8 +91,8 @@ func pluginConfig(cfg config.Agent) (map[string]map[string]string, error) {
 
 // runAgent connects to the controller and blocks until ctx is cancelled or
 // the controller refuses the agent for good (bad token, pool conflict).
-func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
-	a, err := newAgent(cfg.Agent, cfg.Agent.ControllerURL, cfg.Agent.Token, log)
+func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger, plugins []pluginsdk.Plugin) error {
+	a, err := newAgent(cfg.Agent, cfg.Agent.ControllerURL, cfg.Agent.Token, log, plugins)
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,7 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 // and starts an agent against the controller listening on addr. The token is
 // handed straight to the agent: it is never printed or logged, and tokens
 // from earlier runs are revoked so the dev database does not accumulate them.
-func startDevAgent(ctx context.Context, st store.Store, cfg config.Config, addr string, log *slog.Logger) (*agent.Agent, error) {
+func startDevAgent(ctx context.Context, st store.Store, cfg config.Config, addr string, log *slog.Logger, plugins []pluginsdk.Plugin) (*agent.Agent, error) {
 	now := time.Now()
 	pool, err := st.GetPoolByName(ctx, cfg.Agent.Pool)
 	if errors.Is(err, store.ErrNotFound) {
@@ -138,7 +138,7 @@ func startDevAgent(ctx context.Context, st store.Store, cfg config.Config, addr 
 	if err != nil {
 		return nil, err
 	}
-	a, err := newAgent(cfg.Agent, url, plain, log)
+	a, err := newAgent(cfg.Agent, url, plain, log, plugins)
 	if err != nil {
 		return nil, err
 	}

@@ -18,9 +18,9 @@ test: ## Run Go tests (SQLite store; Postgres store tests are in test-pg)
 	go test $(GOTESTFLAGS) $(GOPKGS)
 
 # Every package with `//go:build integration` tests must be listed here, or CI never runs them.
-PGPKGS := ./internal/store/... ./internal/api/... ./internal/controller/... ./internal/agent/... ./cmd/...
+PGPKGS := ./internal/store/... ./internal/api/... ./internal/controller/... ./internal/agent/... ./internal/cli/...
 
-test-pg: ## Integration tests against Postgres: store, api, controller, cmd (testcontainers; DAMSON_TEST_POSTGRES_DSN reuses a server; fails without Docker unless DAMSON_SKIP_POSTGRES=1)
+test-pg: ## Integration tests against Postgres: store, api, controller, agent, cli (testcontainers; DAMSON_TEST_POSTGRES_DSN reuses a server; fails without Docker unless DAMSON_SKIP_POSTGRES=1)
 	go test $(GOTESTFLAGS) -tags integration -count=1 $(PGPKGS)
 
 chaos: ## HA chaos tests: several in-process controllers on one Postgres, agents moved and cut off (testcontainers; DAMSON_TEST_POSTGRES_DSN reuses a server)
@@ -42,7 +42,7 @@ vet: ## go vet
 	go vet $(GOPKGS)
 
 fmt-check: ## Fail if any Go file is not gofmt-formatted
-	@out=$$(gofmt -l cmd internal pkg plugins 2>/dev/null); \
+	@out=$$(gofmt -l cmd internal pkg plugins examples 2>/dev/null); \
 	if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 
 lint: ## golangci-lint (config in .golangci.yml); fails if not installed
@@ -86,6 +86,16 @@ docs-check: ## Strict docs build (warnings are errors) plus linkcheck
 	$(SPHINX) sphinx-build -W --keep-going -n -b html . _build/html
 	$(SPHINX) sphinx-build -W --keep-going -b linkcheck . _build/linkcheck
 
-plugin-contract: ## Plugin SDK contract suite over all built-in plugins, plus build examples/plugins/hello
-	go test ./pkg/pluginsdk/... ./plugins/... ./examples/plugins/hello/...
-	go build ./examples/plugins/hello/...
+plugin-contract: ## Plugin SDK contract suite over all built-in plugins, plus build examples/plugins/hello (a separate module) into a custom binary with damson build --with (offline)
+	go test ./pkg/pluginsdk/... ./plugins/...
+	cd examples/plugins/hello && go vet ./... && go test ./...
+	go mod download
+	cd examples/plugins/hello && go mod download
+	go build -o bin/damson ./cmd/damson
+	GOPROXY=off bin/damson build \
+		--with github.com/denyszorinets/damson=$(CURDIR) \
+		--with github.com/denyszorinets/damson/examples/plugins/hello=$(CURDIR)/examples/plugins/hello \
+		-o bin/damson-hello
+	bin/damson-hello plugin validate hello
+	echo '{"name":"ci"}' | bin/damson-hello plugin run hello --input - | grep -q '"greeting": "Hello, ci!"'
+	bin/damson-hello version | grep -q 'examples/plugins/hello'

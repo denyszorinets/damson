@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// The environment the cmd/damson Postgres tests build must load and serve.
+// The environment the internal/cli Postgres tests build must load and serve.
 func TestPostgresTestEnvLoads(t *testing.T) {
 	env := []string{"DAMSON_DATABASE__DRIVER=postgres", "DAMSON_DATABASE__DSN=postgres://u@h/db",
 		"DAMSON_CONTROLLER__CLUSTER_SECRET=" + strings.Repeat("t", 40),

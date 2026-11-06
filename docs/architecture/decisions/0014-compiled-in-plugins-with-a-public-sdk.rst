@@ -104,3 +104,4 @@ References
 ----------
 
 - :doc:`/architecture/design` §6, §23
+- :doc:`0050-custom-binaries-with-damson-build` (how extra plugin modules are linked)

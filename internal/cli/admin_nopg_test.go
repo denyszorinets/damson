@@ -1,6 +1,6 @@
 //go:build !integration
 
-package main
+package cli
 
 // postgresBackends is empty without the integration tag; Postgres runs under
 // `go test -tags integration` (make test-pg).

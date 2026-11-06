@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -11,17 +11,21 @@ import (
 	"github.com/denyszorinets/damson/internal/config"
 	"github.com/denyszorinets/damson/internal/logging"
 	"github.com/denyszorinets/damson/internal/version"
+	"github.com/denyszorinets/damson/pkg/pluginsdk"
 )
 
-func runVersion(stdout io.Writer) int {
+func runVersion(stdout io.Writer, modules []Module) int {
 	fmt.Fprintln(stdout, "damson", version.Version)
+	for _, m := range modules {
+		fmt.Fprintln(stdout, "with", m.Path, moduleVersion(m.Path))
+	}
 	return exitOK
 }
 
 // runRole loads config for the role, logs startup, and blocks until ctx is
 // cancelled. Controller and dev serve the HTTP API (dev also runs an agent in
 // the same process); the agent connects to the controller.
-func runRole(ctx context.Context, name string, args []string, stderr io.Writer, environ []string) int {
+func runRole(ctx context.Context, name string, args []string, stderr io.Writer, environ []string, plugins []pluginsdk.Plugin, modules []Module) int {
 	fs := flag.NewFlagSet("damson "+name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", "", "path to a TOML config file (or set "+config.EnvConfigFile+")")
@@ -54,7 +58,7 @@ func runRole(ctx context.Context, name string, args []string, stderr io.Writer, 
 	log := logging.New(stderr, cfg.SlogLevel(), name)
 	log.Info("starting", "version", version.Version, "config", slog.AnyValue(cfg.Redacted()))
 	if name == string(config.RoleAgent) {
-		if err := runAgent(ctx, cfg, log); err != nil {
+		if err := runAgent(ctx, cfg, log, plugins); err != nil {
 			fmt.Fprintf(stderr, "damson agent: %v\n", err)
 			return exitError
 		}
@@ -69,7 +73,7 @@ func runRole(ctx context.Context, name string, args []string, stderr io.Writer, 
 		return exitUsage
 	}
 	migrate := *autoMigrate || name == string(config.RoleDev)
-	if err := runController(ctx, cfg, log, migrate, name == string(config.RoleDev), *devNodes); err != nil {
+	if err := runController(ctx, cfg, log, modules, plugins, migrate, name == string(config.RoleDev), *devNodes); err != nil {
 		fmt.Fprintf(stderr, "damson %s: %v\n", name, err)
 		return exitError
 	}

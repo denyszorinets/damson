@@ -146,7 +146,7 @@ Plugin commands
 
 ``damson plugin`` works on the plugins linked into the running binary (v1
 plugins are compiled in). An out-of-tree plugin is linked in with
-``damson build --with <module>@<version>`` (planned, issue #150), and the
+``damson build --with <module>@<version>`` (:ref:`cli-build`), and the
 resulting binary has these commands too. None of them talks to a controller or
 a database. Exit status: 0 success, 1 failure, 2 usage error.
 
@@ -203,6 +203,81 @@ a database. Exit status: 0 success, 1 failure, 2 usage error.
    $ damson plugin new hello
    $ damson plugin validate hello
    $ echo '{"name": "world"}' | damson plugin run hello --input - --timeout 30s
+
+.. _cli-build:
+
+Build command
+-------------
+
+``damson build --with module[@version][=dir]... [--damson-version v] [-o file] [--keep-workdir]``
+builds a custom ``damson`` binary with extra plugin modules linked in
+(:doc:`/architecture/decisions/0050-custom-binaries-with-damson-build`). It
+needs the Go toolchain in ``PATH``. Exit status: 0 success, 1 build failure,
+2 usage error.
+
+``--with module[@version][=dir]``
+   Adds a plugin module; repeatable, at least one is required. The root package
+   of the module must export ``func Plugins() []pluginsdk.Plugin``. Without a
+   version the module is fetched at ``latest``. ``=dir`` uses a local directory
+   (which needs a ``go.mod``) instead; a version and a directory cannot be
+   combined. The first element of the module path must contain a dot. Giving a
+   module twice is an error.
+
+``--damson-version v``
+   The Damson version to build against. The default is the module version of
+   the running binary, read from its build information. A development build
+   (no version, ``(devel)``, ``+dirty`` or a replaced module) has none: pass
+   this flag, or ``--with github.com/denyszorinets/damson=<dir>`` to build
+   against a checkout. The two cannot be combined, and ``--with`` on the Damson
+   module takes no ``@version``. The build fails if version selection picks a
+   different Damson version (a plugin module requires a newer one); pass that
+   version.
+
+``-o file``
+   Output file, default ``./damson``. It is written next to the target and
+   renamed into place, so a failed build leaves no output.
+
+``--keep-workdir``
+   Keeps the temporary build module (``damson-build-*``), whose path is
+   printed.
+
+The build runs only the Go toolchain (``go get``, ``go list``,
+``go build -mod=mod -trimpath``), never a shell, with ``CGO_ENABLED=0`` unless
+you set it and ``GOWORK=off``. It does not change ``GOSUMDB``, ``GONOSUMDB``,
+``GOINSECURE`` or ``GOFLAGS`` and warns when your environment weakens module
+verification. ``go.sum`` entries are taken only from local ``=dir`` modules.
+
+.. code-block:: console
+
+   $ # a plugin in a local checkout, against a Damson checkout
+   $ damson build \
+       --with github.com/denyszorinets/damson=$HOME/src/damson \
+       --with example.com/damson-plugin-hello=$HOME/src/damson-plugin-hello \
+       -o ./damson-hello
+   $ # a pinned remote module, against this binary's Damson version
+   $ damson build --with example.com/damson-plugin-hello@v1.2.0 -o ./damson-agent
+   $ ./damson-agent version
+   damson v0.5.0
+   with example.com/damson-plugin-hello v1.2.0
+
+``damson version`` prints the Damson version and one ``with <module> <version>``
+line per extra module (a replaced module shows ``(replaced)``).
+
+When the binary starts, for every command, the extra plugins are checked: a
+name may not equal a built-in name at any version, a name belongs to one
+module, ``name@version`` is unique and every manifest must validate. A
+violation stops the binary with an error.
+
+.. warning::
+
+   Extra modules are fully trusted code in the process: their initialisers run
+   at start. On an agent they can read every secret dispatched to any step on
+   that agent, the agent token and its files; on a controller, the database
+   DSN, the KEK and all secrets. Link extras into agent binaries only and run
+   the stock binary as controller (a ``controller`` started from a binary with
+   extras logs a warning; ``dev`` does not). Pin versions instead of
+   ``latest``, review the module and its dependencies, and keep the Go
+   checksum database on.
 
 .. _cli-admin:
 

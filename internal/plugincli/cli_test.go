@@ -15,7 +15,6 @@ import (
 
 	"github.com/invopop/jsonschema"
 
-	"github.com/denyszorinets/damson/examples/plugins/hello"
 	"github.com/denyszorinets/damson/internal/plugincli"
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 	"github.com/denyszorinets/damson/plugins/all"
@@ -421,20 +420,6 @@ func TestRunTimeoutCancelsThePlugin(t *testing.T) {
 	}}
 	r := run(t, []pluginsdk.Plugin{slow}, "", "run", "slow", "--timeout", "100ms")
 	if r.code != plugincli.ExitError || !strings.Contains(r.stdout, `"kind": "timeout"`) {
-		t.Fatalf("run = %+v", r)
-	}
-}
-
-// The hello example is what the scaffold is modeled on: it validates and runs.
-func TestHelloExampleValidatesAndRuns(t *testing.T) {
-	hello := hello.Plugins()
-	if r := run(t, hello, "", "validate"); r.code != plugincli.ExitOK || !strings.Contains(r.stdout, "ok    hello@0.1.0") {
-		t.Fatalf("validate = %+v", r)
-	}
-	d := t.TempDir()
-	in := write(t, d, "in.json", `{"name":"damson"}`, 0o600)
-	r := run(t, hello, "", "run", "hello", "--input", in)
-	if r.code != plugincli.ExitOK || !strings.Contains(r.err, "[stdout] Hello, damson!") || !strings.Contains(r.stdout, `"greeting": "Hello, damson!"`) {
 		t.Fatalf("run = %+v", r)
 	}
 }
