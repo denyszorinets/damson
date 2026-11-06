@@ -116,7 +116,7 @@ func TestNewPackageNames(t *testing.T) {
 
 // The scaffold compiles and passes the contract suite and the source rules
 // unchanged. It builds against this checkout of the SDK (a replace directive)
-// and the module cache, so it needs the go tool and no network.
+// and the module cache or proxy, so it needs the go tool.
 func TestScaffoldPassesItsOwnTests(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds a module")
@@ -160,13 +160,12 @@ func TestScaffoldPassesItsOwnTests(t *testing.T) {
 		}
 	}
 	mod = append(mod, []byte("\nrequire (\n"+strings.Join(req, "\n")+"\n)\n")...)
-	mod = bytes.Replace(mod, []byte("\nrequire github.com/denyszorinets/damson v0.0.0\n"), []byte("\nrequire github.com/denyszorinets/damson v0.0.0\n"), 1)
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), mod, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(goBin, "test", "-count=1", "-v", "./...")
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "GOPROXY=off", "GOWORK=off")
+	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "GOWORK=off")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("go test in the scaffold failed: %v\n%s", err, out)
