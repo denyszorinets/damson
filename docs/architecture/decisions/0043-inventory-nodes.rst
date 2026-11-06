@@ -64,7 +64,8 @@ serves nodes, secrets and targets as before.
 .. note::
 
    See :doc:`0044-dev-nodes-is-a-seeder`: ``--dev-nodes`` now seeds the
-   inventory and the secret store, so this split no longer exists.
+   inventory and the secret store, so this split no longer exists. Superseded in
+   part by :doc:`0045-frozen-run-targets`: targets are frozen per run.
 
 - A missing node, or one outside the project's node scope, fails the step
   permanently as ``unknown node``. There is no probing.
@@ -103,15 +104,14 @@ frozen run targets (:issue:`117`).
 Limits for now
 ~~~~~~~~~~~~~~
 
-Inventory nodes can be used only through a literal ``node: <name>`` in step
-input. ``for_each: targets`` and ``spec.targets.selector`` stay ``--dev-nodes``
-only until :issue:`117`, which freezes node ids into the run and requires the
-node to be in the run's targets.
+Inventory nodes can be used through a literal ``node: <name>`` in step input,
+through ``for_each: targets`` and through ``spec.targets.selector``.
 
 .. note::
 
-   See :doc:`0044-dev-nodes-is-a-seeder`: ``targets`` are now read from the
-   inventory also for seeded dev nodes.
+   Superseded in part by :doc:`0045-frozen-run-targets` and
+   :doc:`0044-dev-nodes-is-a-seeder`: ``targets`` come from the inventory,
+   also for seeded dev nodes, and are frozen into the run at trigger.
 
 Alternatives Considered
 -----------------------
@@ -157,7 +157,6 @@ Negative
 ~~~~~~~~
 
 - Node names are limited to 63 characters, so long FQDNs cannot be names.
-- Until :issue:`117`, targets and the selector work only with ``--dev-nodes``.
 
 Risks
 ~~~~~

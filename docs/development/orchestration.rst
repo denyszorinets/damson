@@ -154,11 +154,13 @@ the group row's input; ``engine.StepIDOf`` gives a lane row its for_each group's
 id. A lane that has just failed but is not settled yet holds new lanes back for
 one ``Decide`` (the settles counter).
 
-``targets`` comes from the advancer's ``TargetSource`` (``advance.TargetSource.Targets(ctx,
-project)``: the enabled inventory nodes the project scope allows). It is queried only when ``engine.UsesTargets(job)`` is true
-(``spec.targets`` is set or the word ``targets`` appears in the spec); an error is
-not permanent, so the advance job is retried. The list is read live until frozen run
-targets (:issue:`117`). ``RunState.Targets`` is filled before each ``Decide``
+``targets`` comes from the run's frozen snapshot (ADR-0045). At trigger the API
+lists the enabled in-scope nodes, filters them with ``spec.targets.selector`` and
+stores the result in ``run_targets``. The advancer never reads the live inventory:
+when ``engine.UsesTargets(job)`` is true (``spec.targets`` is set or the word
+``targets`` appears in the spec) it calls ``store.ListRunTargets`` and decodes each
+node JSON as an element of ``targets``; a run without rows has empty targets, so
+inventory changes never change a running run's lanes. ``RunState.Targets`` is filled before each ``Decide``
 through ``Engine.SelectTargets``, which applies ``spec.targets.selector`` purely
 (a node for which it is not true is out), and a ``for_each`` group freezes the
 list it iterates when it starts.

@@ -2,6 +2,7 @@ package advance
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -30,6 +31,7 @@ type advanceStore interface {
 	GetRunTree(ctx context.Context, id string) (store.RunTree, error)
 	GetJob(ctx context.Context, id string) (store.Job, error)
 	GetJobVersion(ctx context.Context, id string) (store.JobVersion, error)
+	ListRunTargets(ctx context.Context, runID string) ([]store.RunTarget, error)
 	ListProjects(ctx context.Context) ([]store.Project, error)
 	ListPluginManifests(ctx context.Context) ([]store.PluginManifest, error)
 }
@@ -42,10 +44,8 @@ type core struct {
 	log     *slog.Logger
 	enqueue func(ctx context.Context, tx store.Tx, runID string) error
 	// wake schedules the job-level timeout wake-up (nil: none, in tests).
-	wake func(ctx context.Context, tx store.Tx, runID string, at time.Time) error
-	// targets selects the nodes of a run (nil: none).
-	targets func(ctx context.Context, job *engine.Job, inputs map[string]any) ([]map[string]any, error)
-	notify  func(runID string)
+	wake   func(ctx context.Context, tx store.Tx, runID string, at time.Time) error
+	notify func(runID string)
 }
 
 // advance runs one load-decide-apply cycle for runID, reloading when the
@@ -90,8 +90,8 @@ func (c *core) once(ctx context.Context, runID string) (changed bool, err error)
 	if err := c.fillIdempotent(ctx, &state, job); err != nil {
 		return false, err
 	}
-	if c.targets != nil {
-		if state.Targets, err = c.targets(ctx, job, state.Inputs); err != nil {
+	if engine.UsesTargets(job) {
+		if state.Targets, err = c.frozenTargets(ctx, runID); err != nil {
 			return false, err // not permanent: River retries
 		}
 	}
@@ -223,4 +223,22 @@ func (c *core) queueWakes(ctx context.Context, runID string, wakes []time.Time) 
 		}
 		return nil
 	})
+}
+
+// frozenTargets reads the run's target list as it was when the run started
+// (#117); a run without a snapshot has none.
+func (c *core) frozenTargets(ctx context.Context, runID string) ([]map[string]any, error) {
+	rows, err := c.st.ListRunTargets(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("reading the targets of run %s: %w", runID, err)
+	}
+	out := make([]map[string]any, 0, len(rows))
+	for _, r := range rows {
+		var m map[string]any
+		if err := json.Unmarshal(r.Node, &m); err != nil {
+			return nil, &permanentError{fmt.Errorf("target %q of run %s is not an object: %w", r.Name, runID, err)}
+		}
+		out = append(out, m)
+	}
+	return out, nil
 }

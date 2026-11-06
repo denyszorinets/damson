@@ -49,9 +49,11 @@ type Config struct {
 
 // TargetSource lists the nodes `targets` is built from.
 type TargetSource interface {
-	// Targets returns the nodes a job of project can target. An error fails the
-	// request (nothing is created).
-	Targets(ctx context.Context, project string) ([]map[string]any, error)
+	// Targets scans the enabled nodes a job of project can target, in name
+	// order, hands each batch to pick (nil keeps all) and returns the picked
+	// nodes, stopping once there are limit of them. An error fails the request
+	// (nothing is created).
+	Targets(ctx context.Context, project string, pick func([]map[string]any) []map[string]any, limit int) ([]map[string]any, error)
 }
 
 // Server is the controller's HTTP server component. Start listens and serves

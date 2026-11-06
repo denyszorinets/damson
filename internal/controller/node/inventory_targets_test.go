@@ -3,6 +3,7 @@ package node_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/denyszorinets/damson/internal/controller/node"
@@ -35,7 +36,7 @@ func TestInventoryTargets(t *testing.T) {
 	addTarget(t, st, "off", "linux", false)
 	addTarget(t, st, "win-01", "windows", true)
 
-	got, err := (&node.InventoryTargets{Store: st, Scope: inventory.AllNodes{}}).Targets(ctx, "default")
+	got, err := (&node.InventoryTargets{Store: st, Scope: inventory.AllNodes{}}).Targets(ctx, "default", nil, 1000)
 	if err != nil || len(got) != 3 {
 		t.Fatalf("Targets = %v, %v; want the three enabled nodes", got, err)
 	}
@@ -56,7 +57,7 @@ func TestInventoryTargets(t *testing.T) {
 	}
 
 	// The project's scope filters the list.
-	scoped, err := (&node.InventoryTargets{Store: st, Scope: onlyScope{"web-02": true}}).Targets(ctx, "default")
+	scoped, err := (&node.InventoryTargets{Store: st, Scope: onlyScope{"web-02": true}}).Targets(ctx, "default", nil, 1000)
 	if err != nil || len(scoped) != 1 || scoped[0]["name"] != "web-02" {
 		t.Fatalf("scoped = %v, %v", scoped, err)
 	}
@@ -65,7 +66,7 @@ func TestInventoryTargets(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (&node.InventoryTargets{Store: st, Scope: inventory.AllNodes{}}).Targets(ctx, "default"); err == nil {
+	if _, err := (&node.InventoryTargets{Store: st, Scope: inventory.AllNodes{}}).Targets(ctx, "default", nil, 1000); err == nil {
 		t.Fatal("a failing store returned no error")
 	}
 }
@@ -79,7 +80,41 @@ func (failingScope) Allows(context.Context, string, store.Node) (bool, error) {
 func TestInventoryTargetsScopeError(t *testing.T) {
 	st := newStore(t)
 	addTarget(t, st, "a", "linux", true)
-	if _, err := (&node.InventoryTargets{Store: st, Scope: failingScope{}}).Targets(context.Background(), "p"); err == nil {
+	if _, err := (&node.InventoryTargets{Store: st, Scope: failingScope{}}).Targets(context.Background(), "p", nil, 1000); err == nil {
 		t.Fatal("a failing scope returned no error")
+	}
+}
+
+// The selector sees the whole inventory, not its first 1000 names, and an
+// overflow is visible (limit+1 picks).
+func TestInventoryTargetsScansEverything(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+	for i := 0; i < 1100; i++ {
+		os := "linux"
+		if i >= 1050 {
+			os = "windows"
+		}
+		addTarget(t, st, fmt.Sprintf("n%04d", i), os, true)
+	}
+	src := &node.InventoryTargets{Store: st, Scope: inventory.AllNodes{}}
+	only := func(want string) func([]map[string]any) []map[string]any {
+		return func(page []map[string]any) []map[string]any {
+			var out []map[string]any
+			for _, n := range page {
+				if n["os"] == want {
+					out = append(out, n)
+				}
+			}
+			return out
+		}
+	}
+	got, err := src.Targets(ctx, "default", only("windows"), 1001)
+	if err != nil || len(got) != 50 || got[0]["name"] != "n1050" {
+		t.Fatalf("selector past the 1000th name: %d nodes, %v", len(got), err)
+	}
+	got, err = src.Targets(ctx, "default", only("linux"), 1001)
+	if err != nil || len(got) != 1001 {
+		t.Fatalf("1050 matches with limit 1001 returned %d, %v", len(got), err)
 	}
 }

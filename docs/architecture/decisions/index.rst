@@ -141,6 +141,9 @@ change nothing until accepted.
    * - 0044
      - :doc:`0044-dev-nodes-is-a-seeder`
      - Accepted
+   * - 0045
+     - :doc:`0045-frozen-run-targets`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -189,3 +192,4 @@ change nothing until accepted.
    0042-db-secret-backend-keyring
    0043-inventory-nodes
    0044-dev-nodes-is-a-seeder
+   0045-frozen-run-targets

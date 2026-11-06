@@ -11,12 +11,18 @@ import (
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 )
 
+// nodeAndTargets is the part of the store InventoryNodes reads.
+type nodeAndTargets interface {
+	store.NodeStore
+	store.RunTargetStore
+}
+
 // InventoryNodes serves the dispatcher from the inventory. It reads the node row
 // when a step is dispatched, so address, credential, host key and policy are
 // those of that moment; a node deleted since the run started fails the step
 // for good.
 type InventoryNodes struct {
-	Store   store.NodeStore
+	Store   nodeAndTargets
 	Scope   inventory.Scope
 	Project func(ctx context.Context, runID string) (string, error)
 }
@@ -24,7 +30,7 @@ type InventoryNodes struct {
 // Node implements dispatch.NodeSource. A missing node and a node outside the
 // project's scope both read as unknown, so a job cannot probe the inventory.
 func (s *InventoryNodes) Node(ctx context.Context, runID, name string) (pluginsdk.NodeInfo, error) {
-	n, err := s.Store.GetNode(ctx, name)
+	n, err := s.lookup(ctx, runID, name)
 	if errors.Is(err, store.ErrNotFound) {
 		return pluginsdk.NodeInfo{}, dispatch.ErrUnknownNode
 	}
@@ -52,7 +58,25 @@ func (s *InventoryNodes) Node(ctx context.Context, runID, name string) (pluginsd
 		return pluginsdk.NodeInfo{}, dispatch.ErrHostKeyPolicy
 	}
 	return pluginsdk.NodeInfo{
-		Name: n.Name, Address: n.Address, Port: n.Port, Transport: n.Transport, OS: n.OS, Attributes: n.Attributes,
+		Name: name, Address: n.Address, Port: n.Port, Transport: n.Transport, OS: n.OS, Attributes: n.Attributes,
 		Credential: n.Credential, HostKey: n.HostKey, HostKeyPolicy: n.HostKeyPolicy,
 	}, nil
+}
+
+// lookup finds the node a step names. A node frozen into the run's targets is
+// followed by id, so a rename after the run started still reaches it (and a
+// delete reads as unknown); a name outside the snapshot is looked up by name.
+func (s *InventoryNodes) lookup(ctx context.Context, runID, name string) (store.Node, error) {
+	id, err := s.Store.RunTargetNodeID(ctx, runID, name)
+	if errors.Is(err, store.ErrNotFound) {
+		return s.Store.GetNode(ctx, name)
+	}
+	if err != nil {
+		return store.Node{}, err
+	}
+	n, err := s.Store.GetNodeByID(ctx, id)
+	if err != nil {
+		return store.Node{}, err
+	}
+	return n, nil
 }
