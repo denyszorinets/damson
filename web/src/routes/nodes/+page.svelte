@@ -29,6 +29,8 @@
 	let busy = $state(false);
 	let source = $state('');
 	let enabled = $state('');
+	let selector = $state('');
+	let timer: ReturnType<typeof setTimeout> | undefined;
 	let creating = $state(false);
 	let form = $state<NodeForm>(emptyForm());
 
@@ -56,7 +58,12 @@
 			return;
 		}
 		try {
-			const page = await fetchNodes(token, { source, enabled, cursor: more ? next : undefined });
+			const page = await fetchNodes(token, {
+				source,
+				enabled,
+				selector,
+				cursor: more ? next : undefined
+			});
 			nodes = more ? [...nodes, ...page.items] : page.items;
 			next = page.next;
 			error = null;
@@ -65,6 +72,12 @@
 		} finally {
 			loaded = true;
 		}
+	}
+
+	/** Reloads shortly after the selector stops changing. */
+	function selectorChanged() {
+		clearTimeout(timer);
+		timer = setTimeout(() => void load(), 400);
 	}
 
 	function useToken(t: string) {
@@ -156,6 +169,14 @@
 				placeholder="enabled: true/false"
 				aria-label="Enabled"
 				bind:value={enabled}
+			/>
+			<Input
+				data-testid="filter-selector"
+				class="w-72"
+				aria-label="Selector"
+				placeholder="selector, e.g. node.os == 'linux'"
+				bind:value={selector}
+				oninput={selectorChanged}
 			/>
 			<Button type="submit" variant="outline">Filter</Button>
 		</form>

@@ -30,6 +30,7 @@ type RunEnqueuer interface {
 type DataStore interface {
 	store.TxRunner
 	store.NodeStore
+	store.RunTargetStore
 
 	ListAgents(ctx context.Context, cursor string, limit int) (store.AgentPage, error)
 	GetAgent(ctx context.Context, id string) (store.Agent, error)
@@ -133,6 +134,7 @@ func newHuma(mux *http.ServeMux, d deps) huma.API {
 	registerPlugins(api, d.plugins)
 	registerJobs(api, d)
 	registerRuns(api, d)
+	registerRunTargets(api, d)
 	registerExecutions(api, d)
 	registerSecrets(api, d)
 	registerNodes(api, d)

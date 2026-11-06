@@ -81,7 +81,7 @@ export interface NodePage {
 
 export async function fetchNodes(
 	token: string,
-	query: { source?: string; enabled?: string; cursor?: string },
+	query: { source?: string; enabled?: string; selector?: string; cursor?: string },
 	signal?: AbortSignal
 ): Promise<NodePage> {
 	const res = await api.GET('/nodes', {
@@ -90,6 +90,7 @@ export async function fetchNodes(
 				limit: 50,
 				source: query.source || undefined,
 				enabled: (query.enabled || undefined) as 'true' | 'false' | undefined,
+				selector: query.selector || undefined,
 				cursor: query.cursor || undefined
 			}
 		},
@@ -177,4 +178,21 @@ export async function deleteNode(
 		headers: headers(token)
 	});
 	check(res);
+}
+
+export type RunTarget = components['schemas']['RunTarget'];
+
+export async function fetchRunTargets(
+	token: string,
+	runId: string,
+	cursor?: string,
+	signal?: AbortSignal
+): Promise<{ items: RunTarget[]; next?: string }> {
+	const res = await api.GET('/runs/{id}/targets', {
+		params: { path: { id: runId }, query: { limit: 50, cursor: cursor || undefined } },
+		headers: headers(token),
+		signal
+	});
+	check(res);
+	return { items: res.data?.items ?? [], next: res.data?.next_cursor || undefined };
 }

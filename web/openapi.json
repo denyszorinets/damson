@@ -1350,6 +1350,75 @@
         ],
         "type": "object"
       },
+      "RunTarget": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "attributes": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "os": {
+            "type": "string"
+          },
+          "pool": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "transport": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "node_id",
+          "pool",
+          "os",
+          "transport",
+          "address",
+          "tags",
+          "attributes"
+        ],
+        "type": "object"
+      },
+      "RunTargetsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RunTarget"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "next_cursor": {
+            "description": "Empty on the last page.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
       "SecretMeta": {
         "additionalProperties": false,
         "properties": {
@@ -3038,6 +3107,17 @@
             }
           },
           {
+            "description": "A CEL selector as in spec.targets.selector; empty for no filter.",
+            "explode": false,
+            "in": "query",
+            "name": "selector",
+            "schema": {
+              "description": "A CEL selector as in spec.targets.selector; empty for no filter.",
+              "maxLength": 4096,
+              "type": "string"
+            }
+          },
+          {
             "description": "Opaque cursor from a previous page's next_cursor.",
             "explode": false,
             "in": "query",
@@ -4041,6 +4121,127 @@
           }
         },
         "summary": "Get the graph of a run with the state of its steps",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/runs/{id}/targets": {
+      "get": {
+        "operationId": "list-run-targets",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque cursor from a previous page's next_cursor.",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Opaque cursor from a previous page's next_cursor.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size.",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Page size.",
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunTargetsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List the nodes a run froze as its targets",
         "tags": [
           "runs"
         ]

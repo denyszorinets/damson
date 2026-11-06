@@ -60,17 +60,4 @@ func (t *InventoryTargets) Targets(ctx context.Context, project string, pick fun
 	return out, nil
 }
 
-func targetOf(n store.Node) map[string]any {
-	tags := make([]any, len(n.Tags))
-	for i, t := range n.Tags {
-		tags[i] = t
-	}
-	attrs := make(map[string]any, len(n.Attributes))
-	for k, v := range n.Attributes {
-		attrs[k] = v
-	}
-	return map[string]any{
-		"id": n.ID, "name": n.Name, "address": n.Address, "tags": tags, "attributes": attrs,
-		"pool": n.Pool, "os": n.OS, "transport": n.Transport,
-	}
-}
+func targetOf(n store.Node) map[string]any { return inventory.TargetMap(n) }
