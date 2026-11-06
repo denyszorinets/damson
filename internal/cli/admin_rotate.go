@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"os/user"
 	"time"
 
 	"github.com/denyszorinets/damson/internal/config"
@@ -17,7 +18,7 @@ import (
 // secrets.kek_file), reading old ones with the previous key
 // (DAMSON_KEK_PREVIOUS or secrets.kek_previous_file). It prints counts and
 // kek_ids only, never a key or value.
-func rotateKEK(ctx context.Context, st store.Store, c adminCmd, _ time.Time) error {
+func rotateKEK(ctx context.Context, st store.Store, c adminCmd, now time.Time) error {
 	if c.secrets.KEK == "" {
 		return fmt.Errorf("no key configured: set %s to the new key and %s to the old one", config.EnvKEK, config.EnvKEKPrevious)
 	}
@@ -26,6 +27,9 @@ func rotateKEK(ctx context.Context, st store.Store, c adminCmd, _ time.Time) err
 		return err
 	}
 	rep, err := secretsdb.RotateKEK(ctx, st, ring, rand.Reader, nil)
+	if aerr := auditRotation(ctx, st, ring.ActiveID(), rep, err, now); aerr != nil {
+		err = errors.Join(err, aerr)
+	}
 	out := map[string]any{
 		"active_kek_id": ring.ActiveID(), "rewrapped": rep.Rewrapped, "skipped": rep.Skipped,
 		"failed": rep.Failed(), "stragglers": rep.Stragglers, "canary_moved": rep.Canary,
@@ -50,6 +54,35 @@ func rotateKEK(ctx context.Context, st store.Store, c adminCmd, _ time.Time) err
 	}
 	if rep.Canary {
 		fmt.Fprintf(c.stderr, "Rotation finished. Remove %s from every controller's environment and restart them at your pace.\n", config.EnvKEKPrevious)
+	}
+	return nil
+}
+
+// cliActor labels audit events written by the command line. It is not
+// authenticated: whoever runs the CLI already has the database.
+func cliActor() string {
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		return "cli:" + u.Username
+	}
+	return "cli:unknown"
+}
+
+// auditRotation records one summary event for a rotate-kek run, also when it
+// failed. The error text names only kek_ids (ADR-0042).
+func auditRotation(ctx context.Context, st store.Store, active string, rep secretsdb.RotateReport, runErr error, now time.Time) error {
+	d := store.KEKRotateAuditDetails{
+		ActiveKEKID: active, Rewrapped: rep.Rewrapped, Skipped: rep.Skipped, Failed: rep.Failed(),
+		CanaryMoved: rep.Canary, Stragglers: rep.Stragglers,
+	}
+	if runErr != nil {
+		d.Error = runErr.Error()
+	}
+	ev, err := store.NewKEKRotateEvent(store.WithAudit(ctx, store.AuditMeta{Actor: cliActor()}), d, now)
+	if err != nil {
+		return err
+	}
+	if err := st.AppendAuditEvent(ctx, ev); err != nil {
+		return fmt.Errorf("recording the audit event: %w", err)
 	}
 	return nil
 }

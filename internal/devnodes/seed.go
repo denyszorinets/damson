@@ -15,6 +15,9 @@ import (
 	"github.com/denyszorinets/damson/internal/store"
 )
 
+// SeederActor is the audit actor of secrets the dev-nodes seeder writes.
+const SeederActor = "system:dev-nodes"
+
 // SecretWriter is what the seeder needs from the secret store.
 type SecretWriter interface {
 	Meta(ctx context.Context, scope, name string) (store.SecretMeta, error)
@@ -77,6 +80,7 @@ func describeConflicts(cs []inventory.Conflict) string {
 // seedSecret makes the stored secret equal to the file's. It returns whether it
 // wrote a version.
 func seedSecret(ctx context.Context, sec SecretWriter, def secretDef) (bool, error) {
+	ctx = store.WithAudit(ctx, store.AuditMeta{Actor: SeederActor})
 	fields, err := def.read()
 	if err != nil {
 		return false, err

@@ -153,7 +153,7 @@ func (b *Backend) Meta(ctx context.Context, scope, name string) (store.SecretMet
 
 // Delete removes a secret and all its versions.
 func (b *Backend) Delete(ctx context.Context, scope, name string) error {
-	err := b.st.DeleteSecret(ctx, scope, name)
+	err := b.st.DeleteSecret(ctx, scope, name, b.now())
 	if errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("secret %s/%s: %w", scope, name, secrets.ErrNotFound)
 	}

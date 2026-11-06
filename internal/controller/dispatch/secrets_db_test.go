@@ -34,7 +34,7 @@ func newSecretBackend(t *testing.T, st store.Store) *secretsdb.Backend {
 
 func putSecret(t *testing.T, b *secretsdb.Backend, name string, fields map[string]string) {
 	t.Helper()
-	if _, _, err := b.Put(context.Background(), "dev", name, "generic", fields, nil); err != nil {
+	if _, _, err := b.Put(store.WithAudit(context.Background(), store.AuditMeta{Actor: "test"}), "dev", name, "generic", fields, nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -70,7 +70,7 @@ func TestDBSecretDeliveredAndMasked(t *testing.T) {
 func TestDBSecretMissingOrUnreadableFails(t *testing.T) {
 	forEachBackend(t, func(t *testing.T, st store.Store) {
 		other := newSecretBackend(t, st) // another KEK: its rows cannot be read by the dispatcher's
-		if _, _, err := other.Put(context.Background(), "dev", "token", "generic", map[string]string{"value": secretMarker}, nil); err != nil {
+		if _, _, err := other.Put(store.WithAudit(context.Background(), store.AuditMeta{Actor: "test"}), "dev", "token", "generic", map[string]string{"value": secretMarker}, nil); err != nil {
 			t.Fatal(err)
 		}
 		logs := &lockedBuf{}
@@ -95,7 +95,7 @@ func TestDBSecretMissingOrUnreadableFails(t *testing.T) {
 
 func putIn(t *testing.T, b *secretsdb.Backend, scope, name string, fields map[string]string) {
 	t.Helper()
-	if _, _, err := b.Put(context.Background(), scope, name, "generic", fields, nil); err != nil {
+	if _, _, err := b.Put(store.WithAudit(context.Background(), store.AuditMeta{Actor: "test"}), scope, name, "generic", fields, nil); err != nil {
 		t.Fatal(err)
 	}
 }

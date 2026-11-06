@@ -57,7 +57,10 @@ type SecretStore interface {
 	// already rotated, or the secret was deleted).
 	RewrapSecretVersion(ctx context.Context, secretID string, version int64, oldKEKID, newKEKID string, wrappedDEK []byte) (bool, error)
 	// DeleteSecret removes the secret and all its versions, or returns ErrNotFound.
-	DeleteSecret(ctx context.Context, scope, name string) error
+	// CreateSecret, AddSecretVersion and DeleteSecret write an audit event in
+	// the same transaction for the actor in ctx (WithAudit) and fail with
+	// ErrInvalid without one.
+	DeleteSecret(ctx context.Context, scope, name string, now time.Time) error
 }
 
 // EncodeFieldNames renders field names as the JSON array stored with a version.

@@ -1020,7 +1020,7 @@ Both sync routes need the admin token, accept at most 16 MiB and 5000 nodes, and
   - a **service account token**: random, hashed, scoped by project subtree and role, with optional expiry
   - an **OIDC JWT access token** from the configured issuer (optional; for machine-to-machine)
 - **Bootstrap admin:** a config CEL rule over claims, for example `'damson-admins' in claims.groups`, plus a one-time local recovery token printed at first start.
-- **Interim admin token (until OIDC, M8):** the secrets API and the nodes API (§14) are guarded by an **admin bootstrap token** (`dma_` plus base64url of 32 random bytes), created with `damson admin admin-token create` and printed once. Only its SHA-256 hash is stored, in `instance_settings` key `auth.admin_token_hash`; creating a new one replaces it (the old one stops working at once) and `admin-token revoke` clears it. The API reads the hash on every request. Pool tokens are never accepted here and the admin token is not accepted on `/agent/v1/connect`. M8 keeps it as the local recovery token. Until M8 it is one shared token for all admins.
+- **Interim admin token (until OIDC, M8):** the secrets API and the nodes API (§14) are guarded by an **admin bootstrap token** (`dma_` plus base64url of 32 random bytes), created with `damson admin admin-token create` and printed once. Only its SHA-256 hash is stored, in `instance_settings` key `auth.admin_token_hash`; creating a new one replaces it (the old one stops working at once) and `admin-token revoke` clears it. The API reads the hash on every request. Pool tokens are never accepted here and the admin token is not accepted on `/agent/v1/connect`. M8 keeps it as the local recovery token. Until M8 it is one shared token for all admins; its audit actor label is `admin-token:` plus the first 12 hex characters of the stored hash.
 
 ### 12.3 Triggers
 
@@ -1053,7 +1053,7 @@ Both sync routes need the admin token, accept at most 16 MiB and 5000 nodes, and
 - They attach to **projects** (inherited by descendants) and optionally to **jobs** (additive for that job only).
 - **Effective role** = the maximum role granted by any matching rule on the job, the project, or any ancestor.
 - Rules are compiled once per change, and evaluation is cached per session for 60s.
-- Every mutation and trigger writes an **audit event**: actor, action, target, details JSON, request id.
+- Every mutation and trigger writes an **audit event**: actor, action, target, project path, details JSON, request id. `project_path` is the project scope of the target (empty when none) and is kept for per-subtree visibility in M8. The event is written in the **same transaction** as the change, and an audited write without an actor fails (`ErrInvalid`). Until M8 the actors are `admin-token:<12 hex of the token hash>`, `system:dev-nodes` and `cli:<os user>`; M8 adds `user:<sub>`, `sa:<id>` and `system:<duty>`. Today secret writes and `rotate-kek` are audited (ADR-0053).
 
 ---
 
@@ -1099,7 +1099,7 @@ All routes are under `/api/v1`, with the OpenAPI document at `/api/v1/openapi.js
 - `secrets` — metadata list (`GET /secrets`), create or add a version (`PUT /secrets/{scope}/{name}`, write-only values, optional `if_version`), delete; `scope` is one percent-encoded path segment. `GET /secret-types` is public. All other secrets routes need the admin token (§12.2) and answer 503 when no KEK is configured.
 - `plugins` — manifests with input and output schemas (drives the UI forms)
 - `service-accounts`, `tokens`
-- `audit`
+- `audit` — `GET /audit`, admin token (§12.2), cursor-paged (`cursor`, `limit`), filters `target_type` and `target`, newest first
 - `apply`
 
 **Errors** use RFC 9457 problem+json. **Pagination** is cursor-based.
@@ -1217,7 +1217,7 @@ An activity-diagram view (UML-like) of a job's structure. It appears in three pl
 - All tokens (pool, service account, webhook, session) are random and stored hashed. For the interim admin token (§12.2) only the hash is stored, never the token.
 - CEL evaluation has cost limits, and no I/O functions are exposed.
 - Plugin inputs are validated against their schemas on the controller before dispatch.
-- The audit log covers all mutations, triggers, and secret reads (metadata only).
+- The audit log covers all mutations, triggers, and secret writes (ids, versions and field names only; secret reads at dispatch are audited from M8).
 
 ---
 

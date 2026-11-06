@@ -38,6 +38,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List audit events
+         * @description Secret writes today (ADR-0053). Metadata only, newest first.
+         */
+        get: operations["list-audit-events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/executions/{id}": {
         parameters: {
             query?: never;
@@ -543,6 +563,23 @@ export interface components {
             telemetry?: components["schemas"]["Telemetry"];
             version: string;
         };
+        AuditEvent: {
+            /** @description secret.create, secret.update, secret.delete or secret.kek_rotate. */
+            action: string;
+            /** @description admin-token:<hash prefix>, cli:<user> or system:<duty> until accounts arrive (ADR-0053). */
+            actor: string;
+            /** Format: date-time */
+            at: string;
+            /** @description A JSON object; never a secret value. */
+            details: unknown;
+            id: string;
+            project_path?: string;
+            request_id?: string;
+            /** @description <scope>/<name> for a secret. */
+            target: string;
+            /** @description secret or instance. */
+            target_type: string;
+        };
         BatchInputBody: {
             /** @description Nodes of this source to delete; one that is not there is ignored. */
             deletes?: components["schemas"]["DeleteNodeRef"][];
@@ -718,6 +755,12 @@ export interface components {
         };
         ListAgentsOutputBody: {
             items: components["schemas"]["Agent"][] | null;
+            /** @description Empty on the last page. */
+            next_cursor?: string;
+        };
+        ListAuditOutputBody: {
+            /** @description Newest first. */
+            items: components["schemas"]["AuditEvent"][] | null;
             /** @description Empty on the last page. */
             next_cursor?: string;
         };
@@ -1216,6 +1259,80 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "list-audit-events": {
+        parameters: {
+            query?: {
+                /** @description Only this target type. */
+                target_type?: string;
+                /** @description Only this target. */
+                target?: string;
+                /** @description Opaque cursor from a previous page's next_cursor. */
+                cursor?: string;
+                /** @description Page size. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListAuditOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

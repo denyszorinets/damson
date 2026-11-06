@@ -251,6 +251,7 @@ appear in errors or logs.
 References
 ----------
 
+- :doc:`0053-audit-events` (secret writes and ``rotate-kek`` write audit events)
 - :doc:`0015-secret-references-and-envelope-encryption`
 - :doc:`0034-dev-only-inline-nodes-and-secrets`
 - :doc:`/architecture/security`

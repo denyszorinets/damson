@@ -86,6 +86,8 @@ func (t *fakeTx) ApplyAdvance(_ context.Context, _ string, v int64, a store.Adva
 	return store.Run{ID: "r1", Version: v + 1}, nil
 }
 
+func (t *fakeTx) AppendAuditEvent(context.Context, store.AuditEvent) error { return nil }
+
 func (t *fakeTx) CreateRun(context.Context, store.NewRun, time.Time) (store.RunTree, error) {
 	return store.RunTree{}, errors.New("unused")
 }

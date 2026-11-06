@@ -55,6 +55,7 @@ type Store interface {
 	LogStore
 	StampStore
 	SecretStore
+	AuditStore
 	NodeStore
 	TxRunner
 

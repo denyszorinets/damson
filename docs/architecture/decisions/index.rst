@@ -165,6 +165,9 @@ change nothing until accepted.
    * - 0052
      - :doc:`0052-route-steps-by-node-pool-at-dispatch`
      - Accepted
+   * - 0053
+     - :doc:`0053-audit-events`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -221,3 +224,4 @@ change nothing until accepted.
    0050-custom-binaries-with-damson-build
    0051-non-secret-s3-connection-fields
    0052-route-steps-by-node-pool-at-dispatch
+   0053-audit-events
