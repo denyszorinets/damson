@@ -46,7 +46,7 @@ Built-in plugins (v1):
      - Run a command or PowerShell on Windows (HTTPS, Basic or NTLM).
    * - ``transfer``
      - Copy or move one file between nodes, streamed through agent memory
-       with in-stream SHA-256. SFTP and SCP are implemented; FTP, FTPS and S3 are
+       with in-stream SHA-256. SFTP, SCP, FTP and FTPS are implemented; S3 is
        planned (:doc:`/reference/plugin-transfer`).
    * - ``ansible``
      - Run a playbook from Git with an inventory generated from the run's

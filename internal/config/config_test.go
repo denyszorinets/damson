@@ -94,10 +94,10 @@ func TestLoad(t *testing.T) {
 		},
 		{
 			name: "agent spool and host key settings", role: RoleAgent,
-			env: append([]string{"DAMSON_AGENT__SPOOL_DIR=/var/spool/damson", "DAMSON_AGENT__SPOOL_MAX_BYTES=1048576", "DAMSON_AGENT__ALLOW_INSECURE_HOST_KEYS=true"}, agentEnv...),
+			env: append([]string{"DAMSON_AGENT__SPOOL_DIR=/var/spool/damson", "DAMSON_AGENT__SPOOL_MAX_BYTES=1048576", "DAMSON_AGENT__ALLOW_INSECURE_HOST_KEYS=true", "DAMSON_AGENT__FTPS_CA_FILE=/etc/damson/ca.pem"}, agentEnv...),
 			check: func(t *testing.T, c Config) {
 				a := c.Agent
-				if a.SpoolDir != "/var/spool/damson" || a.SpoolMaxBytes != 1<<20 || !a.AllowInsecureHostKeys {
+				if a.SpoolDir != "/var/spool/damson" || a.SpoolMaxBytes != 1<<20 || !a.AllowInsecureHostKeys || a.FTPSCAFile != "/etc/damson/ca.pem" {
 					t.Fatalf("unexpected agent config: %+v", a)
 				}
 			},
@@ -105,7 +105,7 @@ func TestLoad(t *testing.T) {
 		{
 			name: "agent spool settings default to safe values", role: RoleAgent, env: agentEnv,
 			check: func(t *testing.T, c Config) {
-				if a := c.Agent; a.SpoolDir != "" || a.SpoolMaxBytes != 0 || a.AllowInsecureHostKeys {
+				if a := c.Agent; a.SpoolDir != "" || a.SpoolMaxBytes != 0 || a.AllowInsecureHostKeys || a.FTPSCAFile != "" {
 					t.Fatalf("unexpected defaults: %+v", a)
 				}
 			},

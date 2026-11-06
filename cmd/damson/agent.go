@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"time"
 
 	"github.com/denyszorinets/damson/internal/agent"
@@ -30,6 +32,10 @@ func newAgent(cfg config.Agent, controllerURL, token string, log *slog.Logger) (
 	if err != nil {
 		return nil, err
 	}
+	pluginCfg, err := pluginConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 	return agent.New(agent.Config{
 		ControllerURL: controllerURL,
 		Token:         token,
@@ -42,21 +48,37 @@ func newAgent(cfg config.Agent, controllerURL, token string, log *slog.Logger) (
 		ExecConfig: agent.ExecConfig{
 			SpoolDir:     cfg.SpoolDir,
 			SpoolBytes:   cfg.SpoolMaxBytes,
-			PluginConfig: pluginConfig(cfg),
+			PluginConfig: pluginCfg,
 		},
 	})
 }
 
 // pluginConfig turns the operator's agent settings into per-plugin
-// pluginsdk.ExecRequest.Config maps.
-func pluginConfig(cfg config.Agent) map[string]map[string]string {
-	if !cfg.AllowInsecureHostKeys {
-		return nil
+// pluginsdk.ExecRequest.Config maps. It reads agent.ftps_ca_file, so a bad
+// path fails the agent at start rather than the first ftps transfer.
+func pluginConfig(cfg config.Agent) (map[string]map[string]string, error) {
+	out := map[string]map[string]string{}
+	if cfg.AllowInsecureHostKeys {
+		out["ssh"] = map[string]string{ssh.ConfigAllowInsecureHostKeys: "true"}
+		out["transfer"] = map[string]string{transfer.ConfigAllowInsecureHostKeys: "true"}
 	}
-	return map[string]map[string]string{
-		"ssh":      {ssh.ConfigAllowInsecureHostKeys: "true"},
-		"transfer": {transfer.ConfigAllowInsecureHostKeys: "true"},
+	if cfg.FTPSCAFile != "" {
+		pem, err := os.ReadFile(cfg.FTPSCAFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading agent.ftps_ca_file: %w", err)
+		}
+		if !x509.NewCertPool().AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("agent.ftps_ca_file %s holds no PEM certificate", cfg.FTPSCAFile)
+		}
+		if out["transfer"] == nil {
+			out["transfer"] = map[string]string{}
+		}
+		out["transfer"][transfer.ConfigFTPSCAPEM] = string(pem)
 	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
 }
 
 // runAgent connects to the controller and blocks until ctx is cancelled or

@@ -63,6 +63,8 @@ is masked before it leaves (plain, base64 and URL-encoded forms).
   ``agent.hello`` so the controller can decide.
 * ``agent.allow_insecure_host_keys`` lets the ``ssh`` and ``transfer`` plugins connect to nodes
   whose host key policy is ``insecure``. Off by default.
+* ``agent.ftps_ca_file`` is a PEM file of extra CA certificates for ``ftps``
+  transfers (:doc:`/reference/plugin-transfer`). A bad file fails agent start. The file is read when the agent starts, so a change needs a restart.
 
 Internals are described in :doc:`/development/agent`.
 

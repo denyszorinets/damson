@@ -5,11 +5,13 @@ go 1.27.3
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/danielgtaylor/huma/v2 v2.40.0
+	github.com/fclairamb/ftpserverlib v0.33.0
 	github.com/go-viper/mapstructure/v2 v2.4.0
 	github.com/google/cel-go v0.26.1
 	github.com/google/uuid v1.6.0
 	github.com/invopop/jsonschema v0.14.0
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/jlaffaye/ftp v0.2.4
 	github.com/knadh/koanf/parsers/toml/v2 v2.2.2
 	github.com/knadh/koanf/providers/confmap v1.0.1
 	github.com/knadh/koanf/providers/env/v2 v2.0.2
@@ -22,6 +24,7 @@ require (
 	github.com/riverqueue/river/riverdriver/riversqlite v0.50.0
 	github.com/riverqueue/river/rivertype v0.50.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+	github.com/spf13/afero v1.15.0
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
