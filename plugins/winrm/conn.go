@@ -3,6 +3,8 @@ package winrm
 import (
 	"fmt"
 	"net"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -32,7 +34,7 @@ const (
 	// context between polls; see cancel in run.go.
 	receiveTimeout = "PT5S"
 	// httpTimeout bounds one HTTP exchange and must exceed receiveTimeout.
-	httpTimeout = 30 * time.Second
+	httpTimeout = 90 * time.Second
 )
 
 // checkSecurity applies the operator gate to what the step asked for.
@@ -130,5 +132,28 @@ func classify(err error, host string) error {
 	case strings.Contains(s, "certificate"), strings.Contains(s, "x509"):
 		return pluginsdk.NewError(pluginsdk.KindConnection, "the certificate of "+host+" could not be verified: "+s, err)
 	}
-	return pluginsdk.NewError(pluginsdk.KindConnection, "winrm request to "+host+" failed: "+s, err)
+	return pluginsdk.NewError(pluginsdk.KindConnection, "winrm request to "+host+" failed: "+faultSummary(s), err)
+}
+
+var faultTextRe = regexp.MustCompile(`(?s)<(?:\w+:)?(?:Text|Message)(?:\s[^>]*)?>(.*?)</(?:\w+:)?(?:Text|Message)>`)
+
+// faultSummary reduces a SOAP fault in an error text to its reason and message
+// elements; other text is returned as it is, bounded.
+func faultSummary(s string) string {
+	const limit = 4000
+	if strings.Contains(s, "Envelope") {
+		var parts []string
+		for _, m := range faultTextRe.FindAllStringSubmatch(s, -1) {
+			if t := strings.TrimSpace(m[1]); t != "" && !slices.Contains(parts, t) {
+				parts = append(parts, t)
+			}
+		}
+		if len(parts) > 0 {
+			s = "soap fault: " + strings.Join(parts, "; ")
+		}
+	}
+	if len(s) > limit {
+		s = s[:limit] + "..."
+	}
+	return s
 }

@@ -7,13 +7,31 @@ against the public plugin SDK only (:doc:`/development/plugin-sdk`). Design:
 ARCHITECTURE section 6.2 and
 :doc:`/architecture/decisions/0049-winrm-transport-security-and-remote-execution`.
 
-.. warning::
+.. note::
 
-   The bootstrap and its behavior (stdin delivery to ``powershell.exe``, exit
-   codes, no CLIXML on stderr, UTF-8 output) are covered by tests only against
-   a fake WinRM server that interprets the payload as a mini script. They must
-   be proven on a Windows host (a manual or nightly VM job, ARCHITECTURE
-   section 19) before you rely on them.
+   Verification status. The workflow ``WinRM on Windows``
+   (:repo:`.github/workflows/winrm-windows.yml`, see :doc:`/development/ci`)
+   runs ``plugins/winrm/windows_test.go`` against a real WinRM service on a
+   Windows runner (local user, self-signed https listener on 5986, NTLM).
+   Verified there:
+
+   - the fixed ``-EncodedCommand`` bootstrap with the payload on stdin on real
+     ``powershell.exe``;
+   - UTF-8 PowerShell output (non-ASCII) round trips and stderr has no CLIXML;
+   - an explicit ``exit N`` gives ``N`` (``success_exit_codes`` honored, else an
+     ``exit_code`` error) and ``throw`` gives ``1``;
+   - ``command`` mode through ``cmd.exe`` returns its exit code and output;
+   - a ``secret://`` ``env`` value reaches the script, while the process command
+     line contains only the ``-EncodedCommand`` bootstrap (checked with
+     ``Get-CimInstance Win32_Process``);
+   - NTLM over https with a self-signed CA through ``agent.tls_ca_file``;
+   - a wrong password is an ``auth`` error.
+
+   Not verified on Windows: ``transport: http`` (NTLM sealing), ``basic``
+   auth, cancel and terminate of a running command, domain accounts (the runner
+   uses a local administrator; remote logons of a local administrator need
+   ``LocalAccountTokenFilterPolicy=1``) and nodes behind a proxy. Kerberos and
+   CredSSP are not supported.
 
 .. list-table::
    :widths: 25 75
@@ -166,6 +184,16 @@ cannot turn off, and the sealed payload requires a 128-bit NTLM key. The
 A cancelled step stops collecting output at once; lines that still arrive from
 the node are dropped.
 
+Timeouts
+--------
+
+The long poll for output (``Receive``) uses a WinRM ``OperationTimeout`` of
+5 seconds. Over https every other request (create shell, start command, signal,
+delete) sends ``PT80S``, because a cold Windows host can need 20 seconds or more
+to create its first shell; the HTTP exchange is bounded at 90 seconds. Over
+``http`` the library seals NTLM itself and sends ``PT5S`` for every request, a
+known limit: creating a shell on a slow host can fail there.
+
 Errors
 ------
 
@@ -186,9 +214,15 @@ Errors
    * - ``exit_code``
      - Exit code outside ``success_exit_codes``.
 
+A WinRM SOAP fault is reported as its reason text, for example
+``soap fault: <reason>``, not as the raw envelope.
+
 Testing
 -------
 
 ``plugins/winrm`` is tested against ``plugins/internal/winrmtest``, an
-in-process fake WinRM server. See the warning at the top: this does not replace
-a run against a real Windows host.
+in-process fake WinRM server, and, with build tag ``winrmwindows``, against a
+real Windows host through ``plugins/winrm/windows_test.go``. The Windows test
+reads ``DAMSON_WINRM_HOST``, ``DAMSON_WINRM_PORT``, ``DAMSON_WINRM_USER``,
+``DAMSON_WINRM_PASSWORD`` and ``DAMSON_WINRM_CA_FILE``. It runs nightly in the
+``WinRM on Windows`` workflow.

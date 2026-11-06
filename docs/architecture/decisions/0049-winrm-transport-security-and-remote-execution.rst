@@ -82,4 +82,22 @@ Consequences
 
 - Secure by default; weakening needs an operator setting per agent.
 - No certificate pinning; the trust anchor is the CA set.
-- The WinRM behavior is unproven on Windows until a VM job exists.
+- The WinRM behavior was unproven on Windows until the VM job existed (see
+  Verification).
+
+Verification
+------------
+
+2026-11-06: the workflow ``WinRM on Windows`` ran ``plugins/winrm`` against a
+real WinRM service on a Windows runner (https, NTLM, self-signed CA). The
+bootstrap with stdin payload, UTF-8 output, exit codes, ``cmd.exe`` mode, the
+absence of secrets from the process command line and the wrong-password auth
+error were confirmed. Not covered: ``http`` transport, Basic, cancel of a running
+command, domain accounts, proxies.
+
+Timeout decision: one ``OperationTimeout`` (``PT5S``, meant for the ``Receive``
+long poll) for every request made shell creation on a cold host fail. The https
+transport now sends ``PT80S`` for every request except ``Receive`` and bounds
+an HTTP exchange at 90 seconds. The ``http`` transport, whose NTLM sealing is in
+the library, still sends ``PT5S`` for all requests; that is accepted as a known
+limit. A SOAP fault is reported as its reason text.

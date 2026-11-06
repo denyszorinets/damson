@@ -88,3 +88,25 @@ func TestClassify(t *testing.T) {
 		}
 	}
 }
+
+func TestFaultSummaryReducesASoapFault(t *testing.T) {
+	in := `http error 500: <s:Envelope><s:Body><s:Fault><s:Reason><s:Text xml:lang="en-US">The WS-Management service cannot process the request.</s:Text></s:Reason><s:Detail><f:WSManFault><f:Message>The shell is gone</f:Message></f:WSManFault></s:Detail></s:Fault></s:Body></s:Envelope>`
+	got := faultSummary(in)
+	if !strings.Contains(got, "cannot process the request") || !strings.Contains(got, "The shell is gone") || strings.Contains(got, "<s:") {
+		t.Fatalf("summary = %q", got)
+	}
+	if long := faultSummary(strings.Repeat("x", 5000)); len(long) > 4100 {
+		t.Fatalf("not bounded: %d", len(long))
+	}
+}
+
+func TestOnlyReceiveKeepsTheShortOperationTimeout(t *testing.T) {
+	recv := `<a:Action>http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Receive</a:Action><w:OperationTimeout>PT5S</w:OperationTimeout>`
+	if got := withControlTimeout(recv); got != recv {
+		t.Errorf("Receive changed: %s", got)
+	}
+	create := `<a:Action>http://schemas.xmlsoap.org/ws/2004/09/transfer/Create</a:Action><w:OperationTimeout>PT5S</w:OperationTimeout>`
+	if got := withControlTimeout(create); !strings.Contains(got, "PT80S") || strings.Contains(got, "PT5S") {
+		t.Errorf("Create = %s", got)
+	}
+}

@@ -1,0 +1,61 @@
+name: WinRM on Windows
+
+# Runs the winrm plugin against a real WinRM service on a Windows runner
+# (ARCHITECTURE section 19, issue #163): stdin delivery to powershell.exe, exit
+# codes, UTF-8 output, no CLIXML on stderr, NTLM over https. Nightly, on demand,
+# and on changes to the plugin or this workflow.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+  pull_request:
+    paths:
+      - "plugins/winrm/**"
+      - "plugins/internal/tlsroots/**"
+      - ".github/workflows/winrm-windows.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  winrm:
+    name: WinRM plugin against Windows
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Enable WinRM over https with a self-signed certificate
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $plain = 'Damson-' + [guid]::NewGuid().ToString('N') + '-Aa1!'
+          Write-Host "::add-mask::$plain"
+          $pw = ConvertTo-SecureString $plain -AsPlainText -Force
+          New-LocalUser -Name damsontest -Password $pw -AccountNeverExpires | Out-Null
+          Add-LocalGroupMember -Group Administrators -Member damsontest
+          # A local administrator gets a full token over the network only with this.
+          reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System /v LocalAccountTokenFilterPolicy /t REG_DWORD /d 1 /f | Out-Null
+          $cert = New-SelfSignedCertificate -DnsName localhost -CertStoreLocation Cert:\LocalMachine\My -NotAfter (Get-Date).AddDays(2)
+          $cer = Join-Path $env:RUNNER_TEMP 'winrm.cer'
+          Export-Certificate -Cert $cert -FilePath $cer | Out-Null
+          $pem = Join-Path $env:RUNNER_TEMP 'winrm.pem'
+          $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($cer), 'InsertLineBreaks')
+          Set-Content -Path $pem -Value "-----BEGIN CERTIFICATE-----`n$b64`n-----END CERTIFICATE-----" -Encoding ascii
+          Enable-PSRemoting -Force -SkipNetworkProfileCheck | Out-Null
+          Get-ChildItem WSMan:\localhost\Listener | Where-Object { $_.Keys -contains 'Transport=HTTPS' } | Remove-Item -Recurse -Force
+          New-Item -Path WSMan:\localhost\Listener -Transport HTTPS -Address * -CertificateThumbPrint $cert.Thumbprint -Force | Out-Null
+          Set-Item WSMan:\localhost\Service\Auth\Basic $false
+          Set-Item WSMan:\localhost\Service\AllowUnencrypted $false
+          New-NetFirewallRule -DisplayName 'WinRM HTTPS' -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow | Out-Null
+          Restart-Service WinRM
+          "DAMSON_WINRM_HOST=localhost" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "DAMSON_WINRM_PORT=5986" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "DAMSON_WINRM_USER=damsontest" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "DAMSON_WINRM_PASSWORD=$plain" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "DAMSON_WINRM_CA_FILE=$pem" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Run the plugin against the real service
+        shell: bash
+        run: go test -tags winrmwindows -count=1 -v -run 'TestReal' ./plugins/winrm/
