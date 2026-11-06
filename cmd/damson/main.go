@@ -8,6 +8,9 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/denyszorinets/damson/internal/plugincli"
+	"github.com/denyszorinets/damson/plugins/all"
 )
 
 func main() {
@@ -30,6 +33,7 @@ Commands:
   agent        run the agent role
   dev          run controller and agent in one process (SQLite)
   admin        manage agent pools and pool tokens
+  plugin       scaffold, check and run plugins (new, validate, run)
   version      print the version
 
 Run "damson <command> -h" for command flags.
@@ -45,6 +49,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, environ [
 		return runRole(ctx, args[0], args[1:], stderr, environ)
 	case "admin":
 		return runAdmin(ctx, args[1:], stdout, stderr, environ)
+	case "plugin":
+		return plugincli.Run(ctx, args[1:], plugincli.Env{Stdin: os.Stdin, Stdout: stdout, Stderr: stderr, Plugins: all.Plugins()})
 	case "version":
 		return runVersion(stdout)
 	case "-h", "--help", "help":

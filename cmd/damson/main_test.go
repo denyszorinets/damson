@@ -68,3 +68,19 @@ func waitLog(buf *syncBuf, substr string) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+func TestPluginCommand(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := run(context.Background(), []string{"plugin", "validate"}, &out, &errb, nil); code != exitOK || !strings.Contains(out.String(), "ok    ssh@") {
+		t.Fatalf("plugin validate = %d\n%s\n%s", code, out.String(), errb.String())
+	}
+	out.Reset()
+	errb.Reset()
+	if code := run(context.Background(), []string{"plugin"}, &out, &errb, nil); code != exitUsage || !strings.Contains(errb.String(), "Usage: damson plugin") {
+		t.Fatalf("plugin (no args) = %d\n%s", code, errb.String())
+	}
+	out.Reset()
+	if code := run(context.Background(), []string{"help"}, &out, &errb, nil); code != exitOK || !strings.Contains(out.String(), "plugin") {
+		t.Fatalf("help does not list plugin: %s", out.String())
+	}
+}

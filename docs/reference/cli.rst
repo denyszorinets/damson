@@ -19,6 +19,8 @@ Damson ships as one binary, ``damson``. The role is chosen by subcommand
      - Run a controller and an agent in one process with SQLite.
    * - ``damson admin``
      - Manage agent pools, pool tokens, the admin token and the secret encryption key (see :ref:`cli-admin`).
+   * - ``damson plugin``
+     - Scaffold, validate and run plugins linked into the binary (see :ref:`cli-plugin`).
    * - ``damson version``
      - Print the version.
 
@@ -136,6 +138,71 @@ After the secret backend is ready, the file is seeded:
    Breaking change: files using ``secret://dev/...`` refs no longer work. The
    literal ref fails spec validation with ``422`` and dispatch fails with
    ``unknown secret``. Rename the refs as above.
+
+.. _cli-plugin:
+
+Plugin commands
+---------------
+
+``damson plugin`` works on the plugins linked into the running binary (v1
+plugins are compiled in). An out-of-tree plugin is linked in with
+``damson build --with <module>@<version>`` (planned, issue #150), and the
+resulting binary has these commands too. None of them talks to a controller or
+a database. Exit status: 0 success, 1 failure, 2 usage error.
+
+``new <name> [--dir d] [--module path]``
+   Scaffolds a Go module with ``go.mod`` (no Damson requirement), ``<pkg>.go``,
+   ``<pkg>_test.go`` and ``README.md``. The name must match
+   ``^[a-z][a-z0-9_-]{0,62}$``. The Go package is the name without ``-`` and
+   ``_`` (with a ``plugin`` suffix if that is a Go keyword or a reserved word
+   such as ``plugin`` or ``main``). The default directory is
+   ``./damson-plugin-<name>`` and the default module is
+   ``example.com/damson-plugin-<name>``. A non-empty target directory is
+   refused. The generated tests run ``plugintest.RunContract``,
+   ``plugintest.CheckSource`` and an ``Execute`` test, and pass unchanged.
+
+``validate [ref]``
+   Checks every linked plugin, or one given as ``name`` or ``name@major``:
+   manifest rules (name, semver, title, requirements, target mode, node
+   paths), checksum, that the input and output schemas describe an object, that
+   the input schema compiles within the registry's bounds, and duplicate
+   ``name@version``. It prints ``ok <id>`` or ``FAIL <id>: <problem>`` per
+   problem and exits 1 if any failed.
+
+``run <ref> [--input file|-] [--secrets file] [--nodes file] [--config k=v]... [--timeout d]``
+   Runs one plugin in a temporary work directory that is removed afterwards.
+   ``<ref>`` is ``name`` or ``name@major`` (the highest version when unpinned).
+
+   - Input defaults to ``{}`` and must be a JSON object. It is validated against
+     the manifest input schema and then the plugin's ``Validate``.
+   - ``--secrets`` is a JSON object of ``secret://`` refs (no ``#field``), each
+     a string (the ``value`` field) or an object of string fields. The file must
+     be a regular file with mode 0600 or stricter (checked on the open file) and
+     at most 1 MiB. Error messages name refs, never values.
+   - ``--nodes`` is a JSON object keyed by node name with the node fields
+     ``address``, ``port``, ``transport``, ``os``, ``attributes``,
+     ``credential``, ``host_key`` and ``host_key_policy``. A plugin that needs a
+     node (``ssh``, ``transfer``, ``winrm``) gets it from here and its
+     credential from ``--secrets``.
+   - ``--config k=v`` sets ``ExecRequest.Config`` keys such as
+     ``allow_insecure_host_keys``, ``tls_ca_pem`` and ``allow_insecure_winrm``.
+   - SIGINT and ``--timeout`` cancel the plugin; a timeout is error kind
+     ``timeout``.
+
+   Logs go to stderr as ``[stdout] line``, masked. Stdout gets a JSON result
+   ``{plugin, ok, outputs, redacted, error{kind,message,exit_code}}``. Masking
+   uses the agent's own masker and output sanitizer (same code as a real agent):
+   secret values and their base64 and URL forms are hidden, and an output
+   containing a secret is replaced by ``***`` with its JSON path listed in
+   ``redacted``. A secret shorter than 4 bytes is not masked and a warning is
+   printed. Host keys the plugin observes are printed. Exit 0 means ok, 1 the
+   step failed, 2 a usage error.
+
+.. code-block:: console
+
+   $ damson plugin new hello
+   $ damson plugin validate hello
+   $ echo '{"name": "world"}' | damson plugin run hello --input - --timeout 30s
 
 .. _cli-admin:
 
