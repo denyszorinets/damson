@@ -62,9 +62,9 @@ func ftpCase(name, in string, cfg map[string]string, nodes ...pluginsdk.NodeInfo
 
 func ftpServer(t *testing.T, mode ftptest.Mode) (*ftptest.Server, map[string]string, map[string]any) {
 	s := ftptest.Start(t, ftptest.Options{User: ftpUser, Password: ftpPass, Mode: mode})
-	var cfg map[string]string
+	cfg := map[string]string{transfer.ConfigAllowPlainFTP: "true"}
 	if s.CAPEM != "" {
-		cfg = map[string]string{transfer.ConfigTLSCAPEM: s.CAPEM}
+		cfg[transfer.ConfigTLSCAPEM] = s.CAPEM
 	}
 	attrs := map[string]any{}
 	if mode == ftptest.Implicit {
@@ -105,29 +105,29 @@ func TestFTPFamilyCopies(t *testing.T) {
 }
 
 func TestFTPEmptyFileAndMkdirsAndDirectoryDestination(t *testing.T) {
-	s, _, _ := ftpServer(t, ftptest.Plain)
+	s, cfg, _ := ftpServer(t, ftptest.Plain)
 	n := ftpNode("ftpnode", s, nil)
 	dir := t.TempDir()
 	empty := write(t, dir, "empty", "")
-	out := requireOK(t, exec_(t, ftpCase("e", twoSide("copy", side{"ftpnode", "ftp", empty}, side{"ftpnode", "ftp", dir + "/a/b/e"}, map[string]any{"mkdirs": true, "verify": "sha256"}), nil, n)))
+	out := requireOK(t, exec_(t, ftpCase("e", twoSide("copy", side{"ftpnode", "ftp", empty}, side{"ftpnode", "ftp", dir + "/a/b/e"}, map[string]any{"mkdirs": true, "verify": "sha256"}), cfg, n)))
 	if out.Bytes != 0 || out.SHA256 != sum("") {
 		t.Fatalf("output = %+v", out)
 	}
 	src := write(t, dir, "report.txt", "x")
-	out = requireOK(t, exec_(t, ftpCase("d", twoSide("copy", side{"ftpnode", "ftp", src}, side{"ftpnode", "ftp", dir + "/out/"}, map[string]any{"mkdirs": true}), nil, n)))
+	out = requireOK(t, exec_(t, ftpCase("d", twoSide("copy", side{"ftpnode", "ftp", src}, side{"ftpnode", "ftp", dir + "/out/"}, map[string]any{"mkdirs": true}), cfg, n)))
 	if out.DestinationPath != dir+"/out/report.txt" || read(t, out.DestinationPath) != "x" {
 		t.Fatalf("output = %+v", out)
 	}
 }
 
 func TestFTPOverwriteAndMove(t *testing.T) {
-	s, _, _ := ftpServer(t, ftptest.Plain)
+	s, cfg, _ := ftpServer(t, ftptest.Plain)
 	n := ftpNode("ftpnode", s, nil)
 	dir := t.TempDir()
 	src := write(t, dir, "src", "new")
 	dst := write(t, dir, "dst", "old")
 	tr := func(mode string, extra map[string]any) plugintest.Outcome {
-		return exec_(t, ftpCase("c", twoSide(mode, side{"ftpnode", "ftp", src}, side{"ftpnode", "ftp", dst}, extra), nil, n))
+		return exec_(t, ftpCase("c", twoSide(mode, side{"ftpnode", "ftp", src}, side{"ftpnode", "ftp", dst}, extra), cfg, n))
 	}
 	requireKind(t, tr("copy", nil), pluginsdk.KindValidation, "destination exists")
 	requireKind(t, tr("move", nil), pluginsdk.KindValidation, "destination exists")
@@ -144,11 +144,11 @@ func TestFTPOverwriteAndMove(t *testing.T) {
 }
 
 func TestFTPSourceProblems(t *testing.T) {
-	s, _, _ := ftpServer(t, ftptest.Plain)
+	s, cfg, _ := ftpServer(t, ftptest.Plain)
 	n := ftpNode("ftpnode", s, nil)
 	dir := t.TempDir()
 	run := func(srcPath string) plugintest.Outcome {
-		return exec_(t, ftpCase("c", twoSide("copy", side{"ftpnode", "ftp", srcPath}, side{"ftpnode", "ftp", filepath.Join(dir, "d")}, nil), nil, n))
+		return exec_(t, ftpCase("c", twoSide("copy", side{"ftpnode", "ftp", srcPath}, side{"ftpnode", "ftp", filepath.Join(dir, "d")}, nil), cfg, n))
 	}
 	requireKind(t, run(filepath.Join(dir, "missing")), pluginsdk.KindValidation, "source not found")
 	requireKind(t, run(dir), pluginsdk.KindValidation, "is a directory")
@@ -156,7 +156,7 @@ func TestFTPSourceProblems(t *testing.T) {
 
 // ftp and sftp interoperate across two different nodes.
 func TestFTPAndSFTPAcrossNodes(t *testing.T) {
-	s, _, _ := ftpServer(t, ftptest.Plain)
+	s, cfg, _ := ftpServer(t, ftptest.Plain)
 	f := sshtest.NewFixture(t, "")
 	ftpN := ftpNode("ftpnode", s, nil)
 	sshN := f.Node
@@ -165,7 +165,7 @@ func TestFTPAndSFTPAcrossNodes(t *testing.T) {
 	content := strings.Repeat("cross ", 5000)
 	src := write(t, dir, "src", content)
 	mk := func(name, in string) plugintest.Case {
-		c := ftpCase(name, in, nil, ftpN, sshN)
+		c := ftpCase(name, in, cfg, ftpN, sshN)
 		c.Bundle[sshtest.CredentialRef] = f.Bundle[sshtest.CredentialRef]
 		return c
 	}
@@ -178,11 +178,11 @@ func TestFTPAndSFTPAcrossNodes(t *testing.T) {
 }
 
 func TestFTPAuthFailureDoesNotLeak(t *testing.T) {
-	s, _, _ := ftpServer(t, ftptest.Plain)
+	s, cfg, _ := ftpServer(t, ftptest.Plain)
 	n := ftpNode("ftpnode", s, nil)
 	dir := t.TempDir()
 	src := write(t, dir, "src", "x")
-	c := ftpCase("c", twoSide("copy", side{"ftpnode", "ftp", src}, side{"ftpnode", "ftp", dir + "/d"}, nil), nil, n)
+	c := ftpCase("c", twoSide("copy", side{"ftpnode", "ftp", src}, side{"ftpnode", "ftp", dir + "/d"}, nil), cfg, n)
 	c.Bundle[ftpRef] = map[string]string{"username": ftpUser, "password": "wrong-PASSWORD-guess"}
 	o := exec_(t, c)
 	requireKind(t, o, pluginsdk.KindAuth, "logging in")
@@ -196,21 +196,21 @@ func TestFTPAuthFailureDoesNotLeak(t *testing.T) {
 }
 
 func TestFTPCredentialAndAttributeProblems(t *testing.T) {
-	s, _, _ := ftpServer(t, ftptest.Plain)
+	s, cfg, _ := ftpServer(t, ftptest.Plain)
 	dir := t.TempDir()
 	src := write(t, dir, "src", "x")
 	in := twoSide("copy", side{"ftpnode", "ftp", src}, side{"ftpnode", "ftp", dir + "/d"}, nil)
 
 	noCred := ftpNode("ftpnode", s, nil)
 	noCred.Credential = ""
-	requireKind(t, exec_(t, ftpCase("c", in, nil, noCred)), pluginsdk.KindAuth, "has no credential")
+	requireKind(t, exec_(t, ftpCase("c", in, cfg, noCred)), pluginsdk.KindAuth, "has no credential")
 
-	c := ftpCase("c", in, nil, ftpNode("ftpnode", s, nil))
+	c := ftpCase("c", in, cfg, ftpNode("ftpnode", s, nil))
 	c.Bundle[ftpRef] = map[string]string{"username": ftpUser}
 	requireKind(t, exec_(t, c), pluginsdk.KindAuth, "username and a password")
 
-	requireKind(t, exec_(t, ftpCase("c", in, nil, ftpNode("ftpnode", s, map[string]any{"ftp_port": "21"}))), pluginsdk.KindValidation, "ftp_port")
-	requireKind(t, exec_(t, ftpCase("c", in, nil, ftpNode("ftpnode", s, map[string]any{"ftp_port": float64(70000)}))), pluginsdk.KindValidation, "ftp_port")
+	requireKind(t, exec_(t, ftpCase("c", in, cfg, ftpNode("ftpnode", s, map[string]any{"ftp_port": "21"}))), pluginsdk.KindValidation, "ftp_port")
+	requireKind(t, exec_(t, ftpCase("c", in, cfg, ftpNode("ftpnode", s, map[string]any{"ftp_port": float64(70000)}))), pluginsdk.KindValidation, "ftp_port")
 
 	ftpsIn := strings.ReplaceAll(in, `"ftp"`, `"ftps"`)
 	requireKind(t, exec_(t, ftpCase("c", ftpsIn, nil, ftpNode("ftpnode", s, map[string]any{"ftps_mode": "bogus"}))), pluginsdk.KindValidation, "ftps_mode")
@@ -255,7 +255,7 @@ func TestFTPCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(400*time.Millisecond, cancel)
 	start := time.Now()
-	o := plugintest.Exec(ctx, t, plug(), ftpCase("c", twoSide("copy", side{"ftpnode", "ftp", src}, side{"ftpnode", "ftp", dir + "/dst"}, nil), nil, n))
+	o := plugintest.Exec(ctx, t, plug(), ftpCase("c", twoSide("copy", side{"ftpnode", "ftp", src}, side{"ftpnode", "ftp", dir + "/dst"}, nil), map[string]string{transfer.ConfigAllowPlainFTP: "true"}, n))
 	if time.Since(start) > 15*time.Second {
 		t.Fatal("cancellation was not honored")
 	}
@@ -331,4 +331,15 @@ func TestFTPOverwriteKeepsOldFileWhenRenameFails(t *testing.T) {
 	if read(t, dst) != "old" {
 		t.Fatal("the old destination was lost")
 	}
+}
+
+func TestPlainFTPNeedsTheAgentOptIn(t *testing.T) {
+	s, cfg, attrs := ftpServer(t, ftptest.Plain)
+	n := ftpNode("ftpnode", s, attrs)
+	dir := t.TempDir()
+	src := write(t, dir, "src", "data")
+	in := twoSide("copy", side{"ftpnode", "ftp", src}, side{"ftpnode", "ftp", filepath.Join(dir, "dst")}, nil)
+	requireKind(t, exec_(t, ftpCase("c", in, nil, n)), pluginsdk.KindValidation, "agent.allow_plain_ftp")
+	requireKind(t, exec_(t, ftpCase("c", in, map[string]string{transfer.ConfigAllowPlainFTP: "false"}, n)), pluginsdk.KindValidation, "agent.allow_plain_ftp")
+	requireOK(t, exec_(t, ftpCase("c", in, cfg, n)))
 }

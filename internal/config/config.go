@@ -114,6 +114,9 @@ type Agent struct {
 	// AllowInsecureWinRM lets the winrm plugin use transport "http" and
 	// insecure_skip_verify. Off by default; a private CA belongs in TLSCAFile.
 	AllowInsecureWinRM bool `koanf:"allow_insecure_winrm"`
+	// AllowPlainFTP lets the transfer plugin use protocol "ftp", which sends
+	// the password and the data in clear text. Off by default; use ftps.
+	AllowPlainFTP bool `koanf:"allow_plain_ftp"`
 }
 
 // SlogLevel returns the configured level. Validate guarantees it parses.
@@ -166,5 +169,6 @@ func defaults() map[string]any {
 		"agent.allow_insecure_host_keys":     false,
 		"agent.tls_ca_file":                  "",
 		"agent.allow_insecure_winrm":         false,
+		"agent.allow_plain_ftp":              false,
 	}
 }

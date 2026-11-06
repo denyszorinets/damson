@@ -43,6 +43,7 @@ func contractOptions(t *testing.T) map[string]plugintest.Options {
 			Attributes: map[string]any{"ftp_port": float64(ftpSrv.Port())},
 		}},
 		Bundle: map[string]map[string]string{"secret://ftp/cred": {"username": "ftpuser", "password": "contract-ftp-PASSWORD"}},
+		Config: map[string]string{"allow_plain_ftp": "true"},
 	}
 	// s3: the access and secret keys are bundle values, so the suite checks they never leak.
 	s3srv := s3test.Start(t, "contract-bucket")

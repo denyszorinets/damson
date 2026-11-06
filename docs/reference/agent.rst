@@ -67,6 +67,9 @@ is masked before it leaves (plain, base64 and URL-encoded forms).
   ``winrm`` plugin use ``transport: http`` and ``insecure_skip_verify``
   (:doc:`/reference/plugin-winrm`). Off by default. It is separate from
   ``allow_insecure_host_keys``.
+* ``agent.allow_plain_ftp`` (``DAMSON_AGENT__ALLOW_PLAIN_FTP``) lets the ``transfer``
+  plugin use ``protocol: ftp``, which sends the password and the data in clear
+  text. Off by default; use ``ftps``. It is separate from the other two switches.
 * ``agent.tls_ca_file`` is a PEM file of extra CA certificates for ``ftps`` and
   ``https`` S3 endpoints (and ``winrm`` over https)
   transfers (:doc:`/reference/plugin-transfer`). A bad file fails agent start. The file is read when the agent starts, so a change needs a restart.
