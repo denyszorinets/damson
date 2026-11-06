@@ -38,6 +38,18 @@ type AgentPool struct {
 	CreatedAt   string
 }
 
+type AuditEvent struct {
+	ID          string
+	At          string
+	Actor       string
+	Action      string
+	TargetType  string
+	Target      string
+	ProjectPath string
+	Details     string
+	RequestID   string
+}
+
 type ControllerInstance struct {
 	ID          string
 	InternalUrl string

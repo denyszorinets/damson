@@ -5,10 +5,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -54,7 +56,7 @@ func newBackend(t *testing.T, s store.Store, k string) *db.Backend {
 func i64(n int64) *int64 { return &n }
 
 func TestPutGetFlow(t *testing.T) {
-	ctx := context.Background()
+	ctx := testCtx()
 	s := newStore(t)
 	b := newBackend(t, s, key(t))
 	pw := map[string]string{"username": "root", "password": "hunter2-value"}
@@ -117,7 +119,7 @@ func TestPutGetFlow(t *testing.T) {
 }
 
 func TestStoredFormHasNoPlaintext(t *testing.T) {
-	ctx := context.Background()
+	ctx := testCtx()
 	s := newStore(t)
 	b := newBackend(t, s, key(t))
 	const val = "plaintext-marker-value"
@@ -137,7 +139,7 @@ func TestStoredFormHasNoPlaintext(t *testing.T) {
 }
 
 func TestGetWithWrongKeyFails(t *testing.T) {
-	ctx := context.Background()
+	ctx := testCtx()
 	s := newStore(t)
 	if _, _, err := newBackend(t, s, key(t)).Put(ctx, "p", "x", "generic", map[string]string{"k": "v"}, nil); err != nil {
 		t.Fatal(err)
@@ -149,7 +151,7 @@ func TestGetWithWrongKeyFails(t *testing.T) {
 }
 
 func TestPutRaceUnconditional(t *testing.T) {
-	ctx := context.Background()
+	ctx := testCtx()
 	s := newStore(t)
 	b := newBackend(t, s, key(t))
 	errc := make(chan error, 4)
@@ -171,7 +173,7 @@ func TestPutRaceUnconditional(t *testing.T) {
 }
 
 func TestCheckKEK(t *testing.T) {
-	ctx := context.Background()
+	ctx := testCtx()
 	ringOf := func(a, p string) *secrets.Keyring {
 		r, err := secrets.NewKeyring(a, p)
 		if err != nil {
@@ -207,7 +209,7 @@ func TestCheckKEK(t *testing.T) {
 }
 
 func TestCheckKEKRace(t *testing.T) {
-	ctx := context.Background()
+	ctx := testCtx()
 	s := newStore(t)
 	res := make(chan error, 2)
 	for _, k := range []string{key(t), key(t)} {
@@ -217,5 +219,64 @@ func TestCheckKEKRace(t *testing.T) {
 	e1, e2 := <-res, <-res
 	if (e1 == nil) == (e2 == nil) {
 		t.Fatalf("exactly one controller may start: %v / %v", e1, e2)
+	}
+}
+
+// testCtx is a context with the actor an audited write needs.
+func testCtx() context.Context {
+	return store.WithAudit(context.Background(), store.AuditMeta{Actor: "test:actor"})
+}
+
+// Every committed write leaves exactly one event, and no value is in any of them.
+func TestPutAuditsEachCommittedWriteWithoutValues(t *testing.T) {
+	ctx := testCtx()
+	s := newStore(t)
+	b := newBackend(t, s, key(t))
+	const canary = "zz-canary-9f3"
+	var wg sync.WaitGroup
+	for range 6 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _, err := b.Put(ctx, "p", "x", "generic", map[string]string{"token": canary}, nil)
+			if err != nil && !errors.Is(err, secrets.ErrVersionConflict) {
+				t.Errorf("put: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	m, err := b.Meta(ctx, "p", "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evs, err := s.ListAuditEvents(ctx, store.AuditFilter{Target: "p/x"}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(evs)) != m.CurrentVersion {
+		t.Fatalf("%d events for %d versions", len(evs), m.CurrentVersion)
+	}
+	versions := map[int64]bool{}
+	for _, e := range evs {
+		var d store.SecretAuditDetails
+		if err := json.Unmarshal(e.Details, &d); err != nil {
+			t.Fatal(err)
+		}
+		versions[d.Version] = true
+		if strings.Contains(string(e.Details)+e.Actor+e.Target, canary) {
+			t.Fatalf("value in event %+v", e)
+		}
+		if len(d.Fields) != 1 || d.Fields[0] != "token" {
+			t.Fatalf("field names = %v", d.Fields)
+		}
+	}
+	for v := int64(1); v <= m.CurrentVersion; v++ {
+		if !versions[v] {
+			t.Fatalf("no event for version %d", v)
+		}
+	}
+	// Without an actor nothing is written.
+	if _, _, err := b.Put(context.Background(), "p", "y", "generic", map[string]string{"token": canary}, nil); err == nil {
+		t.Fatal("a write without an actor succeeded")
 	}
 }

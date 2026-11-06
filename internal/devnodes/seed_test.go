@@ -92,6 +92,17 @@ func TestSeedIsIdempotentAndFollowsTheFiles(t *testing.T) {
 		t.Fatal("a re-seed added a secret version")
 	}
 
+	// The first seed wrote one create event per secret and the re-seed none.
+	evs, err := st.ListAuditEvents(ctx, store.AuditFilter{TargetType: store.AuditTargetSecret}, 20)
+	if err != nil || len(evs) != 2 {
+		t.Fatalf("events after two seeds = %+v, %v", evs, err)
+	}
+	for _, e := range evs {
+		if e.Actor != SeederActor || e.Action != store.ActionSecretCreate || strings.Contains(string(e.Details), marker) {
+			t.Fatalf("event = %+v", e)
+		}
+	}
+
 	// A changed key file gives exactly one new version of the secrets that use it.
 	write(t, dir, "key", "rotated", 0o600)
 	rep, err = Seed(ctx, st, b, f, t0)
@@ -148,7 +159,7 @@ func TestSeedFailures(t *testing.T) {
 	})
 	t.Run("type mismatch names the ref", func(t *testing.T) {
 		st, b := newStores(t)
-		if _, _, err := b.Put(ctx, "default", "token", "generic", map[string]string{"token": "x"}, nil); err != nil {
+		if _, _, err := b.Put(store.WithAudit(ctx, store.AuditMeta{Actor: "test"}), "default", "token", "generic", map[string]string{"token": "x"}, nil); err != nil {
 			t.Fatal(err)
 		}
 		_, err := Seed(ctx, st, b, loadFile(t, dir, key), t0)

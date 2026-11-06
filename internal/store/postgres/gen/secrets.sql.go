@@ -30,8 +30,9 @@ func (q *Queries) BumpSecretVersionCAS(ctx context.Context, arg BumpSecretVersio
 	return result.RowsAffected(), nil
 }
 
-const deleteSecretByName = `-- name: DeleteSecretByName :execrows
+const deleteSecretByName = `-- name: DeleteSecretByName :one
 DELETE FROM secrets WHERE scope_path = $1 AND name = $2
+RETURNING id, type, current_version
 `
 
 type DeleteSecretByNameParams struct {
@@ -39,14 +40,19 @@ type DeleteSecretByNameParams struct {
 	Name      string
 }
 
+type DeleteSecretByNameRow struct {
+	ID             string
+	Type           string
+	CurrentVersion int64
+}
+
 // One statement: the row lock on secrets comes first, and the versions go with
-// it through ON DELETE CASCADE.
-func (q *Queries) DeleteSecretByName(ctx context.Context, arg DeleteSecretByNameParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteSecretByName, arg.ScopePath, arg.Name)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+// it through ON DELETE CASCADE. RETURNING names exactly what was deleted.
+func (q *Queries) DeleteSecretByName(ctx context.Context, arg DeleteSecretByNameParams) (DeleteSecretByNameRow, error) {
+	row := q.db.QueryRow(ctx, deleteSecretByName, arg.ScopePath, arg.Name)
+	var i DeleteSecretByNameRow
+	err := row.Scan(&i.ID, &i.Type, &i.CurrentVersion)
+	return i, err
 }
 
 const getSecretCurrent = `-- name: GetSecretCurrent :one

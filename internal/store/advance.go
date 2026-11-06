@@ -12,6 +12,8 @@ import (
 // call joins the one open transaction; nothing is visible to other readers
 // until WithTx returns nil.
 type Tx interface {
+	// AppendAuditEvent inserts an audit event in this transaction.
+	AppendAuditEvent(ctx context.Context, ev AuditEvent) error
 	// CreateRun and RequestCancel behave like their RunStore counterparts.
 	CreateRun(ctx context.Context, nr NewRun, now time.Time) (RunTree, error)
 	RequestCancel(ctx context.Context, runID string, now time.Time) (Run, error)

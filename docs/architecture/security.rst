@@ -162,6 +162,11 @@ stored canary. ``damson admin rotate-kek`` re-wraps the data keys under a new
 KEK without touching the ciphertext; it needs the old key in
 ``DAMSON_KEK_PREVIOUS`` and is described in :ref:`cli-rotate-kek`. See :doc:`decisions/0042-db-secret-backend-keyring`.
 
+Every secret write (create, new version, delete) and every ``rotate-kek`` run
+writes an audit event in the same transaction, with the actor, the secret id,
+version and field names, never values. Read it with ``GET /api/v1/audit``
+(admin token). See :doc:`decisions/0053-audit-events`.
+
 Other controls
 --------------
 

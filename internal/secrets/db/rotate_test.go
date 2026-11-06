@@ -32,7 +32,7 @@ func seed(t *testing.T, s store.Store, ring *secrets.Keyring, n int) {
 	t.Helper()
 	b := backendOf(s, ring)
 	for i := 0; i < n; i++ {
-		if _, _, err := b.Put(context.Background(), "proj", fmt.Sprintf("s%d", i), "password", map[string]string{"username": "u", "password": fmt.Sprintf("pw-%d", i)}, nil); err != nil {
+		if _, _, err := b.Put(testCtx(), "proj", fmt.Sprintf("s%d", i), "password", map[string]string{"username": "u", "password": fmt.Sprintf("pw-%d", i)}, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -50,7 +50,7 @@ func readAll(t *testing.T, s store.Store, ring *secrets.Keyring, n int) {
 }
 
 func TestRotateKEK(t *testing.T) {
-	ctx := context.Background()
+	ctx := testCtx()
 	s := newStore(t)
 	oldK, newK := key(t), key(t)
 	oldRing := ringOf(t, oldK, "")
@@ -101,7 +101,7 @@ func TestRotateKEK(t *testing.T) {
 }
 
 func TestRotateKEKRefusals(t *testing.T) {
-	ctx := context.Background()
+	ctx := testCtx()
 	s := newStore(t)
 	oldK, newK, thirdK := key(t), key(t), key(t)
 	if _, err := db.RotateKEK(ctx, s, ringOf(t, newK, oldK), rand.Reader, nil); !errors.Is(err, db.ErrKEK) {
@@ -149,7 +149,7 @@ func (r *racingStore) ListSecretVersionsNotUnder(ctx context.Context, kek, after
 }
 
 func TestRotateKEKCatchesLateWrites(t *testing.T) {
-	ctx := context.Background()
+	ctx := testCtx()
 	s := newStore(t)
 	oldK, newK := key(t), key(t)
 	oldRing := ringOf(t, oldK, "")
@@ -199,7 +199,7 @@ func (c *staleCanary) UpdateSetting(ctx context.Context, key, value string, expe
 func TestRotateKEKCanaryRace(t *testing.T) {
 	for name, tc := range map[string]struct{ sameKey, wantErr bool }{"peer used our key": {true, false}, "something else rewrote it": {false, true}} {
 		t.Run(name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := testCtx()
 			s := newStore(t)
 			oldK, newK := key(t), key(t)
 			oldRing := ringOf(t, oldK, "")

@@ -46,6 +46,11 @@ func (s *Store) CreateSecret(ctx context.Context, id, scope, name, typ string, v
 	if err != nil {
 		return store.SecretMeta{}, err
 	}
+	ev, err := store.NewSecretEvent(ctx, store.ActionSecretCreate, scope, name,
+		store.SecretAuditDetails{SecretID: id, Type: typ, Version: 1, Fields: v.FieldNames, KEKID: v.KEKID}, now)
+	if err != nil {
+		return store.SecretMeta{}, err
+	}
 	err = s.WithTx(ctx, func(tx store.Tx) error {
 		q := tx.(*txn).q
 		err := q.InsertSecret(ctx, gen.InsertSecretParams{ID: id, ScopePath: scope, Name: name, Type: typ, CreatedAt: fmtTime(now), UpdatedAt: fmtTime(now)})
@@ -58,7 +63,7 @@ func (s *Store) CreateSecret(ctx context.Context, id, scope, name, typ string, v
 		if err := q.InsertSecretVersion(ctx, vp); err != nil {
 			return fmt.Errorf("creating secret version: %w", err)
 		}
-		return nil
+		return tx.AppendAuditEvent(ctx, ev)
 	})
 	if err != nil {
 		return store.SecretMeta{}, err
@@ -70,6 +75,9 @@ func (s *Store) CreateSecret(ctx context.Context, id, scope, name, typ string, v
 // AddSecretVersion implements store.SecretStore.
 func (s *Store) AddSecretVersion(ctx context.Context, id string, expected int64, v store.SecretBlob, now time.Time) (store.SecretMeta, error) {
 	var meta store.SecretMeta
+	if _, err := store.AuditFrom(ctx); err != nil {
+		return meta, err
+	}
 	err := s.WithTx(ctx, func(tx store.Tx) error {
 		q := tx.(*txn).q
 		n, err := q.BumpSecretVersionCAS(ctx, gen.BumpSecretVersionCASParams{UpdatedAt: fmtTime(now), ID: id, ExpectedVersion: expected})
@@ -97,8 +105,16 @@ func (s *Store) AddSecretVersion(ctx context.Context, id string, expected int64,
 			return fmt.Errorf("pruning secret versions: %w", err)
 		}
 		meta, err = toSecretMeta(head.ID, head.ScopePath, head.Name, head.Type, expected+1, head.CreatedAt, head.UpdatedAt, "[]")
+		if err != nil {
+			return err
+		}
 		meta.FieldNames = v.FieldNames
-		return err
+		ev, err := store.NewSecretEvent(ctx, store.ActionSecretUpdate, head.ScopePath, head.Name,
+			store.SecretAuditDetails{SecretID: id, Type: head.Type, Version: expected + 1, Fields: v.FieldNames, KEKID: v.KEKID}, now)
+		if err != nil {
+			return err
+		}
+		return tx.AppendAuditEvent(ctx, ev)
 	})
 	return meta, err
 }
@@ -143,15 +159,25 @@ func (s *Store) ListSecrets(ctx context.Context, scope, afterScope, afterName st
 }
 
 // DeleteSecret implements store.SecretStore.
-func (s *Store) DeleteSecret(ctx context.Context, scope, name string) error {
-	n, err := s.q.DeleteSecretByName(ctx, gen.DeleteSecretByNameParams{ScopePath: scope, Name: name})
-	if err != nil {
-		return fmt.Errorf("deleting secret: %w", err)
+func (s *Store) DeleteSecret(ctx context.Context, scope, name string, now time.Time) error {
+	if _, err := store.AuditFrom(ctx); err != nil {
+		return err
 	}
-	if n == 0 {
-		return fmt.Errorf("secret %s/%s: %w", scope, name, store.ErrNotFound)
-	}
-	return nil
+	return s.WithTx(ctx, func(tx store.Tx) error {
+		row, err := tx.(*txn).q.DeleteSecretByName(ctx, gen.DeleteSecretByNameParams{ScopePath: scope, Name: name})
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("secret %s/%s: %w", scope, name, store.ErrNotFound)
+		}
+		if err != nil {
+			return fmt.Errorf("deleting secret: %w", err)
+		}
+		ev, err := store.NewSecretEvent(ctx, store.ActionSecretDelete, scope, name,
+			store.SecretAuditDetails{SecretID: row.ID, Type: row.Type, Version: int64(row.CurrentVersion)}, now)
+		if err != nil {
+			return err
+		}
+		return tx.AppendAuditEvent(ctx, ev)
+	})
 }
 
 // ListSecretVersionsNotUnder implements store.SecretStore.

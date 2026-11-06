@@ -31,6 +31,7 @@ type DataStore interface {
 	store.TxRunner
 	store.NodeStore
 	store.RunTargetStore
+	store.AuditStore
 
 	ListAgents(ctx context.Context, cursor string, limit int) (store.AgentPage, error)
 	GetAgent(ctx context.Context, id string) (store.Agent, error)
@@ -137,6 +138,7 @@ func newHuma(mux *http.ServeMux, d deps) huma.API {
 	registerRunTargets(api, d)
 	registerExecutions(api, d)
 	registerSecrets(api, d)
+	registerAudit(api, d)
 	registerNodes(api, d)
 	registerInventorySync(api, d)
 	return api

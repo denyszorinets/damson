@@ -3,8 +3,12 @@ package storetest
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -21,7 +25,7 @@ func blob(tag string) store.SecretBlob {
 }
 
 func testSecrets(t *testing.T, s store.Store) {
-	ctx := context.Background()
+	ctx := actorCtx()
 	migrated(t, s)
 
 	m, err := s.CreateSecret(ctx, "s1", "proj/a", "db", "password", blob("1"), t0)
@@ -86,10 +90,10 @@ func testSecrets(t *testing.T, s store.Store) {
 		t.Fatalf("scope filter = %+v", only)
 	}
 
-	if err := s.DeleteSecret(ctx, "proj/a", "db"); err != nil {
+	if err := s.DeleteSecret(ctx, "proj/a", "db", t0); err != nil {
 		t.Fatalf("DeleteSecret: %v", err)
 	}
-	if err := s.DeleteSecret(ctx, "proj/a", "db"); !errors.Is(err, store.ErrNotFound) {
+	if err := s.DeleteSecret(ctx, "proj/a", "db", t0); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("delete again: %v", err)
 	}
 	if _, _, err := s.GetSecret(ctx, "proj/a", "db"); !errors.Is(err, store.ErrNotFound) {
@@ -104,7 +108,7 @@ func testSecrets(t *testing.T, s store.Store) {
 // testSecretsRaces: concurrent creates yield one winner; concurrent version
 // adds at the same expected version yield one winner.
 func testSecretsRaces(t *testing.T, s store.Store) {
-	ctx := context.Background()
+	ctx := actorCtx()
 	migrated(t, s)
 	var wins, conflicts atomic.Int32
 	var winner atomic.Value
@@ -155,7 +159,7 @@ func testSecretsRaces(t *testing.T, s store.Store) {
 // A delete racing version adds, with enough versions that pruning runs, ends
 // every call with a store sentinel (never a raw database error).
 func testSecretsDeleteRace(t *testing.T, s store.Store) {
-	ctx := context.Background()
+	ctx := actorCtx()
 	migrated(t, s)
 	for round := range 5 {
 		name := fmt.Sprintf("d%d", round)
@@ -176,7 +180,7 @@ func testSecretsDeleteRace(t *testing.T, s store.Store) {
 		}
 		wg.Add(2)
 		go func() { defer wg.Done(); _, err := s.AddSecretVersion(ctx, m.ID, 12, blob("y"), t0); check(err) }()
-		go func() { defer wg.Done(); check(s.DeleteSecret(ctx, "race", name)) }()
+		go func() { defer wg.Done(); check(s.DeleteSecret(ctx, "race", name, t0)) }()
 		wg.Wait()
 	}
 }
@@ -184,12 +188,12 @@ func testSecretsDeleteRace(t *testing.T, s store.Store) {
 // A version CAS names the secret by id: deleting and recreating the name does
 // not let a writer that read the old secret add a version to the new one.
 func testSecretsRecreate(t *testing.T, s store.Store) {
-	ctx := context.Background()
+	ctx := actorCtx()
 	migrated(t, s)
 	if _, err := s.CreateSecret(ctx, "old", "aba", "x", "password", blob("1"), t0); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DeleteSecret(ctx, "aba", "x"); err != nil {
+	if err := s.DeleteSecret(ctx, "aba", "x", t0); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateSecret(ctx, "new", "aba", "x", "token", blob("2"), t0); err != nil {
@@ -204,7 +208,7 @@ func testSecretsRecreate(t *testing.T, s store.Store) {
 }
 
 func testSecretsRewrap(t *testing.T, s store.Store) {
-	ctx := context.Background()
+	ctx := actorCtx()
 	migrated(t, s)
 	mk := func(id, name, kek string) {
 		b := blob(id)
@@ -247,5 +251,162 @@ func testSecretsRewrap(t *testing.T, s store.Store) {
 	page, _ = s.ListSecretVersionsNotUnder(ctx, "new", "", 0, 10)
 	if len(page) != 1 || page[0].SecretID != "r3" {
 		t.Fatalf("left to rotate = %+v", page)
+	}
+}
+
+func actorCtx() context.Context {
+	return store.WithAudit(context.Background(), store.AuditMeta{Actor: "test:actor", RequestID: "req-1"})
+}
+
+func auditOf(t *testing.T, s store.Store, target string) []store.AuditEvent {
+	t.Helper()
+	evs, err := s.ListAuditEvents(context.Background(), store.AuditFilter{TargetType: store.AuditTargetSecret, Target: target}, 100)
+	if err != nil {
+		t.Fatalf("ListAuditEvents: %v", err)
+	}
+	return evs
+}
+
+func testSecretAudit(t *testing.T, s store.Store) {
+	ctx := actorCtx()
+	migrated(t, s)
+	m, err := s.CreateSecret(ctx, "sa-1", "proj/a", "db", "generic", blob("one"), t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddSecretVersion(ctx, m.ID, 1, blob("two"), t0.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	// Losing the CAS, a duplicate create and a missing delete write nothing.
+	if _, err := s.AddSecretVersion(ctx, m.ID, 1, blob("lost"), t0.Add(2*time.Second)); !errors.Is(err, store.ErrStale) {
+		t.Fatalf("stale add: %v", err)
+	}
+	if _, err := s.CreateSecret(ctx, "sa-dup", "proj/a", "db", "generic", blob("dup"), t0); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("duplicate create: %v", err)
+	}
+	if err := s.DeleteSecret(ctx, "proj/a", "missing", t0); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("delete missing: %v", err)
+	}
+	if err := s.DeleteSecret(ctx, "proj/a", "db", t0.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateSecret(ctx, "sa-2", "proj/a", "db", "generic", blob("again"), t0.Add(4*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	evs := auditOf(t, s, "proj/a/db") // newest first
+	var actions []string
+	for _, e := range evs {
+		actions = append(actions, e.Action)
+		if e.Actor != "test:actor" || e.RequestID != "req-1" || e.ProjectPath != "proj/a" || e.TargetType != store.AuditTargetSecret {
+			t.Errorf("event = %+v", e)
+		}
+	}
+	want := []string{store.ActionSecretCreate, store.ActionSecretDelete, store.ActionSecretUpdate, store.ActionSecretCreate}
+	if strings.Join(actions, ",") != strings.Join(want, ",") {
+		t.Fatalf("actions = %v, want %v", actions, want)
+	}
+	if !evs[3].At.Equal(store.NormalizeTime(t0)) {
+		t.Errorf("at = %v", evs[3].At)
+	}
+	details := func(e store.AuditEvent) store.SecretAuditDetails {
+		var d store.SecretAuditDetails
+		if err := json.Unmarshal(e.Details, &d); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	if d := details(evs[3]); d.SecretID != "sa-1" || d.Version != 1 || d.Type != "generic" || d.KEKID == "" || len(d.Fields) == 0 {
+		t.Errorf("create details = %+v", d)
+	}
+	if d := details(evs[2]); d.Version != 2 {
+		t.Errorf("update details = %+v", d)
+	}
+	if d := details(evs[1]); d.SecretID != "sa-1" || d.Version != 2 {
+		t.Errorf("delete details = %+v", d)
+	}
+	if d := details(evs[0]); d.SecretID != "sa-2" {
+		t.Errorf("a recreated secret must have its own id: %+v", d)
+	}
+
+	// No secret material in any audit column.
+	b := blob("two")
+	all := ""
+	for _, e := range evs {
+		all += e.ID + e.Actor + e.Action + e.Target + string(e.Details) + e.RequestID
+	}
+	for _, needle := range [][]byte{b.Ciphertext, b.WrappedDEK, b.Nonce} {
+		for _, form := range []string{string(needle), hex.EncodeToString(needle), base64.StdEncoding.EncodeToString(needle)} {
+			if form != "" && strings.Contains(all, form) {
+				t.Fatalf("audit rows contain secret material %q", form)
+			}
+		}
+	}
+}
+
+func testSecretWritesNeedAnActor(t *testing.T, s store.Store) {
+	migrated(t, s)
+	bg := context.Background()
+	if _, err := s.CreateSecret(bg, "na-1", "proj/a", "x", "generic", blob("v"), t0); !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("create without actor: %v", err)
+	}
+	if _, _, err := s.GetSecret(bg, "proj/a", "x"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a secret was written without an actor: %v", err)
+	}
+	ctx := actorCtx()
+	m, err := s.CreateSecret(ctx, "na-2", "proj/a", "y", "generic", blob("v"), t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddSecretVersion(bg, m.ID, 1, blob("w"), t0); !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("update without actor: %v", err)
+	}
+	if err := s.DeleteSecret(bg, "proj/a", "y", t0); !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("delete without actor: %v", err)
+	}
+	if got, err := s.GetSecretMeta(ctx, "proj/a", "y"); err != nil || got.CurrentVersion != 1 {
+		t.Fatalf("secret changed: %+v %v", got, err)
+	}
+	if n := len(auditOf(t, s, "proj/a/y")); n != 1 {
+		t.Fatalf("%d events, want only the create", n)
+	}
+}
+
+func testAuditList(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	at := t0
+	for i, target := range []string{"a", "a", "b", "a"} {
+		ev := store.AuditEvent{ID: fmt.Sprintf("ev-%d", i), At: at, Actor: "x", Action: "secret.update", TargetType: store.AuditTargetSecret, Target: target}
+		if i == 1 {
+			ev.At = at // same instant as ev-0: ordered by id
+		} else {
+			ev.At = at.Add(time.Duration(i) * time.Second)
+		}
+		if err := s.AppendAuditEvent(ctx, ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.AppendAuditEvent(ctx, store.AuditEvent{ID: "bad"}); !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("invalid event: %v", err)
+	}
+	all, err := s.ListAuditEvents(ctx, store.AuditFilter{}, 10)
+	if err != nil || len(all) != 4 {
+		t.Fatalf("list = %d %v", len(all), err)
+	}
+	var ids []string
+	for _, e := range all {
+		ids = append(ids, e.ID)
+	}
+	if strings.Join(ids, ",") != "ev-3,ev-2,ev-1,ev-0" {
+		t.Fatalf("order = %v", ids)
+	}
+	page, err := s.ListAuditEvents(ctx, store.AuditFilter{BeforeAt: all[1].At, BeforeID: all[1].ID}, 10)
+	if err != nil || len(page) != 2 || page[0].ID != "ev-1" || page[1].ID != "ev-0" {
+		t.Fatalf("page after ev-2 = %+v %v", page, err)
+	}
+	onlyB, err := s.ListAuditEvents(ctx, store.AuditFilter{Target: "b"}, 10)
+	if err != nil || len(onlyB) != 1 || onlyB[0].ID != "ev-2" {
+		t.Fatalf("target filter = %+v %v", onlyB, err)
 	}
 }

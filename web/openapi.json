@@ -72,6 +72,53 @@
         ],
         "type": "object"
       },
+      "AuditEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "secret.create, secret.update, secret.delete or secret.kek_rotate.",
+            "type": "string"
+          },
+          "actor": {
+            "description": "admin-token:\u003chash prefix\u003e, cli:\u003cuser\u003e or system:\u003cduty\u003e until accounts arrive (ADR-0053).",
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "details": {
+            "description": "A JSON object; never a secret value."
+          },
+          "id": {
+            "type": "string"
+          },
+          "project_path": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "target": {
+            "description": "\u003cscope\u003e/\u003cname\u003e for a secret.",
+            "type": "string"
+          },
+          "target_type": {
+            "description": "secret or instance.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "actor",
+          "action",
+          "target_type",
+          "target",
+          "details"
+        ],
+        "type": "object"
+      },
       "BatchInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -596,6 +643,29 @@
           "items": {
             "items": {
               "$ref": "#/components/schemas/Agent"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "next_cursor": {
+            "description": "Empty on the last page.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "ListAuditOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "description": "Newest first.",
+            "items": {
+              "$ref": "#/components/schemas/AuditEvent"
             },
             "type": [
               "array",
@@ -2061,6 +2131,131 @@
         "summary": "Get an agent with its last telemetry",
         "tags": [
           "agents"
+        ]
+      }
+    },
+    "/audit": {
+      "get": {
+        "description": "Secret writes today (ADR-0053). Metadata only, newest first.",
+        "operationId": "list-audit-events",
+        "parameters": [
+          {
+            "description": "Only this target type.",
+            "explode": false,
+            "in": "query",
+            "name": "target_type",
+            "schema": {
+              "description": "Only this target type.",
+              "maxLength": 32,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only this target.",
+            "explode": false,
+            "in": "query",
+            "name": "target",
+            "schema": {
+              "description": "Only this target.",
+              "maxLength": 800,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque cursor from a previous page's next_cursor.",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Opaque cursor from a previous page's next_cursor.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size.",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Page size.",
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAuditOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List audit events",
+        "tags": [
+          "audit"
         ]
       }
     },

@@ -221,6 +221,23 @@ authentication. Values are write-only: no response contains one.
    * - ``GET /api/v1/secret-types`` (public)
      - ``items`` of ``{name, fields: [{name, required, multiline}]}``.
 
+``PUT`` and ``DELETE`` write an audit event in the same transaction (see
+:ref:`reference-audit-api`).
+
+.. _reference-audit-api:
+
+Audit API
+~~~~~~~~~
+
+``GET /api/v1/audit?target_type=&target=&cursor=&limit=`` needs the admin
+token. It returns ``items`` (newest first; ``id``, ``at``, ``actor``,
+``action``, ``target_type``, ``target``, ``project_path``, ``details``,
+``request_id``) and ``next_cursor``; ``limit`` is 1 to 200, default 50.
+Events never contain secret values. Currently recorded: ``secret.create``,
+``secret.update``, ``secret.delete`` and ``secret.kek_rotate``. Actors are
+``admin-token:<12 hex of the token hash>``, ``system:dev-nodes`` and
+``cli:<os user>``. Design: :doc:`/architecture/decisions/0053-audit-events`.
+
 .. _reference-nodes-api:
 
 Nodes API

@@ -39,10 +39,11 @@ LIMIT sqlc.arg(row_limit);
 -- name: PruneSecretVersions :exec
 DELETE FROM secret_versions WHERE secret_id = sqlc.arg(secret_id) AND version <= sqlc.arg(max_pruned);
 
--- name: DeleteSecretByName :execrows
+-- name: DeleteSecretByName :one
 -- One statement: the row lock on secrets comes first, and the versions go with
--- it through ON DELETE CASCADE.
-DELETE FROM secrets WHERE scope_path = sqlc.arg(scope_path) AND name = sqlc.arg(name);
+-- it through ON DELETE CASCADE. RETURNING names exactly what was deleted.
+DELETE FROM secrets WHERE scope_path = sqlc.arg(scope_path) AND name = sqlc.arg(name)
+RETURNING id, type, current_version;
 
 -- name: ListSecretVersionsNotUnder :many
 -- Versions wrapped under any key but kek_id, for rotate-kek. Keyset on

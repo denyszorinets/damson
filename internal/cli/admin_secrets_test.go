@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
+	"github.com/denyszorinets/damson/internal/store"
 	"strings"
 	"testing"
 	"time"
@@ -77,7 +79,7 @@ func TestAdminRotateKEK(t *testing.T) {
 			t.Fatal(err)
 		}
 		b := secretsdb.New(st, oldRing, rand.Reader, time.Now, func() string { return uuid.NewString() })
-		if _, _, err := b.Put(ctx, "proj", "db", "password", map[string]string{"username": "u", "password": "pw-VALUE"}, nil); err != nil {
+		if _, _, err := b.Put(store.WithAudit(ctx, store.AuditMeta{Actor: "test"}), "proj", "db", "password", map[string]string{"username": "u", "password": "pw-VALUE"}, nil); err != nil {
 			t.Fatal(err)
 		}
 
@@ -98,6 +100,15 @@ func TestAdminRotateKEK(t *testing.T) {
 		got, err := secretsdb.New(st, newRing, rand.Reader, time.Now, nil).Get(ctx, "proj", "db")
 		if err != nil || got["password"] != "pw-VALUE" {
 			t.Fatalf("read with the new key alone = %v, %v", got, err)
+		}
+		// Each run wrote one summary event with counts and kek_ids only.
+		evs, err := st.ListAuditEvents(ctx, store.AuditFilter{TargetType: store.AuditTargetInstance}, 10)
+		if err != nil || len(evs) != 1 || evs[0].Action != store.ActionSecretKEKRotate || !strings.HasPrefix(evs[0].Actor, "cli:") {
+			t.Fatalf("rotation events = %+v, %v", evs, err)
+		}
+		var d store.KEKRotateAuditDetails
+		if err := json.Unmarshal(evs[0].Details, &d); err != nil || d.Rewrapped != 1 || d.ActiveKEKID == "" || strings.Contains(string(evs[0].Details), newK) {
+			t.Fatalf("details = %s, %v", evs[0].Details, err)
 		}
 		// A second run is a no-op.
 		if out := mustAdmin(t, both, "rotate-kek", "--json"); !strings.Contains(out, `"rewrapped": 0`) || !strings.Contains(out, `"canary_moved": false`) {

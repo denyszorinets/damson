@@ -52,6 +52,10 @@ func requireAdmin(api huma.API, d deps) func(ctx huma.Context, next func(huma.Co
 			deny(ctx, "the admin token is not valid")
 			return
 		}
-		next(ctx)
+		// The actor of the writes this request makes: the interim admin token,
+		// told apart by a prefix of its stored hash (ADR-0053).
+		actor := "admin-token:" + s.Value[:min(12, len(s.Value))]
+		rctx := store.WithAudit(ctx.Context(), store.AuditMeta{Actor: actor, RequestID: requestIDFromCtx(ctx.Context())})
+		next(huma.WithContext(ctx, rctx))
 	}
 }

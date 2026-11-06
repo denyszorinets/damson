@@ -362,6 +362,10 @@ meanwhile already use the active key. Rows wrapped under a key that is neither
 the active nor the previous one count as failed, the exit status is 1 and the
 canary stays where it is.
 
+Each run writes one ``secret.kek_rotate`` audit event (also when it fails)
+with actor ``cli:<os user>``, an unauthenticated label
+(:doc:`/architecture/decisions/0053-audit-events`).
+
 It prints counts and the active ``kek_id`` only, never keys or values:
 ``rewrapped``, ``skipped``, ``failed``, ``stragglers`` and ``canary_moved``.
 
