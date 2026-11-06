@@ -100,7 +100,7 @@ func (h *httpsTransport) Post(_ *mwinrm.Client, request *soap.SoapMessage) (stri
 	}
 	if resp.StatusCode != http.StatusOK {
 		// A SOAP fault travels in a non-200 response; keep it, it says why.
-		return "", fmt.Errorf("http error %d: %s", resp.StatusCode, trim(string(body)))
+		return "", fmt.Errorf("http error %d: %s", resp.StatusCode, faultSummary(string(body)))
 	}
 	if !strings.Contains(resp.Header.Get("Content-Type"), soapContentType) {
 		return "", fmt.Errorf("unexpected content type in the response (status %d)", resp.StatusCode)
@@ -110,10 +110,3 @@ func (h *httpsTransport) Post(_ *mwinrm.Client, request *soap.SoapMessage) (stri
 
 // close drops the idle connections.
 func (h *httpsTransport) close() { h.tr.CloseIdleConnections() }
-
-func trim(s string) string {
-	if len(s) > 512 {
-		return s[:512] + "..."
-	}
-	return s
-}
