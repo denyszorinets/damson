@@ -3,6 +3,7 @@ package api_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -81,7 +82,13 @@ func TestTriggerRollsBackWhenEnqueueFails(t *testing.T) {
 
 type fixedTargets []map[string]any
 
-func (f fixedTargets) Targets(context.Context, string) ([]map[string]any, error) { return f, nil }
+func (f fixedTargets) Targets(_ context.Context, _ string, pick func([]map[string]any) []map[string]any, limit int) ([]map[string]any, error) {
+	out := pick(f)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
 
 // A for_each over targets that is the first step is decided at trigger time:
 // it must see the targets, or it freezes an empty lane list.
@@ -91,7 +98,7 @@ func TestTriggerFreezesLanesFromTargets(t *testing.T) {
 		require.NoError(t, err)
 		srv := api.NewServer(api.Config{
 			Addr: "127.0.0.1:0", Store: st, Data: st, Plugins: reg, UI: ui(), Advance: &recordingEnqueuer{},
-			Targets: fixedTargets{{"name": "a", "os": "linux"}, {"name": "b", "os": "linux"}},
+			Targets: fixedTargets{{"id": "id-a", "name": "a", "os": "linux"}, {"id": "id-b", "name": "b", "os": "linux"}},
 			Now:     func() time.Time { return t0 }, Logger: slog.New(slog.DiscardHandler),
 		})
 		f := &jrFixture{st: st, h: srv.Handler(), logs: &syncBuffer{}}
@@ -109,5 +116,32 @@ func TestTriggerFreezesLanesFromTargets(t *testing.T) {
 		require.NotNil(t, group, "steps: %+v", tree.Steps)
 		assert.Contains(t, string(group.Input), `"key":"a"`)
 		assert.Contains(t, string(group.Input), `"key":"b"`)
+		frozen, err := st.ListRunTargets(context.Background(), run.ID)
+		require.NoError(t, err)
+		require.Len(t, frozen, 2)
+		assert.Equal(t, "id-a", frozen[0].NodeID)
+		assert.Equal(t, "b", frozen[1].Name)
+	})
+}
+
+// More matches than a run can freeze is a 422 at spec.targets, and no run is made.
+func TestTriggerRefusesTooManyTargets(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		var many fixedTargets
+		for i := 0; i <= store.MaxRunTargets; i++ {
+			many = append(many, map[string]any{"id": fmt.Sprintf("id-%d", i), "name": fmt.Sprintf("n%d", i), "os": "linux"})
+		}
+		reg, err := pluginreg.New([]pluginsdk.Manifest{apiManifest("ssh", "1.0.0")}, nil)
+		require.NoError(t, err)
+		srv := api.NewServer(api.Config{
+			Addr: "127.0.0.1:0", Store: st, Data: st, Plugins: reg, UI: ui(), Advance: &recordingEnqueuer{}, Targets: many,
+			Now: func() time.Time { return t0 }, Logger: slog.New(slog.DiscardHandler),
+		})
+		f := &jrFixture{st: st, h: srv.Handler(), logs: &syncBuffer{}}
+		job := f.createJob(t, `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"big"},`+
+			`"spec":{"targets":{"selector":"true"},"steps":[{"id":"x","plugin":"ssh","with":{"host":"h"}}]}}`)
+		rec := f.call(t, http.MethodPost, "/api/v1/jobs/"+job.Job.ID+"/runs", `{}`)
+		require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+		assert.Contains(t, rec.Body.String(), "spec.targets")
 	})
 }

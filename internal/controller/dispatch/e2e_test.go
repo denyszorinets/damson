@@ -64,11 +64,12 @@ func (demoPlugin) Execute(ctx context.Context, req pluginsdk.ExecRequest, emit p
 
 // cluster is a controller (gateway, advancer, ingest, dispatcher) with one real agent.
 type cluster struct {
-	t   *testing.T
-	st  store.Store
-	adv *advance.Advancer
-	jv  store.JobVersion
-	dsp *dispatch.Dispatcher
+	t       *testing.T
+	st      store.Store
+	adv     *advance.Advancer
+	jv      store.JobVersion
+	targets []store.RunTarget // frozen into every run trigger creates
+	dsp     *dispatch.Dispatcher
 	// firstTimeout is the step timeout of the first execution trigger creates.
 	firstTimeout time.Duration
 }
@@ -87,7 +88,7 @@ func startClusterPlugins(t *testing.T, st store.Store, spec string, extra []plug
 }
 
 // startClusterTargets is startCluster with a source of `targets`.
-func startClusterTargets(t *testing.T, st store.Store, spec string, targets advance.TargetSource) *cluster {
+func startClusterTargets(t *testing.T, st store.Store, spec string, targets []store.RunTarget) *cluster {
 	return startClusterWith(t, st, spec, slog.New(slog.DiscardHandler), nil, nil, targets)
 }
 
@@ -96,7 +97,7 @@ func startClusterGrace(t *testing.T, st store.Store, spec string, grace time.Dur
 	return startClusterWith(t, st, spec, slog.New(slog.DiscardHandler), nil, []engine.Option{engine.WithFinallyGrace(grace)}, nil)
 }
 
-func startClusterWith(t *testing.T, st store.Store, spec string, log *slog.Logger, extra []pluginsdk.Plugin, eopts []engine.Option, targets advance.TargetSource, opts ...func(*dispatch.Config)) *cluster {
+func startClusterWith(t *testing.T, st store.Store, spec string, log *slog.Logger, extra []pluginsdk.Plugin, eopts []engine.Option, targets []store.RunTarget, opts ...func(*dispatch.Config)) *cluster {
 	t.Helper()
 	ctx := context.Background()
 	pool, err := st.CreatePool(ctx, "default", "", t0)
@@ -125,7 +126,7 @@ func startClusterWith(t *testing.T, st store.Store, spec string, log *slog.Logge
 	if err != nil {
 		t.Fatal(err)
 	}
-	adv, err := advance.New(advance.Config{Store: st, Engine: eng, PollInterval: 20 * time.Millisecond, SweepInterval: -1, Logger: log, Targets: targets})
+	adv, err := advance.New(advance.Config{Store: st, Engine: eng, PollInterval: 20 * time.Millisecond, SweepInterval: -1, Logger: log})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +196,7 @@ func startClusterWith(t *testing.T, st store.Store, spec string, log *slog.Logge
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &cluster{t: t, st: st, adv: adv, jv: jv, dsp: dsp}
+	return &cluster{t: t, st: st, adv: adv, jv: jv, dsp: dsp, targets: targets}
 }
 
 // trigger creates a run the way the API does: the first step queued.
@@ -210,7 +211,7 @@ func (c *cluster) triggerInput(plugin, input string) string {
 	var id string
 	err := c.st.WithTx(context.Background(), func(tx store.Tx) error {
 		tree, err := tx.CreateRun(context.Background(), store.NewRun{
-			JobID: c.jv.JobID, JobVersionID: c.jv.ID, Trigger: json.RawMessage(`{"type":"manual"}`), Options: json.RawMessage(`{}`),
+			JobID: c.jv.JobID, JobVersionID: c.jv.ID, Trigger: json.RawMessage(`{"type":"manual"}`), Options: json.RawMessage(`{}`), Targets: c.targets,
 			Steps: []store.NewStepInstance{{Path: "s1", Plugin: plugin, Input: json.RawMessage(input),
 				Execution: &store.NewExecution{Pool: advance.DefaultPool, ScheduledAt: time.Now(), Timeout: c.firstTimeout}}},
 		}, time.Now())

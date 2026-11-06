@@ -67,8 +67,9 @@ Idempotence
 Targets and host keys
 ~~~~~~~~~~~~~~~~~~~~~
 
-- ``targets`` are read live from the inventory (enabled nodes in scope) as in
-  ARCHITECTURE 5.5, until :issue:`117`.
+- ``targets`` come from the inventory (enabled nodes in scope) as in
+  ARCHITECTURE 5.5. Superseded in part by :doc:`0045-frozen-run-targets`: they
+  are no longer read live but frozen into the run at trigger.
 - Host key policies are not exempt. ``insecure``, and ``tofu`` without a pinned
   ``host_key``, are seeded but refused at dispatch until :issue:`118`. Startup
   logs a WARN naming such nodes, and a WARN for ``_inventory`` secrets that no

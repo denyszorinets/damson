@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,15 +24,18 @@ const linearSpec = `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"proj
 
 // fakeStore serves one run tree and records what the advance applies.
 type fakeStore struct {
-	mu        sync.Mutex
-	trees     []store.RunTree // served in order; the last one repeats
-	loads     int
-	applyErrs []error // returned by successive ApplyAdvance calls
-	applies   []store.Advance
-	applyVers []int64
-	enqueues  int
-	spec      string
-	manifests []store.PluginManifest // served by ListPluginManifests
+	mu          sync.Mutex
+	trees       []store.RunTree // served in order; the last one repeats
+	loads       int
+	applyErrs   []error // returned by successive ApplyAdvance calls
+	applies     []store.Advance
+	applyVers   []int64
+	enqueues    int
+	spec        string
+	manifests   []store.PluginManifest // served by ListPluginManifests
+	targets     []store.RunTarget
+	targetErr   error
+	targetReads int
 }
 
 func (f *fakeStore) GetRunTree(context.Context, string) (store.RunTree, error) {
@@ -48,6 +52,13 @@ func (f *fakeStore) GetJob(context.Context, string) (store.Job, error) {
 
 func (f *fakeStore) GetJobVersion(context.Context, string) (store.JobVersion, error) {
 	return store.JobVersion{ID: "jv", Version: 3, Spec: json.RawMessage(f.spec)}, nil
+}
+
+func (f *fakeStore) ListRunTargets(context.Context, string) ([]store.RunTarget, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.targetReads++
+	return f.targets, f.targetErr
 }
 
 func (f *fakeStore) ListProjects(context.Context) ([]store.Project, error) {
@@ -434,4 +445,59 @@ func TestTimedOutCompletionReachesEngineAsKindTimeout(t *testing.T) {
 	if lost.Error == nil || lost.Error.Kind != "lost" {
 		t.Fatalf("engine sees error %+v for a lost attempt; want kind lost", lost.Error)
 	}
+}
+
+const targetsSpec = `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"lin"},
+"spec":{"steps":[{"id":"g","type":"group","for_each":"targets","steps":[{"id":"x","plugin":"shell","with":{"cmd":"one"}}]}]}}`
+
+func TestFrozenTargetsInAdvance(t *testing.T) {
+	ctx := context.Background()
+	rt := func(pos int, name, node string) store.RunTarget {
+		return store.RunTarget{Position: pos, Name: name, NodeID: "id-" + name, Node: json.RawMessage(node)}
+	}
+	t.Run("rows reach the engine in order", func(t *testing.T) {
+		f := &fakeStore{spec: targetsSpec, trees: []store.RunTree{tree(1, store.RunPending, false)},
+			targets: []store.RunTarget{rt(1, "a", `{"name":"a"}`), rt(2, "b", `{"name":"b"}`)}}
+		c, _ := newCore(t, f)
+		if err := c.advance(ctx, "r1"); err != nil {
+			t.Fatal(err)
+		}
+		var paths []string
+		for _, a := range f.applies {
+			for _, si := range a.NewSteps {
+				paths = append(paths, si.Path)
+			}
+		}
+		if got := strings.Join(paths, ","); !strings.Contains(got, "for_each[a]") || strings.Index(got, "for_each[a]") > strings.Index(got, "for_each[b]") {
+			t.Fatalf("lanes = %s", got)
+		}
+	})
+	t.Run("a read error is retried, not permanent", func(t *testing.T) {
+		f := &fakeStore{spec: targetsSpec, trees: []store.RunTree{tree(1, store.RunPending, false)}, targetErr: errors.New("db down")}
+		c, _ := newCore(t, f)
+		err := c.advance(ctx, "r1")
+		var perm *permanentError
+		if err == nil || errors.As(err, &perm) {
+			t.Fatalf("advance = %v; want a transient error", err)
+		}
+	})
+	t.Run("a node that is not an object is permanent", func(t *testing.T) {
+		f := &fakeStore{spec: targetsSpec, trees: []store.RunTree{tree(1, store.RunPending, false)},
+			targets: []store.RunTarget{rt(1, "a", `[1]`)}}
+		c, _ := newCore(t, f)
+		var perm *permanentError
+		if err := c.advance(ctx, "r1"); !errors.As(err, &perm) {
+			t.Fatalf("advance = %v; want permanent", err)
+		}
+	})
+	t.Run("a job without targets never reads them", func(t *testing.T) {
+		f := &fakeStore{trees: []store.RunTree{tree(1, store.RunPending, false)}}
+		c, _ := newCore(t, f)
+		if err := c.advance(ctx, "r1"); err != nil {
+			t.Fatal(err)
+		}
+		if f.targetReads != 0 {
+			t.Fatalf("ListRunTargets called %d times", f.targetReads)
+		}
+	})
 }

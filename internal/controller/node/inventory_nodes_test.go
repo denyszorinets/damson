@@ -118,3 +118,73 @@ func TestNodeSourceHostKeyPolicies(t *testing.T) {
 		}
 	}
 }
+
+// A node frozen into the run's targets is followed by id: after a rename the
+// step's name still reaches it; after a delete it is unknown. A name outside
+// the snapshot falls back to the name lookup.
+func TestNodeSourceFollowsFrozenID(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	n := put(t, s, "web-1", true)
+	put(t, s, "extra", true)
+	job, ver, err := s.CreateJob(ctx, store.NewJob{ProjectID: store.DefaultProjectID, Name: "j", Spec: []byte(`{}`), Checksum: "c"}, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := s.CreateRun(ctx, store.NewRun{
+		JobID: job.ID, JobVersionID: ver.ID,
+		Targets: []store.RunTarget{{Name: "web-1", NodeID: n.ID, Node: []byte(`{"name":"web-1"}`)}},
+	}, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed := n
+	renamed.Name = "web-renamed"
+	if err := s.ApplyNodeDiff(ctx, store.NodeDiff{Update: []store.NodeUpdate{{Node: renamed, Expected: n.Version}}}, t0); err != nil {
+		t.Fatal(err)
+	}
+	info, err := source(s, inventory.AllNodes{}, nil).Node(ctx, tree.ID, "web-1")
+	if err != nil || info.Name != "web-1" || info.Address != "10.0.0.1" {
+		t.Fatalf("renamed node = %+v, %v", info, err)
+	}
+	if _, err := source(s, inventory.AllNodes{}, nil).Node(ctx, tree.ID, "extra"); err != nil {
+		t.Fatalf("name outside the snapshot: %v", err)
+	}
+	cur, _ := s.GetNodeByID(ctx, n.ID)
+	if err := s.DeleteNode(ctx, cur.ID, cur.Version); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source(s, inventory.AllNodes{}, nil).Node(ctx, tree.ID, "web-1"); !errors.Is(err, dispatch.ErrUnknownNode) {
+		t.Fatalf("deleted: %v", err)
+	}
+}
+
+type nameScope struct{ deny string }
+
+func (n nameScope) Allows(_ context.Context, _ string, node store.Node) (bool, error) {
+	return node.Name != n.deny, nil
+}
+
+// The scope sees the node as it is now, not under the name the run froze.
+func TestNodeSourceScopeSeesCurrentName(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	n := put(t, s, "web-1", true)
+	job, ver, err := s.CreateJob(ctx, store.NewJob{ProjectID: store.DefaultProjectID, Name: "j", Spec: []byte(`{}`), Checksum: "c"}, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := s.CreateRun(ctx, store.NewRun{JobID: job.ID, JobVersionID: ver.ID,
+		Targets: []store.RunTarget{{Name: "web-1", NodeID: n.ID, Node: []byte(`{}`)}}}, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed := n
+	renamed.Name = "secret-box"
+	if err := s.ApplyNodeDiff(ctx, store.NodeDiff{Update: []store.NodeUpdate{{Node: renamed, Expected: n.Version}}}, t0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source(s, nameScope{deny: "secret-box"}, nil).Node(ctx, tree.ID, "web-1"); !errors.Is(err, dispatch.ErrUnknownNode) {
+		t.Fatalf("renamed into a denied name: %v; want ErrUnknownNode", err)
+	}
+}

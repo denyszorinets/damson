@@ -3,9 +3,7 @@ package dispatch_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -569,7 +567,18 @@ func TestForEachOverTargetsFromInventory(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		c := startClusterTargets(t, st, spec, &node.InventoryTargets{Store: st, Scope: inventory.AllNodes{}})
+		live, err := (&node.InventoryTargets{Store: st, Scope: inventory.AllNodes{}}).Targets(context.Background(), "default", nil, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The API applies spec.targets.selector (os == linux) when it freezes.
+		var linux []map[string]any
+		for _, n := range live {
+			if n["os"] == "linux" {
+				linux = append(linux, n)
+			}
+		}
+		c := startClusterTargets(t, st, spec, freeze(t, linux))
 		tree := c.waitRun(c.trigger("one"), store.RunSucceeded)
 		by := stepsByPath(tree)
 		for _, name := range []string{"web-01", "web-02"} {
@@ -586,55 +595,41 @@ func TestForEachOverTargetsFromInventory(t *testing.T) {
 	})
 }
 
-// flakyTargets fails a number of calls, then lists one node; it counts calls.
-type flakyTargets struct {
-	mu       sync.Mutex
-	calls    int
-	failures int
-}
-
-func (f *flakyTargets) Targets(context.Context, string) ([]map[string]any, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.calls++
-	if f.calls <= f.failures {
-		return nil, errors.New("inventory unavailable")
+// freeze turns `targets` maps into a run's frozen snapshot.
+func freeze(t *testing.T, nodes []map[string]any) []store.RunTarget {
+	t.Helper()
+	var out []store.RunTarget
+	for _, n := range nodes {
+		b, err := json.Marshal(n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, store.RunTarget{Name: n["name"].(string), NodeID: "id-" + n["name"].(string), Node: b})
 	}
-	return []map[string]any{{"name": "n1", "address": "10.0.0.1", "tags": []any{}, "attributes": map[string]any{}, "pool": "", "os": "linux", "transport": "ssh"}}, nil
+	return out
 }
 
-func (f *flakyTargets) count() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.calls
-}
-
-// A failing target source retries the advance instead of failing the run.
-func TestTargetsErrorRetriesTheAdvance(t *testing.T) {
+// A run reads the targets it froze when it started, not the live inventory:
+// a node added afterwards gets no lane.
+func TestRunUsesFrozenTargets(t *testing.T) {
 	spec := lanesSpec(`{"id":"per-node","type":"group","for_each":"targets","steps":[{"id":"install","plugin":"demo","with":{"word":"x"}}]}`)
 	forEachBackend(t, func(t *testing.T, st store.Store) {
-		src := &flakyTargets{failures: 2}
-		c := startClusterTargets(t, st, spec, src)
+		c := startClusterTargets(t, st, spec, freeze(t, []map[string]any{
+			{"name": "n1", "address": "10.0.0.1", "tags": []any{}, "attributes": map[string]any{}, "pool": "", "os": "linux", "transport": "ssh"}}))
+		// A node that appears after the run started gets no lane.
+		if _, err := st.CreateNode(context.Background(), store.Node{ID: "id-n2", Name: "n2", Address: "10.0.0.2", Port: 22,
+			Transport: "ssh", OS: "linux", HostKeyPolicy: "strict", Source: "manual", Enabled: true}, time.Now()); err != nil {
+			t.Fatal(err)
+		}
 		tree := c.waitRun(c.trigger("one"), store.RunSucceeded)
-		if by := stepsByPath(tree); by["per-node/for_each[n1]/install"].Status != store.StepSucceeded {
-			t.Fatalf("the lane did not run after the source recovered: %v", paths(tree))
+		by := stepsByPath(tree)
+		if by["per-node/for_each[n1]/install"].Status != store.StepSucceeded {
+			t.Fatalf("the frozen lane did not run: %v", paths(tree))
 		}
-		if src.count() < 3 {
-			t.Fatalf("source called %d times; want the failures retried", src.count())
-		}
-	})
-}
-
-// A job that cannot read `targets` never lists the inventory.
-func TestTargetsNotListedForJobsThatDoNotUseThem(t *testing.T) {
-	forEachBackend(t, func(t *testing.T, st store.Store) {
-		src := &flakyTargets{}
-		plain := `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"lin"},
-"spec":{"steps":[{"id":"s1","plugin":"demo","with":{"word":"one"}}]}}`
-		c := startClusterTargets(t, st, plain, src)
-		c.waitRun(c.trigger("one"), store.RunSucceeded)
-		if n := src.count(); n != 0 {
-			t.Fatalf("the inventory was listed %d times for a job without targets", n)
+		for p := range by {
+			if strings.Contains(p, "for_each[n2]") {
+				t.Fatalf("unexpected lane %s", p)
+			}
 		}
 	})
 }

@@ -175,10 +175,14 @@ Not yet implemented
 -------------------
 
 * Step timeout (``timeout_ms``).
-* Frozen run targets and routing from ``node.pool`` (:issue:`117`). Until then
-  ``targets`` is read live from the inventory (enabled nodes in the project's
-  scope, at most 1000, sorted by name) when the job can read it, so a node added
-  or disabled mid-run can appear or vanish. Nodes seeded by ``--dev-nodes``
-  (ADR-0044, see :doc:`/reference/cli`) are served the same way.
+* Routing from ``node.pool``.
+
+A step's node name is resolved through the run's frozen targets (ADR-0045). A
+name in the snapshot follows its frozen ``node_id`` (``GetNodeByID``), so a node
+renamed after the run started is still reached; ``NodeInfo.Name`` stays the
+requested name, and a deleted node fails as ``unknown node``. A name outside the
+snapshot is looked up by name. The scope check, the enabled check and the host
+key policy still apply to the current row, so the address, credential and host
+key are those at dispatch time.
 * A notify hint for dispatch and cancel (the 1 s and 2 s polls are the only triggers).
 * Retries (M3).

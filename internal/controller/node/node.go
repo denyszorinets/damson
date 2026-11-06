@@ -180,7 +180,6 @@ func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 	acfg := advance.Config{
 		Store: cfg.Store, Engine: eng, Logger: log, PollInterval: t.AdvancePoll, SweepInterval: t.AdvanceSweep,
 	}
-	acfg.Targets = &InventoryTargets{Store: cfg.Store, Scope: inventory.AllNodes{}}
 	if n.adv, err = advance.New(acfg); err != nil {
 		return fmt.Errorf("creating run advancer: %w", err)
 	}

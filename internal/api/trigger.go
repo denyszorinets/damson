@@ -168,12 +168,17 @@ func (d deps) newRun(ctx context.Context, job store.Job, ver store.JobVersion, s
 		ID: id, Status: engine.RunQueued, Trigger: triggerAPI, Inputs: opts,
 		Job: engine.JobInfo{Name: spec.Metadata.Name, Project: spec.Metadata.Project, Version: strconv.Itoa(ver.Version)},
 	}
+	var frozen []store.RunTarget
 	if d.targets != nil && engine.UsesTargets(spec) {
-		nodes, err := d.targets.Targets(ctx, spec.Metadata.Project)
-		if err != nil {
+		// One more than the limit, so an overflow is seen rather than cut off.
+		pick := func(page []map[string]any) []map[string]any { return d.eng.SelectTargets(spec, opts, page) }
+		var err error
+		if state.Targets, err = d.targets.Targets(ctx, spec.Metadata.Project, pick, store.MaxRunTargets+1); err != nil {
 			return store.NewRun{}, fmt.Errorf("listing targets: %w", err)
 		}
-		state.Targets = d.eng.SelectTargets(spec, opts, nodes)
+		if frozen, err = freezeTargets(state.Targets); err != nil {
+			return store.NewRun{}, err
+		}
 	}
 	actions, err := d.eng.Decide(spec, state, now)
 	if err != nil {
@@ -184,8 +189,28 @@ func (d deps) newRun(ctx context.Context, job store.Job, ver store.JobVersion, s
 	}
 	return store.NewRun{
 		ID: id, JobID: job.ID, JobVersionID: ver.ID, Trigger: trigger, Options: options,
-		Steps: initialSteps(actions),
+		Steps: initialSteps(actions), Targets: frozen,
 	}, nil
+}
+
+// freezeTargets turns the selected nodes into the run's frozen target list.
+// More than store.MaxRunTargets is refused: the run would not fit its lanes.
+func freezeTargets(nodes []map[string]any) ([]store.RunTarget, error) {
+	if len(nodes) > store.MaxRunTargets {
+		return nil, invalid(fmt.Sprintf("spec.targets matches more than %d nodes; a run takes at most %d", store.MaxRunTargets, store.MaxRunTargets),
+			ProblemDetail{Message: "too many nodes", Location: "spec.targets"})
+	}
+	out := make([]store.RunTarget, 0, len(nodes))
+	for _, n := range nodes {
+		name, _ := n["name"].(string)
+		id, _ := n["id"].(string)
+		b, err := json.Marshal(n)
+		if err != nil {
+			return nil, fmt.Errorf("encoding target %q: %w", name, err)
+		}
+		out = append(out, store.RunTarget{Name: name, NodeID: id, Node: b})
+	}
+	return out, nil
 }
 
 // checkStepInputs validates the resolved input of each step instance the run

@@ -48,11 +48,14 @@ Document layout
        everything below it) accepts only ``secret://`` references; see
        :ref:`job-spec-secret-options`.
    * - ``spec.targets.selector``
-     - A CEL expression over ``node`` (``name``, ``address``, ``tags``,
+     - A CEL expression over ``node`` (``id``, ``name``, ``address``, ``tags``,
        ``attributes``, ``pool``, ``os``, ``transport``) and ``inputs``; the nodes
        for which it is true are ``targets``. The nodes are the enabled inventory nodes
-       in the project's scope (at most 1000, sorted by name); nodes seeded from a
-       :ref:`dev nodes file <cli-dev-nodes>` are included. A node for which it fails does not match.
+       in the project's scope, sorted by name; nodes seeded from a
+       :ref:`dev nodes file <cli-dev-nodes>` are included. The selection is made once, when
+       the run is triggered, and frozen into the run (ADR-0045): later inventory changes do not
+       affect it. More than 1000 matches rejects the trigger with 422 at ``spec.targets``.
+       A node for which it fails does not match.
    * - ``spec.timeout``
      - Go duration (``30s``, ``10m``), positive. Covers the whole run from its
        start (time spent pending does not count). When it expires the run is
