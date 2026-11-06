@@ -84,6 +84,9 @@ func parseS3Connection(req pluginsdk.ExecRequest, ref string) (s3Connection, err
 		if perr != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || (u.Path != "" && u.Path != "/") {
 			return cn, pluginsdk.ValidationError("the s3 connection endpoint must be host[:port] or an http(s) URL without a path")
 		}
+		if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return cn, pluginsdk.ValidationError("the s3 connection endpoint must not carry credentials, a query or a fragment")
+		}
 		cn.endpoint, cn.secure = u.Host, u.Scheme == "https"
 	}
 	if v := f["path_style"]; v != "" {

@@ -110,7 +110,10 @@ spools only masked lines. Known limits: values shorter than 4 bytes; lines of 4
 characters or fewer inside multi-line values; secrets split across ``Log``
 calls; values the job transforms (hex, reversed, re-encoded); a compromised
 agent, which holds the plaintext anyway. Masking is defense in depth, not a
-guarantee.
+guarantee. One exception by design: the ``endpoint``, ``region`` and
+``path_style`` fields of an S3 connection secret (one with ``access_key`` and
+``secret_key``) are not masked when strictly shaped; anything failing the shape
+check is masked (:doc:`decisions/0051-non-secret-s3-connection-fields`).
 
 Rules (``CLAUDE.md`` hard rule 5):
 

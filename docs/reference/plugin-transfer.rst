@@ -249,7 +249,8 @@ secret):
    * - Field
      - Meaning
    * - ``endpoint``
-     - ``host[:port]`` or an ``http(s)`` URL without a path. Default
+     - ``host[:port]`` or an ``http(s)`` URL without a path, userinfo, query or
+       fragment (anything else is a validation error). Default
        ``s3.amazonaws.com``.
    * - ``region``
      - Bucket region.
@@ -294,12 +295,13 @@ error says the destination was written and is left in place.
 
 .. note::
 
-   The agent masks every value of the connection secret in logs and outputs, the
-   non-secret ones too (``endpoint``, ``region``, ``path_style``) when they are
-   four bytes or longer. An object key that contains the region name, such as
-   ``backups/eu-west-1/x``, shows up masked (``backups/***/x``) in the step log
-   and in the ``destination_key`` output. The object itself is stored under the
-   real key. Keep these words out of keys that later steps read from outputs.
+   The agent masks the connection secret's values in logs and outputs, except
+   ``endpoint``, ``region`` and ``path_style``: these are not masked when they
+   have the plain shape the plugin expects (ADR-0051), so a key such as
+   ``backups/eu-west-1/x`` stays readable. ``access_key``, ``secret_key`` and
+   ``session_token`` are always masked. A value that fails the shape check is
+   masked. Do not put secret material in ``region``, ``endpoint`` or
+   ``path_style``; if it matches the shape it is not masked.
 
 ``AccessDenied``, ``InvalidAccessKeyId``, ``SignatureDoesNotMatch`` and
 ``ExpiredToken`` are ``auth`` errors; ``NoSuchBucket``, invalid bucket or key

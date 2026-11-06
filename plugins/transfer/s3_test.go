@@ -153,6 +153,14 @@ func TestS3Problems(t *testing.T) {
 	c = s3Case(f, srv, to("bucket-one", "k"))
 	c.Bundle[s3Ref]["endpoint"] = "ftp://example.com"
 	requireKind(t, exec_(t, c), pluginsdk.KindValidation, "endpoint")
+	for _, bad := range []string{"https://user:hunter2pw@example.com", "https://example.com?x=1", "https://example.com#f"} {
+		c.Bundle[s3Ref]["endpoint"] = bad
+		o := exec_(t, c)
+		requireKind(t, o, pluginsdk.KindValidation, "endpoint")
+		if strings.Contains(o.Result.Error.Message, "hunter2pw") {
+			t.Fatal("the endpoint password reached the error")
+		}
+	}
 
 	c = s3Case(f, srv, to("bucket-one", "k"))
 	c.Bundle[s3Ref]["path_style"] = "maybe"

@@ -111,7 +111,9 @@ helper (temp ``WorkDir``) and the contract suite every plugin must pass:
   ``plugintest`` only; the ``pluginsdk`` package does not import it);
 - no secret value from ``Case.Secrets`` or ``Case.Bundle`` leaks into logs,
   progress, logger output, outputs or errors. The fake emitter does not mask, so
-  leaks are visible. The check is **plaintext only**; base64, URL-encoded and
+  leaks are visible. Every bundle field counts as a secret here, so the check
+  is deliberately stricter than the agent, which does not mask the S3
+  ``endpoint``, ``region`` and ``path_style`` (ADR-0051). The check is **plaintext only**; base64, URL-encoded and
   per-line variants are the agent masker's job (ARCHITECTURE section 9.4);
 - ``Execute`` returns promptly with a ``cancelled`` error for an
   already-cancelled context and, when ``Options.Blocking`` is set to an

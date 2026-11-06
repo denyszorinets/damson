@@ -159,6 +159,9 @@ change nothing until accepted.
    * - 0050
      - :doc:`0050-custom-binaries-with-damson-build`
      - Accepted
+   * - 0051
+     - :doc:`0051-non-secret-s3-connection-fields`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -213,3 +216,4 @@ change nothing until accepted.
    0048-plugins-that-target-several-nodes
    0049-winrm-transport-security-and-remote-execution
    0050-custom-binaries-with-damson-build
+   0051-non-secret-s3-connection-fields
