@@ -187,7 +187,7 @@ func TestAdvanceDecisions(t *testing.T) {
 					t.Fatalf("advance = %+v", adv)
 				}
 				ex := adv.NewSteps[0].Execution
-				if ex.Pool != DefaultPool || ex.Priority != 0 || !ex.ScheduledAt.Equal(t0) {
+				if ex.Pool != store.PoolByNode || ex.Priority != 0 || !ex.ScheduledAt.Equal(t0) {
 					t.Errorf("execution = %+v", ex)
 				}
 				if string(adv.NewSteps[0].Input) != `{"cmd":"one"}` {

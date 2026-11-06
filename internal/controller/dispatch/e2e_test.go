@@ -72,6 +72,11 @@ type cluster struct {
 	dsp     *dispatch.Dispatcher
 	// firstTimeout is the step timeout of the first execution trigger creates.
 	firstTimeout time.Duration
+	// execPool is the pool of the execution trigger creates; default advance.DefaultPool.
+	execPool string
+	wsURL    string
+	log      *slog.Logger
+	extra    []pluginsdk.Plugin
 }
 
 func startCluster(t *testing.T, st store.Store, spec string, opts ...func(*dispatch.Config)) *cluster {
@@ -196,7 +201,8 @@ func startClusterWith(t *testing.T, st store.Store, spec string, log *slog.Logge
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &cluster{t: t, st: st, adv: adv, jv: jv, dsp: dsp, targets: targets}
+	return &cluster{t: t, st: st, adv: adv, jv: jv, dsp: dsp, targets: targets, log: log, extra: extra,
+		wsURL: "ws" + strings.TrimPrefix(srv.URL, "http")}
 }
 
 // trigger creates a run the way the API does: the first step queued.
@@ -213,7 +219,7 @@ func (c *cluster) triggerInput(plugin, input string) string {
 		tree, err := tx.CreateRun(context.Background(), store.NewRun{
 			JobID: c.jv.JobID, JobVersionID: c.jv.ID, Trigger: json.RawMessage(`{"type":"manual"}`), Options: json.RawMessage(`{}`), Targets: c.targets,
 			Steps: []store.NewStepInstance{{Path: "s1", Plugin: plugin, Input: json.RawMessage(input),
-				Execution: &store.NewExecution{Pool: advance.DefaultPool, ScheduledAt: time.Now(), Timeout: c.firstTimeout}}},
+				Execution: &store.NewExecution{Pool: c.poolOrDefault(), ScheduledAt: time.Now(), Timeout: c.firstTimeout}}},
 		}, time.Now())
 		if err != nil {
 			return err
@@ -275,4 +281,44 @@ func (nodePlugin) Execute(_ context.Context, req pluginsdk.ExecRequest, emit plu
 	}
 	emit.Log(pluginsdk.Stdout, "node "+node.Address+" user "+cred["username"]+" token-len "+strconv.Itoa(len(tok)))
 	return pluginsdk.Result{Outputs: json.RawMessage(`{}`)}, nil
+}
+
+func (c *cluster) poolOrDefault() string {
+	if c.execPool != "" {
+		return c.execPool
+	}
+	return advance.DefaultPool
+}
+
+// addAgent starts a second agent in a new pool.
+func (c *cluster) addAgent(id, pool string, plugins ...pluginsdk.Plugin) {
+	c.t.Helper()
+	ctx := context.Background()
+	p, err := c.st.CreatePool(ctx, pool, "", t0)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	plain, hash, err := tokens.New()
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	if _, err := c.st.CreatePoolToken(ctx, p.ID, "t-"+pool, hash, t0); err != nil {
+		c.t.Fatal(err)
+	}
+	ag, err := agent.New(agent.Config{
+		ControllerURL: c.wsURL, Token: plain, AgentID: id, Pool: pool, Slots: 2,
+		Plugins: append([]pluginsdk.Plugin{demoPlugin{}, nodePlugin{}}, append(c.extra, plugins...)...), Logger: c.log, HeartbeatInterval: 50 * time.Millisecond,
+		ExecConfig: agent.ExecConfig{SpoolDir: c.t.TempDir(), WorkRoot: c.t.TempDir(), LogFlushInterval: 10 * time.Millisecond, CompleteRetry: 50 * time.Millisecond},
+	})
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	if err := ag.Start(ctx); err != nil {
+		c.t.Fatal(err)
+	}
+	c.t.Cleanup(func() {
+		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = ag.Stop(sctx)
+	})
 }

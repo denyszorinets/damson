@@ -10,7 +10,7 @@ import (
 )
 
 // DefaultPool is the pool of a step without runs_on.pool.
-const DefaultPool = "default"
+const DefaultPool = store.DefaultPool
 
 // toAdvance maps the engine's actions to one store change set. The actions of
 // a Decide call are applied together or not at all.
@@ -35,7 +35,7 @@ const DefaultPool = "default"
 //     already dispatched is cancelled by its owning controller, which sees
 //     runs.cancel_requested_at (slice 53c), so there is nothing to write;
 //   - the execution pool is runs_on.pool of the step in the job spec, else
-//     DefaultPool; priority is 0; ScheduleExecution.Timeout is stored on the
+//     store.PoolByNode (dispatch routes it to the pool of the node, ADR-0052); priority is 0; ScheduleExecution.Timeout is stored on the
 //     execution and sent to the agent, which enforces it.
 func toAdvance(acts []engine.Action, tree store.RunTree, job *engine.Job) (adv store.Advance, wakes []time.Time, err error) {
 	created := map[string]int{} // path -> index in adv.NewSteps
@@ -103,5 +103,6 @@ func poolFor(job *engine.Job, path string) string {
 	if s, ok := job.StepAt(path); ok && s.RunsOn != nil && s.RunsOn.Pool != "" {
 		return s.RunsOn.Pool
 	}
-	return DefaultPool
+	// The pool is decided at dispatch from the node the step targets.
+	return store.PoolByNode
 }

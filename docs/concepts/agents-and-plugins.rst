@@ -18,8 +18,8 @@ Each agent advertises:
   startup;
 - the manifests of every plugin compiled into its binary.
 
-A step runs on an agent from the pool chosen by ``runs_on`` or the target
-node's pool, that has the plugin at a compatible version and free capacity.
+A step runs on an agent from the pool chosen by ``runs_on.pool``, else the
+target node's pool, else ``default``, that has the plugin at a compatible version and free capacity.
 
 If a controller goes away, agents keep executing and reconnect to another one.
 If an agent goes away, its executions are marked ``lost`` when their lease

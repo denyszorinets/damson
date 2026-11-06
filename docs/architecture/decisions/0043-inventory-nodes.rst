@@ -97,6 +97,9 @@ same ``401`` text.
 Pool routing deferred
 ~~~~~~~~~~~~~~~~~~~~~
 
+*Superseded in part by*
+:doc:`0052-route-steps-by-node-pool-at-dispatch`: ``node.pool`` now routes.
+
 ``node.pool`` is validated and stored, but it does not route yet: ``runs_on``
 still defaults to the ``default`` pool. Routing from the node pool comes with
 frozen run targets (:issue:`117`).
@@ -167,7 +170,8 @@ Risks
 - Without ``if_version``, ``PATCH`` merges against the version it read and
   retries up to 3 times; a busy node can still end in ``409``.
 - ``node.pool`` is accepted but ignored for routing, which may surprise
-  operators until :issue:`117`.
+  operators until :issue:`117` (routing arrived with
+  :doc:`0052-route-steps-by-node-pool-at-dispatch`).
 
 Follow-up
 ~~~~~~~~~

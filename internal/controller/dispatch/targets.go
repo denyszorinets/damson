@@ -36,6 +36,14 @@ type NodeSource interface {
 	Node(ctx context.Context, runID, name string) (pluginsdk.NodeInfo, error)
 }
 
+// PoolSource is implemented by a NodeSource that knows the pool of a node. A
+// NodeSource without it routes every step to the default pool.
+type PoolSource interface {
+	// NodePool returns the pool of the node, "" if it has none, with the same
+	// errors as Node for a node that cannot be used.
+	NodePool(ctx context.Context, runID, name string) (string, error)
+}
+
 // SecretSource resolves one secret:// ref (without a "#field" part) to its
 // fields. Values exist only in the returned map: the dispatcher copies them
 // into the step.execute bundle and wipes them after the send.

@@ -77,6 +77,8 @@ func Run(t *testing.T, f Factory) {
 		{"Fencing", testFencing},
 		{"CompleteConcurrent", testCompleteConcurrent},
 		{"RequeueExecution", testRequeue},
+		{"RouteExecution", testRouteExecution},
+		{"ClaimIncludesNodeMarker", testClaimIncludesNodeMarker},
 		{"Leases", testLeases},
 		{"TxCompleteExecution", testTxCompleteExecution},
 		{"TxExpireLeases", testTxExpireLeases},

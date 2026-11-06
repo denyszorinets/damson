@@ -85,6 +85,19 @@ func (s *InventoryNodes) Node(ctx context.Context, runID, name string) (pluginsd
 	}, nil
 }
 
+// NodePool implements dispatch.PoolSource: the pool of the node a step names,
+// with the same scope, enabled and host key policy checks as Node.
+func (s *InventoryNodes) NodePool(ctx context.Context, runID, name string) (string, error) {
+	n, err := s.admit(ctx, runID, name)
+	if err != nil {
+		return "", err
+	}
+	if n.HostKeyPolicy == inventory.PolicyInsecure {
+		return "", dispatch.ErrHostKeyPolicy
+	}
+	return n.Pool, nil
+}
+
 // lookup finds the node a step names. A node frozen into the run's targets is
 // followed by id, so a rename after the run started still reaches it (and a
 // delete reads as unknown); a name outside the snapshot is looked up by name.
