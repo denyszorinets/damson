@@ -1,7 +1,8 @@
 Continuous integration
 ======================
 
-CI is a single GitHub Actions workflow, :repo:`.github/workflows/ci.yml`. It
+CI is the GitHub Actions workflow :repo:`.github/workflows/ci.yml`, plus the
+separate Windows workflow described at the end of this page. It
 runs on pull requests to ``develop`` and ``main`` and on pushes to those
 branches. It mirrors ``make check`` and adds the checks that need Docker, a
 clean checkout or extra tooling. Every job sets ``CI=1``, so ``make`` targets
@@ -82,3 +83,18 @@ Conventions
   golangci-lint v2 to get ``make lint`` inside ``make check``; without it the
   local run prints ``SKIPPED lint``.
 - Inspect results of a pull request with ``gh pr checks <number>``.
+
+WinRM on Windows
+----------------
+
+:repo:`.github/workflows/winrm-windows.yml` runs ``plugins/winrm/windows_test.go``
+(build tag ``winrmwindows``) on ``windows-latest`` against a real WinRM service:
+it creates a local administrator, a self-signed https listener on port 5986 with
+NTLM, and passes ``DAMSON_WINRM_HOST``, ``DAMSON_WINRM_PORT``,
+``DAMSON_WINRM_USER``, ``DAMSON_WINRM_PASSWORD`` and ``DAMSON_WINRM_CA_FILE`` to
+the test. It runs nightly, on ``workflow_dispatch`` and on pull requests that
+touch ``plugins/winrm``. It is not a required status check. To run it by hand::
+
+   gh workflow run "WinRM on Windows" --ref <branch>
+
+What it covers is listed in :doc:`/reference/plugin-winrm`.
