@@ -11,6 +11,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
+	"github.com/denyszorinets/damson/plugins/internal/sshconn"
 )
 
 // killGrace is how long a cancelled command gets to exit after SIGTERM before
@@ -32,7 +33,7 @@ type runResult struct {
 func run(ctx context.Context, client *ssh.Client, in Input, call remoteCall, emit pluginsdk.Emitter) (runResult, error) {
 	sess, err := client.NewSession()
 	if err != nil {
-		return runResult{}, ctxOr(ctx, pluginsdk.NewError(pluginsdk.KindConnection, "opening ssh session failed: "+err.Error(), err))
+		return runResult{}, sshconn.CtxOr(ctx, pluginsdk.NewError(pluginsdk.KindConnection, "opening ssh session failed: "+err.Error(), err))
 	}
 	defer func() { _ = sess.Close() }() // may already be closed by wait
 	if in.Pty {
@@ -56,7 +57,7 @@ func run(ctx context.Context, client *ssh.Client, in Input, call remoteCall, emi
 		}
 	}
 	if err := sess.Start(call.Command); err != nil {
-		return runResult{}, ctxOr(ctx, pluginsdk.NewError(pluginsdk.KindConnection, "starting remote command failed: "+err.Error(), err))
+		return runResult{}, sshconn.CtxOr(ctx, pluginsdk.NewError(pluginsdk.KindConnection, "starting remote command failed: "+err.Error(), err))
 	}
 
 	outC := &collector{emit: emit, stream: pluginsdk.Stdout, proto: true}

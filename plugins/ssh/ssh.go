@@ -11,10 +11,13 @@ import (
 	"log/slog"
 	"strings"
 
-	gossh "golang.org/x/crypto/ssh"
-
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
+	"github.com/denyszorinets/damson/plugins/internal/sshconn"
 )
+
+// ConfigAllowInsecureHostKeys is the ExecRequest.Config key that permits the
+// "insecure" host key policy. Its value must be "true".
+const ConfigAllowInsecureHostKeys = sshconn.ConfigAllowInsecureHostKeys
 
 // Plugins returns the plugins in this package.
 func Plugins() []pluginsdk.Plugin {
@@ -68,13 +71,13 @@ func execute(ctx context.Context, req pluginsdk.ExecRequest, emit pluginsdk.Emit
 		return pluginsdk.Result{}, err
 	}
 
-	client, hk, err := connect(ctx, req, node, in)
+	client, hk, err := sshconn.Dial(ctx, req, node, in.Credential)
 	if err != nil {
 		return pluginsdk.Result{}, err
 	}
 	defer func() { _ = client.Close() }() // may already be closed by run
-	logger(req).Debug("ssh connected", "node", node.Name, "host_key_policy", hk.policy)
-	reportHostKey(req, node, hk, emit)
+	logger(req).Debug("ssh connected", "node", node.Name, "host_key_policy", hk.Policy)
+	hk.Report(req, node, emit)
 
 	rr, runErr := run(ctx, client, in, call, emit)
 	res := pluginsdk.Result{}
@@ -90,19 +93,6 @@ func execute(ctx context.Context, req pluginsdk.ExecRequest, emit pluginsdk.Emit
 		return res, pluginsdk.ExitCodeError(rr.ExitCode, fmt.Sprintf("command exited with code %d", rr.ExitCode))
 	}
 	return res, nil
-}
-
-// reportHostKey hands a trust-on-first-use key to the host. A pinned key that
-// matched is not reported.
-func reportHostKey(req pluginsdk.ExecRequest, node pluginsdk.NodeInfo, hk *hostKeyCheck, emit pluginsdk.Emitter) {
-	switch {
-	case hk.policy == policyInsecure:
-		emit.Log(pluginsdk.System, "warning: host key of "+node.Name+" was not verified (insecure host key policy)")
-	case hk.policy == policyTofu && hk.pinned == nil && hk.observed != nil && req.HostKeys != nil:
-		line := strings.TrimSpace(string(gossh.MarshalAuthorizedKey(hk.observed)))
-		req.HostKeys.ReportHostKey(node.Name, line)
-		emit.Log(pluginsdk.System, "trusting host key "+gossh.FingerprintSHA256(hk.observed)+" of "+node.Name+" on first use")
-	}
 }
 
 // resolveEnv returns env with secret:// values resolved from the bundle.
