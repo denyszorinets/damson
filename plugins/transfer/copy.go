@@ -21,9 +21,12 @@ const (
 
 // result is what a finished transfer reports.
 type result struct {
-	Path   string
-	Bytes  int64
-	SHA256 string
+	Path      string
+	Bytes     int64
+	SHA256    string
+	ETag      string // S3 only
+	VersionID string // S3 only
+	Object    bool   // the destination is an object key, not a file path
 }
 
 // run copies one file from src to dst and, for move, deletes the source after
@@ -43,6 +46,9 @@ func run(ctx context.Context, in Input, srcPath, dstPath string, src, dst fileSy
 	if err := checkDestination(ctx, in, dst, dstPath); err != nil {
 		return result{}, err
 	}
+	if isDirect(dst) {
+		return runDirect(ctx, in, srcPath, dstPath, src, dst, srcInfo.Size, emit)
+	}
 	partial, err := partialName(dstPath)
 	if err != nil {
 		return result{}, err
@@ -57,12 +63,31 @@ func run(ctx context.Context, in Input, srcPath, dstPath string, src, dst fileSy
 		cleanup(partial)
 		return result{}, transferError(ctx, err, "moving the verified file into place failed")
 	}
+	return finishMove(ctx, in, src, srcPath, res)
+}
+
+// finishMove deletes the source of a move once the copy is verified. A failed
+// delete fails the step, with the result still reported.
+func finishMove(ctx context.Context, in Input, src fileSystem, srcPath string, res result) (result, error) {
 	if in.Mode == modeMove {
 		if err := src.Remove(ctx, srcPath); err != nil {
 			return res, transferError(ctx, err, "copied and verified; source not deleted")
 		}
 	}
 	return res, nil
+}
+
+// runDirect is run for a destination that writes its final path atomically
+// (S3). There is no partial file, so the destination is verified after the
+// write; a failed verification leaves the written object in place (what it
+// replaced cannot be restored) and says so, and a move keeps its source.
+func runDirect(ctx context.Context, in Input, srcPath, dstPath string, src, dst fileSystem, size int64, emit pluginsdk.Emitter) (result, error) {
+	res, err := copyToPartial(ctx, in, src, dst, srcPath, dstPath, size, emit)
+	if err != nil {
+		return result{}, err
+	}
+	res.Path, res.Object = dstPath, true
+	return finishMove(ctx, in, src, srcPath, res)
 }
 
 func statSource(ctx context.Context, src fileSystem, p string) (fileInfo, error) {
@@ -113,7 +138,7 @@ func copyToPartial(ctx context.Context, in Input, src, dst fileSystem, srcPath, 
 		return result{}, transferError(ctx, err, "opening the source failed")
 	}
 	defer func() { _ = r.Close() }()
-	w, err := dst.Create(ctx, partial, size)
+	w, err := dst.Create(ctx, partial, size, in.Overwrite)
 	if err != nil {
 		return result{}, transferError(ctx, err, "creating the destination failed")
 	}
@@ -123,15 +148,19 @@ func copyToPartial(ctx context.Context, in Input, src, dst fileSystem, srcPath, 
 	closeErr := w.Close()
 	switch {
 	case copyErr != nil:
-		return result{}, transferError(ctx, copyErr, "copying failed")
+		return result{}, directNote(w, dst, transferError(ctx, copyErr, "copying failed"))
 	case closeErr != nil:
-		return result{}, transferError(ctx, closeErr, "finishing the destination failed")
+		return result{}, directNote(w, dst, transferError(ctx, closeErr, "finishing the destination failed"))
 	}
 	sum := hex.EncodeToString(h.Sum(nil))
-	if err := verify(ctx, in.Verify, dst, partial, size, n, sum); err != nil {
-		return result{}, err
+	res := result{Bytes: n, SHA256: sum}
+	if oi, ok := w.(objectInfoer); ok {
+		res.ETag, res.VersionID = oi.ObjectInfo()
 	}
-	return result{Bytes: n, SHA256: sum}, nil
+	if err := verify(ctx, in.Verify, dst, partial, size, n, sum); err != nil {
+		return result{}, directNote(w, dst, err)
+	}
+	return res, nil
 }
 
 // verify checks the partial file before it is renamed into place, so a failed
@@ -230,3 +259,22 @@ func (p *progressReader) Read(b []byte) (int, error) {
 }
 
 func itoa(n int64) string { return fmt.Sprint(n) }
+
+// directNote adds "the destination was written and is left in place" to a
+// failure of a direct destination whose object was already stored (it has an
+// ETag): a late failure, or a failed verification. Nothing restores what it
+// replaced.
+func directNote(w io.WriteCloser, dst fileSystem, err error) error {
+	oi, ok := w.(objectInfoer)
+	if !ok || !isDirect(dst) {
+		return err
+	}
+	if etag, _ := oi.ObjectInfo(); etag == "" {
+		return err
+	}
+	se := pluginsdk.AsStepError(err)
+	if se.Kind == pluginsdk.KindCancelled {
+		return err
+	}
+	return pluginsdk.NewError(se.Kind, se.Message+" (the destination was written and is left in place)", se)
+}

@@ -52,7 +52,7 @@ Damson is an open-source job orchestrator in the spirit of Rundeck and a modern,
 | Expressions | **CEL** (`github.com/google/cel-go`) | Conditions, selectors, interpolation, authz, webhook mapping |
 | JSON Schema | `github.com/invopop/jsonschema` (generate) + `github.com/santhosh-tekuri/jsonschema/v6` (validate) | Plugin inputs and outputs, job options |
 | Secrets | DB backend (AES-256-GCM envelope) / **OpenBao** (`github.com/openbao/openbao/api`) | |
-| Log storage | `fs` / `db` / `s3` backends (`aws-sdk-go-v2` S3 client, S3-compatible endpoints) | |
+| Log storage | `fs` / `db` / `s3` backends (`minio-go` S3 client, shared with the `transfer` plugin; S3-compatible endpoints) | |
 | SSH / SFTP | `golang.org/x/crypto/ssh`, `github.com/pkg/sftp` | SCP implemented over an SSH session |
 | WinRM | `github.com/masterzen/winrm` | HTTPS, Basic/NTLM in v1 |
 | FTP / FTPS | `github.com/jlaffaye/ftp` | |
@@ -525,24 +525,26 @@ type StepError struct {
 
 One plugin covers server-to-server copies *and* S3 in both directions. It uses `TargetMode = nodes` with `NodePaths` `/source/node/name` and `/destination/node/name`; an S3 endpoint has no node and is skipped (ADR-0048).
 
-**Status:** implemented are node endpoints with protocol `sftp` (#144), `scp` (#145), `ftp` or `ftps` (#146). `s3` (#147) is planned; the contract below describes the target state. Details of what runs today: `docs/reference/plugin-transfer.rst`.
+**Status:** all protocols are implemented: `sftp` (#144), `scp` (#145), `ftp` or `ftps` (#146), and `s3` (#147). Details of what runs today: `docs/reference/plugin-transfer.rst`.
 
 - **Input:**
   - `mode` is `copy` or `move`.
   - `source` and `destination` each take **one** of:
     - `node: {name, protocol: sftp|scp|ftp|ftps, path}`
-    - `s3: {connection, bucket, key}`, where `connection` is a secret ref holding endpoint, region, access key, secret key, and path-style flag
-  - `verify` is `none`, `size`, or `sha256` (default `size`). The check runs on the partial file before the rename. `size` requires source size = bytes streamed = destination size; `sha256` also re-reads the written file and compares digests (doubling destination reads). A failure is an `internal` error `verification failed: ...`.
+    - `s3: {connection, bucket, key}`, where `connection` is a `secret://` ref (a literal is rejected) with fields `endpoint`, `region`, `access_key`, `secret_key` (required), and optional `session_token` and `path_style`. S3 and node endpoints can be mixed; `s3` to `s3` needs no node
+  - `verify` is `none`, `size`, or `sha256` (default `size`). The check runs on the partial file before the rename; on an S3 destination it runs after the write (see below). `size` requires source size = bytes streamed = destination size; `sha256` also re-reads the written file and compares digests (doubling destination reads). A failure is an `internal` error `verification failed: ...`.
   - `overwrite` (bool, default false). Without it an existing destination is a validation error, and the final rename is a plain SFTP rename that fails if the target exists (closing the race after the check). With it the rename is `posix-rename`. An SCP destination has no atomic no-clobber rename: existence is re-checked (`[ -e ]`) just before the rename, which is best effort, and `overwrite` uses `mv -f`.
   - `mkdirs` (bool).
 - **Behavior:**
   - Streaming: `io.Pipe` from the source reader to the destination writer, with the SHA-256 computed in-stream. **No temporary files.**
-  - Atomic write: upload to `<path>.damson-partial-<8 random hex>` (a fresh suffix per attempt, because a lost attempt and its retry could otherwise write the same file; deleted best effort on failure or cancel), then rename. The manifest is `Idempotent=false` (ADR-0048). S3 PUT is already atomic. Multipart is used for objects larger than 64 MiB.
+  - Atomic write: upload to `<path>.damson-partial-<8 random hex>` (a fresh suffix per attempt, because a lost attempt and its retry could otherwise write the same file; deleted best effort on failure or cancel), then rename. The manifest is `Idempotent=false` (ADR-0048). Multipart is used for objects larger than 64 MiB.
+  - S3 destination: a PUT is atomic per object, so there is no partial key and no rename (a temp key plus server-side copy would not work above 5 GiB). The object is written to the final key and then verified (`size`: HEAD size equals bytes streamed; `sha256`: re-read and hashed). A failed verification is `internal` `verification failed ... (the destination was written and is left in place)`; a replaced object cannot be restored (use a versioned bucket) and a move keeps its source. With `overwrite=false` a stat check runs first and the PUT carries `If-None-Match: *` (412 is validation `destination exists`) on servers that support conditional writes. `mkdirs` is a no-op. Objects up to 64 MiB are one PUT; larger ones use multipart with 64 MiB parts, each buffered in agent memory (about 64 MiB per S3 destination transfer).
   - If `path` ends with `/`, the source file name is appended.
   - `move` = copy, then verify, then delete the source. The source is deleted only after verification passes and the destination is in place. If the delete fails the step fails with `copied and verified; source not deleted` and the outputs stay set; the destination is never deleted. A move retried after the source is gone fails with `source not found`.
-- **Output:** `destination_path` (or `destination_key`), `bytes`, `sha256`; `etag` and `version_id` only with S3 (planned, #147).
+- **Output:** `destination_path` (or `destination_key`), `bytes`, `sha256`; `etag` and `version_id` (when versioned) only with an S3 destination.
 - **v1 scope:** a single file per step. Globs and directories come in v1.1.
 - **FTP/FTPS:** the FTP port comes from the node attribute `ftp_port` (default 21, 990 for implicit), because `NodeInfo.Port` is the SSH port; `ftps_mode: implicit` selects implicit TLS, otherwise explicit TLS. Credentials need `password` and a `username` (a credential field, else the node attribute `username`); there is no anonymous login. The server certificate is always verified against the system roots plus `agent.ftps_ca_file`; there is no skip-verify. Details: `docs/reference/plugin-transfer.rst`.
+- **S3 connection:** client `github.com/minio/minio-go/v7` (Apache-2.0). `endpoint` is host[:port] or an http(s) URL without a path (default `s3.amazonaws.com`); `path_style` is `true`/`false` (default auto). A plain `http://` endpoint logs a warning per step; TLS uses the system roots only. Errors: `AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `ExpiredToken` are `auth`; `NoSuchBucket`, invalid names and a missing source are `validation`; network failures are `connection`. A source key ending in `/` is a validation error; a destination key ending in `/` gets the source file name appended. A move from S3 deletes the object only after verification.
 - **Windows targets:** use SFTP via Windows OpenSSH. WinRM-based file copy is out of scope.
 
 ### 6.4 `ansible`
@@ -872,7 +874,7 @@ Action = CreateStepInstance | ScheduleExecution | SettleStep | SkipStep | Comple
   - `password`: `username`, `password` (required).
   - `ssh_key`: `username`, `private_key` (required, multiline), `passphrase`.
   - `token`: `token` (required).
-  - Other types (`s3`, `registry`, `kubeconfig`) are not implemented yet.
+  - Other types (`s3`, `registry`, `kubeconfig`) are not implemented yet. Until `s3` is, an S3 connection for the `transfer` plugin is a `generic` secret with the fields listed in section 6.3.
 - Limits: 64 KiB per field, 256 KiB per secret, 32 fields.
 
 ### 9.2 Backends

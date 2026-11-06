@@ -37,6 +37,24 @@ type Input struct {
 // Endpoint is one side of a transfer. Exactly one field is set.
 type Endpoint struct {
 	Node *NodeEndpoint `json:"node,omitempty" jsonschema:"description=A file on an inventory node"`
+	S3   *S3Endpoint   `json:"s3,omitempty" jsonschema:"description=An object in an S3-compatible bucket"`
+}
+
+// S3Endpoint is an object in a bucket. Connection is a secret ref whose
+// fields are endpoint, region, access_key, secret_key and optionally
+// session_token and path_style.
+type S3Endpoint struct {
+	Connection string `json:"connection" jsonschema:"description=Secret ref of the connection (fields: endpoint, region, access_key, secret_key, optional session_token and path_style),minLength=1,pattern=^secret://"`
+	Bucket     string `json:"bucket" jsonschema:"description=Bucket name,minLength=1"`
+	Key        string `json:"key" jsonschema:"description=Object key (for a destination, a key ending in / gets the source file name appended),minLength=1"`
+}
+
+// path is the file path or object key of the endpoint.
+func (e Endpoint) path() string {
+	if e.S3 != nil {
+		return e.S3.Key
+	}
+	return e.Node.Path
 }
 
 // NodeEndpoint is a file on an inventory node, reached with a file transfer
@@ -49,9 +67,12 @@ type NodeEndpoint struct {
 
 // Output is the transfer plugin output.
 type Output struct {
-	DestinationPath string `json:"destination_path" jsonschema:"description=Path written on the destination node"`
+	DestinationPath string `json:"destination_path,omitempty" jsonschema:"description=Path written on the destination node (node destinations)"`
+	DestinationKey  string `json:"destination_key,omitempty" jsonschema:"description=Object key written (S3 destinations)"`
 	Bytes           int64  `json:"bytes" jsonschema:"description=Bytes transferred"`
 	SHA256          string `json:"sha256" jsonschema:"description=Hex SHA-256 of the transferred bytes"`
+	ETag            string `json:"etag,omitempty" jsonschema:"description=ETag of the stored object (S3 destinations)"`
+	VersionID       string `json:"version_id,omitempty" jsonschema:"description=Version id of the stored object when the bucket is versioned (S3 destinations)"`
 }
 
 // decode parses and validates the input. Unknown fields are rejected.
@@ -85,17 +106,25 @@ func (in Input) validate() error {
 	if err := in.Destination.validate("destination"); err != nil {
 		return err
 	}
-	if strings.HasSuffix(in.Source.Node.Path, "/") {
+	if strings.HasSuffix(in.Source.path(), "/") {
 		return pluginsdk.ValidationError("source path must name a file: a step moves a single file")
 	}
 	return nil
 }
 
 func (e Endpoint) validate(which string) error {
-	if e.Node == nil {
-		return pluginsdk.ValidationError("%s needs a node", which)
+	switch {
+	case e.Node != nil && e.S3 != nil:
+		return pluginsdk.ValidationError("%s takes a node or s3, not both", which)
+	case e.S3 != nil:
+		return e.S3.validate(which)
+	case e.Node != nil:
+		return e.Node.validate(which)
 	}
-	n := e.Node
+	return pluginsdk.ValidationError("%s needs a node or s3", which)
+}
+
+func (n *NodeEndpoint) validate(which string) error {
 	switch {
 	case n.Name == "":
 		return pluginsdk.ValidationError("%s node name is required", which)
@@ -109,11 +138,28 @@ func (e Endpoint) validate(which string) error {
 	return nil
 }
 
-// destinationPath applies the trailing-slash rule: a directory path gets the
-// source file name appended.
-func destinationPath(dest, source string) string {
-	if strings.HasSuffix(dest, "/") {
-		return dest + path.Base(source)
+func (s *S3Endpoint) validate(which string) error {
+	switch {
+	case !strings.HasPrefix(s.Connection, "secret://") || strings.ContainsAny(s.Connection, "\x00\r\n"):
+		return pluginsdk.ValidationError("%s s3 connection must be a secret:// ref", which)
+	case s.Bucket == "" || strings.ContainsAny(s.Bucket, "/\x00\r\n"):
+		return pluginsdk.ValidationError("%s s3 bucket is required and must be a bucket name", which)
+	case s.Key == "" || strings.HasPrefix(s.Key, "/") || strings.ContainsAny(s.Key, "\x00\r\n"):
+		return pluginsdk.ValidationError("%s s3 key must be a non-empty single-line key without a leading /", which)
 	}
-	return path.Clean(dest)
+	return nil
+}
+
+// destinationPath applies the trailing-slash rule: a directory path (or key
+// prefix) gets the source file name appended. A node path is cleaned; an
+// object key is used as written.
+func destinationPath(dest Endpoint, source string) string {
+	p := dest.path()
+	if strings.HasSuffix(p, "/") {
+		return p + path.Base(source)
+	}
+	if dest.S3 != nil {
+		return p
+	}
+	return path.Clean(p)
 }

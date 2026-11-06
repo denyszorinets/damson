@@ -302,7 +302,7 @@ func (f *ftpFS) Open(_ context.Context, p string) (io.ReadCloser, error) {
 
 // Create stores a file with STOR, fed through a pipe because the library pulls
 // from a reader.
-func (f *ftpFS) Create(_ context.Context, p string, size int64) (io.WriteCloser, error) {
+func (f *ftpFS) Create(_ context.Context, p string, size int64, _ bool) (io.WriteCloser, error) {
 	pr, pw := io.Pipe()
 	w := &ftpWriter{pw: pw, left: size, done: make(chan error, 1)}
 	go func() {

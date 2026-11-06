@@ -1,16 +1,17 @@
 transfer plugin
 ===============
 
-The ``transfer`` plugin copies or moves one file between two inventory nodes.
+The ``transfer`` plugin copies or moves one file between two endpoints: inventory nodes (SFTP, SCP,
+FTP, FTPS) or S3 objects.
 It is a built-in plugin in ``plugins/transfer``, written against the public
 plugin SDK only (:doc:`/development/plugin-sdk`). Design: ARCHITECTURE
 section 6.3.
 
 .. note::
 
-   Node endpoints with protocol ``sftp``, ``scp``, ``ftp`` or ``ftps`` exist.
-   S3 endpoints (#147) are planned and are not accepted yet: any other
-   protocol is a validation error.
+   All protocols are implemented: node endpoints with ``sftp``, ``scp``,
+   ``ftp`` or ``ftps``, and ``s3`` endpoints. Any other protocol is a
+   validation error.
 
 .. list-table::
    :widths: 25 75
@@ -43,7 +44,8 @@ Input
        was verified.
    * - ``source``
      - endpoint, required
-     - ``{"node": {"name", "protocol", "path"}}``. ``name`` is a node of the
+     - ``{"node": {"name", "protocol", "path"}}`` or
+       ``{"s3": {"connection", "bucket", "key"}}`` (see S3). ``name`` is a node of the
        step, ``protocol`` is ``sftp``, ``scp``, ``ftp`` or ``ftps``, ``path`` is an absolute path of a file.
        A path ending in ``/`` is a validation error.
    * - ``destination``
@@ -74,6 +76,10 @@ Output
      - Meaning
    * - ``destination_path``
      - Path written on the destination node (after the trailing-slash rule).
+   * - ``destination_key``
+     - Object key written on an S3 destination (instead of ``destination_path``).
+   * - ``etag``, ``version_id``
+     - S3 destinations only; ``version_id`` only when the bucket is versioned.
    * - ``bytes``
      - Bytes transferred.
    * - ``sha256``
@@ -219,6 +225,86 @@ and the partial file is removed over a new connection.
 A certificate or TLS handshake problem is a ``connection`` error; a server
 rejecting the login is an ``auth`` error. Tests run against an in-process
 server (``github.com/fclairamb/ftpserverlib``, MIT), not containers.
+
+S3
+--
+
+``s3: {connection, bucket, key}`` is accepted on the source and the
+destination and may be mixed with node endpoints. ``s3`` to ``s3`` needs no
+node: the step has no node, only the secret. The client library is
+``github.com/minio/minio-go/v7`` (Apache-2.0).
+
+``connection`` is a ``secret://`` reference; a literal value is rejected at
+validation. A typed ``s3`` secret does not exist yet, so store the connection as
+a ``generic`` secret with these fields (an FTP credential is a ``password``
+secret):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Field
+     - Meaning
+   * - ``endpoint``
+     - ``host[:port]`` or an ``http(s)`` URL without a path. Default
+       ``s3.amazonaws.com``.
+   * - ``region``
+     - Bucket region.
+   * - ``access_key``, ``secret_key``
+     - Required.
+   * - ``session_token``
+     - Optional.
+   * - ``path_style``
+     - Optional, ``"true"`` or ``"false"``; default auto.
+
+A plain ``http://`` endpoint writes a warning to the step log per step. TLS
+uses the system roots only; there is no private CA setting for S3 yet. The
+secret and the keys are masked by the agent and never appear in errors.
+
+A source key ending in ``/`` is a validation error. A destination key ending in
+``/`` gets the source file name appended. ``mkdirs`` is a no-op.
+
+An S3 destination differs from a node: a PUT is atomic per object, so there is
+no partial key and no rename (a temporary key plus a server-side copy would not
+work above 5 GiB). The object is written to the final key and verified after
+the write: ``size`` compares the ``HEAD`` size with the bytes streamed,
+``sha256`` re-reads the object and hashes it. If verification fails the step
+fails with an ``internal`` error ``verification failed ... (the destination was
+written and is left in place)``. What it replaced cannot be restored (use a
+versioned bucket if that matters), and a ``move`` keeps its source.
+
+With ``overwrite: false`` the destination is checked by stat first, and the PUT
+carries ``If-None-Match: *``, so S3 itself refuses to replace an object (HTTP
+412, validation ``destination exists``) on servers that support conditional
+writes.
+
+An object up to 64 MiB is one PUT; larger objects use multipart with 64 MiB
+parts, or larger parts for an object above about 640 GiB (S3 allows 10000
+parts). Each part is buffered in memory while it is sent, so budget about 64 MiB
+of agent memory per S3 destination transfer, more for objects above 640 GiB.
+Cancel aborts the in-flight requests; the client aborts an incomplete multipart
+upload in the background (up to a minute), and the step waits at most 10 seconds
+for it. A ``move`` from S3 deletes the object only after the copy was verified.
+If the upload fails after S3 stored the object (for example the source grew), the
+error says the destination was written and is left in place.
+
+.. note::
+
+   The agent masks every value of the connection secret in logs and outputs, the
+   non-secret ones too (``endpoint``, ``region``, ``path_style``) when they are
+   four bytes or longer. An object key that contains the region name, such as
+   ``backups/eu-west-1/x``, shows up masked (``backups/***/x``) in the step log
+   and in the ``destination_key`` output. The object itself is stored under the
+   real key. Keep these words out of keys that later steps read from outputs.
+
+``AccessDenied``, ``InvalidAccessKeyId``, ``SignatureDoesNotMatch`` and
+``ExpiredToken`` are ``auth`` errors; ``NoSuchBucket``, invalid bucket or key
+names and a missing source object are ``validation`` errors; network failures
+are ``connection`` errors. Any other answer is classified by its HTTP status:
+403 is ``auth``, other 4xx (except 408 and 429) are ``validation`` because a
+retry cannot fix them, and 5xx, throttling and timeouts are ``connection``. Tests use an in-process fake S3
+(``github.com/johannesboyne/gofakes3``, MIT) plus a MinIO container for
+multipart, conditional put and versioning (``integration`` tag).
 
 Connections and host keys
 -------------------------
