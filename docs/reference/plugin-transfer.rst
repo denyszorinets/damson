@@ -176,6 +176,8 @@ not used.
 .. warning::
 
    Plain ``ftp`` sends the password and the data in clear text. Use ``ftps``.
+   It is refused (a ``validation`` error) unless the operator sets
+   ``agent.allow_plain_ftp`` (``DAMSON_AGENT__ALLOW_PLAIN_FTP``) on the agent.
    Every plain ``ftp`` endpoint writes a warning to the step log.
 
 ``ftps`` never falls back to clear text: a server that does not accept ``AUTH

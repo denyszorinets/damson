@@ -66,6 +66,12 @@ func pluginConfig(cfg config.Agent) (map[string]map[string]string, error) {
 	if cfg.AllowInsecureWinRM {
 		out["winrm"] = map[string]string{winrm.ConfigAllowInsecureWinRM: "true"}
 	}
+	if cfg.AllowPlainFTP {
+		if out["transfer"] == nil {
+			out["transfer"] = map[string]string{}
+		}
+		out["transfer"][transfer.ConfigAllowPlainFTP] = "true"
+	}
 	if cfg.TLSCAFile != "" {
 		pem, err := os.ReadFile(cfg.TLSCAFile)
 		if err != nil {

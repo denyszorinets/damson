@@ -29,6 +29,10 @@ const statusUserNotAccepted = 430
 // (a private PKI). There is no way to skip verification.
 const ConfigTLSCAPEM = tlsroots.ConfigKey
 
+// ConfigAllowPlainFTP is the ExecRequest.Config key that permits protocol
+// "ftp" (no encryption). The agent sets it from agent.allow_plain_ftp.
+const ConfigAllowPlainFTP = "allow_plain_ftp"
+
 const (
 	protoFTP  = "ftp"
 	protoFTPS = "ftps"
@@ -62,6 +66,9 @@ type ftpTarget struct {
 func ftpTargetFor(req pluginsdk.ExecRequest, node pluginsdk.NodeInfo, proto string) (ftpTarget, error) {
 	t := ftpTarget{}
 	port := defaultFTPPort
+	if proto == protoFTP && req.Config[ConfigAllowPlainFTP] != "true" {
+		return t, pluginsdk.ValidationError("plain ftp is not enabled on this agent (agent.allow_plain_ftp); use ftps")
+	}
 	if proto == protoFTPS {
 		mode, _ := node.Attributes["ftps_mode"].(string)
 		switch mode {

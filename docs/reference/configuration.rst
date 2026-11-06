@@ -145,6 +145,12 @@ written as a double underscore: ``agent.controller_url`` is
      - Let the ``winrm`` plugin use ``transport: http`` and
        ``insecure_skip_verify``. Environment variable
        ``DAMSON_AGENT__ALLOW_INSECURE_WINRM`` (:doc:`/reference/plugin-winrm`).
+   * - ``agent.allow_plain_ftp``
+     - agent
+     - ``false``
+     - Let the ``transfer`` plugin use ``protocol: ftp`` (clear text). Without it
+       plain ftp is refused. Environment variable
+       ``DAMSON_AGENT__ALLOW_PLAIN_FTP`` (:doc:`/reference/plugin-transfer`).
    * - ``agent.tls_ca_file``
      - agent
      - empty
