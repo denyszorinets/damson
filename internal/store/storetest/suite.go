@@ -52,6 +52,7 @@ func Run(t *testing.T, f Factory) {
 		{"NodeSyncRace", testNodeSyncRace},
 		{"NodeBatch", testNodeBatch},
 		{"RunTargets", testRunTargets},
+		{"SecretsRewrap", testSecretsRewrap},
 		{"ObservedHostKey", testObservedHostKey},
 		{"ObservedHostKeyRace", testObservedHostKeyRace},
 		{"LeaderAcquireRace", testLeaderAcquireRace},

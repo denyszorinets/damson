@@ -122,3 +122,34 @@ func (k *Keyring) Open(scope, name string, version int64, s Sealed) (map[string]
 	}
 	return fields, nil
 }
+
+// Rewrap unwraps the DEK of version of scope/name with the key it was
+// wrapped under (the active or the previous one) and wraps it again under the
+// active key. The data ciphertext is untouched. A row already under the active
+// key is returned as it is.
+func (k *Keyring) Rewrap(rand io.Reader, scope, name string, version int64, kekID string, wrappedDEK []byte) (newKEKID string, wrapped []byte, err error) {
+	if kekID == k.activeID {
+		return kekID, wrappedDEK, nil
+	}
+	old, ok := k.key(kekID)
+	if !ok {
+		return "", nil, ErrUnknownKEK
+	}
+	w, err := gcm(old)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(wrappedDEK) < w.NonceSize() {
+		return "", nil, ErrDecrypt
+	}
+	dek, err := w.Open(nil, wrappedDEK[:w.NonceSize()], wrappedDEK[w.NonceSize():], wrapAAD(scope, name, version, kekID))
+	if err != nil {
+		return "", nil, ErrDecrypt
+	}
+	defer clear(dek)
+	wrapped, err = k.wrap(rand, k.active, k.activeID, scope, name, version, dek)
+	if err != nil {
+		return "", nil, err
+	}
+	return k.activeID, wrapped, nil
+}

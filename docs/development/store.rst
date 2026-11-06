@@ -198,6 +198,12 @@ interface is ``SecretStore`` (``internal/store/secrets.go``), part of
    cursor; an empty scope lists all. It never selects encrypted columns.
 ``DeleteSecret``
    Removes the secret and all its versions; ``ErrNotFound``.
+``ListSecretVersionsNotUnder``
+   Keyset pagination on ``(secret_id, version)`` over versions whose
+   ``kek_id`` differs from the given one; used by ``rotate-kek``.
+``RewrapSecretVersion``
+   Replaces ``wrapped_dek`` and ``kek_id`` of one version only if it still has
+   the old ``kek_id``; returns whether a row changed.
 
 Nodes (migration 00011)
 -----------------------

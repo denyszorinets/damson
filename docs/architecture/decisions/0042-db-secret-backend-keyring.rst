@@ -72,7 +72,10 @@ The ``instance_settings`` key ``secrets.kek_canary`` holds JSON
    * - Canary opens with neither
      - The controller refuses to start, naming ``kek_id`` values only.
 
-``damson admin rotate-kek`` ships later in M4 (:issue:`119`).
+``damson admin rotate-kek`` (:issue:`119`) re-wraps every secret version whose
+``kek_id`` is not the active one, with the old key from the previous-key
+setting, one compare-and-swap ``UPDATE`` per row, then moves the canary last
+and only if nothing failed. Runbook: :ref:`cli-rotate-kek`.
 
 Schema (migration 00010)
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -133,7 +136,7 @@ The db backend is the secret source when a KEK is configured and
 Out of scope
 ~~~~~~~~~~~~
 
-The UI, ``rotate-kek`` (:issue:`119`) and controller re-masking on ingest
+The UI and controller re-masking on ingest
 (:issue:`120`). The last remains an accepted gap, as in ADR-0034.
 
 Refs are authorized by project scope (ARCHITECTURE 9.1, :issue:`114`); see
@@ -206,7 +209,7 @@ Risks
 Follow-up
 ~~~~~~~~~
 
-- ``damson admin rotate-kek`` (:issue:`119`), the UI and controller
+- The UI and controller
   re-masking (:issue:`120`).
 
 Until M8 the admin token is one shared credential: there are no per-user

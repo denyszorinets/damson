@@ -142,7 +142,9 @@ that window.
 Each ciphertext is bound to its scope, name and version (and the wrap to the
 ``kek_id``) through authenticated data, so copying it to another row fails to
 decrypt. A controller refuses to start with a KEK that does not match the
-stored canary. See :doc:`decisions/0042-db-secret-backend-keyring`.
+stored canary. ``damson admin rotate-kek`` re-wraps the data keys under a new
+KEK without touching the ciphertext; it needs the old key in
+``DAMSON_KEK_PREVIOUS`` and is described in :ref:`cli-rotate-kek`. See :doc:`decisions/0042-db-secret-backend-keyring`.
 
 Other controls
 --------------

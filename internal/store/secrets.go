@@ -48,6 +48,14 @@ type SecretStore interface {
 	// ListSecrets pages by (scope, name). An empty scope lists all scopes;
 	// afterScope/afterName is the keyset cursor. It never returns encrypted bytes.
 	ListSecrets(ctx context.Context, scope, afterScope, afterName string, limit int) ([]SecretMeta, error)
+	// ListSecretVersionsNotUnder pages (by secret id, version) through the
+	// versions whose DEK is not wrapped under kekID, for rotate-kek. It never
+	// returns the data ciphertext.
+	ListSecretVersionsNotUnder(ctx context.Context, kekID, afterSecretID string, afterVersion int64, limit int) ([]WrappedVersion, error)
+	// RewrapSecretVersion replaces the wrapped DEK and kek_id of one version if
+	// it is still wrapped under oldKEKID, and reports whether it did (false:
+	// already rotated, or the secret was deleted).
+	RewrapSecretVersion(ctx context.Context, secretID string, version int64, oldKEKID, newKEKID string, wrappedDEK []byte) (bool, error)
 	// DeleteSecret removes the secret and all its versions, or returns ErrNotFound.
 	DeleteSecret(ctx context.Context, scope, name string) error
 }
@@ -68,4 +76,14 @@ func DecodeFieldNames(s string) ([]string, error) {
 		return nil, fmt.Errorf("decoding secret field names: %w", err)
 	}
 	return names, nil
+}
+
+// WrappedVersion is the key-wrapping part of one secret version.
+type WrappedVersion struct {
+	SecretID   string
+	Version    int64
+	Scope      string
+	Name       string
+	KEKID      string
+	WrappedDEK []byte
 }

@@ -172,6 +172,8 @@ error saying so.
        An error if there is none.
    * - ``damson admin kek generate``
      - Print a new key encryption key for the db secret backend.
+   * - ``damson admin rotate-kek [--json]``
+     - Re-wrap every stored secret key under the new KEK (see :ref:`cli-rotate-kek`).
 
 ``damson admin help`` (also ``-h`` or ``--help``) prints the list of resources
 and actions to stdout and exits 0. Running ``damson admin`` with missing or
@@ -194,6 +196,54 @@ token.
 plus a warning on stderr. It needs no database or config. Keep the key safe:
 losing it loses every secret in the db backend
 (:doc:`/architecture/decisions/0042-db-secret-backend-keyring`).
+
+.. _cli-rotate-kek:
+
+Rotating the KEK
+~~~~~~~~~~~~~~~~
+
+``rotate-kek`` takes ``--config`` and ``--json``. The new key comes from
+``DAMSON_KEK`` (or ``secrets.kek_file``) and the old key from
+``DAMSON_KEK_PREVIOUS`` (or ``secrets.kek_previous_file``). It first checks
+the KEK canary: a canary that opens with neither key is an error naming the
+``kek_id`` values, and no canary is an error too (the instance has no
+secrets). It then pages through the secret versions not wrapped under the
+active key, in batches of 100, unwraps each data key with the old KEK and wraps
+it under the new one. The data ciphertext is not touched. Each row is updated
+only if it still has the old ``kek_id``, so a concurrent change is never
+overwritten. The canary is re-wrapped last, and only if nothing failed.
+
+The command is crash-safe and resumable: rows under the old and the new key
+both decrypt, because controllers hold both keys. A rerun finds only what is
+left, and a run with nothing left changes nothing. Secret versions written
+meanwhile already use the active key. Rows wrapped under a key that is neither
+the active nor the previous one count as failed, the exit status is 1 and the
+canary stays where it is.
+
+It prints counts and the active ``kek_id`` only, never keys or values:
+``rewrapped``, ``skipped``, ``failed``, ``stragglers`` and ``canary_moved``.
+
+Runbook:
+
+#. Run ``damson admin kek generate`` to get the new key.
+#. Roll the controllers to hold both keys: ``DAMSON_KEK`` is the new key and
+   ``DAMSON_KEK_PREVIOUS`` the old one. They start with a WARN to run
+   ``rotate-kek`` while the canary is still under the old key.
+#. Make sure no controller still runs with the old key alone (a controller
+   only checks the key at start, and one on the old key keeps writing versions
+   nobody else can read once the old key is dropped).
+#. Run ``damson admin rotate-kek`` with the same environment. It repeats full
+   passes until one finds nothing to re-wrap, moves the canary, and scans once
+   more.
+#. When it reports the canary moved and ``stragglers`` is 0, remove
+   ``DAMSON_KEK_PREVIOUS`` and restart the controllers at your pace. If it
+   reports stragglers, a controller is still on the old key: restart it with
+   the new key, run ``rotate-kek`` again, and keep the old key until a run
+   reports none.
+
+A controller that holds only the new key cannot start between step 2 and the
+canary move. Keep the old key until every row is rotated: a database backup
+taken before the rotation needs the old key to be read.
 
 Exit status is 0 on success, 1 for operational errors (unmigrated database,
 unknown pool or token, duplicate pool, already-revoked token) and 2 for usage
