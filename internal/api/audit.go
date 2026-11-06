@@ -40,7 +40,29 @@ type listAuditOutput struct {
 	}
 }
 
+type purgeLogsOutput struct {
+	Body struct {
+		Chunks  int64 `json:"chunks" doc:"Log chunks removed."`
+		Objects int64 `json:"objects" doc:"Stored log objects removed."`
+	}
+}
+
 func registerAudit(api huma.API, d deps) {
+	huma.Register(api, huma.Operation{
+		OperationID: "purge-execution-logs", Method: http.MethodDelete, Path: "/executions/{id}/logs",
+		Summary: "Purge the logs of a finished execution", Tags: []string{"executions"}, Security: adminSecurity,
+		Middlewares: huma.Middlewares{requireAdmin(api, d)},
+		Description: "For a leak the masker missed (ADR-0047). Removes every stored log chunk of the execution and writes a log.purge audit event. 409 while the execution can still write logs; cancel it first. Repeating it is allowed.",
+		Errors:      []int{http.StatusUnauthorized, http.StatusNotFound, http.StatusConflict, http.StatusServiceUnavailable},
+	}, func(ctx context.Context, in *executionInput) (*purgeLogsOutput, error) {
+		res, err := d.ds.PurgeExecutionLogs(ctx, in.ID, d.now())
+		if err != nil {
+			return nil, apiError(ctx, err)
+		}
+		out := &purgeLogsOutput{}
+		out.Body.Chunks, out.Body.Objects = res.Chunks, res.Objects
+		return out, nil
+	})
 	huma.Register(api, huma.Operation{
 		OperationID: "list-audit-events", Method: http.MethodGet, Path: "/audit",
 		Summary: "List audit events", Tags: []string{"audit"}, Security: adminSecurity,

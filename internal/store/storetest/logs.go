@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -200,5 +201,53 @@ func testLogsDroppedOnReclaim(t *testing.T, s store.Store) {
 	}
 	if _, err := s.InsertLogChunk(ctx, re[0].AttemptID, chunk(e.ID, 1, 3, store.LogDataPrefix(e.ID)+re[0].AttemptID+"/1-3.ndjson"), claimNow); err != nil {
 		t.Fatalf("new attempt restarts at seq 1: %v", err)
+	}
+}
+
+func testPurgeExecutionLogs(t *testing.T, s store.Store) {
+	ctx := actorCtx()
+	migrated(t, s)
+	e := claimedOne(t, s)
+	key := store.LogDataPrefix(e.ID) + "1-10"
+	if _, err := s.InsertLogChunk(ctx, e.AttemptID, chunk(e.ID, 1, 10, key), claimNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutLogData(ctx, key, []byte("leaked-line"), claimNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PurgeExecutionLogs(ctx, e.ID, claimNow); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("purge while dispatched: %v; want ErrConflict", err)
+	}
+	if _, err := s.PurgeExecutionLogs(ctx, "nope", claimNow); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("purge unknown: %v; want ErrNotFound", err)
+	}
+	if _, err := s.CompleteExecution(ctx, store.Completion{ExecutionID: e.ID, AttemptID: e.AttemptID, State: store.ExecFailed}, claimNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PurgeExecutionLogs(context.Background(), e.ID, claimNow); !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("purge without actor: %v; want ErrInvalid", err)
+	}
+	if _, err := s.GetLogData(ctx, key); err != nil {
+		t.Fatalf("a refused purge removed data: %v", err)
+	}
+	got, err := s.PurgeExecutionLogs(ctx, e.ID, claimNow)
+	if err != nil || got.Chunks != 1 || got.Objects != 1 {
+		t.Fatalf("purge = %+v, %v", got, err)
+	}
+	if chunks, _ := s.ListLogChunks(ctx, e.ID, 0, 0, 10); len(chunks) != 0 {
+		t.Fatalf("chunks left: %+v", chunks)
+	}
+	if _, err := s.GetLogData(ctx, key); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("data left: %v", err)
+	}
+	if again, err := s.PurgeExecutionLogs(ctx, e.ID, claimNow); err != nil || again.Chunks != 0 {
+		t.Fatalf("second purge = %+v, %v", again, err)
+	}
+	evs, err := s.ListAuditEvents(ctx, store.AuditFilter{TargetType: store.AuditTargetExecution, Target: e.ID}, 10)
+	if err != nil || len(evs) != 2 || evs[1].Action != store.ActionLogPurge || evs[1].Actor != "test:actor" || !strings.Contains(string(evs[1].Details), `"chunks":1`) {
+		t.Fatalf("events = %+v, %v", evs, err)
+	}
+	if strings.Contains(string(evs[1].Details), "leaked-line") {
+		t.Fatal("log content in the audit event")
 	}
 }

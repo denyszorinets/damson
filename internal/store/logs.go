@@ -55,6 +55,27 @@ type LogStore interface {
 	// DeleteLogDataPrefix removes every key starting with prefix and returns
 	// how many it removed. An empty prefix is ErrInvalid.
 	DeleteLogDataPrefix(ctx context.Context, prefix string) (int64, error)
+
+	// PurgeExecutionLogs removes every log chunk and log object of a finished
+	// execution and writes a log.purge audit event for the actor in ctx
+	// (WithAudit; ErrInvalid without one), all in one transaction. It returns
+	// ErrNotFound for an unknown execution and ErrConflict while the execution
+	// can still write logs (not terminal). Purging twice is allowed.
+	PurgeExecutionLogs(ctx context.Context, executionID string, now time.Time) (LogPurge, error)
+}
+
+// LogPurge is what PurgeExecutionLogs removed.
+type LogPurge struct {
+	Chunks  int64 // chunk rows removed
+	Objects int64 // stored log objects removed
+}
+
+// LogPurgeAuditDetails is the details of a log.purge event.
+type LogPurgeAuditDetails struct {
+	ExecutionID string `json:"execution_id"`
+	RunID       string `json:"run_id"`
+	Chunks      int64  `json:"chunks"`
+	Objects     int64  `json:"objects"`
 }
 
 // LogDataPrefix is the key prefix under which every log object of an

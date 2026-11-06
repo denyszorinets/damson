@@ -13,12 +13,14 @@ const (
 	ActionSecretUpdate    = "secret.update"
 	ActionSecretDelete    = "secret.delete"
 	ActionSecretKEKRotate = "secret.kek_rotate"
+	ActionLogPurge        = "log.purge"
 )
 
 // Audit target types.
 const (
-	AuditTargetSecret   = "secret"
-	AuditTargetInstance = "instance"
+	AuditTargetSecret    = "secret"
+	AuditTargetInstance  = "instance"
+	AuditTargetExecution = "execution"
 )
 
 // AuditEvent is one row of the insert-only audit trail (ARCHITECTURE 12.4).
@@ -147,5 +149,25 @@ func NewKEKRotateEvent(ctx context.Context, d KEKRotateAuditDetails, now time.Ti
 	return AuditEvent{
 		ID: id, At: NormalizeTime(now), Actor: meta.Actor, Action: ActionSecretKEKRotate, TargetType: AuditTargetInstance,
 		Target: "kek", Details: details, RequestID: meta.RequestID,
+	}, nil
+}
+
+// NewLogPurgeEvent builds the event of a log purge for the actor in ctx.
+func NewLogPurgeEvent(ctx context.Context, d LogPurgeAuditDetails, now time.Time) (AuditEvent, error) {
+	meta, err := AuditFrom(ctx)
+	if err != nil {
+		return AuditEvent{}, err
+	}
+	id, err := NewID()
+	if err != nil {
+		return AuditEvent{}, err
+	}
+	details, err := json.Marshal(d)
+	if err != nil {
+		return AuditEvent{}, fmt.Errorf("encoding audit details: %w", err)
+	}
+	return AuditEvent{
+		ID: id, At: NormalizeTime(now), Actor: meta.Actor, Action: ActionLogPurge, TargetType: AuditTargetExecution,
+		Target: d.ExecutionID, Details: details, RequestID: meta.RequestID,
 	}, nil
 }

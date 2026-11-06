@@ -59,3 +59,39 @@ func TestSecretWritesAreAudited(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, f.do("GET", "/api/v1/audit?cursor=!!", "", f.admin).Code)
 	})
 }
+
+func TestPurgeExecutionLogs(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		jr := newJR(t, st, nil)
+		sf := newSecretsFixture(t, st, false)
+		run, e := jr.startedRun(t)
+		jr.putChunk(t, e, 1, 2, "one", "leaked-line")
+		target := "/api/v1/executions/" + e.ID + "/logs"
+
+		assert.Equal(t, http.StatusUnauthorized, sf.do("DELETE", target, "", "").Code)
+		assert.Equal(t, http.StatusConflict, sf.do("DELETE", target, "", sf.admin).Code, "the execution is still running")
+		assert.Equal(t, http.StatusNotFound, sf.do("DELETE", "/api/v1/executions/nope/logs", "", sf.admin).Code)
+
+		jr.finish(t, run, e, store.ExecSucceeded)
+		rec := sf.do("DELETE", target, "", sf.admin)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var out struct{ Chunks, Objects int64 }
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		assert.EqualValues(t, 1, out.Chunks)
+		assert.EqualValues(t, 1, out.Objects)
+
+		chunks, err := st.ListLogChunks(t.Context(), e.ID, 0, 0, 10)
+		require.NoError(t, err)
+		assert.Empty(t, chunks)
+
+		var page struct {
+			Items []api.AuditEvent `json:"items"`
+		}
+		rec = sf.do("GET", "/api/v1/audit?target_type=execution&target="+e.ID, "", sf.admin)
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page))
+		require.Len(t, page.Items, 1)
+		assert.Equal(t, "log.purge", page.Items[0].Action)
+		assert.Regexp(t, `^admin-token:`, page.Items[0].Actor)
+		assert.NotContains(t, rec.Body.String(), "leaked-line")
+	})
+}

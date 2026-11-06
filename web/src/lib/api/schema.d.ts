@@ -89,7 +89,11 @@ export interface paths {
         get: operations["stream-execution-logs"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Purge the logs of a finished execution
+         * @description For a leak the masker missed (ADR-0047). Removes every stored log chunk of the execution and writes a log.purge audit event. 409 while the execution can still write logs; cancel it first. Repeating it is allowed.
+         */
+        delete: operations["purge-execution-logs"];
         options?: never;
         head?: never;
         patch?: never;
@@ -916,6 +920,18 @@ export interface components {
             location?: string;
             message?: string;
         };
+        PurgeLogsOutputBody: {
+            /**
+             * Format: int64
+             * @description Log chunks removed.
+             */
+            chunks: number;
+            /**
+             * Format: int64
+             * @description Stored log objects removed.
+             */
+            objects: number;
+        };
         PutSecretInputBody: {
             /** @description Field values. Never returned by any endpoint. */
             fields: {
@@ -1419,6 +1435,82 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "purge-execution-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurgeLogsOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
