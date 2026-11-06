@@ -234,9 +234,27 @@ token. It returns ``items`` (newest first; ``id``, ``at``, ``actor``,
 ``action``, ``target_type``, ``target``, ``project_path``, ``details``,
 ``request_id``) and ``next_cursor``; ``limit`` is 1 to 200, default 50.
 Events never contain secret values. Currently recorded: ``secret.create``,
-``secret.update``, ``secret.delete`` and ``secret.kek_rotate``. Actors are
+``secret.update``, ``secret.delete``, ``secret.kek_rotate`` and ``log.purge``. Actors are
 ``admin-token:<12 hex of the token hash>``, ``system:dev-nodes`` and
 ``cli:<os user>``. Design: :doc:`/architecture/decisions/0053-audit-events`.
+
+.. _reference-log-purge-api:
+
+Log purge
+~~~~~~~~~
+
+``DELETE /api/v1/executions/{id}/logs`` needs the admin token. It removes all
+stored log chunks and objects of one terminal execution and writes a
+``log.purge`` audit event (target type ``execution``; details ``execution_id``,
+``run_id``, ``chunks``, ``objects``; never log content) in the same
+transaction. Answers: ``200`` with ``{"chunks": N, "objects": N}``, ``401``,
+``404`` for an unknown execution, ``409`` while the execution is not terminal
+(cancel it first). Repeating the call is allowed. Limits: the live in-memory
+tail and the agent's local spool are not touched; the UI shows no purged marker
+(the execution just has no stored log); only the ``db`` log store exists today,
+so purge deletes db rows, and future ``fs``/``s3`` stores must implement the
+same delete. Design: :doc:`/architecture/decisions/0047-agent-side-masking-only`
+and :doc:`/architecture/decisions/0053-audit-events`.
 
 .. _reference-nodes-api:
 

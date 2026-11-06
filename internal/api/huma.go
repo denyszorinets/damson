@@ -32,6 +32,7 @@ type DataStore interface {
 	store.NodeStore
 	store.RunTargetStore
 	store.AuditStore
+	PurgeExecutionLogs(ctx context.Context, executionID string, now time.Time) (store.LogPurge, error)
 
 	ListAgents(ctx context.Context, cursor string, limit int) (store.AgentPage, error)
 	GetAgent(ctx context.Context, id string) (store.Agent, error)

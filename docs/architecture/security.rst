@@ -110,7 +110,9 @@ spools only masked lines. Known limits: values shorter than 4 bytes; lines of 4
 characters or fewer inside multi-line values; secrets split across ``Log``
 calls; values the job transforms (hex, reversed, re-encoded); a compromised
 agent, which holds the plaintext anyway. Masking is defense in depth, not a
-guarantee. One exception by design: the ``endpoint``, ``region`` and
+guarantee. After a leak the masker missed, an admin can purge one terminal
+execution's stored logs (:ref:`reference-log-purge-api`); the live tail and the
+agent's local spool are not affected. One exception by design: the ``endpoint``, ``region`` and
 ``path_style`` fields of an S3 connection secret (one with ``access_key`` and
 ``secret_key``) are not masked when strictly shaped; anything failing the shape
 check is masked (:doc:`decisions/0051-non-secret-s3-connection-fields`).

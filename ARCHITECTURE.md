@@ -938,6 +938,7 @@ type SecretStore interface {
   - A **chunk writer** that flushes to the LogStore every 5s or 1 MiB, whichever comes first, and inserts a `log_chunks` row (`execution_id, seq_from, seq_to, object_key, bytes, ts_first, ts_last`).
   - After the row commits, a `log.ack` goes to the agent.
 - **On completion:** a final flush, then optional compaction into a single gzipped object.
+- **Purge (ADR-0047, ADR-0053):** `DELETE /api/v1/executions/{id}/logs` (admin token) removes all stored chunks and objects of a terminal execution and writes a `log.purge` audit event in the same transaction. A running execution answers 409 (cancel it first). It touches stored chunks only, not the live in-memory tail, and not the agent's local spool. The UI shows no purged marker; a purged execution simply has no stored log. Only the `db` store exists today, so purge deletes db rows; future `fs`/`s3` stores must implement the same delete.
 - **LogStore interface:** `Put(key, bytes)`, `Get(key)`, `Delete(prefix)`.
   - `db` (**default**, including HA production): chunks stored as bytea or blob in a dedicated `log_chunks_data` table. This keeps the required infrastructure to Postgres only. Retention deletes are batched to limit bloat.
   - `fs`: dev, or a single controller with a shared volume.
@@ -1053,7 +1054,7 @@ Both sync routes need the admin token, accept at most 16 MiB and 5000 nodes, and
 - They attach to **projects** (inherited by descendants) and optionally to **jobs** (additive for that job only).
 - **Effective role** = the maximum role granted by any matching rule on the job, the project, or any ancestor.
 - Rules are compiled once per change, and evaluation is cached per session for 60s.
-- Every mutation and trigger writes an **audit event**: actor, action, target, project path, details JSON, request id. `project_path` is the project scope of the target (empty when none) and is kept for per-subtree visibility in M8. The event is written in the **same transaction** as the change, and an audited write without an actor fails (`ErrInvalid`). Until M8 the actors are `admin-token:<12 hex of the token hash>`, `system:dev-nodes` and `cli:<os user>`; M8 adds `user:<sub>`, `sa:<id>` and `system:<duty>`. Today secret writes and `rotate-kek` are audited (ADR-0053).
+- Every mutation and trigger writes an **audit event**: actor, action, target, project path, details JSON, request id. `project_path` is the project scope of the target (empty when none) and is kept for per-subtree visibility in M8. The event is written in the **same transaction** as the change, and an audited write without an actor fails (`ErrInvalid`). Until M8 the actors are `admin-token:<12 hex of the token hash>`, `system:dev-nodes` and `cli:<os user>`; M8 adds `user:<sub>`, `sa:<id>` and `system:<duty>`. Today secret writes, `rotate-kek` and log purges (`log.purge`, target type `execution`) are audited (ADR-0053).
 
 ---
 
@@ -1099,6 +1100,7 @@ All routes are under `/api/v1`, with the OpenAPI document at `/api/v1/openapi.js
 - `secrets` — metadata list (`GET /secrets`), create or add a version (`PUT /secrets/{scope}/{name}`, write-only values, optional `if_version`), delete; `scope` is one percent-encoded path segment. `GET /secret-types` is public. All other secrets routes need the admin token (§12.2) and answer 503 when no KEK is configured.
 - `plugins` — manifests with input and output schemas (drives the UI forms)
 - `service-accounts`, `tokens`
+- `executions/{id}/logs` — `DELETE`, admin token (§12.2): purge one terminal execution's stored logs (§10); 200 `{chunks, objects}`, 401, 404, 409 while not terminal
 - `audit` — `GET /audit`, admin token (§12.2), cursor-paged (`cursor`, `limit`), filters `target_type` and `target`, newest first
 - `apply`
 

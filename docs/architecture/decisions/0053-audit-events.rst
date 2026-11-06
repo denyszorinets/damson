@@ -33,7 +33,16 @@ an unauthenticated label, not proof of identity). M8 adds ``user:<sub>`` and
 ``sa:<id>``, and ``system:<duty>`` for controller duties.
 
 **Actions.** ``secret.create``, ``secret.update`` (a new version),
-``secret.delete`` and ``secret.kek_rotate``.
+``secret.delete``, ``secret.kek_rotate`` and ``log.purge``.
+
+**Execution target.** ``log.purge`` uses ``target_type`` ``execution`` and the
+execution id as ``target``. ``LogStore.PurgeExecutionLogs`` removes all log
+chunks and log objects (prefix ``logs/<execution>/``) of a terminal execution
+and writes the event in the same transaction. Details: ``execution_id``,
+``run_id``, ``chunks`` and ``objects``; never log content. Unknown execution:
+``ErrNotFound``; not terminal: ``ErrConflict`` (HTTP 409, cancel it first);
+no actor: ``ErrInvalid``. Repeating is allowed (issue :issue:`142`, see
+:doc:`0047-agent-side-masking-only`).
 
 **Details are a typed allowlist**: ``secret_id``, ``type``, ``version``, field
 *names* and ``kek_id``. Never values. They are built from Go types, not from

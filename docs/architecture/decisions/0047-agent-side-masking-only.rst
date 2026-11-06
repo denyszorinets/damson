@@ -63,5 +63,7 @@ Consequences
 
 - The controller holds no secret-derived material after dispatch.
 - A leak past the agent's masker is persisted and served as sent.
-- Follow-up (not part of this change): operators may need a way to purge one
-  execution's logs after a leak.
+- After a leak the masker missed, an admin can purge one execution's stored
+  logs (``DELETE /api/v1/executions/{id}/logs``, issue :issue:`142`, see
+  :doc:`0053-audit-events`). Masking stays best effort; purging removes stored
+  chunks only, not the live in-memory tail or the agent's local spool.

@@ -120,3 +120,38 @@ func (s *Store) DeleteLogDataPrefix(ctx context.Context, prefix string) (int64, 
 	}
 	return n, nil
 }
+
+// PurgeExecutionLogs implements store.LogStore.
+func (s *Store) PurgeExecutionLogs(ctx context.Context, executionID string, now time.Time) (store.LogPurge, error) {
+	var out store.LogPurge
+	if _, err := store.AuditFrom(ctx); err != nil {
+		return out, err
+	}
+	err := s.WithTx(ctx, func(tx store.Tx) error {
+		q := tx.(*txn).q
+		ex, err := getExecution(ctx, q, executionID)
+		if err != nil {
+			return err
+		}
+		if !ex.State.Terminal() {
+			return fmt.Errorf("execution %q is %s and can still write logs: %w", executionID, ex.State, store.ErrConflict)
+		}
+		if out.Chunks, err = q.DeleteLogChunksOfExecution(ctx, executionID); err != nil {
+			return fmt.Errorf("purging log chunks of %q: %w", executionID, err)
+		}
+		prefix := store.LogDataPrefix(executionID)
+		l, err := store.PrefixArgs(prefix)
+		if err != nil {
+			return err
+		}
+		if out.Objects, err = q.DeleteLogDataPrefix(ctx, gen.DeleteLogDataPrefixParams{PrefixLen: int32(l), Prefix: prefix}); err != nil {
+			return fmt.Errorf("purging log data of %q: %w", executionID, err)
+		}
+		ev, err := store.NewLogPurgeEvent(ctx, store.LogPurgeAuditDetails{ExecutionID: executionID, RunID: ex.RunID, Chunks: out.Chunks, Objects: out.Objects}, now)
+		if err != nil {
+			return err
+		}
+		return tx.AppendAuditEvent(ctx, ev)
+	})
+	return out, err
+}
