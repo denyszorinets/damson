@@ -140,3 +140,18 @@ Running the suite
 
 runs the SDK tests, the contract suite over every built-in plugin
 (``plugins/all``), and the ``examples/plugins/hello`` tests and build.
+
+Developer tooling
+-----------------
+
+``damson plugin`` (:ref:`cli-plugin`) covers the author's loop on the plugins
+linked into the binary:
+
+#. ``damson plugin new <name>`` scaffolds a module whose tests already pass.
+#. In the new directory run ``go get github.com/denyszorinets/damson@<version>``,
+   ``go mod tidy`` and ``go test ./...``.
+#. Link the plugin into a binary with ``damson build --with <module>@<version>``
+   (planned, issue #150).
+#. ``damson plugin validate <name>`` checks the manifest and schemas.
+#. ``damson plugin run <name> --input input.json [--secrets s.json] [--nodes n.json]``
+   runs it once without a controller, with the agent's masking applied.

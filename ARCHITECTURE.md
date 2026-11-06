@@ -365,11 +365,11 @@ In v1 every plugin is **compiled into the binary**.
 
 **Developer tooling**
 
-- `damson plugin new <name>` scaffolds the package, input and output structs, a test, and a README.
+- `damson plugin new <name>` (implemented) scaffolds a Go module with the plugin package, a test (contract suite, source check, `Execute`), and a README.
 - `pkg/pluginsdk/plugintest` runs a plugin's `Execute` in a unit test with a fake emitter, fake secrets, and a temp WorkDir, then asserts outputs and masked logs. It also provides a **contract suite** every plugin must pass: schema generation, cancellation (including an optional blocking case), secret masking (plaintext check), and output-schema conformance (validated with `santhosh-tekuri/jsonschema/v6`, a dependency of `plugintest` only).
-- `damson plugin run <name> --input input.json --secrets secrets.json` runs one plugin locally without a controller.
-- `damson plugin validate` checks the manifest, the schemas, and semver.
-- `examples/plugins/hello` is a minimal out-of-tree plugin. CI builds it into a custom binary with `damson build`.
+- `damson plugin run <ref> --input input.json --secrets secrets.json [--nodes nodes.json]` (implemented) runs one linked plugin locally without a controller, with the agent's masker and output sanitizer.
+- `damson plugin validate [ref]` (implemented) checks the manifest, the schemas, and semver of linked plugins.
+- `examples/plugins/hello` is a minimal out-of-tree plugin. CI builds it into a custom binary with `damson build --with` (planned, #150).
 
 ### Future: runtime-loaded plugins (`.so`)
 
