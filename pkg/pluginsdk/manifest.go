@@ -168,6 +168,9 @@ func (m Manifest) NodeNames(input map[string]any) ([]string, error) {
 }
 
 func lookupPointer(v any, ptr string) (any, bool) {
+	if !strings.HasPrefix(ptr, "/") {
+		return nil, false
+	}
 	for _, seg := range strings.Split(ptr[1:], "/") {
 		seg = strings.ReplaceAll(strings.ReplaceAll(seg, "~1", "/"), "~0", "~")
 		m, ok := v.(map[string]any)

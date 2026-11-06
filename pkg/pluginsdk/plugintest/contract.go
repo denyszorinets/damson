@@ -380,6 +380,9 @@ func checkCaseNodes(t *testing.T, m pluginsdk.Manifest, opts Options) {
 
 // caseNodeProblems lists the cases whose nodes differ from the input's.
 func caseNodeProblems(m pluginsdk.Manifest, opts Options) []string {
+	if m.TargetMode != pluginsdk.TargetSingleNode && m.TargetMode != pluginsdk.TargetNodes {
+		return nil
+	}
 	cases := append([]Case(nil), opts.Cases...)
 	if opts.Blocking != nil {
 		cases = append(cases, *opts.Blocking)

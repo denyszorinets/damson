@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -218,6 +219,42 @@ func TestHostKeyObservedFencingNodesMode(t *testing.T) {
 		d.HostKeyObserved(ctx, "a1", m)
 		if rec.count() != 1 || rec.seen[0] != [3]string{ex.RunID, "web-1", key} {
 			t.Fatalf("recorded = %v", rec.seen)
+		}
+	})
+}
+
+type failingPlugins struct{}
+
+func (failingPlugins) Resolve(string, pluginreg.Filter) (pluginreg.Resolution, error) {
+	return pluginreg.Resolution{}, errors.New("no such plugin")
+}
+
+// A report for a step whose plugin cannot be resolved is dropped.
+func TestHostKeyObservedUnresolvablePluginDropped(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		ctx := context.Background()
+		now := time.Now()
+		rec := &recordKeys{}
+		d := newBareWith(t, st, func() time.Time { return now }, func(c *dispatch.Config) { c.HostKeys = rec; c.Plugins = failingPlugins{} })
+		_, jv, err := st.CreateJob(ctx, store.NewJob{ProjectID: store.DefaultProjectID, Name: "hk4", Spec: json.RawMessage(twoStepSpec), Checksum: "s"}, t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.CreateRun(ctx, store.NewRun{JobID: jv.JobID, JobVersionID: jv.ID, Steps: []store.NewStepInstance{
+			{Path: "s1", Plugin: "ssh", Input: json.RawMessage(`{"node":"web-1"}`), Execution: &store.NewExecution{Pool: "default", ScheduledAt: now}}}}, now); err != nil {
+			t.Fatal(err)
+		}
+		got, err := st.ClaimExecutions(ctx, store.ClaimParams{AgentID: "a1", ControllerID: "ctl-1", Pools: []string{"default"}, Limit: 1, LeaseTTL: time.Minute}, now)
+		if err != nil || len(got) != 1 {
+			t.Fatalf("claim = %v, %v", got, err)
+		}
+		if err := st.MarkExecutionRunning(ctx, got[0].ID, got[0].AttemptID, now); err != nil {
+			t.Fatal(err)
+		}
+		m, _ := hostKeyReport(t, got[0].AttemptID, "web-1")
+		d.HostKeyObserved(ctx, "a1", m)
+		if rec.count() != 0 {
+			t.Fatal("a report was recorded for an unresolvable plugin")
 		}
 	})
 }

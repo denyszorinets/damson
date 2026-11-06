@@ -60,6 +60,8 @@ func TestNodeNames(t *testing.T) {
 		"non-string":   {m, `{"source":{"node":{"name":5}}}`, nil, "/source/node/name"},
 		"empty":        {m, `{"source":{"node":{"name":""}}}`, nil, "/source/node/name"},
 		"through list": {m, `{"source":["x"]}`, nil, ""},
+		"bad pointer":  {nodesManifest("source"), `{"source":"a"}`, nil, ""},
+		"empty ptr":    {nodesManifest(""), `{"source":"a"}`, nil, ""},
 		"single":       {single, `{"node":"n1"}`, []string{"n1"}, ""},
 		"single none":  {single, `{}`, nil, `"node"`},
 		"single bad":   {single, `{"node":3}`, nil, "/node"},
