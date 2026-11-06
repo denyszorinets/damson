@@ -95,7 +95,7 @@ func TestFaultSummaryReducesASoapFault(t *testing.T) {
 	if !strings.Contains(got, "cannot process the request") || !strings.Contains(got, "The shell is gone") || strings.Contains(got, "<s:") {
 		t.Fatalf("summary = %q", got)
 	}
-	if long := faultSummary(strings.Repeat("x", 5000)); len(long) > 900 {
+	if long := faultSummary(strings.Repeat("x", 5000)); len(long) > 4100 {
 		t.Fatalf("not bounded: %d", len(long))
 	}
 }

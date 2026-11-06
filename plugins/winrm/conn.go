@@ -140,7 +140,7 @@ var faultTextRe = regexp.MustCompile(`(?s)<(?:\w+:)?(?:Text|Message)(?:\s[^>]*)?
 // faultSummary reduces a SOAP fault in an error text to its reason and message
 // elements; other text is returned as it is, bounded.
 func faultSummary(s string) string {
-	const limit = 800
+	const limit = 4000
 	if strings.Contains(s, "Envelope") {
 		var parts []string
 		for _, m := range faultTextRe.FindAllStringSubmatch(s, -1) {
