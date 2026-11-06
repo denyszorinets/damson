@@ -51,6 +51,7 @@ func Run(t *testing.T, f Factory) {
 		{"NodeDiffAtomic", testNodeDiffAtomic},
 		{"NodeSyncRace", testNodeSyncRace},
 		{"NodeBatch", testNodeBatch},
+		{"RunTargets", testRunTargets},
 		{"LeaderAcquireRace", testLeaderAcquireRace},
 		{"DeleteDeadControllers", testDeleteDeadControllers},
 		{"Projects", testProjects},

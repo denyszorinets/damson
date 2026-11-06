@@ -59,6 +59,8 @@ type NodeStore interface {
 	CreateNode(ctx context.Context, n Node, now time.Time) (Node, error)
 	// GetNode returns ErrNotFound if absent.
 	GetNode(ctx context.Context, name string) (Node, error)
+	// GetNodeByID returns ErrNotFound if absent.
+	GetNodeByID(ctx context.Context, id string) (Node, error)
 	// FindNodeByName is GetNode ignoring case, as the unique index does.
 	FindNodeByName(ctx context.Context, name string) (Node, error)
 	// ListNodes pages by name.

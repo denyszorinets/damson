@@ -143,6 +143,9 @@ type NewRun struct {
 	Options        json.RawMessage
 	ConcurrencyKey string
 	Steps          []NewStepInstance
+	// Targets is the frozen target list of the run (at most MaxRunTargets),
+	// written with the run. Empty for a job that does not use targets.
+	Targets []RunTarget
 }
 
 // StepUpdate is a CAS on a step instance's status.
@@ -171,6 +174,8 @@ type RunPage struct {
 // RequestCancel) each compare and bump runs.version, so an advance built on a
 // stale read loses with ErrStale and must reload (ARCHITECTURE section 8.3).
 type RunStore interface {
+	RunTargetStore
+
 	// CreateRun inserts the run (pending, version 1), its step instances and
 	// the first executions in one transaction. It returns ErrNotFound if the
 	// job or job version is absent, ErrConflict on a duplicate step path, and
@@ -232,6 +237,9 @@ func ValidateNewRun(nr NewRun) error {
 		return err
 	}
 	if err := checkJSON("options", nr.Options); err != nil {
+		return err
+	}
+	if err := ValidateRunTargets(nr.Targets); err != nil {
 		return err
 	}
 	return ValidateSteps(nr.Steps)

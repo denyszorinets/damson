@@ -324,6 +324,37 @@ case-insensitive on SQLite) and rejects an empty prefix.
 Add a migration by creating the next ``NNNNN_name.sql`` in **both** directories
 with ``-- +goose Up`` and ``-- +goose Down`` sections, then run ``make gen``.
 
+Run targets (migration 00012)
+-----------------------------
+
+``run_targets`` freezes the nodes a run targets at trigger time. Columns:
+``run_id`` (foreign key to ``runs``, ``ON DELETE CASCADE``), ``position``
+(1-based order of the list), ``name`` (``COLLATE "C"`` on Postgres),
+``node_id`` and ``node``. The primary key is ``(run_id, position)``, with
+``UNIQUE (run_id, name)`` and ``UNIQUE (run_id, node_id)``.
+
+``node_id`` is the id of the inventory row at trigger time. It has no foreign
+key, because the node may be deleted while the run is still going. ``node`` is
+the selector map as a JSON object, encoded in Go.
+
+``CreateRun`` writes the rows in its own transaction from ``NewRun.Targets``.
+A run freezes at most ``store.MaxRunTargets`` (1000) rows. More rows, an empty
+or duplicate name or node id, or a ``node`` that is not a JSON object is
+``ErrInvalid``, and the whole run rolls back. The rows are immutable
+afterwards.
+
+Runs created before the migration have no rows, which reads as no targets.
+There is no backfill.
+
+Reads:
+
+* ``ListRunTargets`` returns every target of a run in order.
+* ``ListRunTargetsPage`` pages by keyset on ``position``.
+* ``RunTargetNodeID`` returns the frozen id of a name, or ``ErrNotFound`` if
+  the name is not in the snapshot. The match is case-sensitive.
+* ``NodeStore.GetNodeByID`` returns an inventory node by id
+  (``ErrNotFound`` if absent).
+
 sqlc
 ----
 

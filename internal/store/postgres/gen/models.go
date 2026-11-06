@@ -182,6 +182,14 @@ type Run struct {
 	CancelReason      string
 }
 
+type RunTarget struct {
+	RunID    string
+	Position int32
+	Name     string
+	NodeID   string
+	Node     string
+}
+
 type Secret struct {
 	ID             string
 	ScopePath      string
