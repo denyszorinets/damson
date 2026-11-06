@@ -17,7 +17,8 @@ credentials live under ``secret://_inventory/``. Secret types include
 ``generic``.
 
 Values are resolved only when a step is dispatched, sent to the agent with the
-step, masked in all logs and outputs, and dropped when the step ends. By
+step, masked in all logs and outputs (except the non-secret ``endpoint``, ``region``
+and ``path_style`` of an S3 connection secret), and dropped when the step ends. By
 default they are stored in the database with envelope encryption; OpenBao is
 the optional alternative (:doc:`/architecture/security`).
 

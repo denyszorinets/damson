@@ -36,14 +36,18 @@ type masker struct {
 	short bool
 }
 
-// newMasker builds a masker from every field value in the bundle. Each value
+// newMasker builds a masker from every field value in the bundle, except the
+// non-secret S3 connection fields (publicField). Each value
 // is masked as is; a multi-line value additionally has each line of five or
 // more characters masked on its own.
 func newMasker(b protocol.SecretBundle) *masker {
 	m := &masker{}
 	set := map[string]struct{}{}
 	for _, fields := range b {
-		for _, v := range fields {
+		for k, v := range fields {
+			if publicField(fields, k, v) {
+				continue
+			}
 			if v != "" && len(v) < minSecretBytes {
 				m.short = true
 				continue

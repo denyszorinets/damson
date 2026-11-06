@@ -4,6 +4,8 @@ ADR-0047: Only the agent masks secrets
 :Status: Accepted
 :Date: 2026-11-06
 
+Refined by :doc:`0051-non-secret-s3-connection-fields`.
+
 Context
 -------
 
