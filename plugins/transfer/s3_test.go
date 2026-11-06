@@ -14,6 +14,7 @@ import (
 	"github.com/denyszorinets/damson/pkg/pluginsdk/plugintest"
 	"github.com/denyszorinets/damson/plugins/internal/s3test"
 	"github.com/denyszorinets/damson/plugins/internal/sshtest"
+	"github.com/denyszorinets/damson/plugins/transfer"
 )
 
 const s3Ref = "secret://s3/conn"
@@ -219,4 +220,29 @@ func TestS3InputValidation(t *testing.T) {
 func statLocal(p string) (os.FileInfo, bool) {
 	fi, err := os.Stat(p)
 	return fi, err == nil
+}
+
+// An https s3 endpoint is verified against the system roots plus the operator's
+// CA; there is no way around it.
+func TestS3VerifiesCertificates(t *testing.T) {
+	f := sshtest.NewFixture(t, "")
+	srv := s3test.StartTLS(t, "bucket-one")
+	dir := t.TempDir()
+	src := write(t, dir, "src", "tls payload")
+	in := mixed("copy", side{sshtest.NodeName, "sftp", src}, s3Side{"bucket-one", "k"}, nil)
+
+	o := exec_(t, s3Case(f, srv, in))
+	if o.Result.Error == nil || !strings.Contains(o.Result.Error.Message, "certificate") {
+		t.Fatalf("without the CA: %v", o.Result.Error)
+	}
+
+	c := s3Case(f, srv, in)
+	c.Config = map[string]string{transfer.ConfigTLSCAPEM: "not pem"}
+	requireKind(t, exec_(t, c), pluginsdk.KindValidation, transfer.ConfigTLSCAPEM)
+
+	c = s3Case(f, srv, in)
+	c.Config = map[string]string{transfer.ConfigTLSCAPEM: srv.CAPEM}
+	if out := requireOK(t, exec_(t, c)); out.ETag == "" || out.DestinationKey != "k" {
+		t.Fatalf("output = %+v", out)
+	}
 }

@@ -209,10 +209,11 @@ may be ``ssh`` or ``winrm``; FTP does not use it.
 
 With ``ftps`` data connections are protected (``PROT P``). The server
 certificate is always verified against the system roots plus the agent
-setting ``agent.ftps_ca_file`` (``DAMSON_AGENT__FTPS_CA_FILE``), a PEM file of
+setting ``agent.tls_ca_file`` (``DAMSON_AGENT__TLS_CA_FILE``), a PEM file of
 extra CA certificates for a private PKI. It is read at agent start; a missing
 or invalid file fails startup. There is no skip-verify option. The agent hands
-the PEM to the plugin as ``ExecRequest.Config`` key ``ftps_ca_pem``.
+the PEM to the plugin as ``ExecRequest.Config`` key ``tls_ca_pem``. The same
+setting applies to ``https`` S3 endpoints.
 
 FTP has no atomic no-clobber rename. With ``overwrite: false`` the destination
 is checked first, which is best effort. With ``overwrite: true`` the file is
@@ -257,8 +258,9 @@ secret):
    * - ``path_style``
      - Optional, ``"true"`` or ``"false"``; default auto.
 
-A plain ``http://`` endpoint writes a warning to the step log per step. TLS
-uses the system roots only; there is no private CA setting for S3 yet. The
+A plain ``http://`` endpoint writes a warning to the step log per step. An
+``https`` endpoint is verified against the system roots plus the agent setting
+``agent.tls_ca_file`` (a private PKI); there is no skip-verify. The
 secret and the keys are masked by the agent and never appear in errors.
 
 A source key ending in ``/`` is a validation error. A destination key ending in

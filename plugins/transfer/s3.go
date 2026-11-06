@@ -2,6 +2,7 @@ package transfer
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
+	"github.com/denyszorinets/damson/plugins/internal/tlsroots"
 )
 
 // s3MinPartSize is the multipart threshold and the smallest part size: an
@@ -106,16 +108,36 @@ func dialS3(req pluginsdk.ExecRequest, e *S3Endpoint, emit pluginsdk.Emitter) (f
 	if cn.pathStyle {
 		lookup = minio.BucketLookupPath
 	}
-	c, err := minio.New(cn.endpoint, &minio.Options{
+	opts := &minio.Options{
 		Creds:        credentials.NewStaticV4(cn.accessKey, cn.secretKey, cn.sessionToken),
 		Secure:       cn.secure,
 		Region:       cn.region,
 		BucketLookup: lookup,
-	})
+	}
+	if cn.secure {
+		tr, terr := s3Transport(req)
+		if terr != nil {
+			return nil, terr
+		}
+		opts.Transport = tr
+	}
+	c, err := minio.New(cn.endpoint, opts)
 	if err != nil {
 		return nil, pluginsdk.NewError(pluginsdk.KindValidation, "the s3 connection is invalid: "+err.Error(), nil)
 	}
 	return &s3FS{c: c, bucket: e.Bucket}, nil
+}
+
+// s3Transport is the default HTTP transport with the system roots plus the
+// operator's extra CA certificates; certificate verification stays on.
+func s3Transport(req pluginsdk.ExecRequest) (http.RoundTripper, error) {
+	pool, err := tlsroots.Pool(req.Config[ConfigTLSCAPEM])
+	if err != nil {
+		return nil, pluginsdk.ValidationError("%s %v", ConfigTLSCAPEM, err)
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool}
+	return tr, nil
 }
 
 // Direct tells the engine to write to the final key and skip the rename.

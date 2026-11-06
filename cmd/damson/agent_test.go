@@ -30,15 +30,15 @@ func TestPluginConfig(t *testing.T) {
 	}
 }
 
-func TestPluginConfigFTPSCA(t *testing.T) {
+func TestPluginConfigTLSCA(t *testing.T) {
 	dir := t.TempDir()
 	good := filepath.Join(dir, "ca.pem")
 	testCAPEM := selfSignedPEM(t)
 	if err := os.WriteFile(good, []byte(testCAPEM), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, err := pluginConfig(config.Agent{FTPSCAFile: good})
-	if err != nil || got["transfer"]["ftps_ca_pem"] != testCAPEM || got["ssh"] != nil {
+	got, err := pluginConfig(config.Agent{TLSCAFile: good})
+	if err != nil || got["transfer"]["tls_ca_pem"] != testCAPEM || got["ssh"] != nil {
 		t.Fatalf("plugin config = %v, %v", got, err)
 	}
 	bad := filepath.Join(dir, "bad.pem")
@@ -46,7 +46,7 @@ func TestPluginConfigFTPSCA(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, path := range map[string]string{"missing": filepath.Join(dir, "none.pem"), "not pem": bad} {
-		if _, err := pluginConfig(config.Agent{FTPSCAFile: path}); err == nil {
+		if _, err := pluginConfig(config.Agent{TLSCAFile: path}); err == nil {
 			t.Errorf("%s: want an error", name)
 		}
 	}

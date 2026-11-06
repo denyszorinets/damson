@@ -139,12 +139,13 @@ written as a double underscore: ``agent.controller_url`` is
      - ``false``
      - Let the ``ssh`` and ``transfer`` plugins connect to nodes with host key policy
        ``insecure``.
-   * - ``agent.ftps_ca_file``
+   * - ``agent.tls_ca_file``
      - agent
      - empty
-     - PEM file of extra CA certificates the ``transfer`` plugin trusts for
-       ``ftps``, in addition to the system roots. Read at start; a bad file
-       fails startup.
+     - PEM file of extra CA certificates trusted, in addition to the system
+       roots, for ``ftps`` and ``https`` S3 endpoints of the ``transfer`` plugin
+       and for ``winrm`` over https. Read at start (a change needs a restart); a
+       bad file fails startup. Certificate verification cannot be turned off.
 
 .. _reference-config-kek:
 
