@@ -124,9 +124,9 @@ After the secret backend is ready, the file is seeded:
   writes a new secret version only when a value changed; unchanged nodes keep
   their version. Concurrent seeders are safe. A restart re-reads the files, so
   a value changed through the API is overwritten if the file differs.
-- Host key policies are not exempt: ``insecure``, and ``tofu`` without a pinned
-  ``host_key``, are seeded but refused at dispatch until the host key flow
-  lands (:issue:`118`). Use ``strict`` with a pinned ``host_key``. Startup warns
+- Host key policies are not exempt: ``insecure`` is seeded but refused at
+  dispatch. ``tofu`` without a pinned ``host_key`` records the first key it
+  sees (:doc:`/architecture/decisions/0046-tofu-host-key-recording`). Startup warns
   about such nodes and about ``_inventory`` secrets that no node uses.
 - Startup logs a WARN with the file's node names and an INFO with the created,
   updated, deleted and unchanged counts and the refs written, never values.

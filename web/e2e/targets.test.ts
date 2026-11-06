@@ -76,3 +76,30 @@ test('a run page lists the targets it froze', async ({ page }) => {
 	await page.getByTestId('targets-more').click();
 	await expect(page.getByTestId('target-row')).toHaveCount(2);
 });
+
+test('a node page forgets the observed host key', async ({ page }) => {
+	let observed = 'ssh-ed25519 AAAA';
+	const calls: string[] = [];
+	await page.route('**/api/v1/nodes/tofu-1**', (r) => {
+		const req = r.request();
+		calls.push(`${req.method()} ${new URL(req.url()).pathname}`);
+		if (req.method() === 'DELETE') {
+			observed = '';
+			return r.fulfill({ status: 204 });
+		}
+		return r.fulfill({
+			json: {
+				...node('tofu-1'),
+				host_key_policy: 'tofu',
+				host_key_observed: observed,
+				host_key_observed_fingerprint: observed ? 'SHA256:abc' : ''
+			}
+		});
+	});
+	await page.addInitScript(() => sessionStorage.setItem('damson.admin_token', 'dma_good'));
+	await page.goto('/nodes/tofu-1');
+	await expect(page.getByTestId('node-details')).toContainText('SHA256:abc');
+	await page.getByTestId('forget-host-key').click();
+	await expect(page.getByTestId('forget-host-key')).toHaveCount(0);
+	expect(calls).toContain('DELETE /api/v1/nodes/tofu-1/host-key');
+});

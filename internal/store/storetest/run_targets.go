@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/denyszorinets/damson/internal/store"
@@ -157,5 +159,99 @@ func testRunTargets(t *testing.T, s store.Store) {
 	}
 	if _, err := s.GetNodeByID(ctx, "nope"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetNodeByID(missing): %v", err)
+	}
+}
+
+func testObservedHostKey(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	ex := claimedOne(t, s) // owned by agent-1, dispatched
+	mk := func(id, name, policy, pinned string) {
+		n := node(id, name)
+		n.HostKeyPolicy, n.HostKey = policy, pinned
+		if _, err := s.CreateNode(ctx, n, t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("h1", "tofu-new", "tofu", "")
+	mk("h2", "tofu-pinned", "tofu", "ssh-ed25519 AAAA")
+	mk("h3", "strict-1", "strict", "ssh-ed25519 AAAA")
+	observe := func(id, key, attempt, agent string) bool {
+		t.Helper()
+		ok, err := s.ObserveNodeHostKey(ctx, id, key, attempt, agent, t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+
+	// Fenced: another agent's or an unknown attempt writes nothing.
+	if observe("h1", "ssh-ed25519 X", ex.AttemptID, "other-agent") || observe("h1", "ssh-ed25519 X", "unknown", "agent-1") {
+		t.Fatal("a foreign attempt recorded a key")
+	}
+	if !observe("h1", "ssh-ed25519 FIRST", ex.AttemptID, "agent-1") {
+		t.Fatal("the first observation was not recorded")
+	}
+	n, _ := s.GetNodeByID(ctx, "h1")
+	if n.HostKeyObserved != "ssh-ed25519 FIRST" || n.HostKeyObservedAt == nil || !n.HostKeyObservedAt.Equal(t0) || n.Version != 1 {
+		t.Fatalf("node after observation = %+v", n)
+	}
+	// Never overwritten: a second key, a replay, a pinned node, a strict node, a missing node.
+	for id, key := range map[string]string{"h1": "ssh-ed25519 OTHER", "h2": "ssh-ed25519 X", "h3": "ssh-ed25519 X", "nope": "ssh-ed25519 X"} {
+		if observe(id, key, ex.AttemptID, "agent-1") {
+			t.Errorf("observe %s wrote", id)
+		}
+	}
+	if observe("h1", "ssh-ed25519 FIRST", ex.AttemptID, "agent-1") {
+		t.Error("a replay wrote again")
+	}
+	if n, _ := s.GetNodeByID(ctx, "h1"); n.HostKeyObserved != "ssh-ed25519 FIRST" {
+		t.Fatalf("observed key changed to %q", n.HostKeyObserved)
+	}
+	// Forgetting lets the next connection observe again; a finished attempt cannot.
+	if err := s.ClearNodeHostKeyObserved(ctx, "h1"); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.GetNodeByID(ctx, "h1"); n.HostKeyObserved != "" || n.HostKeyObservedAt != nil {
+		t.Fatalf("not cleared: %+v", n)
+	}
+	if err := s.MarkExecutionRunning(ctx, ex.ID, ex.AttemptID, claimNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CompleteExecution(ctx, store.Completion{ExecutionID: ex.ID, AttemptID: ex.AttemptID, State: store.ExecSucceeded}, claimNow); err != nil {
+		t.Fatal(err)
+	}
+	if observe("h1", "ssh-ed25519 LATE", ex.AttemptID, "agent-1") {
+		t.Fatal("a finished attempt recorded a key")
+	}
+	if err := s.ClearNodeHostKeyObserved(ctx, "nope"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("clear missing = %v", err)
+	}
+}
+
+// Concurrent first observations: exactly one key wins.
+func testObservedHostKeyRace(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	ex := claimedOne(t, s)
+	n := node("r1", "race")
+	n.HostKeyPolicy = "tofu"
+	if _, err := s.CreateNode(ctx, n, t0); err != nil {
+		t.Fatal(err)
+	}
+	var wins atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if ok, err := s.ObserveNodeHostKey(ctx, "r1", fmt.Sprintf("ssh-ed25519 K%d", i), ex.AttemptID, "agent-1", t0); err == nil && ok {
+				wins.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if wins.Load() != 1 {
+		t.Fatalf("%d observations won; want exactly one", wins.Load())
 	}
 }

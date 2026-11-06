@@ -70,6 +70,16 @@ type NodeStore interface {
 	// external_id or the observed host key. ErrNotFound if the id is gone,
 	// ErrStale if the version moved.
 	UpdateNode(ctx context.Context, n Node, expected int64, now time.Time) (Node, error)
+	// ObserveNodeHostKey records the key a tofu node showed first. It writes
+	// only if the node is tofu, has no pinned key and no observed key yet, and
+	// reports whether it did (false: nothing changed, including a missing
+	// node). It never overwrites a key and does not bump the version.
+	// The write is fenced: attemptID must be an unfinished attempt owned by
+	// agentID (checked in the same statement).
+	ObserveNodeHostKey(ctx context.Context, id, key, attemptID, agentID string, now time.Time) (bool, error)
+	// ClearNodeHostKeyObserved forgets the observed key (the next tofu
+	// connection observes again). ErrNotFound if the id is gone.
+	ClearNodeHostKeyObserved(ctx context.Context, id string) error
 	// DeleteNode removes the node with that id if its version is expected.
 	// ErrNotFound / ErrStale as for UpdateNode.
 	DeleteNode(ctx context.Context, id string, expected int64) error

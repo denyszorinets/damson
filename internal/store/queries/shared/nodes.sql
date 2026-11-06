@@ -47,3 +47,15 @@ UPDATE nodes SET
     credential = sqlc.arg(credential), host_key = sqlc.arg(host_key), host_key_policy = sqlc.arg(host_key_policy),
     enabled = sqlc.arg(enabled), version = version + 1, updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id) AND version = sqlc.arg(expected_version);
+
+-- name: ObserveNodeHostKey :execrows
+-- Records the first key a tofu node showed, if the reporting attempt is still
+-- current and unfinished. It never overwrites a key and never touches a node
+-- that is pinned or not tofu.
+UPDATE nodes SET host_key_observed = sqlc.arg(host_key_observed), host_key_observed_at = sqlc.arg(observed_at)
+WHERE nodes.id = sqlc.arg(id) AND host_key_policy = 'tofu' AND host_key = '' AND host_key_observed = ''
+  AND EXISTS (SELECT 1 FROM executions e WHERE e.attempt_id = sqlc.arg(attempt_id) AND e.agent_id = sqlc.arg(agent_id)
+              AND e.state IN ('dispatched', 'running'));
+
+-- name: ClearNodeHostKeyObserved :execrows
+UPDATE nodes SET host_key_observed = '', host_key_observed_at = NULL WHERE id = sqlc.arg(id);

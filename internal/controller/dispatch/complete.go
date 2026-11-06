@@ -20,6 +20,14 @@ func (d *Dispatcher) Register(peer *protocol.Peer, agentID string) {
 		}
 		return d.Complete(ctx, agentID, m)
 	})
+	peer.Handle(protocol.MethodNodeHostKeyObserved, func(ctx context.Context, p protocol.Params) (any, error) {
+		var m protocol.HostKeyObserved
+		if err := p.Decode(&m); err != nil {
+			return nil, err
+		}
+		d.HostKeyObserved(ctx, agentID, m)
+		return nil, nil
+	})
 }
 
 // Complete applies an agent's terminal report. The attempt_id fences it: a

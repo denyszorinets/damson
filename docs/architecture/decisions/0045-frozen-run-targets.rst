@@ -44,8 +44,9 @@ Dispatch
   node, ``NodeInfo.Name`` stays the requested name, and a deleted node is
   ``ErrUnknownNode``. Membership is not enforced: a name outside the snapshot
   falls back to a lookup by name.
-- The scope check, the enabled check and the host key fail-closed policy apply
-  to the current row. The only live data used is that row at dispatch time:
+- The scope check, the enabled check and the host key policy (the interim
+  fail-closed rule is superseded by :doc:`0046-tofu-host-key-recording`: only
+  ``insecure`` is refused) apply to the current row. The only live data used is that row at dispatch time:
   address, credential and host key.
 
 Alternatives Considered
@@ -106,7 +107,7 @@ Risks
 Follow-up
 ~~~~~~~~~
 
-- :issue:`118`: host key flow for ``tofu``.
+- :issue:`118`: host key flow for ``tofu`` (:doc:`0046-tofu-host-key-recording`).
 - Not in this change: ``GET /api/v1/runs/{id}/targets``, a
   ``GET /nodes?selector=`` preview and a Targets tab in the UI.
 

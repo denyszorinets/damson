@@ -795,7 +795,7 @@
             "type": "string"
           },
           "host_key_observed": {
-            "description": "The key seen by the last TOFU connection, or empty.",
+            "description": "The first key a tofu connection showed, kept until forgotten (DELETE /nodes/{name}/host-key), or empty.",
             "type": "string"
           },
           "host_key_observed_at": {
@@ -3607,6 +3607,86 @@
           }
         ],
         "summary": "Change a node",
+        "tags": [
+          "nodes"
+        ]
+      }
+    },
+    "/nodes/{name}/host-key": {
+      "delete": {
+        "operationId": "forget-node-host-key",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "maxLength": 63,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Forget the observed host key",
         "tags": [
           "nodes"
         ]

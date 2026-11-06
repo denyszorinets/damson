@@ -19,8 +19,8 @@ var (
 	// ErrNodeDisabled is a node that exists but is switched off in the
 	// inventory. Permanent as well.
 	ErrNodeDisabled = errors.New("node is disabled")
-	// ErrHostKeyPolicy is a node whose host key policy cannot be honored yet
-	// (tofu without a pinned key, insecure) until host key handling lands.
+	// ErrHostKeyPolicy is a node whose host key policy the controller does
+	// not dispatch: insecure.
 	ErrHostKeyPolicy = errors.New("host key policy not available")
 	// ErrSecretUnavailable is a secret that exists but cannot be used: a
 	// malformed ref, or a version that cannot be decrypted. Permanent too.

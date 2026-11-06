@@ -219,6 +219,10 @@ JSON text, ``credential`` secret ref, ``host_key``, ``host_key_policy``,
   ``CHECK`` later.
 - ``host_key_observed`` and ``host_key_observed_at`` are written by the
   trust-on-first-use flow and do not bump ``version``.
+  ``ObserveNodeHostKey(id, key, now)`` is one ``UPDATE ... WHERE
+  host_key_policy = 'tofu' AND host_key = '' AND host_key_observed = ''``: the
+  first key wins, it never overwrites, and a replay is a no-op.
+  ``ClearNodeHostKeyObserved(id)`` forgets it (ADR-0046).
 - ``version`` is the compare-and-swap counter for updates.
 
 The interface is ``NodeStore`` (``internal/store/nodes.go``), part of

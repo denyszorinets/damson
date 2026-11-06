@@ -148,8 +148,9 @@ Other controls
 --------------
 
 - TLS everywhere; plain ``ws://`` only with ``--insecure-dev``.
-- SSH host keys are ``strict`` by default; ``tofu`` stores observed keys
-  (fenced by ``attempt_id``); ``insecure`` must be enabled in controller config.
+- SSH host keys are ``strict`` by default; ``tofu`` stores the first observed
+  key per node (fenced by ``attempt_id``, ADR-0046); ``insecure`` is refused by
+  the controller (the agent's ``allow_insecure_host_keys`` is a second gate).
 - CEL runs with cost and result-size limits and exposes no I/O.
 - Plugin inputs are validated against their schemas on the controller before
   dispatch; agents validate again.

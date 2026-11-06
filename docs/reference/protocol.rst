@@ -157,4 +157,6 @@ changes a message type.
 ``node.hostkey_observed``
    Sent best-effort when a plugin reports a host key through
    ``ExecRequest.HostKeys``; ``key_type`` and ``fingerprint`` (``SHA256:...``)
-   are derived from the key. A report made while disconnected is dropped.
+   are derived from the key. A report made while disconnected is dropped. The
+   controller applies it fenced like ``step.complete`` and drops mismatches
+   silently (:doc:`/architecture/decisions/0046-tofu-host-key-recording`).

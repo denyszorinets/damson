@@ -11,6 +11,7 @@
 	import {
 		Unauthorized,
 		deleteNode,
+		forgetHostKey,
 		fetchNode,
 		formOf,
 		loadToken,
@@ -88,6 +89,19 @@
 			editing = false;
 			force = false; // each forced write is its own decision
 			error = null;
+		} catch (err) {
+			fail(err);
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function forget() {
+		if (!node) return;
+		busy = true;
+		try {
+			await forgetHostKey(token, node.name);
+			await load();
 		} catch (err) {
 			fail(err);
 		} finally {
@@ -173,7 +187,18 @@
 					{node.host_key_fingerprint || 'none pinned'} ({node.host_key_policy})
 				</dd>
 				<dt class="text-muted-foreground">Observed key</dt>
-				<dd class="font-mono break-all">{node.host_key_observed_fingerprint || 'none'}</dd>
+				<dd class="font-mono break-all">
+					{node.host_key_observed_fingerprint || 'none'}
+					{#if node.host_key_observed}
+						<Button
+							variant="outline"
+							size="sm"
+							data-testid="forget-host-key"
+							disabled={busy}
+							onclick={forget}>Forget</Button
+						>
+					{/if}
+				</dd>
 				<dt class="text-muted-foreground">Source</dt>
 				<dd>{node.source}{node.external_id ? ` (${node.external_id})` : ''}</dd>
 				<dt class="text-muted-foreground">State</dt>
