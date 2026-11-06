@@ -889,7 +889,7 @@ type SecretStore interface {
   - AAD of the data is `"damson-secret/v1\0" + scope + "\0" + name + "\0" + version`; the wrap uses the same AAD plus `"\0" + kek_id`. A ciphertext moved to another row or version fails to decrypt.
   - Canary: the `instance_settings` key `secrets.kek_canary` holds `{kek_id, nonce, ct}` of a fixed plaintext under AAD `"damson-canary/v1"`. Controller start: no KEK and no canary disables secrets (WARN; dispatch of a `secret://` step fails permanently); no KEK with a canary refuses to start; a KEK without a canary stores it (a canary written by a peer is verified); a canary under the active key starts; under the previous key starts with a WARN to run `damson admin rotate-kek`; under neither refuses to start.
   - The last 10 versions are kept. Listing never reads encrypted columns.
-  - `damson admin rotate-kek` re-wraps the DEKs (M4, later issue).
+  - `damson admin rotate-kek` (env `DAMSON_KEK` = new key, `DAMSON_KEK_PREVIOUS` = old key) checks the canary, then pages through `secret_versions` whose `kek_id` is not the active one (keyset on `secret_id, version`, batches of 100) and re-wraps each DEK under the new key with `UPDATE … WHERE secret_id=? AND version=? AND kek_id=old`; the data ciphertext is untouched. It is resumable and a second run is a no-op. Rows under a key that is neither active nor previous count as failed (non-zero exit) and the canary is then not moved; otherwise the canary is re-wrapped last (CAS on its version). Output has counts and the active `kek_id` only.
   - Losing the KEK means losing the secrets. The docs must say so loudly.
 - **`openbao`** (Vault-API compatible). KV v2.
   - Ref mapping: `<mount>/data/<prefix>/<project-path>/<name>`.

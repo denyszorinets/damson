@@ -153,3 +153,29 @@ func (s *Store) DeleteSecret(ctx context.Context, scope, name string) error {
 	}
 	return nil
 }
+
+// ListSecretVersionsNotUnder implements store.SecretStore.
+func (s *Store) ListSecretVersionsNotUnder(ctx context.Context, kekID, afterSecretID string, afterVersion int64, limit int) ([]store.WrappedVersion, error) {
+	rows, err := s.q.ListSecretVersionsNotUnder(ctx, gen.ListSecretVersionsNotUnderParams{
+		KekID: kekID, AfterSecret: afterSecretID, AfterVersion: afterVersion, RowLimit: int64(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing secret versions to rotate: %w", err)
+	}
+	out := make([]store.WrappedVersion, len(rows))
+	for i, r := range rows {
+		out[i] = store.WrappedVersion{SecretID: r.SecretID, Version: int64(r.Version), Scope: r.ScopePath, Name: r.Name, KEKID: r.KekID, WrappedDEK: r.WrappedDek}
+	}
+	return out, nil
+}
+
+// RewrapSecretVersion implements store.SecretStore.
+func (s *Store) RewrapSecretVersion(ctx context.Context, secretID string, version int64, oldKEKID, newKEKID string, wrappedDEK []byte) (bool, error) {
+	n, err := s.q.RewrapSecretVersionCAS(ctx, gen.RewrapSecretVersionCASParams{
+		NewKekID: newKEKID, WrappedDek: wrappedDEK, SecretID: secretID, Version: version, OldKekID: oldKEKID,
+	})
+	if err != nil {
+		return false, fmt.Errorf("rewrapping secret version: %w", err)
+	}
+	return n > 0, nil
+}

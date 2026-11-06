@@ -43,3 +43,18 @@ DELETE FROM secret_versions WHERE secret_id = sqlc.arg(secret_id) AND version <=
 -- One statement: the row lock on secrets comes first, and the versions go with
 -- it through ON DELETE CASCADE.
 DELETE FROM secrets WHERE scope_path = sqlc.arg(scope_path) AND name = sqlc.arg(name);
+
+-- name: ListSecretVersionsNotUnder :many
+-- Versions wrapped under any key but kek_id, for rotate-kek. Keyset on
+-- (secret_id, version); never selects the data ciphertext.
+SELECT v.secret_id, v.version, v.kek_id, v.wrapped_dek, s.scope_path, s.name
+FROM secret_versions v
+JOIN secrets s ON s.id = v.secret_id
+WHERE v.kek_id <> sqlc.arg(kek_id)
+  AND (v.secret_id > sqlc.arg(after_secret) OR (v.secret_id = sqlc.arg(after_secret) AND v.version > sqlc.arg(after_version)))
+ORDER BY v.secret_id, v.version
+LIMIT sqlc.arg(row_limit);
+
+-- name: RewrapSecretVersionCAS :execrows
+UPDATE secret_versions SET kek_id = sqlc.arg(new_kek_id), wrapped_dek = sqlc.arg(wrapped_dek)
+WHERE secret_id = sqlc.arg(secret_id) AND version = sqlc.arg(version) AND kek_id = sqlc.arg(old_kek_id);

@@ -263,6 +263,69 @@ func (q *Queries) ListSecretMeta(ctx context.Context, arg ListSecretMetaParams) 
 	return items, nil
 }
 
+const listSecretVersionsNotUnder = `-- name: ListSecretVersionsNotUnder :many
+SELECT v.secret_id, v.version, v.kek_id, v.wrapped_dek, s.scope_path, s.name
+FROM secret_versions v
+JOIN secrets s ON s.id = v.secret_id
+WHERE v.kek_id <> ?1
+  AND (v.secret_id > ?2 OR (v.secret_id = ?2 AND v.version > ?3))
+ORDER BY v.secret_id, v.version
+LIMIT ?4
+`
+
+type ListSecretVersionsNotUnderParams struct {
+	KekID        string
+	AfterSecret  string
+	AfterVersion int64
+	RowLimit     int64
+}
+
+type ListSecretVersionsNotUnderRow struct {
+	SecretID   string
+	Version    int64
+	KekID      string
+	WrappedDek []byte
+	ScopePath  string
+	Name       string
+}
+
+// Versions wrapped under any key but kek_id, for rotate-kek. Keyset on
+// (secret_id, version); never selects the data ciphertext.
+func (q *Queries) ListSecretVersionsNotUnder(ctx context.Context, arg ListSecretVersionsNotUnderParams) ([]ListSecretVersionsNotUnderRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSecretVersionsNotUnder,
+		arg.KekID,
+		arg.AfterSecret,
+		arg.AfterVersion,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSecretVersionsNotUnderRow
+	for rows.Next() {
+		var i ListSecretVersionsNotUnderRow
+		if err := rows.Scan(
+			&i.SecretID,
+			&i.Version,
+			&i.KekID,
+			&i.WrappedDek,
+			&i.ScopePath,
+			&i.Name,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const pruneSecretVersions = `-- name: PruneSecretVersions :exec
 DELETE FROM secret_versions WHERE secret_id = ?1 AND version <= ?2
 `
@@ -275,4 +338,31 @@ type PruneSecretVersionsParams struct {
 func (q *Queries) PruneSecretVersions(ctx context.Context, arg PruneSecretVersionsParams) error {
 	_, err := q.db.ExecContext(ctx, pruneSecretVersions, arg.SecretID, arg.MaxPruned)
 	return err
+}
+
+const rewrapSecretVersionCAS = `-- name: RewrapSecretVersionCAS :execrows
+UPDATE secret_versions SET kek_id = ?1, wrapped_dek = ?2
+WHERE secret_id = ?3 AND version = ?4 AND kek_id = ?5
+`
+
+type RewrapSecretVersionCASParams struct {
+	NewKekID   string
+	WrappedDek []byte
+	SecretID   string
+	Version    int64
+	OldKekID   string
+}
+
+func (q *Queries) RewrapSecretVersionCAS(ctx context.Context, arg RewrapSecretVersionCASParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, rewrapSecretVersionCAS,
+		arg.NewKekID,
+		arg.WrappedDek,
+		arg.SecretID,
+		arg.Version,
+		arg.OldKekID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

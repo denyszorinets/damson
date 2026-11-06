@@ -29,6 +29,8 @@ Resources and actions:
                                            replaces any existing one
   admin-token revoke                       revoke the admin bootstrap token
   kek generate                             print a new secret encryption key (no database)
+  rotate-kek                               re-wrap every secret under DAMSON_KEK (the new key), which
+                                           must come with DAMSON_KEK_PREVIOUS (the old one); resumable
 
 All actions accept --config <path> and --json.
 `
@@ -42,6 +44,8 @@ type adminCmd struct {
 	pool   string
 	name   string
 	desc   string
+	// secrets holds the resolved keys (DAMSON_KEK, DAMSON_KEK_PREVIOUS).
+	secrets config.Secrets
 }
 
 type adminAction struct {
@@ -62,6 +66,8 @@ var adminActions = map[string]adminAction{
 
 	"admin-token create": {run: adminTokenCreate},
 	"admin-token revoke": {run: adminTokenRevoke},
+
+	"rotate-kek": {run: rotateKEK},
 }
 
 // runAdmin dispatches `damson admin <resource> <action>`. Only `token create`
@@ -71,11 +77,14 @@ func runAdmin(ctx context.Context, args []string, stdout, stderr io.Writer, envi
 		fmt.Fprint(stdout, adminUsage)
 		return exitOK
 	}
+	if len(args) >= 1 && args[0] == "rotate-kek" {
+		args = append([]string{"rotate-kek", ""}, args[1:]...) // a one-word action: the resource slot is empty
+	}
 	if len(args) < 2 {
 		fmt.Fprint(stderr, adminUsage)
 		return exitUsage
 	}
-	key := args[0] + " " + args[1]
+	key := strings.TrimSpace(args[0] + " " + args[1])
 	if key == "kek generate" && len(args) == 2 {
 		if err := kekGenerate(stdout, stderr); err != nil {
 			fmt.Fprintf(stderr, "damson admin %s: %v\n", key, err)
@@ -172,6 +181,7 @@ func execAdmin(ctx context.Context, act adminAction, c adminCmd, cfgPath string,
 	if v == 0 {
 		return errors.New("database is not migrated; run \"damson controller --auto-migrate\" (or \"damson dev\") first")
 	}
+	c.secrets = cfg.Secrets
 	return act.run(ctx, st, c, time.Now().UTC())
 }
 

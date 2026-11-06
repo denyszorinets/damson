@@ -202,3 +202,50 @@ func testSecretsRecreate(t *testing.T, s store.Store) {
 		t.Fatalf("recreated secret was touched: %+v", m)
 	}
 }
+
+func testSecretsRewrap(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	mk := func(id, name, kek string) {
+		b := blob(id)
+		b.KEKID = kek
+		if _, err := s.CreateSecret(ctx, id, "rot", name, "generic", b, t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("r1", "a", "old")
+	mk("r2", "b", "new")
+	mk("r3", "c", "old")
+
+	// Pages in (secret id, version) order and skips rows already under the key.
+	page, err := s.ListSecretVersionsNotUnder(ctx, "new", "", 0, 1)
+	if err != nil || len(page) != 1 || page[0].SecretID != "r1" || page[0].Scope != "rot" || page[0].Name != "a" || page[0].KEKID != "old" {
+		t.Fatalf("first page = %+v, %v", page, err)
+	}
+	page, err = s.ListSecretVersionsNotUnder(ctx, "new", "r1", 1, 10)
+	if err != nil || len(page) != 1 || page[0].SecretID != "r3" {
+		t.Fatalf("second page = %+v, %v", page, err)
+	}
+
+	// CAS on the old kek_id: the first rewrap wins, a replay and a wrong old id do not.
+	ok, err := s.RewrapSecretVersion(ctx, "r1", 1, "old", "new", []byte("rewrapped"))
+	if err != nil || !ok {
+		t.Fatalf("rewrap = %v, %v", ok, err)
+	}
+	for _, old := range []string{"old", "other"} {
+		if ok, _ := s.RewrapSecretVersion(ctx, "r1", 1, old, "new", []byte("again")); ok {
+			t.Fatalf("rewrap with old=%q wrote", old)
+		}
+	}
+	if ok, _ := s.RewrapSecretVersion(ctx, "missing", 1, "old", "new", nil); ok {
+		t.Fatal("rewrapped a missing version")
+	}
+	_, got, err := s.GetSecret(ctx, "rot", "a")
+	if err != nil || got.KEKID != "new" || string(got.WrappedDEK) != "rewrapped" || string(got.Ciphertext) != string(blob("r1").Ciphertext) {
+		t.Fatalf("after rewrap = %+v, %v", got, err)
+	}
+	page, _ = s.ListSecretVersionsNotUnder(ctx, "new", "", 0, 10)
+	if len(page) != 1 || page[0].SecretID != "r3" {
+		t.Fatalf("left to rotate = %+v", page)
+	}
+}

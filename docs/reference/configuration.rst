@@ -97,7 +97,7 @@ written as a double underscore: ``agent.controller_url`` is
    * - ``secrets.kek_previous_file``
      - controller
      - none
-     - File holding the previous KEK, for rotation. Alternatively set
+     - File holding the previous (old) KEK, used while running ``damson admin rotate-kek``. Alternatively set
        ``DAMSON_KEK_PREVIOUS``; not both.
    * - ``engine.finally_grace``
      - controller, dev
@@ -149,7 +149,8 @@ The ``db`` secret backend encrypts every secret with keys wrapped by one KEK
 (:doc:`/architecture/decisions/0042-db-secret-backend-keyring`). Provide it
 either in the environment variable ``DAMSON_KEK`` or in a file named by
 ``secrets.kek_file``, never both. The previous key uses ``DAMSON_KEK_PREVIOUS``
-or ``secrets.kek_previous_file``. The value is exactly 32 bytes in standard
+or ``secrets.kek_previous_file``; set it only while rotating, together with the
+new key in ``DAMSON_KEK`` (:ref:`cli-rotate-kek`). The value is exactly 32 bytes in standard
 base64. Generate one with:
 
 .. code-block:: console
