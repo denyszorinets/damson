@@ -34,7 +34,7 @@ const (
 	// context between polls; see cancel in run.go.
 	receiveTimeout = "PT5S"
 	// httpTimeout bounds one HTTP exchange and must exceed receiveTimeout.
-	httpTimeout = 30 * time.Second
+	httpTimeout = 90 * time.Second
 )
 
 // checkSecurity applies the operator gate to what the step asked for.

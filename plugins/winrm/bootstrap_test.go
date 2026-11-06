@@ -106,7 +106,7 @@ func TestOnlyReceiveKeepsTheShortOperationTimeout(t *testing.T) {
 		t.Errorf("Receive changed: %s", got)
 	}
 	create := `<a:Action>http://schemas.xmlsoap.org/ws/2004/09/transfer/Create</a:Action><w:OperationTimeout>PT5S</w:OperationTimeout>`
-	if got := withControlTimeout(create); !strings.Contains(got, "PT25S") || strings.Contains(got, "PT5S") {
+	if got := withControlTimeout(create); !strings.Contains(got, "PT80S") || strings.Contains(got, "PT5S") {
 		t.Errorf("Create = %s", got)
 	}
 }

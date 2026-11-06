@@ -116,7 +116,7 @@ func (h *httpsTransport) close() { h.tr.CloseIdleConnections() }
 // Receive long-poll (and so a cancel) responsive is too short for creating a
 // shell or starting a command, which can take over 5 s on a cold Windows host.
 // It must stay below httpTimeout.
-const controlTimeout = "PT25S"
+const controlTimeout = "PT80S"
 
 // withControlTimeout gives every request but Receive the control timeout.
 func withControlTimeout(body string) string {
