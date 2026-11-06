@@ -16,7 +16,7 @@ func TestPluginConfig(t *testing.T) {
 		t.Errorf("default plugin config = %v, want none (safe default)", got)
 	}
 	got := pluginConfig(config.Agent{AllowInsecureHostKeys: true})
-	if got["ssh"]["allow_insecure_host_keys"] != "true" {
+	if got["ssh"]["allow_insecure_host_keys"] != "true" || got["transfer"]["allow_insecure_host_keys"] != "true" {
 		t.Errorf("plugin config = %v", got)
 	}
 }

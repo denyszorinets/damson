@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -262,7 +263,8 @@ func signalName(sig syscall.Signal) string {
 }
 
 // session serves one session channel: it collects env and pty requests, runs
-// the exec request with /bin/sh and reports the exit status.
+// the exec request with /bin/sh and reports the exit status, or serves the
+// sftp subsystem on the real file system.
 func (s *Server) session(ch ssh.Channel, reqs <-chan *ssh.Request) {
 	defer func() { _ = ch.Close() }()
 	var env []string
@@ -301,6 +303,21 @@ func (s *Server) session(ch ssh.Channel, reqs <-chan *ssh.Request) {
 				sendExit(ch, c.Wait())
 				_ = ch.Close()
 			}(cmd)
+		case "subsystem":
+			var m struct{ Name string }
+			if ssh.Unmarshal(req.Payload, &m) != nil || m.Name != "sftp" || cmd != nil {
+				_ = req.Reply(false, nil)
+				continue
+			}
+			_ = req.Reply(true, nil)
+			// The sftp server works on the real file system, like exec does.
+			srv, err := sftp.NewServer(ch)
+			if err != nil {
+				return
+			}
+			_ = srv.Serve()
+			_ = srv.Close()
+			return
 		case "signal":
 			var m signalMsg
 			if cmd != nil && ssh.Unmarshal(req.Payload, &m) == nil {

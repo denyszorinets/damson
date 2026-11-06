@@ -55,7 +55,7 @@ A plugin package exports one constructor and implements ``pluginsdk.Plugin``:
   may be nil) lets a plugin report the host key it observed on a node, in
   ``authorized_keys`` format; the agent forwards it so the controller can store
   it on the node (trust on first use). ``ExecRequest.Config`` carries operator
-  settings for the plugin (for example ``allow_insecure_host_keys`` for ``ssh``);
+  settings for the plugin (for example ``allow_insecure_host_keys`` for ``ssh`` and ``transfer``);
   absent keys mean the safe default. Both were added in SDK 0.2.0 and are
   optional, so existing plugins are unaffected.
 - ``Validate`` failures must be ``validation`` errors; they are never retried.

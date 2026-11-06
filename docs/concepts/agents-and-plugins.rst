@@ -45,8 +45,9 @@ Built-in plugins (v1):
    * - ``winrm``
      - Run a command or PowerShell on Windows (HTTPS, Basic or NTLM).
    * - ``transfer``
-     - Copy or move one file between nodes (SFTP, SCP, FTP, FTPS) and S3,
-       streamed through agent memory with in-stream SHA-256.
+     - Copy or move one file between nodes, streamed through agent memory
+       with in-stream SHA-256. SFTP is implemented; SCP, FTP, FTPS and S3 are
+       planned (:doc:`/reference/plugin-transfer`).
    * - ``ansible``
      - Run a playbook from Git with an inventory generated from the run's
        targets.
