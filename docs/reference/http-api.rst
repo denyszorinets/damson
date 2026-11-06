@@ -271,6 +271,11 @@ and ``updated_at``.
        times. ``200`` with the node.
    * - ``DELETE /api/v1/nodes/{name}?force=&if_version=``
      - ``204``, or ``404``.
+   * - ``DELETE /api/v1/nodes/{name}/host-key``
+     - Forgets the observed host key, so the next ``tofu`` connection observes
+       again. ``204``, or ``404``. Works on synced nodes without ``force``
+       (the observed key is not source-owned). A pinned ``host_key`` is not
+       touched; ``PATCH`` ``host_key`` pins a key and wins over the observed one.
 
 Errors: ``401``; ``404``; ``409`` (a duplicate name, including a case-only
 duplicate; a duplicate ``(source, external_id)``; a stale ``if_version``);

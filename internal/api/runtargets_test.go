@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,5 +83,31 @@ func TestRunTargetsEndpoint(t *testing.T) {
 		assert.Empty(t, out.NextCursor)
 
 		f.callJSON(t, "GET", "/api/v1/runs/0192a000-0000-7000-8000-00000000ffff/targets", "", http.StatusNotFound, nil)
+	})
+}
+
+func TestForgetObservedHostKey(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		f := newSecretsFixture(t, st, false)
+		var n api.Node
+		f.callJSON(t, "POST", "/api/v1/nodes", `{"name":"web","address":"h","host_key_policy":"tofu"}`, 201, &n)
+		job, ver, err := st.CreateJob(t.Context(), store.NewJob{ProjectID: store.DefaultProjectID, Name: "fk", Spec: []byte(`{}`), Checksum: "c"}, t0)
+		require.NoError(t, err)
+		_, err = st.CreateRun(t.Context(), store.NewRun{JobID: job.ID, JobVersionID: ver.ID,
+			Steps: []store.NewStepInstance{{Path: "s", Plugin: "ssh", Execution: &store.NewExecution{Pool: "default", ScheduledAt: t0}}}}, t0)
+		require.NoError(t, err)
+		claimed, err := st.ClaimExecutions(t.Context(), store.ClaimParams{AgentID: "a1", ControllerID: "c", Pools: []string{"default"}, Limit: 1, LeaseTTL: time.Hour}, t0)
+		require.NoError(t, err)
+		require.Len(t, claimed, 1)
+		ok, err := st.ObserveNodeHostKey(t.Context(), n.ID, "ssh-ed25519 AAAA", claimed[0].AttemptID, "a1", t0)
+		require.NoError(t, err)
+		require.True(t, ok)
+		assert.Equal(t, http.StatusUnauthorized, f.do("DELETE", "/api/v1/nodes/web/host-key", "", "").Code)
+		f.callJSON(t, "GET", "/api/v1/nodes/web", "", 200, &n)
+		assert.Equal(t, "ssh-ed25519 AAAA", n.HostKeyObserved)
+		f.callJSON(t, "DELETE", "/api/v1/nodes/web/host-key", "", http.StatusNoContent, nil)
+		f.callJSON(t, "GET", "/api/v1/nodes/web", "", 200, &n)
+		assert.Empty(t, n.HostKeyObserved)
+		f.callJSON(t, "DELETE", "/api/v1/nodes/nope/host-key", "", http.StatusNotFound, nil)
 	})
 }

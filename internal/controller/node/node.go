@@ -204,6 +204,9 @@ func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 		DispatchInterval: t.Dispatch, RenewInterval: t.Renew, ReapInterval: t.Reap, CancelInterval: t.Cancel, IncapableRetry: t.IncapableRetry, LeaseTTL: t.LeaseTTL,
 	}
 	dcfg.Nodes, dcfg.Secrets, dcfg.Project = n.dispatchSources(cfg, log)
+	if hk, ok := dcfg.Nodes.(dispatch.HostKeyRecorder); ok {
+		dcfg.HostKeys = hk
+	}
 	if n.disp, err = dispatch.New(dcfg); err != nil {
 		return fmt.Errorf("creating dispatcher: %w", err)
 	}
@@ -346,7 +349,7 @@ func (n *Node) stopGuard(ctx context.Context) error {
 // authorized against the run's project (the --dev-nodes file is seeded into
 // these stores, ADR-0044).
 func (n *Node) dispatchSources(cfg Config, log *slog.Logger) (dispatch.NodeSource, dispatch.SecretSource, func(context.Context, string) (string, error)) {
-	nodes := &InventoryNodes{Store: cfg.Store, Scope: inventory.AllNodes{}, Project: projectOf(cfg.Store)}
+	nodes := &InventoryNodes{Store: cfg.Store, Scope: inventory.AllNodes{}, Project: projectOf(cfg.Store), Log: log}
 	if n.secrets == nil {
 		return nodes, nil, nil
 	}

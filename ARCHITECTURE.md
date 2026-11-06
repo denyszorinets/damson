@@ -510,7 +510,7 @@ type StepError struct {
 
 - **Input:** `node`, `command` *or* `script` (uploaded to `WorkDir` on the target and executed), `interpreter` (default `/bin/sh`), `env`, `workdir`, `sudo`, `sudo_user`, `pty`, `credential` (overrides the node default).
 - **Output:** `exit_code`, `stdout_tail` (last 64 KiB), `stderr_tail`, `values` (from the output protocol).
-- **Host keys:** the node's `host_key_policy` is one of `strict` (default; requires `host_key` in the inventory), `tofu` (the agent reports the observed key, and the controller stores it on the node), or `insecure` (only allowed when explicitly enabled in controller config).
+- **Host keys:** the node's `host_key_policy` is one of `strict` (default; requires `host_key` in the inventory), `tofu` (dispatch sends the pinned `host_key`, else the observed key, else none; with no key the agent accepts the first key it sees and reports it, and the controller stores it as the node's observed key, first key wins, ADR-0046), or `insecure` (refused by the controller at dispatch as `host key policy not available`; the agent's `allow_insecure_host_keys` stays a second gate).
 - **Cancel:** send a signal via the SSH session, then close the session.
 - **Success:** a non-zero exit code is an `exit_code` error. `success_exit_codes` can override that.
 
@@ -709,6 +709,8 @@ Params and results are MessagePack maps with snake_case keys; unknown keys are i
 | `agent.reconnect` | `jitter_ms`, `reason` |
 | `node.hostkey_observed` | `attempt_id`, `node`, `key_type`, `host_key`, `fingerprint` |
 
+The controller applies `node.hostkey_observed` only if the attempt exists, belongs to the reporting agent and is unfinished, and the step's `input.node` equals `node`. It re-parses the key and recomputes type and fingerprint (a mismatch is dropped), and stores the canonical `authorized_keys` form without comment. Drops are silent (INFO log) (ADR-0046).
+
 The `secrets` member is the only place secret values cross the wire. The Go type redacts itself in `fmt`, `slog` and `encoding/json` output.
 
 ### 7.3 Reliability rules
@@ -855,7 +857,7 @@ Action = CreateStepInstance | ScheduleExecution | SettleStep | SkipStep | Comple
 - Format: `secret://<scope>/<name>[#<field>]`, for example `secret://infra/billing/deploy-key#private_key`. The scope is all segments but the last.
 - A job may reference secrets in its own project or any **ancestor** project (prefix match on a `/` boundary). Siblings, children and other projects are denied. The dispatcher enforces this before any secret is read; a denied ref fails the execution as `unknown secret`, so existence is not revealed. API spec validation rejects literal refs that are not authorized.
 - Inventory-level credentials live under the reserved `secret://_inventory/...` scope (`_inventory` is allowed only as the whole scope). They are usable only as the credential of the node a step targets, never as a literal `secret://_inventory/...` in step input, by any job whose project node scope includes the node.
-- Node scope today (ADR-0043): dispatch asks the `inventory.Scope` hook, and `AllNodes` matches every node until M8 builds the project tree and the CEL `node_scope` (§12.1); there is no `projects.node_scope` column yet. A missing node and a node outside the scope both fail the step permanently as `unknown node`, so existence is not revealed. A disabled node fails permanently as `node is disabled`; a node deleted after the run started fails permanently as `unknown node`. Until host key handling lands (#118) a node with policy `insecure`, or `tofu` without a pinned `host_key`, fails permanently as `host key policy not available`, because the controller does not store observed keys yet. A database error requeues. The node credential goes through the same secret authorization, with `_inventory` allowed only as a node credential.
+- Node scope today (ADR-0043): dispatch asks the `inventory.Scope` hook, and `AllNodes` matches every node until M8 builds the project tree and the CEL `node_scope` (§12.1); there is no `projects.node_scope` column yet. A missing node and a node outside the scope both fail the step permanently as `unknown node`, so existence is not revealed. A disabled node fails permanently as `node is disabled`; a node deleted after the run started fails permanently as `unknown node`. Host keys at dispatch (ADR-0046): `strict` sends `host_key` (empty fails at connect); `tofu` sends the pinned `host_key`, else the observed key, else none; a node with policy `insecure` fails permanently as `host key policy not available`. The controller handles `node.hostkey_observed` fenced like `step.complete` and stores the first key only (`ObserveNodeHostKey`); `DELETE /api/v1/nodes/{name}/host-key` forgets it. A database error requeues. The node credential goes through the same secret authorization, with `_inventory` allowed only as a node credential.
 - Grammar (ADR-0042):
   - A scope segment matches `[a-z0-9][a-z0-9-]{0,62}`, 1 to 8 segments, so a leading `_` is impossible.
   - `name` matches `[A-Za-z0-9][A-Za-z0-9._-]{0,127}` and has no `..`.

@@ -110,10 +110,10 @@ The node's ``host_key_policy`` decides how the server key is checked:
    If the node has a ``host_key`` it is enforced like ``strict``. Otherwise
    the key the server presents is accepted and, once authentication succeeded,
    reported through the SDK hook (``ExecRequest.HostKeys``). The agent forwards
-   it to the controller, which stores it as ``hostkey_observed`` on the node
-   for an operator to review. The plugin side is done; the agent wiring of
-   ``HostKeys`` and ``Config`` is pending (tracked in #52), so until then the
-   hook is nil and ``insecure`` cannot be enabled outside tests.
+   it to the controller, which stores the first key as the node's observed
+   key (ADR-0046); later connections are held to it until an operator forgets
+   it. ``insecure`` cannot be enabled outside tests: the controller refuses
+   the policy at dispatch.
 
 ``insecure``
    No verification. It is refused with a ``validation`` error unless the

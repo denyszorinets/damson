@@ -180,6 +180,14 @@ export async function deleteNode(
 	check(res);
 }
 
+export async function forgetHostKey(token: string, name: string): Promise<void> {
+	const res = await api.DELETE('/nodes/{name}/host-key', {
+		params: { path: { name } },
+		headers: headers(token)
+	});
+	check(res);
+}
+
 export type RunTarget = components['schemas']['RunTarget'];
 
 export async function fetchRunTargets(

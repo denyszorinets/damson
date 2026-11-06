@@ -11,6 +11,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearNodeHostKeyObserved = `-- name: ClearNodeHostKeyObserved :execrows
+UPDATE nodes SET host_key_observed = '', host_key_observed_at = NULL WHERE id = $1
+`
+
+func (q *Queries) ClearNodeHostKeyObserved(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.Exec(ctx, clearNodeHostKeyObserved, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteNodeCAS = `-- name: DeleteNodeCAS :execrows
 DELETE FROM nodes WHERE id = $1 AND version = $2
 `
@@ -239,6 +251,38 @@ func (q *Queries) ListNodes(ctx context.Context, arg ListNodesParams) ([]Node, e
 		return nil, err
 	}
 	return items, nil
+}
+
+const observeNodeHostKey = `-- name: ObserveNodeHostKey :execrows
+UPDATE nodes SET host_key_observed = $1, host_key_observed_at = $2
+WHERE nodes.id = $3 AND host_key_policy = 'tofu' AND host_key = '' AND host_key_observed = ''
+  AND EXISTS (SELECT 1 FROM executions e WHERE e.attempt_id = $4 AND e.agent_id = $5
+              AND e.state IN ('dispatched', 'running'))
+`
+
+type ObserveNodeHostKeyParams struct {
+	HostKeyObserved string
+	ObservedAt      pgtype.Timestamptz
+	ID              string
+	AttemptID       string
+	AgentID         pgtype.Text
+}
+
+// Records the first key a tofu node showed, if the reporting attempt is still
+// current and unfinished. It never overwrites a key and never touches a node
+// that is pinned or not tofu.
+func (q *Queries) ObserveNodeHostKey(ctx context.Context, arg ObserveNodeHostKeyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, observeNodeHostKey,
+		arg.HostKeyObserved,
+		arg.ObservedAt,
+		arg.ID,
+		arg.AttemptID,
+		arg.AgentID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateNodeCAS = `-- name: UpdateNodeCAS :execrows

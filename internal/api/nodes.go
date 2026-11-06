@@ -30,7 +30,7 @@ type Node struct {
 	HostKey                    string         `json:"host_key" doc:"The pinned key in authorized_keys form, or empty."`
 	HostKeyFingerprint         string         `json:"host_key_fingerprint,omitempty"`
 	HostKeyPolicy              string         `json:"host_key_policy"`
-	HostKeyObserved            string         `json:"host_key_observed" doc:"The key seen by the last TOFU connection, or empty."`
+	HostKeyObserved            string         `json:"host_key_observed" doc:"The first key a tofu connection showed, kept until forgotten (DELETE /nodes/{name}/host-key), or empty."`
 	HostKeyObservedFingerprint string         `json:"host_key_observed_fingerprint,omitempty"`
 	HostKeyObservedAt          *time.Time     `json:"host_key_observed_at,omitempty"`
 	Source                     string         `json:"source" doc:"manual for nodes made through this API, otherwise the sync source that owns it."`
@@ -209,6 +209,19 @@ func registerNodes(api huma.API, d deps) {
 			expected = in.IfVersion
 		}
 		if err := d.ds.DeleteNode(ctx, n.ID, expected); err != nil {
+			return nil, apiError(ctx, err)
+		}
+		return nil, nil
+	})
+	huma.Register(api, op("forget-node-host-key", http.MethodDelete, "/nodes/{name}/host-key", "Forget the observed host key", http.StatusNoContent, http.StatusNotFound), func(ctx context.Context, in *nodeNameInput) (*struct{}, error) {
+		if err := d.ready(); err != nil {
+			return nil, apiError(ctx, err)
+		}
+		n, err := d.ds.GetNode(ctx, in.Name)
+		if err != nil {
+			return nil, apiError(ctx, err)
+		}
+		if err := d.ds.ClearNodeHostKeyObserved(ctx, n.ID); err != nil {
 			return nil, apiError(ctx, err)
 		}
 		return nil, nil

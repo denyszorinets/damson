@@ -1,10 +1,13 @@
 package node_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -103,7 +106,7 @@ func TestNodeSourceHostKeyPolicies(t *testing.T) {
 	}{
 		{"strict-pinned", "strict", "ssh-ed25519 AAAA", true},
 		{"tofu-pinned", "tofu", "ssh-ed25519 AAAA", true},
-		{"tofu-unpinned", "tofu", "", false},
+		{"tofu-unpinned", "tofu", "", true},
 		{"insecure", "insecure", "", false},
 	} {
 		if _, err := s.CreateNode(ctx, store.Node{
@@ -186,5 +189,132 @@ func TestNodeSourceScopeSeesCurrentName(t *testing.T) {
 	}
 	if _, err := source(s, nameScope{deny: "secret-box"}, nil).Node(ctx, tree.ID, "web-1"); !errors.Is(err, dispatch.ErrUnknownNode) {
 		t.Fatalf("renamed into a denied name: %v; want ErrUnknownNode", err)
+	}
+}
+
+// claimedAttempt makes a run with one dispatched execution of agent "a1" and
+// returns the run and attempt ids, with the given snapshot.
+func claimedAttempt(t *testing.T, s store.Store, targets []store.RunTarget) (runID, attempt string) {
+	t.Helper()
+	ctx := context.Background()
+	job, ver, err := s.CreateJob(ctx, store.NewJob{ProjectID: store.DefaultProjectID, Name: fmt.Sprint("j", len(targets), time.Now().UnixNano()), Spec: []byte(`{}`), Checksum: "c"}, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := s.CreateRun(ctx, store.NewRun{JobID: job.ID, JobVersionID: ver.ID, Targets: targets,
+		Steps: []store.NewStepInstance{{Path: "s", Plugin: "ssh", Execution: &store.NewExecution{Pool: "default", ScheduledAt: t0}}}}, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ClaimExecutions(ctx, store.ClaimParams{AgentID: "a1", ControllerID: "c", Pools: []string{"default"}, Limit: 1, LeaseTTL: time.Hour}, t0)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("claim = %v, %v", got, err)
+	}
+	return tree.ID, got[0].AttemptID
+}
+
+// A tofu node is held to its pin, else to the first key observed; before any
+// key the agent gets none and reports the first it sees. A strict node ignores
+// an observed key; scope and enabled apply to recording as to dispatch.
+func TestNodeSourceTOFUKeys(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	if _, err := s.CreateNode(ctx, store.Node{ID: "t1", Name: "tofu", Address: "h", Port: 22, Transport: "ssh",
+		HostKeyPolicy: "tofu", Source: "manual", Enabled: true}, t0); err != nil {
+		t.Fatal(err)
+	}
+	runID, attempt := claimedAttempt(t, s, nil)
+	src := source(s, inventory.AllNodes{}, nil)
+	if info, err := src.Node(ctx, runID, "tofu"); err != nil || info.HostKey != "" || info.HostKeyPolicy != "tofu" {
+		t.Fatalf("before observation = %+v, %v", info, err)
+	}
+	var logs bytes.Buffer
+	src.Log = slog.New(slog.NewJSONHandler(&logs, nil))
+	if err := src.ObserveHostKey(ctx, runID, attempt, "a1", "tofu", "ssh-ed25519 FIRST"); err != nil {
+		t.Fatal(err)
+	}
+	// A different second key is not stored, and the conflict is logged.
+	if err := src.ObserveHostKey(ctx, runID, attempt, "a1", "tofu", "ssh-ed25519 SECOND"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logs.String(), "different host key") {
+		t.Fatalf("no warning for a conflicting key: %s", logs.String())
+	}
+	// An attempt of another agent records nothing (checked on a second node).
+	if _, err := s.CreateNode(ctx, store.Node{ID: "t2", Name: "tofu-2", Address: "h", Port: 22, Transport: "ssh",
+		HostKeyPolicy: "tofu", Source: "manual", Enabled: true}, t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.ObserveHostKey(ctx, runID, attempt, "other-agent", "tofu-2", "ssh-ed25519 X"); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.GetNode(ctx, "tofu-2"); n.HostKeyObserved != "" {
+		t.Fatal("a foreign agent recorded a key")
+	}
+	if info, _ := src.Node(ctx, runID, "tofu"); info.HostKey != "ssh-ed25519 FIRST" {
+		t.Fatalf("after observation HostKey = %q; want the first key", info.HostKey)
+	}
+	// A pin wins over an observation.
+	n, _ := s.GetNode(ctx, "tofu")
+	n.HostKey = "ssh-ed25519 PINNED"
+	if _, err := s.UpdateNode(ctx, n, n.Version, t0); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := src.Node(ctx, runID, "tofu"); info.HostKey != "ssh-ed25519 PINNED" {
+		t.Fatalf("pinned HostKey = %q", info.HostKey)
+	}
+	if err := src.ObserveHostKey(ctx, runID, attempt, "a1", "missing", "ssh-ed25519 X"); err != nil {
+		t.Fatalf("observing for an unknown node = %v; want it ignored", err)
+	}
+
+	// A strict node never uses an observed key; out-of-scope and disabled nodes do not record.
+	put(t, s, "strict-1", true)
+	if info, _ := src.Node(ctx, runID, "strict-1"); info.HostKey != "ssh-ed25519 AAAA" {
+		t.Fatalf("strict HostKey = %q", info.HostKey)
+	}
+	if _, err := s.CreateNode(ctx, store.Node{ID: "t3", Name: "tofu-off", Address: "h", Port: 22, Transport: "ssh",
+		HostKeyPolicy: "tofu", Source: "manual", Enabled: false}, t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.ObserveHostKey(ctx, runID, attempt, "a1", "tofu-off", "ssh-ed25519 X"); err != nil {
+		t.Fatal(err)
+	}
+	if err := source(s, denyAll{}, nil).ObserveHostKey(ctx, runID, attempt, "a1", "tofu-2", "ssh-ed25519 X"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"tofu-off", "tofu-2"} {
+		if n, _ := s.GetNode(ctx, name); n.HostKeyObserved != "" {
+			t.Fatalf("%s recorded a key it should not have", name)
+		}
+	}
+}
+
+// A report under the name a run froze reaches the same node after a rename.
+func TestObserveHostKeyFollowsFrozenID(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	if _, err := s.CreateNode(ctx, store.Node{ID: "t1", Name: "old-name", Address: "h", Port: 22, Transport: "ssh",
+		HostKeyPolicy: "tofu", Source: "manual", Enabled: true}, t0); err != nil {
+		t.Fatal(err)
+	}
+	runID, attempt := claimedAttempt(t, s, []store.RunTarget{{Name: "old-name", NodeID: "t1", Node: []byte(`{}`)}})
+	n, _ := s.GetNodeByID(ctx, "t1")
+	n.Name = "new-name"
+	if err := s.ApplyNodeDiff(ctx, store.NodeDiff{Update: []store.NodeUpdate{{Node: n, Expected: n.Version}}}, t0); err != nil {
+		t.Fatal(err)
+	}
+	// A different node takes the old name; the report still lands on the original.
+	if _, err := s.CreateNode(ctx, store.Node{ID: "t9", Name: "old-name", Address: "h2", Port: 22, Transport: "ssh",
+		HostKeyPolicy: "tofu", Source: "manual", Enabled: true}, t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := source(s, inventory.AllNodes{}, nil).ObserveHostKey(ctx, runID, attempt, "a1", "old-name", "ssh-ed25519 KEY"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetNodeByID(ctx, "t1"); got.HostKeyObserved != "ssh-ed25519 KEY" {
+		t.Fatalf("original node observed %q", got.HostKeyObserved)
+	}
+	if got, _ := s.GetNodeByID(ctx, "t9"); got.HostKeyObserved != "" {
+		t.Fatal("the node that took the name recorded the key")
 	}
 }

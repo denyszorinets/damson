@@ -260,7 +260,8 @@ pool, tags (comma separated), attributes (a JSON object), credential
 ``POST /nodes``. Validation problems returned by the API are shown in the form.
 
 ``/nodes/[name]`` shows all fields, the pinned and observed host key
-fingerprints (SHA256), the source and the version.
+fingerprints (SHA256) with a **Forget** button next to the observed one
+(``DELETE /nodes/{name}/host-key``), the source and the version.
 
 * **Edit** sends ``PATCH`` with ``if_version`` set to the version the page
   read. If someone changed the node in between, the API answers 409.

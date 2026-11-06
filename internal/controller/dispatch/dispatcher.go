@@ -72,6 +72,9 @@ type Config struct {
 	// Both are optional: without them a step gets neither (the inventory and secret sources, ADR-0043).
 	Nodes   NodeSource
 	Secrets SecretSource
+	// HostKeys records the host key an agent saw on a tofu node. Optional:
+	// without it node.hostkey_observed reports are dropped.
+	HostKeys HostKeyRecorder
 	// Project returns the project path of a run. When set, secret refs are
 	// authorized against it (ARCHITECTURE 9.1); the dev-nodes source leaves it nil.
 	Project      func(ctx context.Context, runID string) (string, error)
@@ -120,6 +123,9 @@ type Dispatcher struct {
 	// a flagged attempt is not asked again every tick. It is only a cache:
 	// losing it causes a resend, which the agent treats as a no-op.
 	cancelled map[string]bool
+	// keys hands node.hostkey_observed reports to one worker, so a slow store
+	// never stalls an agent's socket; a full queue drops the report.
+	keys chan hostKeyReport
 }
 
 // New validates cfg and applies defaults.
@@ -161,6 +167,9 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 	d.started = true
 	loopCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	d.cancel = cancel
+	d.keys = make(chan hostKeyReport, hostKeyQueue)
+	d.wg.Add(1)
+	go func() { defer d.wg.Done(); d.hostKeyWorker(loopCtx, d.keys) }()
 	for _, l := range []struct {
 		every time.Duration
 		fn    func(context.Context)

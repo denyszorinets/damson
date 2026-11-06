@@ -52,6 +52,8 @@ func Run(t *testing.T, f Factory) {
 		{"NodeSyncRace", testNodeSyncRace},
 		{"NodeBatch", testNodeBatch},
 		{"RunTargets", testRunTargets},
+		{"ObservedHostKey", testObservedHostKey},
+		{"ObservedHostKeyRace", testObservedHostKeyRace},
 		{"LeaderAcquireRace", testLeaderAcquireRace},
 		{"DeleteDeadControllers", testDeleteDeadControllers},
 		{"Projects", testProjects},

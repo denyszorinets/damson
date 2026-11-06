@@ -168,6 +168,16 @@ no other source: ``--dev-nodes`` only seeds these stores at startup (ADR-0044).
 * The node credential goes through the secret authorization
   (``secrets.Authorize`` with ``fromNode``); ``_inventory`` is allowed only as
   a node credential.
+* Host keys (ADR-0046, ``InventoryNodes.Node``): ``strict`` sends ``host_key``
+  (empty fails at connect); ``tofu`` sends the pinned ``host_key``, else the
+  observed key, else none; ``insecure`` fails permanently as
+  ``host key policy not available``.
+* ``hostkeys.go`` handles ``node.hostkey_observed``: the attempt must exist,
+  belong to the reporting agent and be unfinished, and the step's
+  ``input.node`` must equal the reported node. The key is parsed, type and
+  SHA256 fingerprint recomputed (mismatch dropped) and stored canonically via
+  ``NodeStore.ObserveNodeHostKey``. The node is resolved like dispatch (frozen
+  run target id, else by name). Drops are silent (INFO log).
 * Inventory nodes are reachable through a literal ``node: <name>`` in step
   input and through ``targets``.
 

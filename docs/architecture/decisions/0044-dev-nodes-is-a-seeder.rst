@@ -71,7 +71,8 @@ Targets and host keys
   ARCHITECTURE 5.5. Superseded in part by :doc:`0045-frozen-run-targets`: they
   are no longer read live but frozen into the run at trigger.
 - Host key policies are not exempt. ``insecure``, and ``tofu`` without a pinned
-  ``host_key``, are seeded but refused at dispatch until :issue:`118`. Startup
+  ``host_key``, are seeded but refused at dispatch until :issue:`118`. Superseded by
+  :doc:`0046-tofu-host-key-recording`: only ``insecure`` is refused now. Startup
   logs a WARN naming such nodes, and a WARN for ``_inventory`` secrets that no
   node uses as credential.
 

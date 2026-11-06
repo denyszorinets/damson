@@ -49,14 +49,29 @@ func (r *recordEnqueuer) count() int {
 func newBare(t *testing.T, st store.Store, now func() time.Time) (*dispatch.Dispatcher, *recordEnqueuer) {
 	t.Helper()
 	enq := &recordEnqueuer{}
-	d, err := dispatch.New(dispatch.Config{
+	return newBareEnq(t, st, now, enq), enq
+}
+
+// newBareWith is newBare with a tweak of the config.
+func newBareWith(t *testing.T, st store.Store, now func() time.Time, tweak func(*dispatch.Config)) *dispatch.Dispatcher {
+	t.Helper()
+	return newBareEnq(t, st, now, &recordEnqueuer{}, tweak)
+}
+
+func newBareEnq(t *testing.T, st store.Store, now func() time.Time, enq *recordEnqueuer, tweak ...func(*dispatch.Config)) *dispatch.Dispatcher {
+	t.Helper()
+	cfg := dispatch.Config{
 		Store: st, Agents: noAgents{}, Plugins: noPlugins{}, Advance: enq, ControllerID: "ctl-1", Now: now,
 		Logger: slog.New(slog.DiscardHandler), ReapInterval: 20 * time.Millisecond,
-	})
+	}
+	for _, f := range tweak {
+		f(&cfg)
+	}
+	d, err := dispatch.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return d, enq
+	return d
 }
 
 // claimed seeds a run with one execution claimed by agent a1 (running).
