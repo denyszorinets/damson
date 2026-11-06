@@ -645,3 +645,69 @@ func testLogVsClaimRace(t *testing.T, s store.Store) {
 		t.Fatalf("late chunk of rotated attempt: %v; want ErrStale", err)
 	}
 }
+
+func testRouteExecution(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	one := func(name string) store.Execution {
+		mustRun(t, s, name, store.NewStepInstance{Path: "main/a", Plugin: "shell", Execution: execSpec(store.PoolByNode)})
+		got := claim(t, s, store.PoolByNode, 1)
+		if len(got) != 1 {
+			t.Fatalf("claimed %d @node executions; want 1", len(got))
+		}
+		return got[0]
+	}
+	e := one("route-1")
+	later := claimNow.Add(time.Minute)
+
+	for _, bad := range []string{"", store.PoolByNode} {
+		if err := s.RouteExecution(ctx, e.ID, e.AttemptID, bad, later); !errors.Is(err, store.ErrInvalid) {
+			t.Fatalf("RouteExecution to %q: %v; want ErrInvalid", bad, err)
+		}
+	}
+	if err := s.RouteExecution(ctx, e.ID, "wrong", "dc1", later); !errors.Is(err, store.ErrStale) {
+		t.Fatalf("wrong attempt: %v; want ErrStale", err)
+	}
+	if err := s.RouteExecution(ctx, "nope", e.AttemptID, "dc1", later); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("missing: %v; want ErrNotFound", err)
+	}
+	if err := s.RouteExecution(ctx, e.ID, e.AttemptID, "dc1", later); err != nil {
+		t.Fatal(err)
+	}
+	q := mustState(t, s, e.ID, store.ExecQueued)
+	if q.Pool != "dc1" || q.AgentID != "" || q.ControllerID != "" || q.LeaseExpiresAt != nil || !q.ScheduledAt.Equal(later) {
+		t.Fatalf("routed execution = %+v", q)
+	}
+	// Routed once: a second route (the row has a pool now) does nothing.
+	if err := s.RouteExecution(ctx, e.ID, e.AttemptID, "dc2", later); !errors.Is(err, store.ErrStale) {
+		t.Fatalf("second route: %v; want ErrStale", err)
+	}
+	// A claim for the other pool does not see it; one for dc1 does once due.
+	if got := claim(t, s, "dc2", 5); len(got) != 0 {
+		t.Fatalf("dc2 claimed a dc1 execution: %+v", got)
+	}
+
+	// A flagged attempt is not routed.
+	f := one("route-2")
+	if err := applyCancel(t, s, f.RunID, claimNow, f.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RouteExecution(ctx, f.ID, f.AttemptID, "dc1", later); !errors.Is(err, store.ErrStale) {
+		t.Fatalf("flagged: %v; want ErrStale", err)
+	}
+}
+
+func testClaimIncludesNodeMarker(t *testing.T, s store.Store) {
+	migrated(t, s)
+	mustRun(t, s, "marker", store.NewStepInstance{Path: "main/a", Plugin: "shell", Execution: execSpec(store.PoolByNode)})
+	mustRun(t, s, "other", store.NewStepInstance{Path: "main/a", Plugin: "shell", Execution: execSpec("elsewhere")})
+	got, err := s.ClaimExecutions(context.Background(), store.ClaimParams{
+		AgentID: "agent-1", ControllerID: "ctrl-1", Pools: []string{"default", store.PoolByNode}, Limit: 10, LeaseTTL: leaseTTL,
+	}, claimNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Pool != store.PoolByNode {
+		t.Fatalf("claimed %+v; want only the @node execution", got)
+	}
+}

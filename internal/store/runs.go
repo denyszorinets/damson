@@ -276,6 +276,15 @@ func ValidateNewExecution(ne NewExecution) error {
 	return nil
 }
 
+// ValidateRoutePool rejects a target pool RouteExecution cannot use: empty or
+// the node marker itself.
+func ValidateRoutePool(pool string) error {
+	if pool == "" || pool == PoolByNode {
+		return fmt.Errorf("a route needs a real pool, got %q: %w", pool, ErrInvalid)
+	}
+	return nil
+}
+
 // KindOrDefault returns kind, or KindStep when empty.
 func KindOrDefault(kind string) string {
 	if kind == "" {

@@ -234,6 +234,21 @@ func (s *Store) RequeueExecution(ctx context.Context, executionID, attemptID str
 	return nil
 }
 
+// RouteExecution implements store.ExecutionStore.
+func (s *Store) RouteExecution(ctx context.Context, executionID, attemptID, pool string, scheduledAt time.Time) error {
+	if err := store.ValidateRoutePool(pool); err != nil {
+		return err
+	}
+	n, err := s.q.RouteExecutionCAS(ctx, gen.RouteExecutionCASParams{Pool: pool, ScheduledAt: ts(scheduledAt), ID: executionID, AttemptID: attemptID})
+	if err != nil {
+		return fmt.Errorf("routing execution %q: %w", executionID, err)
+	}
+	if n == 0 {
+		return fencedMiss(ctx, s.q, executionID, "is not dispatched under this attempt or already routed")
+	}
+	return nil
+}
+
 // ListCancelRequested implements store.ExecutionStore.
 func (s *Store) ListCancelRequested(ctx context.Context, controllerID, afterID string, limit int) ([]store.Execution, error) {
 	rows, err := s.q.ListCancelRequested(ctx, gen.ListCancelRequestedParams{ControllerID: text(controllerID), AfterID: afterID, RowLimit: int32(store.ClampLimit(limit))})

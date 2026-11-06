@@ -639,6 +639,36 @@ func (q *Queries) RequeueExecutionCAS(ctx context.Context, arg RequeueExecutionC
 	return result.RowsAffected(), nil
 }
 
+const routeExecutionCAS = `-- name: RouteExecutionCAS :execrows
+UPDATE executions SET state = 'queued', pool = $1, scheduled_at = $2,
+       agent_id = NULL, controller_id = NULL, lease_expires_at = NULL
+WHERE id = $3 AND attempt_id = $4 AND state = 'dispatched'
+  AND pool = '@node' AND cancel_requested_at IS NULL
+`
+
+type RouteExecutionCASParams struct {
+	Pool        string
+	ScheduledAt pgtype.Timestamptz
+	ID          string
+	AttemptID   string
+}
+
+// A claimed execution whose pool is still the node marker moves to the pool
+// of the node it targets and is queued again. It is routed once: a row that
+// already has a pool, or is flagged for cancellation, is left alone.
+func (q *Queries) RouteExecutionCAS(ctx context.Context, arg RouteExecutionCASParams) (int64, error) {
+	result, err := q.db.Exec(ctx, routeExecutionCAS,
+		arg.Pool,
+		arg.ScheduledAt,
+		arg.ID,
+		arg.AttemptID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const selectClaimableExecutions = `-- name: SelectClaimableExecutions :many
 SELECT id FROM executions
 WHERE state = 'queued' AND scheduled_at <= $1 AND pool = ANY($2::text[])

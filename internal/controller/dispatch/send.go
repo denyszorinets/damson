@@ -55,7 +55,7 @@ func (d *Dispatcher) dispatchAgent(ctx context.Context, a controller.AgentView) 
 	}
 	cctx, cancel := context.WithTimeout(ctx, d.cfg.CallTimeout)
 	execs, err := d.cfg.Store.ClaimExecutions(cctx, store.ClaimParams{
-		AgentID: a.ID, ControllerID: d.cfg.ControllerID, Pools: []string{a.Pool}, Limit: n, LeaseTTL: d.cfg.LeaseTTL,
+		AgentID: a.ID, ControllerID: d.cfg.ControllerID, Pools: []string{a.Pool, store.PoolByNode}, Limit: n, LeaseTTL: d.cfg.LeaseTTL,
 	}, d.cfg.Now())
 	cancel()
 	if err != nil {
@@ -89,6 +89,9 @@ func (d *Dispatcher) dispatchAgent(ctx context.Context, a controller.AgentView) 
 // Otherwise it stays dispatched and the lease reaper settles it.
 func (d *Dispatcher) send(ctx context.Context, a controller.AgentView, ex store.Execution) bool {
 	log := d.log.With("run_id", ex.RunID, "execution_id", ex.ID, "attempt_id", ex.AttemptID, "agent_id", a.ID)
+	if ex.Pool == store.PoolByNode && d.routeByNode(ctx, a, ex, log) {
+		return true
+	}
 	req, err := d.buildRequest(ctx, a, ex)
 	defer wipe(req.Secrets)
 	var perm *permanent

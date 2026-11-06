@@ -20,10 +20,28 @@ Every second, for each locally connected agent with free slots:
    step input.
 #. On accept, ``MarkExecutionRunning``.
 
-The claim filters by pool only; plugin and capability matching happens after
+Every claim also includes the reserved pool ``@node`` (see "Node pool
+routing" below). The claim filters by pool only; plugin and capability matching happens after
 it. An execution claimed by an agent that cannot run it is requeued with a 5 s
 delay (``Config.IncapableRetry``; known limitation: incapable agents in the pool
 churn it).
+
+Node pool routing
+-----------------
+
+The advancer sets an execution's pool to ``runs_on.pool``, else to the
+reserved marker ``@node`` (ADR-0052). A claimed ``@node`` execution is
+resolved before any secret is read: the plugin is resolved in any pool (none
+requeues it after 5 s), ``Manifest.NodeNames(input)`` names the nodes, and
+``PoolSource.NodePool`` looks each up with the checks ``Node`` applies. Nodes
+with an empty pool add no constraint. One distinct pool selects it, none
+selects ``default``, and two or more fail the step permanently
+(``step targets nodes in pools dc1, dc2; set runs_on.pool``). An unknown,
+disabled or ``insecure`` node fails permanently. When the target is the
+claiming agent's pool the send continues; otherwise ``Store.RouteExecution``
+(a fenced CAS) sets the pool and requeues the execution, and ``ErrStale``
+cancels the undelivered attempt. A pool with no connected agent leaves the
+execution queued.
 
 Definite failures (agent rejected, plugin unresolved) requeue at once with a
 CAS under the ``attempt_id``. Delivery is at-most-once on an ambiguous send: if
@@ -185,7 +203,6 @@ Not yet implemented
 -------------------
 
 * Step timeout (``timeout_ms``).
-* Routing from ``node.pool``.
 
 A step's node name is resolved through the run's frozen targets (ADR-0045). A
 name in the snapshot follows its frozen ``node_id`` (``GetNodeByID``), so a node

@@ -53,6 +53,15 @@ UPDATE executions SET state = 'queued', scheduled_at = sqlc.arg(scheduled_at), a
 WHERE id = sqlc.arg(id) AND attempt_id = sqlc.arg(attempt_id) AND state = 'dispatched'
   AND cancel_requested_at IS NULL;
 
+-- A claimed execution whose pool is still the node marker moves to the pool
+-- of the node it targets and is queued again. It is routed once: a row that
+-- already has a pool, or is flagged for cancellation, is left alone.
+-- name: RouteExecutionCAS :execrows
+UPDATE executions SET state = 'queued', pool = sqlc.arg(pool), scheduled_at = sqlc.arg(scheduled_at),
+       agent_id = NULL, controller_id = NULL, lease_expires_at = NULL
+WHERE id = sqlc.arg(id) AND attempt_id = sqlc.arg(attempt_id) AND state = 'dispatched'
+  AND pool = '@node' AND cancel_requested_at IS NULL;
+
 -- A queued attempt was never dispatched, so run.advance may cancel it directly.
 -- name: CancelQueuedExecutionCAS :execrows
 UPDATE executions SET state = 'canceled', finished_at = sqlc.arg(finished_at), error = sqlc.arg(error)

@@ -162,6 +162,9 @@ change nothing until accepted.
    * - 0051
      - :doc:`0051-non-secret-s3-connection-fields`
      - Accepted
+   * - 0052
+     - :doc:`0052-route-steps-by-node-pool-at-dispatch`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -217,3 +220,4 @@ change nothing until accepted.
    0049-winrm-transport-security-and-remote-execution
    0050-custom-binaries-with-damson-build
    0051-non-secret-s3-connection-fields
+   0052-route-steps-by-node-pool-at-dispatch

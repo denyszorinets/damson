@@ -132,7 +132,21 @@ type ExecutionStore interface {
 	// flagged attempt (CancelRequestedAt) is not requeued: ErrStale, and the
 	// caller cancels it with Tx.CancelUndelivered.
 	RequeueExecution(ctx context.Context, executionID, attemptID string, scheduledAt time.Time) error
+	// RouteExecution moves a dispatched execution whose pool is PoolByNode to
+	// pool and queues it again, clearing ownership. Fenced on the attempt; ErrStale
+	// when it is not dispatched under this attempt, is flagged for cancellation or
+	// already has a pool. pool must be a real pool name (ErrInvalid otherwise).
+	RouteExecution(ctx context.Context, executionID, attemptID, pool string, scheduledAt time.Time) error
 }
+
+// PoolByNode is the pool of an execution whose pool is decided at dispatch
+// from the node it targets (ADR-0052). "@" is not a legal pool name, so no
+// agent ever has this pool. Every controller's claim includes it.
+const PoolByNode = "@node"
+
+// DefaultPool is the pool of a step that has no runs_on.pool and targets no
+// node with a pool.
+const DefaultPool = "default"
 
 // ValidateCompletion rejects completions the store cannot apply.
 func ValidateCompletion(c Completion) error {
