@@ -47,7 +47,13 @@ func (plugin) Execute(ctx context.Context, req pluginsdk.ExecRequest, emit plugi
 	res, err := execute(ctx, req, emit)
 	out := pluginsdk.Result{}
 	if res.Path != "" {
-		raw, merr := json.Marshal(Output{DestinationPath: res.Path, Bytes: res.Bytes, SHA256: res.SHA256})
+		o := Output{Bytes: res.Bytes, SHA256: res.SHA256, ETag: res.ETag, VersionID: res.VersionID}
+		if res.Object {
+			o.DestinationKey = res.Path
+		} else {
+			o.DestinationPath = res.Path
+		}
+		raw, merr := json.Marshal(o)
 		if merr != nil {
 			return out, nil
 		}
@@ -82,9 +88,9 @@ func execute(ctx context.Context, req pluginsdk.ExecRequest, emit pluginsdk.Emit
 	stop := context.AfterFunc(ctx, func() { _ = src.Close(); _ = dst.Close() })
 	defer stop()
 
-	srcPath := in.Source.Node.Path
-	dstPath := destinationPath(in.Destination.Node.Path, srcPath)
-	emit.Log(pluginsdk.System, in.Mode+" "+in.Source.Node.Name+":"+srcPath+" -> "+in.Destination.Node.Name+":"+dstPath)
+	srcPath := in.Source.path()
+	dstPath := destinationPath(in.Destination, srcPath)
+	emit.Log(pluginsdk.System, in.Mode+" "+in.Source.describe(srcPath)+" -> "+in.Destination.describe(dstPath))
 	cleanup := func(partial string) { removePartial(ctx, req, in.Destination, dst, partial, emit) }
 	res, err := run(ctx, in, srcPath, dstPath, src, dst, emit, cleanup)
 	if err == nil {
@@ -93,8 +99,19 @@ func execute(ctx context.Context, req pluginsdk.ExecRequest, emit pluginsdk.Emit
 	return res, err
 }
 
+// describe names the endpoint for the log: node:path or s3://bucket/key.
+func (e Endpoint) describe(p string) string {
+	if e.S3 != nil {
+		return "s3://" + e.S3.Bucket + "/" + p
+	}
+	return e.Node.Name + ":" + p
+}
+
 // open connects to the node of one endpoint with its protocol.
 func open(ctx context.Context, req pluginsdk.ExecRequest, e Endpoint, emit pluginsdk.Emitter) (fileSystem, error) {
+	if e.S3 != nil {
+		return dialS3(req, e.S3, emit)
+	}
 	node, ok := req.Nodes[e.Node.Name]
 	if !ok {
 		return nil, pluginsdk.ValidationError("node %q is not part of this step", e.Node.Name)

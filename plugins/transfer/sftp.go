@@ -72,7 +72,7 @@ func (s *sftpFS) Open(_ context.Context, p string) (io.ReadCloser, error) {
 	return f, nil
 }
 
-func (s *sftpFS) Create(_ context.Context, p string, _ int64) (io.WriteCloser, error) {
+func (s *sftpFS) Create(_ context.Context, p string, _ int64, _ bool) (io.WriteCloser, error) {
 	// O_EXCL: the name is unique per attempt, so a clash means something is wrong.
 	f, err := s.client.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
 	if err != nil {

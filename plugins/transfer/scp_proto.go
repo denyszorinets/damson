@@ -165,7 +165,7 @@ func (r *scpReader) Close() error { r.c.close(); return nil }
 
 // Create writes a file with "scp -t". The target is the full file path, so
 // scp uses the header name only as a label.
-func (s *scpFS) Create(ctx context.Context, p string, size int64) (io.WriteCloser, error) {
+func (s *scpFS) Create(ctx context.Context, p string, size int64, _ bool) (io.WriteCloser, error) {
 	c, err := s.startSCP(ctx, "-t", p)
 	if err != nil {
 		return nil, err

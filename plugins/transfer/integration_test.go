@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/minio/minio-go/v7"
 	"github.com/pkg/sftp"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 	"github.com/denyszorinets/damson/pkg/pluginsdk/plugintest"
+	"github.com/denyszorinets/damson/plugins/internal/s3test"
 	"github.com/denyszorinets/damson/plugins/internal/sshtest"
 )
 
@@ -182,4 +184,82 @@ func TestIntegrationOpenSSH(t *testing.T) {
 			t.Fatal("the source of a move still exists")
 		}
 	})
+}
+
+func TestIntegrationMinIO(t *testing.T) {
+	conn, client := s3test.StartMinIO(t, "plain-bucket", "versioned-bucket")
+	if err := client.EnableVersioning(context.Background(), "versioned-bucket"); err != nil {
+		t.Fatal(err)
+	}
+	f := sshtest.NewFixture(t, "")
+	run := func(in string, c map[string]string) plugintest.Outcome {
+		cs := s3Case(f, nil, in)
+		cs.Bundle[s3Ref] = c
+		return exec_(t, cs)
+	}
+	dir := t.TempDir()
+
+	t.Run("multipart upload and sha256 verify", func(t *testing.T) {
+		content := strings.Repeat("0123456789abcdef", 70<<16) // 70 MiB: above the 64 MiB part size
+		src := write(t, dir, "big", content)
+		out := requireOK(t, run(mixed("copy", side{sshtest.NodeName, "sftp", src}, s3Side{"plain-bucket", "big"}, map[string]any{"verify": "sha256"}), conn))
+		if out.Bytes != int64(len(content)) || out.SHA256 != sum(content) || !strings.Contains(out.ETag, "-") {
+			t.Fatalf("output = %+v (a multipart ETag has a part count suffix)", out)
+		}
+	})
+
+	t.Run("conditional put refuses an existing object atomically", func(t *testing.T) {
+		src := write(t, dir, "small", "first")
+		requireOK(t, run(mixed("copy", side{sshtest.NodeName, "sftp", src}, s3Side{"plain-bucket", "cond"}, nil), conn))
+		// Skip the engine's own stat check by racing it: a second writer that
+		// passes the check still gets 412 from the server.
+		_, err := client.PutObject(context.Background(), "plain-bucket", "cond", strings.NewReader("other"), 5, putIfAbsent())
+		if err == nil {
+			t.Fatal("the server replaced an object despite If-None-Match")
+		}
+		requireKind(t, run(mixed("copy", side{sshtest.NodeName, "sftp", src}, s3Side{"plain-bucket", "cond"}, nil), conn), pluginsdk.KindValidation, "destination exists")
+	})
+
+	t.Run("versioned bucket reports the version id", func(t *testing.T) {
+		src := write(t, dir, "v", "versioned")
+		out := requireOK(t, run(mixed("copy", side{sshtest.NodeName, "sftp", src}, s3Side{"versioned-bucket", "v"}, nil), conn))
+		if out.VersionID == "" {
+			t.Fatalf("output = %+v; want a version id", out)
+		}
+	})
+
+	t.Run("wrong credentials on a multipart upload are an auth error", func(t *testing.T) {
+		bad := map[string]string{}
+		for k, v := range conn {
+			bad[k] = v
+		}
+		bad["secret_key"] = "wrong-secret-multipart"
+		src := write(t, dir, "bigbad", strings.Repeat("0123456789abcdef", 70<<16))
+		o := run(mixed("copy", side{sshtest.NodeName, "sftp", src}, s3Side{"plain-bucket", "bigbad"}, nil), bad)
+		requireKind(t, o, pluginsdk.KindAuth, "")
+	})
+
+	t.Run("wrong credentials are an auth error and do not leak", func(t *testing.T) {
+		bad := map[string]string{}
+		for k, v := range conn {
+			bad[k] = v
+		}
+		bad["secret_key"] = "wrong-secret-DO-NOT-LEAK-either"
+		src := write(t, dir, "x", "x")
+		o := run(mixed("copy", side{sshtest.NodeName, "sftp", src}, s3Side{"plain-bucket", "x"}, nil), bad)
+		requireKind(t, o, pluginsdk.KindAuth, "")
+		all := o.LogOutput + o.Result.Error.Message
+		for _, l := range o.Emitter.Lines() {
+			all += l.Line
+		}
+		if strings.Contains(all, "wrong-secret-DO-NOT-LEAK-either") || strings.Contains(all, s3test.MinIOPassword) {
+			t.Fatal("a secret key reached the logs or the error")
+		}
+	})
+}
+
+func putIfAbsent() minio.PutObjectOptions {
+	o := minio.PutObjectOptions{}
+	o.SetMatchETagExcept("*")
+	return o
 }
