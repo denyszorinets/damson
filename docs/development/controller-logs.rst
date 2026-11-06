@@ -171,8 +171,9 @@ subscriber are evicted from memory.
 Secrets
 -------
 
-Lines are masked by the agent before they are sent. The controller never logs
-line text, only ids, counts and errors; a test checks this.
+Lines are masked by the agent before they are sent. The controller does not
+re-mask and holds no secret material (:doc:`../architecture/decisions/0047-agent-side-masking-only`).
+It never logs line text, only ids, counts and errors; a test checks this.
 
 Metrics
 -------

@@ -194,3 +194,4 @@ change nothing until accepted.
    0044-dev-nodes-is-a-seeder
    0045-frozen-run-targets
    0046-tofu-host-key-recording
+   0047-agent-side-masking-only
