@@ -80,7 +80,7 @@ func (*httpsTransport) Transport(*mwinrm.Endpoint) error { return nil }
 func (h *httpsTransport) Post(_ *mwinrm.Client, request *soap.SoapMessage) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout+10*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.url, strings.NewReader(request.String()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.url, strings.NewReader(withControlTimeout(request.String())))
 	if err != nil {
 		return "", fmt.Errorf("creating the request: %w", err)
 	}
@@ -110,3 +110,18 @@ func (h *httpsTransport) Post(_ *mwinrm.Client, request *soap.SoapMessage) (stri
 
 // close drops the idle connections.
 func (h *httpsTransport) close() { h.tr.CloseIdleConnections() }
+
+// controlTimeout is the OperationTimeout of every request except Receive. The
+// client has one timeout for all of them, and the short one that keeps the
+// Receive long-poll (and so a cancel) responsive is too short for creating a
+// shell or starting a command, which can take over 5 s on a cold Windows host.
+// It must stay below httpTimeout.
+const controlTimeout = "PT25S"
+
+// withControlTimeout gives every request but Receive the control timeout.
+func withControlTimeout(body string) string {
+	if strings.Contains(body, "/shell/Receive") {
+		return body
+	}
+	return strings.Replace(body, ">"+receiveTimeout+"<", ">"+controlTimeout+"<", 1)
+}

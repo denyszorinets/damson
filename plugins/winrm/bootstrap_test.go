@@ -99,3 +99,14 @@ func TestFaultSummaryReducesASoapFault(t *testing.T) {
 		t.Fatalf("not bounded: %d", len(long))
 	}
 }
+
+func TestOnlyReceiveKeepsTheShortOperationTimeout(t *testing.T) {
+	recv := `<a:Action>http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Receive</a:Action><w:OperationTimeout>PT5S</w:OperationTimeout>`
+	if got := withControlTimeout(recv); got != recv {
+		t.Errorf("Receive changed: %s", got)
+	}
+	create := `<a:Action>http://schemas.xmlsoap.org/ws/2004/09/transfer/Create</a:Action><w:OperationTimeout>PT5S</w:OperationTimeout>`
+	if got := withControlTimeout(create); !strings.Contains(got, "PT25S") || strings.Contains(got, "PT5S") {
+		t.Errorf("Create = %s", got)
+	}
+}
