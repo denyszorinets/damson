@@ -3,6 +3,7 @@ ADR-0015: Secret references, envelope encryption and just-in-time delivery
 
 :Status: Accepted
 :Date: 2026-10-27
+:Amended by: :doc:`0047-agent-side-masking-only` (masking bullet)
 
 Context
 -------

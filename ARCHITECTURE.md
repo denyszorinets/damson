@@ -910,7 +910,9 @@ type SecretStore interface {
 
 - The agent builds a masker from all secret field values in the bundle, including base64 and URL-encoded variants and each line of multi-line values longer than 4 characters.
 - It masks every log line before sending, and scans outputs. Any output value containing a secret is replaced with `***` and a warning is logged.
-- The controller re-applies masking defensively on ingest. The bundle is available to it during dispatch; it keeps only hashes of the values for the duration of the run.
+- Only the agent masks (ADR-0047). The controller does not re-mask: after `step.execute` is sent it keeps no secret values, hashes or derived material (the bundle is wiped after send), and what it stores and serves (log chunks, ring buffer, live tail, outputs, errors, progress, host key reports) is exactly what the agent sent.
+- The agent masks at every exit (log lines, progress, plugin logger, errors, outputs, host key reports), fails closed after the bundle is wiped, and only masked lines reach the spool.
+- Known limits: values shorter than 4 bytes; lines of 4 characters or fewer inside multi-line values; secrets split across `Log` calls; values the job transforms (hex, reversed, re-encoded); a compromised agent, which holds the plaintext anyway. Masking is defense in depth, not a guarantee.
 
 ---
 
@@ -1196,7 +1198,7 @@ An activity-diagram view (UML-like) of a job's structure. It appears in three pl
 ## 18. Security summary
 
 - TLS everywhere: `wss://` for agents, HTTPS for the UI and API. Internal controller endpoints (ADR-0040) are on a separate listener and use HMAC-SHA256 with a cluster secret (timestamp window 30s, bound to caller and target controller, read-only). They use plain HTTP, so log lines between controllers are unencrypted and the network between controllers must be private.
-- Secrets are encrypted at rest (db backend) or kept in OpenBao. They are delivered just-in-time, never persisted on agents, and masked in logs and outputs.
+- Secrets are encrypted at rest (db backend) or kept in OpenBao. They are delivered just-in-time, never persisted on agents, and masked by the agent in logs, progress, errors and outputs before they leave it; the controller never holds values after dispatch (ADR-0047).
 - SSH host keys are strict by default.
 - All tokens (pool, service account, webhook, session) are random and stored hashed. For the interim admin token (§12.2) only the hash is stored, never the token.
 - CEL evaluation has cost limits, and no I/O functions are exposed.
@@ -1249,6 +1251,7 @@ testdata/                   # spec fixtures, golden files
 - **Protocol:** tests for the framing codec; property tests for fencing and lease logic.
 - **Plugins:** integration tests against containers (`openssh-server`, an FTP server, an S3-compatible server, and an Ansible target over SSH). WinRM uses a unit-tested request builder plus a manual or nightly job against a Windows VM. Buildah and Helm run nightly against a local registry container and a `kind` cluster.
 - **Plugin SDK:** every built-in plugin passes the `plugintest` contract suite (schema generation, cancellation, secret masking, output-schema conformance). CI builds `examples/plugins/hello` into a custom binary with `damson build`.
+- **Masking (ADR-0047):** agent wire-level tests over raw frames (including reconnect and spool resend) prove no secret value leaves the agent; end-to-end tests check every controller sink on both databases. An HA move reconnects the same agent process, so the reconnect and resend tests are the proof there.
 - **Graph:** golden tests for `BuildGraph` over the same spec fixtures the engine uses, plus snapshot tests for the layout function.
 - **HA chaos test (CI, from M3 on):** 3 controllers + Postgres + 5 agents. Run 200 jobs while randomly killing controllers and agents, then assert:
   - every run reaches a terminal state

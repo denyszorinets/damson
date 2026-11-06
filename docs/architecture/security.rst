@@ -91,13 +91,26 @@ Secrets lifecycle
      C->>DB: resolve refs in step input and node credentials
      DB-->>C: values (decrypted DEK/KEK or OpenBao)
      C->>A: step.execute + secret bundle (TLS, not persisted)
-     Note over C: keeps only value hashes for re-masking
+     Note over C: bundle dropped after step.execute
      A->>P: ExecRequest.Secrets resolver
      P-->>A: logs and outputs
      A->>A: mask values (raw, base64, URL, per line)
      A->>C: masked logs and outputs
-     C->>C: re-mask defensively on ingest
      Note over A: bundle dropped when the execution ends
+
+Masking boundary
+~~~~~~~~~~~~~~~~
+
+Only the agent masks (:doc:`decisions/0047-agent-side-masking-only`). The
+controller does not re-mask and keeps no secret values, hashes or derived
+material once ``step.execute`` is sent; it stores and serves exactly what the
+agent sent. The agent masks every exit (log lines, progress, plugin logger,
+errors, outputs, host key reports), fails closed after the bundle is wiped and
+spools only masked lines. Known limits: values shorter than 4 bytes; lines of 4
+characters or fewer inside multi-line values; secrets split across ``Log``
+calls; values the job transforms (hex, reversed, re-encoded); a compromised
+agent, which holds the plaintext anyway. Masking is defense in depth, not a
+guarantee.
 
 Rules (``CLAUDE.md`` hard rule 5):
 
