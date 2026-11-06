@@ -139,7 +139,34 @@ Running the suite
    $ make plugin-contract
 
 runs the SDK tests, the contract suite over every built-in plugin
-(``plugins/all``), and the ``examples/plugins/hello`` tests and build.
+(``plugins/all``), and the ``examples/plugins/hello`` vet and tests. It then
+builds ``examples/plugins/hello`` into a custom binary with ``damson build``
+(offline, ``GOPROXY=off`` after ``go mod download``) and runs
+``plugin validate``, ``plugin run`` and ``version`` on it.
+``examples/plugins/hello`` is a nested Go module, so ``go test ./...`` at the
+repository root does not cover it.
+
+Building a custom binary
+------------------------
+
+An out-of-tree plugin module exports ``Plugins()`` from its root package and
+is linked in with ``damson build --with`` (:ref:`cli-build`):
+
+.. code-block:: console
+
+   $ damson build --with example.com/damson-plugin-hello@v1.2.0 -o ./damson-agent
+
+The result is a normal Damson binary that also reports the plugin in
+``agent.hello`` when run as an agent. The plugin name may not equal a built-in
+name at any version, and ``name@version`` must be unique; a violation stops the
+binary at start. The controller links only the built-in plugins, so extra
+plugins are agent plugins.
+
+Linked plugins are not sandboxed: they run in the agent process and can read
+every secret dispatched to the agent, its token and files, and their package
+initialisers run at start. Only link code you have reviewed, pin versions, keep
+the Go checksum database on, and keep extras out of controller binaries
+(:doc:`/architecture/decisions/0050-custom-binaries-with-damson-build`).
 
 Developer tooling
 -----------------
@@ -151,7 +178,7 @@ linked into the binary:
 #. In the new directory run ``go get github.com/denyszorinets/damson@<version>``,
    ``go mod tidy`` and ``go test ./...``.
 #. Link the plugin into a binary with ``damson build --with <module>@<version>``
-   (planned, issue #150).
+   (:ref:`cli-build`).
 #. ``damson plugin validate <name>`` checks the manifest and schemas.
 #. ``damson plugin run <name> --input input.json [--secrets s.json] [--nodes n.json]``
    runs it once without a controller, with the agent's masking applied.

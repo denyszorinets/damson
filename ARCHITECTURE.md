@@ -351,7 +351,8 @@ In v1 every plugin is **compiled into the binary**.
   ```
 
 - `plugins/all` lists the built-in plugins explicitly. There is no `init()` registration.
-- Out-of-tree plugins are added with `damson build --with <module>@<version>`. It generates a small `main` package that lists the extra modules, then builds a custom binary, the way `xcaddy` works for Caddy.
+- Out-of-tree plugins are added with `damson build --with <module>[@<version>][=<dir>]` (ADR-0050). It generates a small `main` package in a temporary module that calls `damsoncli.Main` (`pkg/damsoncli`, the second public Go API, released with Damson's version) with the extra modules, then builds a custom binary with the Go toolchain only (no shell, no `go mod tidy`, checksum database untouched), the way `xcaddy` works for Caddy. The CLI itself lives in `internal/cli`; `cmd/damson` is a thin `damsoncli.Main` call.
+- Extra modules are linked into the process and fully trusted (their initialisers run at start; on an agent they can read every dispatched secret, on a controller the DSN, KEK and secrets). Link them into agent binaries only. They must export `Plugins()`, may not reuse a built-in name at any version, a name belongs to one module, `name@version` is unique and manifests must validate; a violation stops the binary at start. Extras are agent plugins: the controller registry links only `plugins/all`, and a non-dev controller in a binary with extras logs a warning.
 
 **Plugin registry**
 
@@ -369,7 +370,7 @@ In v1 every plugin is **compiled into the binary**.
 - `pkg/pluginsdk/plugintest` runs a plugin's `Execute` in a unit test with a fake emitter, fake secrets, and a temp WorkDir, then asserts outputs and masked logs. It also provides a **contract suite** every plugin must pass: schema generation, cancellation (including an optional blocking case), secret masking (plaintext check), and output-schema conformance (validated with `santhosh-tekuri/jsonschema/v6`, a dependency of `plugintest` only).
 - `damson plugin run <ref> --input input.json --secrets secrets.json [--nodes nodes.json]` (implemented) runs one linked plugin locally without a controller, with the agent's masker and output sanitizer.
 - `damson plugin validate [ref]` (implemented) checks the manifest, the schemas, and semver of linked plugins.
-- `examples/plugins/hello` is a minimal out-of-tree plugin. CI builds it into a custom binary with `damson build --with` (planned, #150).
+- `examples/plugins/hello` is a minimal out-of-tree plugin. It is a nested Go module (the root `./...` does not cover it); `make plugin-contract` vets and tests it and builds it into a custom binary with `damson build --with` offline (`GOPROXY=off` after `go mod download`), then runs `plugin validate`, `plugin run` and `version` on it.
 
 ### Future: runtime-loaded plugins (`.so`)
 
@@ -1222,8 +1223,11 @@ An activity-diagram view (UML-like) of a job's structure. It appears in three pl
 ## 19. Repository layout
 
 ```
-cmd/damson/                 # main: controller | agent | dev | migrate | apply | export | admin
+cmd/damson/                 # main: calls pkg/damsoncli
+pkg/damsoncli/              # public entry point of the CLI (also used by custom binaries from damson build)
 internal/
+  cli/                      # the damson command line: controller | agent | dev | admin | plugin | build | version
+  buildcli/                 # damson build
   config/
   controller/               # wiring, HTTP server, dispatch loop, duties, internal endpoints
   agent/                    # connection mgmt, executor, batcher, spool, masker
@@ -1262,7 +1266,7 @@ testdata/                   # spec fixtures, golden files
 - **Store:** one test suite, run against **both** SQLite and Postgres (testcontainers).
 - **Protocol:** tests for the framing codec; property tests for fencing and lease logic.
 - **Plugins:** integration tests against containers (`openssh-server`, an FTP server, an S3-compatible server, and an Ansible target over SSH). WinRM uses a unit-tested request builder plus a manual or nightly job against a Windows VM. Buildah and Helm run nightly against a local registry container and a `kind` cluster.
-- **Plugin SDK:** every built-in plugin passes the `plugintest` contract suite (schema generation, cancellation, secret masking, output-schema conformance). CI builds `examples/plugins/hello` into a custom binary with `damson build`.
+- **Plugin SDK:** every built-in plugin passes the `plugintest` contract suite (schema generation, cancellation, secret masking, output-schema conformance). CI builds `examples/plugins/hello` into a custom binary with `damson build --with` (offline, `make plugin-contract`).
 - **Masking (ADR-0047):** agent wire-level tests over raw frames (including reconnect and spool resend) prove no secret value leaves the agent; end-to-end tests check every controller sink on both databases. An HA move reconnects the same agent process, so the reconnect and resend tests are the proof there.
 - **Graph:** golden tests for `BuildGraph` over the same spec fixtures the engine uses, plus snapshot tests for the layout function.
 - **HA chaos test (CI, from M3 on):** 3 controllers + Postgres + 5 agents. Run 200 jobs while randomly killing controllers and agents, then assert:

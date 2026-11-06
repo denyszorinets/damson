@@ -61,7 +61,10 @@ Built-in plugins (v1):
 Plugins are compiled into the binary. Built-ins use the same public SDK
 (``pkg/pluginsdk``) that third-party plugins use; custom binaries with extra
 plugins are built with ``damson build --with <module>@<version>``
-(:doc:`/architecture/decisions/0014-compiled-in-plugins-with-a-public-sdk`).
+(:ref:`cli-build`,
+:doc:`/architecture/decisions/0014-compiled-in-plugins-with-a-public-sdk`).
+Extra plugins are fully trusted code in the process, so link them into agent
+binaries only.
 
 Scripts run by ``ssh`` and ``winrm`` can return values by printing
 ``##damson-output key=value`` or ``##damson-output-json {...}``.

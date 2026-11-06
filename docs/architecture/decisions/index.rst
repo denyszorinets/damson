@@ -156,6 +156,9 @@ change nothing until accepted.
    * - 0049
      - :doc:`0049-winrm-transport-security-and-remote-execution`
      - Accepted
+   * - 0050
+     - :doc:`0050-custom-binaries-with-damson-build`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -209,3 +212,4 @@ change nothing until accepted.
    0047-agent-side-masking-only
    0048-plugins-that-target-several-nodes
    0049-winrm-transport-security-and-remote-execution
+   0050-custom-binaries-with-damson-build

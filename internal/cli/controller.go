@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -31,7 +31,11 @@ const shutdownTimeout = 15 * time.Second
 // down in reverse order: in-process agent (dev only), HTTP server, gateway,
 // then the store. With dev set it also starts an agent in this process,
 // connected to the gateway through a freshly provisioned pool token.
-func runController(ctx context.Context, cfg config.Config, log *slog.Logger, migrate, dev bool, devNodesPath string) error {
+func runController(ctx context.Context, cfg config.Config, log *slog.Logger, modules []Module, linked []pluginsdk.Plugin, migrate, dev bool, devNodesPath string) error {
+	if !dev && len(modules) > 0 {
+		log.Warn("this binary links extra plugin modules; the controller does not use them but they are fully trusted code in this process (ADR-0050): run the stock binary for controllers",
+			"modules", modulePaths(modules))
+	}
 	st, err := storefactory.Open(ctx, cfg.Database)
 	if err != nil {
 		return fmt.Errorf("opening store: %w", err)
@@ -94,7 +98,7 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mig
 	}
 	var devAgent *agent.Agent
 	if dev {
-		if devAgent, err = startDevAgent(ctx, st, cfg, srv.Addr(), log); err != nil {
+		if devAgent, err = startDevAgent(ctx, st, cfg, srv.Addr(), log, linked); err != nil {
 			sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 			defer cancel()
 			if ctx.Err() != nil && errors.Is(err, context.Canceled) {
