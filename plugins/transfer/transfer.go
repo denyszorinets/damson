@@ -102,6 +102,8 @@ func open(ctx context.Context, req pluginsdk.ExecRequest, e Endpoint, emit plugi
 	switch e.Node.Protocol {
 	case protoSFTP:
 		return dialSFTP(ctx, req, node, emit)
+	case protoSCP:
+		return dialSCP(ctx, req, node, emit)
 	}
 	return nil, errors.New("unsupported protocol " + e.Node.Protocol)
 }

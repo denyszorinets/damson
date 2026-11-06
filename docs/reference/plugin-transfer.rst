@@ -8,8 +8,8 @@ section 6.3.
 
 .. note::
 
-   Only the ``sftp`` protocol and node endpoints exist so far. ``scp`` (#145),
-   ``ftp`` and ``ftps`` (#146) and S3 endpoints (#147) are planned and are not
+   Only node endpoints with protocol ``sftp`` or ``scp`` exist so far. ``ftp``
+   and ``ftps`` (#146) and S3 endpoints (#147) are planned and are not
    accepted yet: any other protocol is a validation error.
 
 .. list-table::
@@ -24,7 +24,8 @@ section 6.3.
      - no (a lost attempt may still run on a disconnected agent, and a retried
        move finds its source gone)
    * - Requires
-     - nothing on the agent; the nodes need an SFTP subsystem
+     - nothing on the agent; ``sftp`` nodes need an SFTP subsystem, ``scp`` nodes
+       a POSIX shell and the ``scp`` binary (see SCP)
 
 Input
 -----
@@ -43,7 +44,7 @@ Input
    * - ``source``
      - endpoint, required
      - ``{"node": {"name", "protocol", "path"}}``. ``name`` is a node of the
-       step, ``protocol`` is ``sftp``, ``path`` is an absolute path of a file.
+       step, ``protocol`` is ``sftp`` or ``scp``, ``path`` is an absolute path of a file.
        A path ending in ``/`` is a validation error.
    * - ``destination``
      - endpoint, required
@@ -97,7 +98,7 @@ once a second.
 4. The partial file is renamed to the destination. With ``overwrite: false``
    this is a plain SFTP rename, which fails if the target exists, so a file
    created after the check is not replaced. With ``overwrite: true`` it is a
-   ``posix-rename``.
+   ``posix-rename``. SCP destinations differ, see below.
 5. For ``move`` the source is deleted.
 
 A failed or cancelled transfer never exposes a partial destination. The partial
@@ -130,6 +131,33 @@ Move
 the step fails with ``copied and verified; source not deleted`` while the
 outputs stay set. The destination is never deleted. A move retried after the
 source is gone fails with ``source not found``.
+
+SCP
+---
+
+``protocol: scp`` is accepted on the source and the destination, and the two
+may be mixed (``scp`` to ``sftp`` and the reverse). No extra dependency is
+needed: the SCP wire protocol is implemented over an SSH session (``scp -f``
+to read, ``scp -t`` to write). Only a single regular file is transferred, and
+it is created with mode ``0644``, subject to the remote umask.
+
+Stat, ``mkdirs``, the final rename and the removal after a ``move`` run as
+POSIX shell commands through ``/bin/sh -c`` (``[ -d ]``, ``wc -c``,
+``mkdir -p``, ``mv``, ``rm -f``). The node therefore needs a POSIX shell and
+the ``scp`` binary. Windows targets must use SFTP; a node with the ``winrm``
+transport is refused.
+
+SCP needs the file size before the data is sent. It is taken from the source
+stat, so a source that changes size during the copy fails (``more data than
+the announced size`` or a short write).
+
+With ``overwrite: false`` the destination is checked by stat and again with
+``[ -e ]`` just before the rename. Unlike SFTP there is no atomic no-clobber
+rename, so a writer that creates the destination in between wins: the check is
+best effort. With ``overwrite: true`` the rename is ``mv -f``.
+
+The partial file name, verification on the partial file, ``move``, TOFU host
+keys and cleanup on cancel are the same as for ``sftp``.
 
 Connections and host keys
 -------------------------

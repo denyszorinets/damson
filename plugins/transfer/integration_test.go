@@ -122,7 +122,7 @@ func TestIntegrationOpenSSH(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := func(in string) plugintest.Outcome {
-		return exec(t, plugintest.Case{
+		return exec_(t, plugintest.Case{
 			Name: "it", Input: json.RawMessage(in),
 			Nodes:  map[string]pluginsdk.NodeInfo{sshtest.NodeName: node},
 			Bundle: map[string]map[string]string{sshtest.CredentialRef: {"username": itUser, "private_key": priv}},
@@ -164,6 +164,21 @@ func TestIntegrationOpenSSH(t *testing.T) {
 			t.Fatalf("destination = %q", got)
 		}
 		if _, ok := getFile(t, files, home+"/m-src"); ok {
+			t.Fatal("the source of a move still exists")
+		}
+	})
+
+	t.Run("scp and sftp interoperate", func(t *testing.T) {
+		putFile(t, files, home+"/s-src", content)
+		requireOK(t, run(inputWith("scp", "sftp", "copy", home+"/s-src", home+"/s-dst", map[string]any{"verify": "sha256"})))
+		if got, _ := getFile(t, files, home+"/s-dst"); got != content {
+			t.Fatal("scp to sftp copy differs")
+		}
+		requireOK(t, run(inputWith("sftp", "scp", "move", home+"/s-dst", home+"/s-moved", map[string]any{"verify": "sha256"})))
+		if got, _ := getFile(t, files, home+"/s-moved"); got != content {
+			t.Fatal("sftp to scp move differs")
+		}
+		if _, ok := getFile(t, files, home+"/s-dst"); ok {
 			t.Fatal("the source of a move still exists")
 		}
 	})

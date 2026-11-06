@@ -24,10 +24,15 @@ func plug() pluginsdk.Plugin { return transfer.Plugins()[0] }
 
 // input builds a transfer input between two paths on the fixture node.
 func input(mode, src, dst string, extra map[string]any) string {
+	return inputWith("sftp", "sftp", mode, src, dst, extra)
+}
+
+// inputWith is input with a protocol per side.
+func inputWith(srcProto, dstProto, mode, src, dst string, extra map[string]any) string {
 	m := map[string]any{
 		"mode":        mode,
-		"source":      map[string]any{"node": map[string]any{"name": sshtest.NodeName, "protocol": "sftp", "path": src}},
-		"destination": map[string]any{"node": map[string]any{"name": sshtest.NodeName, "protocol": "sftp", "path": dst}},
+		"source":      map[string]any{"node": map[string]any{"name": sshtest.NodeName, "protocol": srcProto, "path": src}},
+		"destination": map[string]any{"node": map[string]any{"name": sshtest.NodeName, "protocol": dstProto, "path": dst}},
 	}
 	for k, v := range extra {
 		m[k] = v
@@ -44,7 +49,7 @@ func caseOf(f *sshtest.Fixture, name, in string) plugintest.Case {
 	}
 }
 
-func exec(t *testing.T, c plugintest.Case) plugintest.Outcome {
+func exec_(t *testing.T, c plugintest.Case) plugintest.Outcome {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -127,7 +132,7 @@ func TestCopyWithEveryVerifyLevel(t *testing.T) {
 			if level != "" {
 				extra["verify"] = level
 			}
-			out := requireOK(t, exec(t, caseOf(f, "c", input("copy", src, dst, extra))))
+			out := requireOK(t, exec_(t, caseOf(f, "c", input("copy", src, dst, extra))))
 			if out.DestinationPath != dst || out.Bytes != int64(len(content)) || out.SHA256 != sum(content) {
 				t.Fatalf("output = %+v", out)
 			}
@@ -145,7 +150,7 @@ func TestDirectoryDestinationAppendsName(t *testing.T) {
 	f := sshtest.NewFixture(t, "")
 	dir := t.TempDir()
 	src := write(t, dir, "report.txt", "x")
-	out := requireOK(t, exec(t, caseOf(f, "c", input("copy", src, dir+"/out/", map[string]any{"mkdirs": true}))))
+	out := requireOK(t, exec_(t, caseOf(f, "c", input("copy", src, dir+"/out/", map[string]any{"mkdirs": true}))))
 	if out.DestinationPath != dir+"/out/report.txt" || read(t, out.DestinationPath) != "x" {
 		t.Fatalf("output = %+v", out)
 	}
@@ -156,7 +161,7 @@ func TestMoveDeletesSourceAfterVerification(t *testing.T) {
 	dir := t.TempDir()
 	src := write(t, dir, "src", "payload")
 	dst := filepath.Join(dir, "dst")
-	requireOK(t, exec(t, caseOf(f, "m", input("move", src, dst, map[string]any{"verify": "sha256"}))))
+	requireOK(t, exec_(t, caseOf(f, "m", input("move", src, dst, map[string]any{"verify": "sha256"}))))
 	if read(t, dst) != "payload" {
 		t.Fatal("destination content wrong")
 	}
@@ -170,12 +175,12 @@ func TestOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	src := write(t, dir, "src", "new")
 	dst := write(t, dir, "dst", "old")
-	o := exec(t, caseOf(f, "c", input("copy", src, dst, nil)))
+	o := exec_(t, caseOf(f, "c", input("copy", src, dst, nil)))
 	requireKind(t, o, pluginsdk.KindValidation, "destination exists")
 	if read(t, dst) != "old" || len(partials(t, dir)) != 0 {
 		t.Fatal("a refused transfer touched the destination or left a partial")
 	}
-	requireOK(t, exec(t, caseOf(f, "c", input("copy", src, dst, map[string]any{"overwrite": true}))))
+	requireOK(t, exec_(t, caseOf(f, "c", input("copy", src, dst, map[string]any{"overwrite": true}))))
 	if read(t, dst) != "new" {
 		t.Fatal("overwrite did not replace the file")
 	}
@@ -186,7 +191,7 @@ func TestMoveRefusedLeavesSourceIntact(t *testing.T) {
 	dir := t.TempDir()
 	src := write(t, dir, "src", "keep me")
 	dst := write(t, dir, "dst", "old")
-	requireKind(t, exec(t, caseOf(f, "m", input("move", src, dst, nil))), pluginsdk.KindValidation, "destination exists")
+	requireKind(t, exec_(t, caseOf(f, "m", input("move", src, dst, nil))), pluginsdk.KindValidation, "destination exists")
 	if read(t, src) != "keep me" {
 		t.Fatal("the source of a refused move was changed")
 	}
@@ -195,15 +200,15 @@ func TestMoveRefusedLeavesSourceIntact(t *testing.T) {
 func TestSourceProblems(t *testing.T) {
 	f := sshtest.NewFixture(t, "")
 	dir := t.TempDir()
-	requireKind(t, exec(t, caseOf(f, "c", input("copy", filepath.Join(dir, "missing"), filepath.Join(dir, "d"), nil))), pluginsdk.KindValidation, "source not found")
-	requireKind(t, exec(t, caseOf(f, "c", input("copy", dir, filepath.Join(dir, "d"), nil))), pluginsdk.KindValidation, "is a directory")
+	requireKind(t, exec_(t, caseOf(f, "c", input("copy", filepath.Join(dir, "missing"), filepath.Join(dir, "d"), nil))), pluginsdk.KindValidation, "source not found")
+	requireKind(t, exec_(t, caseOf(f, "c", input("copy", dir, filepath.Join(dir, "d"), nil))), pluginsdk.KindValidation, "is a directory")
 }
 
 func TestMissingParentWithoutMkdirs(t *testing.T) {
 	f := sshtest.NewFixture(t, "")
 	dir := t.TempDir()
 	src := write(t, dir, "src", "x")
-	o := exec(t, caseOf(f, "c", input("copy", src, filepath.Join(dir, "no", "such", "dst"), nil)))
+	o := exec_(t, caseOf(f, "c", input("copy", src, filepath.Join(dir, "no", "such", "dst"), nil)))
 	if o.Result.Error == nil {
 		t.Fatal("expected a failure")
 	}
@@ -216,7 +221,7 @@ func TestDestinationIsDirectoryFails(t *testing.T) {
 	f := sshtest.NewFixture(t, "")
 	dir := t.TempDir()
 	src := write(t, dir, "src", "x")
-	requireKind(t, exec(t, caseOf(f, "c", input("copy", src, dir, map[string]any{"overwrite": true}))), pluginsdk.KindValidation, "is a directory")
+	requireKind(t, exec_(t, caseOf(f, "c", input("copy", src, dir, map[string]any{"overwrite": true}))), pluginsdk.KindValidation, "is a directory")
 }
 
 func TestInputValidation(t *testing.T) {
@@ -250,17 +255,17 @@ func TestNodeProblems(t *testing.T) {
 
 	c := caseOf(f, "no nodes", in)
 	c.Nodes = nil
-	requireKind(t, exec(t, c), pluginsdk.KindValidation, "not part of this step")
+	requireKind(t, exec_(t, c), pluginsdk.KindValidation, "not part of this step")
 
 	c = caseOf(f, "winrm node", in)
 	n := f.Node
 	n.Transport = "winrm"
 	c.Nodes = map[string]pluginsdk.NodeInfo{sshtest.NodeName: n}
-	requireKind(t, exec(t, c), pluginsdk.KindValidation, "needs an ssh node")
+	requireKind(t, exec_(t, c), pluginsdk.KindValidation, "needs an ssh node")
 
 	c = caseOf(f, "no credential", in)
 	c.Bundle = nil
-	if o := exec(t, c); o.Result.Error == nil || o.Result.Error.Kind != pluginsdk.KindAuth {
+	if o := exec_(t, c); o.Result.Error == nil || o.Result.Error.Kind != pluginsdk.KindAuth {
 		t.Fatalf("step error = %v; want auth", o.Result.Error)
 	}
 }
@@ -273,7 +278,7 @@ func TestTofuKeyReported(t *testing.T) {
 	n := f.Node
 	n.HostKey, n.HostKeyPolicy = "", "tofu"
 	c.Nodes = map[string]pluginsdk.NodeInfo{sshtest.NodeName: n}
-	o := exec(t, c)
+	o := exec_(t, c)
 	requireOK(t, o)
 	keys := o.HostKeys.Keys()
 	if len(keys) == 0 || keys[0].Node != sshtest.NodeName || keys[0].Key != f.Server.HostKeyLine() {
@@ -290,7 +295,7 @@ func TestStrictHostKeyMismatchRefused(t *testing.T) {
 	n := f.Node
 	n.HostKey = other.Server.HostKeyLine()
 	c.Nodes = map[string]pluginsdk.NodeInfo{sshtest.NodeName: n}
-	requireKind(t, exec(t, c), pluginsdk.KindConnection, "host key mismatch")
+	requireKind(t, exec_(t, c), pluginsdk.KindConnection, "host key mismatch")
 }
 
 func TestCancelStopsAndCleansUp(t *testing.T) {
@@ -317,7 +322,7 @@ func TestSecretsNeverLogged(t *testing.T) {
 	f := sshtest.NewFixture(t, "")
 	dir := t.TempDir()
 	src := write(t, dir, "src", "x")
-	o := exec(t, caseOf(f, "c", input("copy", src, filepath.Join(dir, "d"), nil)))
+	o := exec_(t, caseOf(f, "c", input("copy", src, filepath.Join(dir, "d"), nil)))
 	requireOK(t, o)
 	all := o.LogOutput
 	for _, l := range o.Emitter.Lines() {
