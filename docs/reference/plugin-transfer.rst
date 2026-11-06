@@ -8,9 +8,9 @@ section 6.3.
 
 .. note::
 
-   Only node endpoints with protocol ``sftp`` or ``scp`` exist so far. ``ftp``
-   and ``ftps`` (#146) and S3 endpoints (#147) are planned and are not
-   accepted yet: any other protocol is a validation error.
+   Node endpoints with protocol ``sftp``, ``scp``, ``ftp`` or ``ftps`` exist.
+   S3 endpoints (#147) are planned and are not accepted yet: any other
+   protocol is a validation error.
 
 .. list-table::
    :widths: 25 75
@@ -44,7 +44,7 @@ Input
    * - ``source``
      - endpoint, required
      - ``{"node": {"name", "protocol", "path"}}``. ``name`` is a node of the
-       step, ``protocol`` is ``sftp`` or ``scp``, ``path`` is an absolute path of a file.
+       step, ``protocol`` is ``sftp``, ``scp``, ``ftp`` or ``ftps``, ``path`` is an absolute path of a file.
        A path ending in ``/`` is a validation error.
    * - ``destination``
      - endpoint, required
@@ -159,16 +159,77 @@ best effort. With ``overwrite: true`` the rename is ``mv -f``.
 The partial file name, verification on the partial file, ``move``, TOFU host
 keys and cleanup on cancel are the same as for ``sftp``.
 
+FTP and FTPS
+------------
+
+``protocol: ftp`` and ``protocol: ftps`` are accepted on the source and the
+destination and may be mixed with ``sftp`` and ``scp`` across nodes. The client
+library is ``github.com/jlaffaye/ftp`` (ISC). Passive mode only; active mode is
+not used.
+
+.. warning::
+
+   Plain ``ftp`` sends the password and the data in clear text. Use ``ftps``.
+   Every plain ``ftp`` endpoint writes a warning to the step log.
+
+``ftps`` never falls back to clear text: a server that does not accept ``AUTH
+TLS``, or that rejects the protected data channel (``PBSZ``/``PROT P``), fails
+the step as a ``connection`` error before any credential is sent. Only a
+rejected ``USER``/``PASS`` (reply 530 or 430) is an ``auth`` error.
+
+Servers that require the TLS session of the control connection to be reused
+for data connections by session ID (for example vsftpd with
+``require_ssl_reuse=YES``) can fail, because the client resumes sessions with
+tickets only. Turn that option off for the transfer user.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Node attribute
+     - Meaning
+   * - ``ftp_port``
+     - FTP port. Default ``21``, or ``990`` for implicit ``ftps``. The node's
+       ``port`` is the SSH port and is not used.
+   * - ``ftps_mode``
+     - ``implicit`` selects implicit TLS. Otherwise ``ftps`` is explicit TLS
+       (``AUTH TLS``, RFC 4217, TLS 1.2 or newer).
+   * - ``username``
+     - Optional; used when the credential has no ``username`` field.
+
+The node credential needs ``username`` (or the node attribute ``username``)
+and ``password`` fields. Anonymous login is not supported. The node transport
+may be ``ssh`` or ``winrm``; FTP does not use it.
+
+With ``ftps`` data connections are protected (``PROT P``). The server
+certificate is always verified against the system roots plus the agent
+setting ``agent.ftps_ca_file`` (``DAMSON_AGENT__FTPS_CA_FILE``), a PEM file of
+extra CA certificates for a private PKI. It is read at agent start; a missing
+or invalid file fails startup. There is no skip-verify option. The agent hands
+the PEM to the plugin as ``ExecRequest.Config`` key ``ftps_ca_pem``.
+
+FTP has no atomic no-clobber rename. With ``overwrite: false`` the destination
+is checked first, which is best effort. With ``overwrite: true`` the file is
+renamed, deleting the target first if the server refuses to rename onto it.
+The source size is known up front, so a source that changes size during the
+copy fails. The partial file name, verification, ``move`` and cleanup are the
+same as for ``sftp``: on cancel the control and data connections are closed
+and the partial file is removed over a new connection.
+
+A certificate or TLS handshake problem is a ``connection`` error; a server
+rejecting the login is an ``auth`` error. Tests run against an in-process
+server (``github.com/fclairamb/ftpserverlib``, MIT), not containers.
+
 Connections and host keys
 -------------------------
 
-Both endpoints connect over SSH with the same code as the ``ssh`` plugin
+``sftp`` and ``scp`` endpoints connect over SSH with the same code as the ``ssh`` plugin
 (``plugins/internal/sshconn``): the node's ``host_key_policy``
 (``strict``, ``tofu``, ``insecure``), trust-on-first-use recording and
 credential resolution behave exactly as described in
 :doc:`/reference/plugin-ssh`. A TOFU key is reported per node, once
 authentication succeeded. The agent setting ``allow_insecure_host_keys`` also
-applies to ``transfer``. A node must have transport ``ssh``.
+applies to ``transfer``. A node of an ``sftp`` or ``scp`` endpoint must have transport ``ssh``.
 
 Failure handling
 ----------------

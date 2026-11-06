@@ -234,7 +234,7 @@ func TestInputValidation(t *testing.T) {
 		"relative dest":      {input("copy", "/a", "b", nil), "absolute"},
 		"dir source":         {input("copy", "/a/", "/b", nil), "single file"},
 		"unknown field":      {input("copy", "/a", "/b", map[string]any{"glob": "*"}), "invalid input"},
-		"unsupported scheme": {strings.Replace(good, `"sftp"`, `"ftp"`, 1), "not supported"},
+		"unsupported scheme": {strings.Replace(good, `"sftp"`, `"http"`, 1), "not supported"},
 		"no source":          {`{"mode":"copy","destination":{"node":{"name":"n","protocol":"sftp","path":"/b"}}}`, "source needs a node"},
 		"newline in path":    {input("copy", "/a\nb", "/b", nil), "single-line"},
 	} {

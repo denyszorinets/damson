@@ -107,6 +107,10 @@ type Agent struct {
 	// AllowInsecureHostKeys lets the ssh plugin accept nodes whose host key
 	// policy is "insecure". Off by default.
 	AllowInsecureHostKeys bool `koanf:"allow_insecure_host_keys"`
+	// FTPSCAFile is a PEM file of extra CA certificates the transfer plugin
+	// trusts for ftps, in addition to the system roots. Empty means system
+	// roots only. Certificate verification cannot be turned off.
+	FTPSCAFile string `koanf:"ftps_ca_file"`
 }
 
 // SlogLevel returns the configured level. Validate guarantees it parses.
@@ -157,5 +161,6 @@ func defaults() map[string]any {
 		"agent.spool_dir":                    "",
 		"agent.spool_max_bytes":              0,
 		"agent.allow_insecure_host_keys":     false,
+		"agent.ftps_ca_file":                 "",
 	}
 }

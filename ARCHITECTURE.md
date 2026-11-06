@@ -525,7 +525,7 @@ type StepError struct {
 
 One plugin covers server-to-server copies *and* S3 in both directions. It uses `TargetMode = nodes` with `NodePaths` `/source/node/name` and `/destination/node/name`; an S3 endpoint has no node and is skipped (ADR-0048).
 
-**Status:** implemented are node endpoints with protocol `sftp` (#144) or `scp` (#145). `ftp`/`ftps` (#146) and `s3` (#147) are planned; the contract below describes the target state. Details of what runs today: `docs/reference/plugin-transfer.rst`.
+**Status:** implemented are node endpoints with protocol `sftp` (#144), `scp` (#145), `ftp` or `ftps` (#146). `s3` (#147) is planned; the contract below describes the target state. Details of what runs today: `docs/reference/plugin-transfer.rst`.
 
 - **Input:**
   - `mode` is `copy` or `move`.
@@ -542,6 +542,7 @@ One plugin covers server-to-server copies *and* S3 in both directions. It uses `
   - `move` = copy, then verify, then delete the source. The source is deleted only after verification passes and the destination is in place. If the delete fails the step fails with `copied and verified; source not deleted` and the outputs stay set; the destination is never deleted. A move retried after the source is gone fails with `source not found`.
 - **Output:** `destination_path` (or `destination_key`), `bytes`, `sha256`; `etag` and `version_id` only with S3 (planned, #147).
 - **v1 scope:** a single file per step. Globs and directories come in v1.1.
+- **FTP/FTPS:** the FTP port comes from the node attribute `ftp_port` (default 21, 990 for implicit), because `NodeInfo.Port` is the SSH port; `ftps_mode: implicit` selects implicit TLS, otherwise explicit TLS. Credentials need `password` and a `username` (a credential field, else the node attribute `username`); there is no anonymous login. The server certificate is always verified against the system roots plus `agent.ftps_ca_file`; there is no skip-verify. Details: `docs/reference/plugin-transfer.rst`.
 - **Windows targets:** use SFTP via Windows OpenSSH. WinRM-based file copy is out of scope.
 
 ### 6.4 `ansible`

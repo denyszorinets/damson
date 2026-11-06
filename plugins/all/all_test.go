@@ -10,6 +10,7 @@ import (
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 	"github.com/denyszorinets/damson/pkg/pluginsdk/plugintest"
 	"github.com/denyszorinets/damson/plugins/all"
+	"github.com/denyszorinets/damson/plugins/internal/ftptest"
 	"github.com/denyszorinets/damson/plugins/internal/sshtest"
 )
 
@@ -29,11 +30,23 @@ func contractOptions(t *testing.T) map[string]plugintest.Options {
 		return plugintest.Case{Name: name, Input: json.RawMessage(in),
 			Nodes: map[string]pluginsdk.NodeInfo{sshtest.NodeName: f.Node}, Bundle: f.Bundle}
 	}
+	// ftp: the password is a bundle value, so the suite checks it never leaks.
+	ftpSrv := ftptest.Start(t, ftptest.Options{User: "ftpuser", Password: "contract-ftp-PASSWORD"})
+	ftpCase := plugintest.Case{
+		Name: "ftp",
+		Input: json.RawMessage(fmt.Sprintf(`{"mode":"copy","overwrite":true,"source":{"node":{"name":"ftpnode","protocol":"ftp","path":%q}},"destination":{"node":{"name":"ftpnode","protocol":"ftp","path":%q}}}`,
+			src, filepath.Join(dir, "ftp-dst"))),
+		Nodes: map[string]pluginsdk.NodeInfo{"ftpnode": {
+			Name: "ftpnode", Address: ftpSrv.Host(), Transport: "ssh", Credential: "secret://ftp/cred",
+			Attributes: map[string]any{"ftp_port": float64(ftpSrv.Port())},
+		}},
+		Bundle: map[string]map[string]string{"secret://ftp/cred": {"username": "ftpuser", "password": "contract-ftp-PASSWORD"}},
+	}
 	// An endless source keeps the transfer running until it is cancelled.
 	transferBlocking := transferCase("blocking", "/dev/zero", filepath.Join(dir, "never"))
 	return map[string]plugintest.Options{
 		"transfer": {
-			Cases:    []plugintest.Case{transferCase("copy", src, filepath.Join(dir, "dst"))},
+			Cases:    []plugintest.Case{transferCase("copy", src, filepath.Join(dir, "dst")), ftpCase},
 			Blocking: &transferBlocking,
 		},
 		"ssh": {

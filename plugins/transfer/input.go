@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
@@ -42,7 +43,7 @@ type Endpoint struct {
 // protocol. The node's credential and host key policy apply.
 type NodeEndpoint struct {
 	Name     string `json:"name" jsonschema:"description=Name of the inventory node,minLength=1"`
-	Protocol string `json:"protocol" jsonschema:"description=File transfer protocol,enum=sftp,enum=scp"`
+	Protocol string `json:"protocol" jsonschema:"description=File transfer protocol,enum=sftp,enum=scp,enum=ftp,enum=ftps"`
 	Path     string `json:"path" jsonschema:"description=Absolute path of the file (or of the directory, ending in /, for a destination),minLength=1"`
 }
 
@@ -98,8 +99,8 @@ func (e Endpoint) validate(which string) error {
 	switch {
 	case n.Name == "":
 		return pluginsdk.ValidationError("%s node name is required", which)
-	case n.Protocol != protoSFTP && n.Protocol != protoSCP:
-		return pluginsdk.ValidationError("%s protocol %q is not supported (sftp, scp)", which, n.Protocol)
+	case !slices.Contains([]string{protoSFTP, protoSCP, protoFTP, protoFTPS}, n.Protocol):
+		return pluginsdk.ValidationError("%s protocol %q is not supported (sftp, scp, ftp, ftps)", which, n.Protocol)
 	case !path.IsAbs(n.Path):
 		return pluginsdk.ValidationError("%s path must be absolute", which)
 	case strings.ContainsAny(n.Path, "\x00\r\n"):
