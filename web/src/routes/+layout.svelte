@@ -13,6 +13,7 @@
 		<a href={resolve('/agents')} class="text-muted-foreground hover:text-foreground">Agents</a>
 		<a href={resolve('/nodes')} class="text-muted-foreground hover:text-foreground">Nodes</a>
 		<a href={resolve('/secrets')} class="text-muted-foreground hover:text-foreground">Secrets</a>
+		<a href={resolve('/audit')} class="text-muted-foreground hover:text-foreground">Audit</a>
 	</div>
 </nav>
 

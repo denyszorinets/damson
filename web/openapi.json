@@ -76,7 +76,7 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "secret.create, secret.update, secret.delete or secret.kek_rotate.",
+            "description": "secret.create, secret.update, secret.delete, secret.kek_rotate, log.purge, admin_token.create, admin_token.revoke or audit.prune.",
             "type": "string"
           },
           "actor": {
@@ -100,11 +100,11 @@
             "type": "string"
           },
           "target": {
-            "description": "\u003cscope\u003e/\u003cname\u003e for a secret.",
+            "description": "\u003cscope\u003e/\u003cname\u003e for a secret, the execution id for log.purge.",
             "type": "string"
           },
           "target_type": {
-            "description": "secret or instance.",
+            "description": "secret, execution or instance.",
             "type": "string"
           }
         },
