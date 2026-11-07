@@ -9,11 +9,13 @@ import (
 
 // Audit actions.
 const (
-	ActionSecretCreate    = "secret.create"
-	ActionSecretUpdate    = "secret.update"
-	ActionSecretDelete    = "secret.delete"
-	ActionSecretKEKRotate = "secret.kek_rotate"
-	ActionLogPurge        = "log.purge"
+	ActionSecretCreate     = "secret.create"
+	ActionSecretUpdate     = "secret.update"
+	ActionSecretDelete     = "secret.delete"
+	ActionSecretKEKRotate  = "secret.kek_rotate"
+	ActionLogPurge         = "log.purge"
+	ActionAdminTokenCreate = "admin_token.create"
+	ActionAdminTokenRevoke = "admin_token.revoke"
 )
 
 // Audit target types.
@@ -169,5 +171,23 @@ func NewLogPurgeEvent(ctx context.Context, d LogPurgeAuditDetails, now time.Time
 	return AuditEvent{
 		ID: id, At: NormalizeTime(now), Actor: meta.Actor, Action: ActionLogPurge, TargetType: AuditTargetExecution,
 		Target: d.ExecutionID, Details: details, RequestID: meta.RequestID,
+	}, nil
+}
+
+// NewAdminTokenEvent builds the event of an admin token create or revoke
+// (action is ActionAdminTokenCreate or ActionAdminTokenRevoke). It carries no
+// details: neither the token nor its hash is recorded.
+func NewAdminTokenEvent(ctx context.Context, action string, now time.Time) (AuditEvent, error) {
+	meta, err := AuditFrom(ctx)
+	if err != nil {
+		return AuditEvent{}, err
+	}
+	id, err := NewID()
+	if err != nil {
+		return AuditEvent{}, err
+	}
+	return AuditEvent{
+		ID: id, At: NormalizeTime(now), Actor: meta.Actor, Action: action, TargetType: AuditTargetInstance,
+		Target: "admin_token", Details: json.RawMessage(`{}`), RequestID: meta.RequestID,
 	}, nil
 }

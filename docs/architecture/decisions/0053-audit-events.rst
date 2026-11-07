@@ -33,7 +33,9 @@ an unauthenticated label, not proof of identity). M8 adds ``user:<sub>`` and
 ``sa:<id>``, and ``system:<duty>`` for controller duties.
 
 **Actions.** ``secret.create``, ``secret.update`` (a new version),
-``secret.delete``, ``secret.kek_rotate`` and ``log.purge``.
+``secret.delete``, ``secret.kek_rotate``, ``log.purge``, ``admin_token.create``
+and ``admin_token.revoke`` (target type ``instance``, target ``admin_token``, empty
+details: neither the token nor its hash is recorded).
 
 **Execution target.** ``log.purge`` uses ``target_type`` ``execution`` and the
 execution id as ``target``. ``LogStore.PurgeExecutionLogs`` removes all log
@@ -75,8 +77,10 @@ Consequences
 - Known gap: no retention and no UI yet. The retention duty in ARCHITECTURE
   section 8 will prune the table.
 - Maintainer-overridable choices: the admin-token actor label exposes a 12-hex
-  prefix of the token hash; ``rotate-kek`` is audited; admin-token create and
-  revoke wait for a follow-up.
+  prefix of the token hash; ``rotate-kek`` and admin-token create and
+  revoke are audited. The event is written after the token changed (the settings
+  table has no audit transaction); if writing fails the command reports that the
+  token changed but the event was not recorded.
 
 References
 ----------
