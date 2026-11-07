@@ -27,8 +27,11 @@ ARCHITECTURE section 6.2 and
    - NTLM over https with a self-signed CA through ``agent.tls_ca_file``;
    - a wrong password is an ``auth`` error.
 
-   Not verified on Windows: ``transport: http`` (NTLM sealing), ``basic``
-   auth, cancel and terminate of a running command, domain accounts (the runner
+   - ``transport: http`` with NTLM sealing (the service refuses unsealed
+     requests), ``basic`` auth over https, and cancel of a running command, after
+     which the process is gone on the host.
+
+   Not verified on Windows: domain accounts (the runner
    uses a local administrator; remote logons of a local administrator need
    ``LocalAccountTokenFilterPolicy=1``) and nodes behind a proxy. Kerberos and
    CredSSP are not supported.

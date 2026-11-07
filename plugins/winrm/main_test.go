@@ -9,5 +9,5 @@ import (
 // TestMain fails the package when a plugin or test server goroutine outlives
 // the tests.
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
+	goleak.VerifyTestMain(m, leakOptions()...)
 }

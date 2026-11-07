@@ -2,7 +2,8 @@ name: WinRM on Windows
 
 # Runs the winrm plugin against a real WinRM service on a Windows runner
 # (ARCHITECTURE section 19, issue #163): stdin delivery to powershell.exe, exit
-# codes, UTF-8 output, no CLIXML on stderr, NTLM over https. Nightly, on demand,
+# codes, UTF-8 output, no CLIXML on stderr, NTLM and Basic over https, NTLM
+# sealing over http, and cancel. Nightly, on demand,
 # and on changes to the plugin or this workflow.
 on:
   workflow_dispatch:
@@ -47,11 +48,13 @@ jobs:
           Enable-PSRemoting -Force -SkipNetworkProfileCheck | Out-Null
           Get-ChildItem WSMan:\localhost\Listener | Where-Object { $_.Keys -contains 'Transport=HTTPS' } | Remove-Item -Recurse -Force
           New-Item -Path WSMan:\localhost\Listener -Transport HTTPS -Address * -CertificateThumbPrint $cert.Thumbprint -Force | Out-Null
-          Set-Item WSMan:\localhost\Service\Auth\Basic $false
+          # Basic is on for the https listener test; http without sealing stays off.
+          Set-Item WSMan:\localhost\Service\Auth\Basic $true
           Set-Item WSMan:\localhost\Service\AllowUnencrypted $false
           New-NetFirewallRule -DisplayName 'WinRM HTTPS' -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow | Out-Null
           Restart-Service WinRM
           "DAMSON_WINRM_HOST=localhost" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "DAMSON_WINRM_HTTP_PORT=5985" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "DAMSON_WINRM_PORT=5986" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "DAMSON_WINRM_USER=damsontest" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "DAMSON_WINRM_PASSWORD=$plain" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8

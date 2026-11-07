@@ -121,6 +121,97 @@ func TestRealWrongPasswordIsAnAuthError(t *testing.T) {
 	requireKind(t, realExec(t, mk(map[string]any{"powershell": "exit 0"})), pluginsdk.KindAuth, "")
 }
 
+// Basic over https: the service accepts it only because the workflow enables it.
+func TestRealBasicAuthOverHTTPS(t *testing.T) {
+	mk := realFixture(t, "")
+	out := requireOK(t, realExec(t, mk(map[string]any{"auth": "basic", "powershell": "Write-Output 'basic-ok'"})))
+	if !strings.Contains(out.StdoutTail, "basic-ok") {
+		t.Fatalf("output = %+v", out)
+	}
+	wrong := realFixture(t, "definitely-not-the-password")
+	requireKind(t, realExec(t, wrong(map[string]any{"auth": "basic", "powershell": "exit 0"})), pluginsdk.KindAuth, "")
+}
+
+// The http transport runs NTLM with message sealing (the service has
+// AllowUnencrypted off, so a request that is not sealed is refused). The
+// operator gate must be open for it.
+func TestRealHTTPWithNTLMSealing(t *testing.T) {
+	port, err := strconv.Atoi(os.Getenv("DAMSON_WINRM_HTTP_PORT"))
+	if err != nil {
+		t.Skip("DAMSON_WINRM_HTTP_PORT is not set")
+	}
+	mk := realFixture(t, "")
+	build := func(body map[string]any, gate bool) plugintest.Case {
+		body["transport"] = "http"
+		c := mk(body)
+		n := c.Nodes["win1"]
+		n.Port = port
+		c.Nodes["win1"] = n
+		if gate {
+			c.Config[winrm.ConfigAllowInsecureWinRM] = "true"
+		}
+		return c
+	}
+	requireKind(t, exec(t, build(map[string]any{"powershell": "exit 0"}, false)), pluginsdk.KindValidation, winrm.ConfigAllowInsecureWinRM)
+	out := requireOK(t, realExec(t, build(map[string]any{"powershell": "Write-Output 'sealed-ok'"}, true)))
+	if !strings.Contains(out.StdoutTail, "sealed-ok") {
+		t.Fatalf("output = %+v", out)
+	}
+}
+
+// Cancelling a running step returns promptly and ends the process on the host.
+// The first shell can take 25 s to start, so the cancel waits until the script
+// has recorded its pid, then checks that this process is gone afterwards.
+func TestRealCancelEndsTheRunningProcess(t *testing.T) {
+	mk := realFixture(t, "")
+	pidFile := `$env:TEMP\damson-cancel.pid`
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type result struct {
+		o plugintest.Outcome
+		d time.Duration
+	}
+	done := make(chan result, 1)
+	var cancelledAt time.Time
+	go func() {
+		script := "$PID | Out-File -Encoding ascii " + pidFile + "\nStart-Sleep -Seconds 300"
+		o := plugintest.Exec(ctx, t, plug(), mk(map[string]any{"powershell": script}))
+		done <- result{o, time.Since(cancelledAt)}
+	}()
+	// Wait until the process is up: the pid file exists and names a live process.
+	alive := "$p = [int](Get-Content " + pidFile + " -ErrorAction Stop)\nif ($p -le 0) { exit 8 }\nGet-Process -Id $p -ErrorAction Stop | Out-Null"
+	up := time.Now().Add(90 * time.Second)
+	for {
+		if realExec(t, mk(map[string]any{"powershell": alive})).Result.Error == nil {
+			break
+		}
+		if time.Now().After(up) {
+			cancel()
+			t.Fatal("the long step never started on the host")
+		}
+		time.Sleep(2 * time.Second)
+	}
+	cancelledAt = time.Now()
+	cancel()
+	r := <-done
+	if r.d > 40*time.Second {
+		t.Fatalf("cancel took %s", r.d)
+	}
+	requireKind(t, r.o, pluginsdk.KindCancelled, "")
+	gone := "$p = [int](Get-Content " + pidFile + " -ErrorAction Stop)\nif (Get-Process -Id $p -ErrorAction SilentlyContinue) { exit 9 }"
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		o := realExec(t, mk(map[string]any{"powershell": gone}))
+		if o.Result.Error == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the process is still running on the host: %v", o.Result.Error)
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
 // realExec is exec with a retry for the host-side "Class not registered" fault
 // that a freshly enabled WinRM service on a CI runner sometimes returns for
 // the first commands (seen once in the Windows job); anything else is final.
