@@ -574,6 +574,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List webhooks */
+        get: operations["list-webhooks"];
+        put?: never;
+        /** Create a webhook */
+        post: operations["create-webhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a webhook */
+        get: operations["get-webhook"];
+        put?: never;
+        post?: never;
+        /** Revoke a webhook */
+        delete: operations["revoke-webhook"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -605,7 +641,7 @@ export interface components {
             version: string;
         };
         AuditEvent: {
-            /** @description secret.create, secret.update, secret.delete, secret.kek_rotate, log.purge, admin_token.create, admin_token.revoke, audit.prune, schedule.create, schedule.update or schedule.delete. */
+            /** @description secret.create, secret.update, secret.delete, secret.kek_rotate, log.purge, admin_token.create, admin_token.revoke, audit.prune, schedule.create, schedule.update, schedule.delete, webhook.create or webhook.revoke. */
             action: string;
             /** @description admin-token:<hash prefix>, cli:<user> or system:<duty> until accounts arrive (ADR-0053). */
             actor: string;
@@ -618,7 +654,7 @@ export interface components {
             request_id?: string;
             /** @description <scope>/<name> for a secret, the execution id for log.purge. */
             target: string;
-            /** @description secret, execution, schedule or instance. */
+            /** @description secret, execution, schedule, webhook or instance. */
             target_type: string;
         };
         BatchInputBody: {
@@ -680,6 +716,40 @@ export interface components {
              */
             expected_version?: number;
             spec: unknown;
+        };
+        CreateWebhookInputBody: {
+            job_id: string;
+            name: string;
+            options?: {
+                [key: string]: unknown;
+            };
+            options_mapping?: string;
+        };
+        CreatedWebhook: {
+            /** Format: date-time */
+            created_at: string;
+            id: string;
+            job_id: string;
+            /** Format: date-time */
+            last_used_at?: string;
+            name: string;
+            /** @description Static options every run starts with; the mapping's result is merged over them. */
+            options: {
+                [key: string]: unknown;
+            };
+            /** @description A CEL expression over body, headers and query that yields a map of options. */
+            options_mapping?: string;
+            /** @description /hooks/ plus the token. */
+            path: string;
+            revoked: boolean;
+            /** Format: date-time */
+            revoked_at?: string;
+            /** @description The secret. POST to /hooks/{token}. Shown once; only its hash is stored. */
+            token: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int64 */
+            version: number;
         };
         DeleteNodeRef: {
             external_id?: string;
@@ -859,6 +929,11 @@ export interface components {
         ListVersionsOutputBody: {
             /** @description Ascending by version, without the spec. */
             items: components["schemas"]["JobVersion"][] | null;
+            next_cursor?: string;
+        };
+        ListWebhooksOutputBody: {
+            /** @description Revoked webhooks are listed too. */
+            items: components["schemas"]["Webhook"][] | null;
             next_cursor?: string;
         };
         Node: {
@@ -1301,6 +1376,28 @@ export interface components {
             graph?: components["schemas"]["Graph"];
             valid: boolean;
             warnings: components["schemas"]["SpecIssue"][] | null;
+        };
+        Webhook: {
+            /** Format: date-time */
+            created_at: string;
+            id: string;
+            job_id: string;
+            /** Format: date-time */
+            last_used_at?: string;
+            name: string;
+            /** @description Static options every run starts with; the mapping's result is merged over them. */
+            options: {
+                [key: string]: unknown;
+            };
+            /** @description A CEL expression over body, headers and query that yields a map of options. */
+            options_mapping?: string;
+            revoked: boolean;
+            /** Format: date-time */
+            revoked_at?: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int64 */
+            version: number;
         };
     };
     responses: never;
@@ -3711,6 +3808,288 @@ export interface operations {
                 /** @description The scope, percent-encoded when it has several segments (infra%2Fbilling), or _inventory. */
                 scope: string;
                 name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "list-webhooks": {
+        parameters: {
+            query?: {
+                /** @description Only the webhooks of this job. */
+                job_id?: string;
+                /** @description Opaque cursor from a previous page's next_cursor. */
+                cursor?: string;
+                /** @description Page size. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListWebhooksOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "create-webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWebhookInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedWebhook"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "get-webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Webhook"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "revoke-webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
             };
             cookie?: never;
         };

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -75,7 +76,15 @@ func logRequests(log *slog.Logger, next http.Handler) http.Handler {
 		if rec.status == 0 {
 			rec.status = http.StatusOK
 		}
-		rl.Info("request", "method", r.Method, "path", r.URL.Path, "status", rec.status,
+		rl.Info("request", "method", r.Method, "path", logPath(r.URL.Path), "status", rec.status,
 			"duration_ms", time.Since(start).Milliseconds())
 	})
+}
+
+// logPath is the path to log: the token of a webhook URL is a credential.
+func logPath(p string) string {
+	if strings.HasPrefix(p, hookPrefix) {
+		return hookPrefix + "[redacted]"
+	}
+	return p
 }

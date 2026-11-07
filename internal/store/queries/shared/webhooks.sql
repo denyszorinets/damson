@@ -1,0 +1,31 @@
+-- name: InsertWebhook :exec
+INSERT INTO webhooks (id, job_id, name, token_hash, options, options_mapping, version, created_at, updated_at)
+VALUES (sqlc.arg(id), sqlc.arg(job_id), sqlc.arg(name), sqlc.arg(token_hash), sqlc.arg(options), sqlc.arg(options_mapping),
+        1, sqlc.arg(created_at), sqlc.arg(updated_at));
+
+-- name: GetWebhook :one
+SELECT id, job_id, name, token_hash, options, options_mapping, revoked_at, last_used_at, version, created_at, updated_at
+FROM webhooks WHERE id = sqlc.arg(id);
+
+-- name: GetActiveWebhookByTokenHash :one
+SELECT id, job_id, name, token_hash, options, options_mapping, revoked_at, last_used_at, version, created_at, updated_at
+FROM webhooks WHERE token_hash = sqlc.arg(token_hash) AND revoked_at IS NULL;
+
+-- name: ListWebhooks :many
+-- job_id = '' lists every webhook. The keyset is the id of the last row.
+SELECT id, job_id, name, token_hash, options, options_mapping, revoked_at, last_used_at, version, created_at, updated_at
+FROM webhooks
+WHERE (CAST(sqlc.arg(job_id) AS TEXT) = '' OR job_id = sqlc.arg(job_id))
+  AND id > sqlc.arg(after_id)
+ORDER BY id
+LIMIT sqlc.arg(row_limit);
+
+-- name: RevokeWebhook :execrows
+UPDATE webhooks SET revoked_at = sqlc.arg(revoked_at), version = version + 1, updated_at = sqlc.arg(revoked_at)
+WHERE id = sqlc.arg(id) AND revoked_at IS NULL;
+
+-- name: TouchWebhook :execrows
+-- last_used_at moves at most once per throttle window, so a busy webhook does
+-- not write on every call.
+UPDATE webhooks SET last_used_at = sqlc.arg(now)
+WHERE id = sqlc.arg(id) AND (last_used_at IS NULL OR last_used_at < sqlc.arg(older_than));

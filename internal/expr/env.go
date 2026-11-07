@@ -86,14 +86,10 @@ type Env struct {
 // NewEnv builds an Env with the given limits.
 func NewEnv(limits Limits) (*Env, error) {
 	limits = limits.withDefaults()
-	opts := []cel.EnvOption{
-		ext.Strings(),
-		cel.ParserRecursionLimit(maxRecursion),
-		cel.ParserExpressionSizeLimit(limits.MaxExprBytes),
+	opts := append(baseOptions(limits),
 		cel.Macros(
 			statusMacro("success", varSuccess), statusMacro("failure", varFailure),
-			statusMacro("always", varAlways), statusMacro("cancelled", varCancelled)),
-	}
+			statusMacro("always", varAlways), statusMacro("cancelled", varCancelled)))
 	for _, v := range []string{VarInputs, VarRun, VarJob, VarSteps, VarNode, VarItem, VarTargets, VarError} {
 		opts = append(opts, cel.Variable(v, cel.DynType))
 	}
@@ -105,6 +101,14 @@ func NewEnv(limits Limits) (*Env, error) {
 		return nil, fmt.Errorf("building CEL environment: %w", err)
 	}
 	return &Env{cel: e, limits: limits}, nil
+}
+
+func baseOptions(limits Limits) []cel.EnvOption {
+	return []cel.EnvOption{
+		ext.Strings(),
+		cel.ParserRecursionLimit(maxRecursion),
+		cel.ParserExpressionSizeLimit(limits.MaxExprBytes),
+	}
 }
 
 func statusMacro(fn, ident string) cel.Macro {

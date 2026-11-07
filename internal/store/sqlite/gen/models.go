@@ -255,3 +255,17 @@ type StepInstance struct {
 	StartedAt  sql.NullString
 	FinishedAt sql.NullString
 }
+
+type Webhook struct {
+	ID             string
+	JobID          string
+	Name           string
+	TokenHash      string
+	Options        string
+	OptionsMapping string
+	RevokedAt      sql.NullString
+	LastUsedAt     sql.NullString
+	Version        int64
+	CreatedAt      string
+	UpdatedAt      string
+}

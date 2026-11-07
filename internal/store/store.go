@@ -57,6 +57,7 @@ type Store interface {
 	SecretStore
 	AuditStore
 	ScheduleStore
+	WebhookStore
 	NodeStore
 	TxRunner
 
