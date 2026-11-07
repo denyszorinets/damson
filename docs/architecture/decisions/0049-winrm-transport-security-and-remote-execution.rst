@@ -92,8 +92,9 @@ Verification
 real WinRM service on a Windows runner (https, NTLM, self-signed CA). The
 bootstrap with stdin payload, UTF-8 output, exit codes, ``cmd.exe`` mode, the
 absence of secrets from the process command line and the wrong-password auth
-error were confirmed. Not covered: ``http`` transport, Basic, cancel of a running
-command, domain accounts, proxies.
+error were confirmed. ``http`` with NTLM sealing, Basic over https and cancel of a
+running command were confirmed in a later run (issue :issue:`178`). Not covered: domain
+accounts, proxies.
 
 Timeout decision: one ``OperationTimeout`` (``PT5S``, meant for the ``Receive``
 long poll) for every request made shell creation on a cold host fail. The https
