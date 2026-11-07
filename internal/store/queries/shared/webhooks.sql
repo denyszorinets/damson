@@ -25,7 +25,8 @@ UPDATE webhooks SET revoked_at = sqlc.arg(revoked_at), version = version + 1, up
 WHERE id = sqlc.arg(id) AND revoked_at IS NULL;
 
 -- name: TouchWebhook :execrows
--- last_used_at moves at most once per throttle window, so a busy webhook does
--- not write on every call.
-UPDATE webhooks SET last_used_at = sqlc.arg(now)
-WHERE id = sqlc.arg(id) AND (last_used_at IS NULL OR last_used_at < sqlc.arg(older_than));
+-- Counts a use of an active webhook. 0 rows: it is gone or revoked. last_used_at
+-- moves at most once per throttle window.
+UPDATE webhooks
+SET last_used_at = CASE WHEN last_used_at IS NULL OR last_used_at < sqlc.arg(older_than) THEN sqlc.arg(now) ELSE last_used_at END
+WHERE id = sqlc.arg(id) AND revoked_at IS NULL;

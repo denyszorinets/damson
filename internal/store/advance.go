@@ -64,9 +64,10 @@ type Tx interface {
 	// transaction that creates the run, so one fire time starts one run
 	// (ADR-0058).
 	FireSchedule(ctx context.Context, f ScheduleFire) error
-	// TouchWebhook sets last_used_at to now unless it was set within
-	// WebhookTouchWindow, in the transaction that creates the run the webhook
-	// started. It never fails because the webhook was revoked meanwhile.
+	// TouchWebhook counts a use of an active webhook in the transaction that
+	// creates the run it started: last_used_at moves unless it was set within
+	// WebhookTouchWindow. ErrNotFound if the webhook is gone or revoked, so a
+	// revoke that committed first stops the run.
 	TouchWebhook(ctx context.Context, id string, now time.Time) error
 	// Native returns the driver transaction (pgx.Tx on Postgres, *sql.Tx on
 	// SQLite) so River can InsertTx on it. Only the queue adapter uses it.

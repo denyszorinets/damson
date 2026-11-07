@@ -10,6 +10,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/denyszorinets/damson/internal/engine"
 	"github.com/denyszorinets/damson/internal/expr"
 	"github.com/denyszorinets/damson/internal/store"
 	"github.com/denyszorinets/damson/internal/store/tokens"
@@ -149,14 +150,18 @@ func createWebhook(ctx context.Context, d deps, env *expr.Env, in *createWebhook
 	}
 	// Static options alone are checked now. With a mapping the final options
 	// exist only per request, and are checked then.
+	_, _, spec, err := d.loadSpec(ctx, b.JobID, nil)
+	if err != nil {
+		return nil, apiError(ctx, err)
+	}
 	if b.OptionsMapping == "" {
-		_, _, spec, err := d.loadSpec(ctx, b.JobID, nil)
-		if err != nil {
-			return nil, apiError(ctx, err)
-		}
 		if _, err := resolveOptions(spec, b.Options); err != nil {
 			return nil, apiError(ctx, err)
 		}
+	} else if bad := engine.SecretOptionViolations(spec.Spec.Options, b.Options); len(bad) > 0 {
+		// Secret options must be references even when the rest is checked per
+		// request: the options are stored.
+		return nil, apiError(ctx, invalid("the options are invalid", secretFields(bad)...))
 	}
 	id, err := store.NewID()
 	if err != nil {

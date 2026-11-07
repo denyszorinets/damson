@@ -159,20 +159,21 @@ func (q *Queries) RevokeWebhook(ctx context.Context, arg RevokeWebhookParams) (i
 }
 
 const touchWebhook = `-- name: TouchWebhook :execrows
-UPDATE webhooks SET last_used_at = ?1
-WHERE id = ?2 AND (last_used_at IS NULL OR last_used_at < ?3)
+UPDATE webhooks
+SET last_used_at = CASE WHEN last_used_at IS NULL OR last_used_at < ?1 THEN ?2 ELSE last_used_at END
+WHERE id = ?3 AND revoked_at IS NULL
 `
 
 type TouchWebhookParams struct {
+	OlderThan sql.NullString
 	Now       sql.NullString
 	ID        string
-	OlderThan sql.NullString
 }
 
-// last_used_at moves at most once per throttle window, so a busy webhook does
-// not write on every call.
+// Counts a use of an active webhook. 0 rows: it is gone or revoked. last_used_at
+// moves at most once per throttle window.
 func (q *Queries) TouchWebhook(ctx context.Context, arg TouchWebhookParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, touchWebhook, arg.Now, arg.ID, arg.OlderThan)
+	result, err := q.db.ExecContext(ctx, touchWebhook, arg.OlderThan, arg.Now, arg.ID)
 	if err != nil {
 		return 0, err
 	}

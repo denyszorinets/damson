@@ -145,8 +145,12 @@ func (s *Store) RevokeWebhook(ctx context.Context, id string, now time.Time) err
 
 // TouchWebhook implements store.Tx.
 func (t *txn) TouchWebhook(ctx context.Context, id string, now time.Time) error {
-	if _, err := t.q.TouchWebhook(ctx, gen.TouchWebhookParams{Now: someTime(now), ID: id, OlderThan: someTime(now.Add(-store.WebhookTouchWindow))}); err != nil {
+	n, err := t.q.TouchWebhook(ctx, gen.TouchWebhookParams{Now: someTime(now), ID: id, OlderThan: someTime(now.Add(-store.WebhookTouchWindow))})
+	if err != nil {
 		return fmt.Errorf("touching webhook: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("webhook %q is revoked or gone: %w", id, store.ErrNotFound)
 	}
 	return nil
 }

@@ -216,3 +216,73 @@ func TestWebhookIsRateLimitedPerToken(t *testing.T) {
 		assert.Equal(t, http.StatusAccepted, f.do("POST", b.Path, "", "").Code, "another token has its own bucket")
 	})
 }
+
+const hookSecretOptions = `{"type":"object","properties":{"env":{"type":"string","default":"dev"},"token":{"type":"string","x-damson-secret":true}}}`
+
+func (f *schedFixture) secretJob(t *testing.T) string {
+	t.Helper()
+	var job jobDetailBody
+	f.callJSON(t, http.MethodPost, "/api/v1/jobs", wrapSpec(specDoc("secret-job", hookSecretOptions, "ssh", `{"host":"h"}`)), 201, &job)
+	return job.Job.ID
+}
+
+// The token never reaches the log, even through an unclean path the mux redirects.
+func TestWebhookTokenIsRedactedFromUncleanPaths(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		f := newSchedFixture(t, st)
+		w := f.newHook(t, fmt.Sprintf(`{"job_id":%q,"name":"ci"}`, f.jobID))
+		for _, p := range []string{"//hooks/" + w.Token, "/./hooks/" + w.Token, "/x/../hooks/" + w.Token} {
+			f.do("POST", p, "", "")
+		}
+		assert.NotContains(t, f.logs.String(), w.Token)
+	})
+}
+
+func TestWebhookSecretOptions(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		f := newSchedFixture(t, st)
+		job := f.secretJob(t)
+		// A plaintext secret is refused at create, with or without a mapping, and nothing is stored.
+		for _, m := range []string{"", `,"options_mapping":"{}"`} {
+			rec := f.do("POST", "/api/v1/webhooks", fmt.Sprintf(`{"job_id":%q,"name":"a","options":{"token":"plain-password"}%s}`, job, m), f.admin)
+			assert.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			assert.NotContains(t, rec.Body.String(), "plain-password")
+		}
+		var list struct {
+			Items []api.Webhook `json:"items"`
+		}
+		f.callJSON(t, "GET", "/api/v1/webhooks?job_id="+job, "", 200, &list)
+		assert.Empty(t, list.Items)
+
+		// A mapping may set ordinary options but not secret ones.
+		w := f.newHook(t, fmt.Sprintf(`{"job_id":%q,"name":"b","options":{"token":"secret://default/key"},"options_mapping":%q}`, job, `{"env": body.env}`))
+		rec := f.doJSON("POST", w.Path, `{"env":"prod"}`)
+		require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+		bad := f.newHook(t, fmt.Sprintf(`{"job_id":%q,"name":"c","options_mapping":%q}`, job, `{"token": body.t}`))
+		rec = f.doJSON("POST", bad.Path, `{"t":"secret://default/prod-key"}`)
+		assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+		assert.Contains(t, rec.Body.String(), "options.token")
+		page, err := st.QueryRuns(t.Context(), store.RunFilter{JobID: job}, "", 10)
+		require.NoError(t, err)
+		assert.Len(t, page.Runs, 1, "the refused request made no run")
+	})
+}
+
+func TestWebhookRevokeStopsInFlightRuns(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		f := newSchedFixture(t, st)
+		w := f.newHook(t, fmt.Sprintf(`{"job_id":%q,"name":"ci"}`, f.jobID))
+		f.callJSON(t, "DELETE", "/api/v1/webhooks/"+w.ID, "", 204, nil)
+		err := st.WithTx(t.Context(), func(tx store.Tx) error { return tx.TouchWebhook(t.Context(), w.ID, t0) })
+		require.ErrorIs(t, err, store.ErrNotFound)
+	})
+}
+
+func TestWebhookBodyTooLarge(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		f := newSchedFixture(t, st)
+		w := f.newHook(t, fmt.Sprintf(`{"job_id":%q,"name":"m","options_mapping":%q}`, f.jobID, `{"env": "dev"}`))
+		rec := f.doJSON("POST", w.Path, `"`+strings.Repeat("x", 2<<20)+`"`)
+		assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	})
+}

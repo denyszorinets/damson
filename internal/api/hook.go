@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/denyszorinets/damson/internal/engine"
 	"github.com/denyszorinets/damson/internal/expr"
 	"github.com/denyszorinets/damson/internal/store"
 	"github.com/denyszorinets/damson/internal/store/tokens"
@@ -25,7 +26,7 @@ const (
 )
 
 // credentialHeaders never reach an options mapping.
-var credentialHeaders = map[string]bool{"authorization": true, "proxy-authorization": true, "cookie": true}
+var credentialHeaders = map[string]bool{"authorization": true, "proxy-authorization": true, "cookie": true, "x-gitlab-token": true, "x-api-key": true}
 
 // hookHandler serves POST /hooks/{token} (ARCHITECTURE 12.3).
 type hookHandler struct {
@@ -112,7 +113,27 @@ func (h *hookHandler) start(w http.ResponseWriter, r *http.Request, hook store.W
 		}
 		mapped, err := h.mapOptions(hook.OptionsMapping, req)
 		if err != nil {
+			loggerFrom(r).Info("webhook mapping failed", "webhook_id", hook.ID, "reason", mappingReason(err))
 			return "", err
+		}
+		// The request may not choose which secret a run uses: options that
+		// hold secret references come from the static options only.
+		_, _, spec, err := h.d.loadSpec(ctx, hook.JobID, nil)
+		if err != nil {
+			return "", err
+		}
+		if spec.Spec.Options != nil {
+			keys := make([]string, 0, len(mapped))
+			for k := range mapped {
+				keys = append(keys, k)
+			}
+			if bad := engine.SecretOptionKeys(spec.Spec.Options, keys); len(bad) > 0 {
+				fields := make([]ProblemDetail, len(bad))
+				for i, k := range bad {
+					fields[i] = ProblemDetail{Message: "a secret option is set by the webhook's static options only", Location: "options." + k}
+				}
+				return "", invalid("the options mapping may not set secret options", fields...)
+			}
 		}
 		for k, v := range mapped {
 			opts[k] = v
@@ -132,6 +153,16 @@ func (h *hookHandler) start(w http.ResponseWriter, r *http.Request, hook store.W
 		return runID, tx.TouchWebhook(ctx, hook.ID, h.d.now())
 	})
 	return runID, err
+}
+
+// mappingReason names the kind of a mapping failure without the error text,
+// which can quote the request.
+func mappingReason(err error) string {
+	var inv *invalidError
+	if errors.As(err, &inv) && strings.Contains(inv.detail, "invalid") {
+		return "does not compile"
+	}
+	return "evaluation failed"
 }
 
 func (h *hookHandler) mapOptions(src string, req expr.Request) (map[string]any, error) {

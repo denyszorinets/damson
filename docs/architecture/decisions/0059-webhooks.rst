@@ -48,8 +48,17 @@ the credential.
   values.
 - The run is created with the trigger ``{"type":"webhook","webhook_id":..}`` in
   one transaction with the ``last_used_at`` update (written at most once per
-  minute) and the ``run.advance`` enqueue. The answer is ``202
+  minute; it fails if the webhook was revoked meanwhile, which stops the run)
+  and the ``run.advance`` enqueue. The answer is ``202
   {"run_id":...}``.
+
+**Secret options.** A mapping may not set an option whose schema is or
+contains ``x-damson-secret`` (422, ``options.<key>``): such options come from
+the static options set by the administrator, so a caller cannot pick which
+secret a run uses. At create time secret options must be ``secret://`` refs
+even when a mapping is set, because the options are stored. Sensitive headers
+(Authorization, Proxy-Authorization, Cookie, X-Gitlab-Token, X-Api-Key) are not
+visible to the mapping.
 
 **Mapping.** CEL in a dedicated environment with only the variables ``body``,
 ``headers`` and ``query``; the job-spec variables are not available.

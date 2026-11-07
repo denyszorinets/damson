@@ -131,7 +131,13 @@ func testWebhookTouch(t *testing.T, s store.Store) {
 	if u := used(); !u.Equal(t0.Add(2 * time.Minute)) {
 		t.Fatalf("a touch after the window = %v", u)
 	}
-	if err := s.WithTx(ctx, func(tx store.Tx) error { return tx.TouchWebhook(ctx, "missing", t0) }); err != nil {
-		t.Fatalf("touching a missing webhook: %v", err)
+	if err := s.WithTx(ctx, func(tx store.Tx) error { return tx.TouchWebhook(ctx, "missing", t0) }); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("touching a missing webhook: %v; want ErrNotFound", err)
+	}
+	if err := s.RevokeWebhook(ctx, "w", t0.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WithTx(ctx, func(tx store.Tx) error { return tx.TouchWebhook(ctx, "w", t0.Add(2*time.Hour)) }); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("touching a revoked webhook: %v; want ErrNotFound", err)
 	}
 }

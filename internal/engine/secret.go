@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -124,6 +125,55 @@ func literalIsRefs(lit any) bool {
 			}
 		}
 		return true
+	}
+	return false
+}
+
+// SecretOptionKeys returns those of keys (top-level option names) whose schema
+// in spec.options is, or contains, an x-damson-secret property. Pure. A key the
+// schema does not name falls under additionalProperties.
+func SecretOptionKeys(schema map[string]any, keys []string) []string {
+	props, _ := schema["properties"].(map[string]any)
+	extra, _ := schema["additionalProperties"].(map[string]any)
+	var out []string
+	for _, k := range keys {
+		cs, _ := props[k].(map[string]any)
+		if cs == nil {
+			cs = extra
+		}
+		if containsSecret(cs) {
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func containsSecret(schema map[string]any) bool {
+	if schema == nil {
+		return false
+	}
+	if marked(schema) {
+		return true
+	}
+	for _, key := range []string{"items", "additionalProperties"} {
+		if c, _ := schema[key].(map[string]any); containsSecret(c) {
+			return true
+		}
+	}
+	props, _ := schema["properties"].(map[string]any)
+	for _, p := range props {
+		if c, _ := p.(map[string]any); containsSecret(c) {
+			return true
+		}
+	}
+	for _, key := range []string{"allOf", "anyOf", "oneOf"} {
+		list, _ := schema[key].([]any)
+		for _, p := range list {
+			if c, _ := p.(map[string]any); containsSecret(c) {
+				return true
+			}
+		}
 	}
 	return false
 }

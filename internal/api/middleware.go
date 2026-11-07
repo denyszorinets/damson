@@ -83,8 +83,9 @@ func logRequests(log *slog.Logger, next http.Handler) http.Handler {
 
 // logPath is the path to log: the token of a webhook URL is a credential.
 func logPath(p string) string {
-	if strings.HasPrefix(p, hookPrefix) {
-		return hookPrefix + "[redacted]"
+	// Anywhere in the path: the mux logs an unclean one (//hooks/x) as sent.
+	if i := strings.Index(p, hookPrefix); i >= 0 {
+		return p[:i] + hookPrefix + "[redacted]"
 	}
 	return p
 }
