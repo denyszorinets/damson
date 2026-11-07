@@ -67,7 +67,7 @@ Damson is an open-source job orchestrator in the spirit of Rundeck and a modern,
 | Observability | OpenTelemetry (traces + metrics), `log/slog` | Prometheus endpoint via the OTel exporter |
 | Frontend | **SvelteKit** (SPA, `adapter-static`), Svelte 5, TypeScript, Tailwind v4 | Embedded in the binary via `embed` |
 | UI kit | **shadcn-svelte** (MIT) | Components vendored into the repo |
-| Schema forms | **`@sjsf/form`** + shadcn theme + ajv8 validator (MIT) | Plugin step forms and run-option dialogs |
+| Schema forms | **`@sjsf/form`** + basic theme (`@sjsf/basic-theme`) + ajv8 validator (`@sjsf/ajv8-validator`) (MIT) | Plugin step forms and run-option dialogs; the basic theme avoids a large shadcn form component set |
 | Code editor | CodeMirror 6 (MIT) | JSON job editor with schema validation |
 | Job and run graph | `@xyflow/svelte` (Svelte Flow, MIT) plus an in-house layout function | No graph layout library needed (§15.1) |
 | API client | `openapi-typescript` + `openapi-fetch` | Generated from the controller's OpenAPI |
@@ -1129,12 +1129,13 @@ All routes are under `/api/v1`, with the OpenAPI document at `/api/v1/openapi.js
   - project tree
   - job list and detail
   - job editor: CodeMirror JSON, validated live against the job spec schema and plugin schemas from `/api/v1/plugins`
-  - run dialog: an `@sjsf/form` generated from `spec.options`
+  - run dialog: an `@sjsf/form` generated from `spec.options`; the job page also holds the Triggers section (schedules and webhooks, admin token)
   - run view: step tree with statuses, lanes, attempts, outputs, and a virtualized log viewer with ANSI colors, live via SSE
   - agents: pools, telemetry, drain
   - nodes: filter by CEL selector
   - secrets: metadata only, write-only values
   - schedules and webhooks
+  - service accounts and tokens (`/service-accounts`, admin token)
   - access rules
   - audit
 - **Plugin UIs are generated from schemas.** No plugin ships custom frontend code in v1. A visual step-form editor (per-plugin `@sjsf/form` from the input schema) is a v1.1 nicety; the JSON editor is the v1 baseline.

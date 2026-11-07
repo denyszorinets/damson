@@ -6,21 +6,26 @@
 	import GraphView from '$lib/graph/GraphView.svelte';
 	import type { Graph } from '$lib/graph/layout';
 	import { fetchJobGraph, problemMessage, type Job } from '$lib/jobs';
+	import RunDialog from '$lib/components/RunDialog.svelte';
+	import JobTriggers from '$lib/components/JobTriggers.svelte';
+	import { optionsSchema } from '$lib/triggers';
 
 	let job = $state<Job | null>(null);
 	let graph = $state<Graph | null>(null);
+	let schema = $state<Record<string, unknown> | null>(null);
 	let error = $state<string | null>(null);
 
 	$effect(() => {
 		const id = page.params.id ?? '';
 		const ctrl = new AbortController();
-		job = graph = null;
+		job = graph = schema = null;
 		error = null;
 		fetchJobGraph(id, ctrl.signal)
 			.then((r) => {
 				if (ctrl.signal.aborted) return;
 				job = r.job;
 				graph = r.graph;
+				schema = optionsSchema(r.spec);
 			})
 			.catch((e) => {
 				if (!ctrl.signal.aborted) error = problemMessage(e);
@@ -47,6 +52,8 @@
 	{:else if !graph}
 		<Skeleton class="h-64 w-full" />
 	{:else}
+		<RunDialog jobId={job?.id ?? ''} {schema} />
 		<GraphView {graph} />
+		<JobTriggers jobId={job?.id ?? ''} />
 	{/if}
 </main>
