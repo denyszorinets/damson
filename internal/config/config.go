@@ -32,6 +32,7 @@ type Config struct {
 	Controller Controller `koanf:"controller"`
 	Engine     Engine     `koanf:"engine"`
 	Audit      Audit      `koanf:"audit"`
+	Auth       Auth       `koanf:"auth"`
 	Agent      Agent      `koanf:"agent"`
 	Secrets    Secrets    `koanf:"secrets"`
 }
@@ -87,6 +88,16 @@ type Audit struct {
 	// (the default); a positive value lets the retention duty delete older
 	// events (ADR-0054).
 	RetentionDays int `koanf:"retention_days"`
+}
+
+// Auth configures access to the job and run API (controller and dev roles).
+type Auth struct {
+	// RequireToken makes the job, run and execution routes refuse requests
+	// without a valid Bearer token (the admin token or a service account token;
+	// ADR-0060). Off by default: until OIDC (M8) those routes are open to anyone
+	// who can reach the controller, as before. A token that is sent is always
+	// checked, whatever this says.
+	RequireToken bool `koanf:"require_token"`
 }
 
 // MaxAuditRetentionDays bounds audit.retention_days (100 years).
@@ -186,6 +197,7 @@ func defaults() map[string]any {
 		"controller.trust_forwarded_proto":   false,
 		"engine.finally_grace":               "2m",
 		"audit.retention_days":               0,
+		"auth.require_token":                 false,
 		"agent.controller_url":               "",
 		"agent.token":                        "",
 		"agent.pool":                         "default",

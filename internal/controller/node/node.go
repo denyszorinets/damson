@@ -60,6 +60,8 @@ type Config struct {
 	// and secrets are seeded into the inventory and the secret store at start;
 	// from then on they are ordinary rows. Nil in production.
 	DevFile *devnodes.File
+	// RequireToken is auth.require_token (ADR-0060).
+	RequireToken bool
 	// KEK and KEKPrevious are the base64 key encryption keys of the db secret
 	// backend (ARCHITECTURE 9.2). Without a KEK secrets are disabled, unless
 	// the database holds encrypted secrets, which refuses the start.
@@ -146,7 +148,7 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	}
 	apiCfg := api.Config{
 		Addr: cfg.Addr, Store: cfg.Store, Data: cfg.Store, Plugins: cfg.Plugins, UI: cfg.UI, Logger: cfg.Logger,
-		Stream: cfg.Stream,
+		Stream: cfg.Stream, RequireToken: cfg.RequireToken,
 		Mounts: map[string]http.Handler{controller.ConnectPath: gw.Handler()},
 	}
 	if n.adv != nil {

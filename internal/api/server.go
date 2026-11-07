@@ -42,6 +42,9 @@ type Config struct {
 	// Secrets serves the secrets endpoints (admin token required). Nil answers
 	// them with 503: secrets are disabled without a KEK.
 	Secrets SecretBackend
+	// RequireToken refuses job, run and execution requests without a valid
+	// Bearer token (ADR-0060). A token that is sent is checked either way.
+	RequireToken bool
 	// Mounts maps extra mux patterns (for example "/agent/v1/connect") to
 	// handlers owned by other components. They are wrapped by the same
 	// request logging as the API.

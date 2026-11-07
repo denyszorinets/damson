@@ -241,6 +241,27 @@ type SecretVersion struct {
 	CreatedAt  pgtype.Timestamptz
 }
 
+type ServiceAccount struct {
+	ID          string
+	Name        string
+	Description string
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
+type ServiceToken struct {
+	ID               string
+	ServiceAccountID string
+	Name             string
+	TokenHash        string
+	Project          string
+	Role             string
+	ExpiresAt        pgtype.Timestamptz
+	RevokedAt        pgtype.Timestamptz
+	LastUsedAt       pgtype.Timestamptz
+	CreatedAt        pgtype.Timestamptz
+}
+
 type StepInstance struct {
 	ID         string
 	RunID      string
