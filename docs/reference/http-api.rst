@@ -234,7 +234,7 @@ token. It returns ``items`` (newest first; ``id``, ``at``, ``actor``,
 ``action``, ``target_type``, ``target``, ``project_path``, ``details``,
 ``request_id``) and ``next_cursor``; ``limit`` is 1 to 200, default 50.
 Events never contain secret values. Currently recorded: ``secret.create``,
-``secret.update``, ``secret.delete``, ``secret.kek_rotate``, ``log.purge``, ``admin_token.create`` and
+``secret.update``, ``secret.delete``, ``secret.kek_rotate``, ``schedule.create``, ``schedule.update``, ``schedule.delete`` (target type ``schedule``; see :doc:`schedules`), ``log.purge``, ``admin_token.create`` and
 ``admin_token.revoke`` and ``audit.prune`` (retention). Actors are
 ``admin-token:<12 hex of the token hash>``, ``system:dev-nodes``, ``system:retention`` and
 ``cli:<os user>``. Design: :doc:`/architecture/decisions/0053-audit-events`.

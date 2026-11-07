@@ -832,17 +832,17 @@ Action = CreateStepInstance | ScheduleExecution | SettleStep | SkipStep | Comple
 
 ### 8.4 Singleton duties (leader lease)
 
-- `leader_leases(name, holder, term, acquired_at, expires_at)`: one row per singleton duty (today only `reaper`). `holder` is the controller id, with no foreign key (`controller_instances` rows are deleted on shutdown). ADR-0039.
+- `leader_leases(name, holder, term, acquired_at, expires_at)`: one row per singleton duty (`reaper`, `retention`, `scheduler`). `holder` is the controller id, with no foreign key (`controller_instances` rows are deleted on shutdown). ADR-0039.
 - **Acquire or renew** is one upsert (`LeaderStore.AcquireLeader`) every 5s with a TTL of 15s. It succeeds if the caller is the holder or the current lease has expired (`expires_at < now`). A takeover adds 1 to `term`, a renewal keeps it; `term` never resets. **Release** is `UPDATE ... SET expires_at = now WHERE holder AND term match`, so a graceful stop hands over faster than the TTL.
 - **Clock:** the injected Go `now`, on both backends, not the database clock. Skew only shifts failover time (TTL plus skew); it cannot cause flapping.
 - **Step-down:** a controller counts as leader only while `now < expires_at - renew`, so one cut off from the database stops before another can take over.
 - **Fence:** `Tx.CheckLeader(name, holder, term, now)` returns `ErrStale` unless the lease is held at that term and unexpired. The reaper calls it first in its transaction. It is strict on SQLite (exclusive transaction) and best effort on Postgres READ COMMITTED, which is enough for idempotent duties.
 - Duties:
-  - **scheduler** (§12.3)
+  - **scheduler** (§12.3). Lease `scheduler`, ticks every 10s (`Timing.Schedule`); each fire is one fenced transaction (ADR-0058)
   - **reaper** (expired leases → `lost`; dead `controller_instances` cleanup)
   - **retention** (old runs, logs, audit; per-project policy). Only the audit part exists today: `audit.retention_days` (default 0 = keep forever), under its own `retention` lease, each batch fenced and recorded by an `audit.prune` event in the same transaction (ADR-0054)
 - Each duty is idempotent, so a brief double-leader overlap during failover is harmless.
-- Per-controller duties stay on every controller: dispatch, lease renewal, cancels, adoption, and the sweep (a River unique key). The scheduler (M7) will need the lease plus a unique `(schedule_id, fire_at)`.
+- Per-controller duties stay on every controller: dispatch, lease renewal, cancels, adoption, and the sweep (a River unique key). The scheduler runs under its lease; exactly-once comes from the compare-and-swap on `schedules.next_fire_at`, so there is no `schedule_fires` table (ADR-0058).
 - Reaper and complete transactions touch rows in a fixed order: step rows first, then each distinct run once, sorted by run id.
 
 ### 8.5 Controller registry and cross-controller routing
@@ -1036,7 +1036,7 @@ Both sync routes need the admin token, accept at most 16 MiB and 5000 nodes, and
 |---|---|
 | **UI button** | A run dialog generated from `spec.options` (JSON Schema form) |
 | **API** | `POST /api/v1/projects/{path}/jobs/{name}/runs` with `{options}` |
-| **Schedule** | `schedules(job_id, cron, timezone, options, enabled, misfire: run_once|skip, next_fire_at)`. The scheduler duty ticks every 10s: it selects due schedules, creates runs (unique on `(schedule_id, fire_time)`), and advances `next_fire_at`. |
+| **Schedule** | `schedules(id, job_id, name, cron, timezone, options, enabled, misfire: run_once|skip, next_fire_at, last_fire_at, last_run_id, last_error, version)`, name unique per job. The `scheduler` duty ticks every 10s, selects enabled schedules with `next_fire_at <= now` (batch 100) and, per schedule in one fenced transaction, creates the run through the API trigger path (`api.Starter`) and moves `next_fire_at` with `FireSchedule`, a CAS on the value it read. Run trigger: `{"type":"schedule","schedule_id":..,"fire_at":..}`. Details, misfire and DST rules: ADR-0058. |
 | **Webhook** | `POST /hooks/{token}` |
 
 **Webhook details**
@@ -1061,7 +1061,7 @@ Both sync routes need the admin token, accept at most 16 MiB and 5000 nodes, and
 - They attach to **projects** (inherited by descendants) and optionally to **jobs** (additive for that job only).
 - **Effective role** = the maximum role granted by any matching rule on the job, the project, or any ancestor.
 - Rules are compiled once per change, and evaluation is cached per session for 60s.
-- Every mutation and trigger writes an **audit event**: actor, action, target, project path, details JSON, request id. `project_path` is the project scope of the target (empty when none) and is kept for per-subtree visibility in M8. The event is written in the **same transaction** as the change, and an audited write without an actor fails (`ErrInvalid`). Until M8 the actors are `admin-token:<12 hex of the token hash>`, `system:dev-nodes` and `cli:<os user>`; M8 adds `user:<sub>`, `sa:<id>` and `system:<duty>`. Today secret writes, `rotate-kek`, admin-token create and revoke, and log purges (`log.purge`, target type `execution`) are audited (ADR-0053). With `audit.retention_days` set, the retention duty (§8.4) deletes older events and writes an `audit.prune` event per pass (ADR-0054); the default `0` keeps everything.
+- Every mutation and trigger writes an **audit event**: actor, action, target, project path, details JSON, request id. `project_path` is the project scope of the target (empty when none) and is kept for per-subtree visibility in M8. The event is written in the **same transaction** as the change, and an audited write without an actor fails (`ErrInvalid`). Until M8 the actors are `admin-token:<12 hex of the token hash>`, `system:dev-nodes` and `cli:<os user>`; M8 adds `user:<sub>`, `sa:<id>` and `system:<duty>`. Today secret writes, `rotate-kek`, admin-token create and revoke, log purges (`log.purge`, target type `execution`) and schedule changes (`schedule.create`, `schedule.update`, `schedule.delete`, target type `schedule`) are audited (ADR-0053, ADR-0058). Scheduler fires are not audited: the run records its trigger, and the scheduler's actor is `system:scheduler`. With `audit.retention_days` set, the retention duty (§8.4) deletes older events and writes an `audit.prune` event per pass (ADR-0054); the default `0` keeps everything.
 
 ---
 
@@ -1100,7 +1100,8 @@ All routes are under `/api/v1`, with the OpenAPI document at `/api/v1/openapi.js
 - `jobs` — CRUD, versions, `versions/{v}/graph`, validate (dry-run validation of a spec; also returns its graph), runs
 - `runs` — list, get (with step tree), `graph` (graph plus current step states, `{graph, steps[]}`), cancel, rerun (same version and options), SSE `/runs/{id}/events`
 - `executions` — get, logs (SSE)
-- `schedules`, `webhooks`
+- `schedules` — `GET`/`POST /schedules`, `GET`/`PATCH`/`DELETE /schedules/{id}`; list filter `job_id`, cursor-paged; admin token until M8 (ADR-0058)
+- `webhooks`
 - `nodes` — list (`GET /nodes`), get, create (`POST`, `source=manual`), update (`PATCH`, optional `if_version`), delete; `?force=true` is needed to write a node of another source (it keeps the source). All nodes routes need the admin token (§12.2), reads included. The sync routes (`PUT /inventory/sources/{source}/nodes` and `:batch`) are in §11; they need the admin token too.
 - `runs/{id}/targets` — admin token; the nodes frozen at trigger, cursor-paged (`limit` default 50, max 200), never credential or host key
 - `agents` — list, get (telemetry), drain; `pools` and pool tokens

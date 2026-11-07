@@ -479,6 +479,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List schedules */
+        get: operations["list-schedules"];
+        put?: never;
+        /** Create a schedule */
+        post: operations["create-schedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/schedules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a schedule */
+        get: operations["get-schedule"];
+        put?: never;
+        post?: never;
+        /** Delete a schedule */
+        delete: operations["delete-schedule"];
+        options?: never;
+        head?: never;
+        /** Change a schedule */
+        patch: operations["patch-schedule"];
+        trace?: never;
+    };
     "/secret-types": {
         parameters: {
             query?: never;
@@ -568,7 +605,7 @@ export interface components {
             version: string;
         };
         AuditEvent: {
-            /** @description secret.create, secret.update, secret.delete, secret.kek_rotate, log.purge, admin_token.create, admin_token.revoke or audit.prune. */
+            /** @description secret.create, secret.update, secret.delete, secret.kek_rotate, log.purge, admin_token.create, admin_token.revoke, audit.prune, schedule.create, schedule.update or schedule.delete. */
             action: string;
             /** @description admin-token:<hash prefix>, cli:<user> or system:<duty> until accounts arrive (ADR-0053). */
             actor: string;
@@ -581,7 +618,7 @@ export interface components {
             request_id?: string;
             /** @description <scope>/<name> for a secret, the execution id for log.purge. */
             target: string;
-            /** @description secret, execution or instance. */
+            /** @description secret, execution, schedule or instance. */
             target_type: string;
         };
         BatchInputBody: {
@@ -618,6 +655,23 @@ export interface components {
             tags?: string[] | null;
             /** @description ssh (default) or winrm. */
             transport?: string;
+        };
+        CreateScheduleInputBody: {
+            cron: string;
+            /** @description Default true. */
+            enabled?: boolean;
+            job_id: string;
+            /**
+             * @description Default run_once.
+             * @enum {string}
+             */
+            misfire?: "run_once" | "skip" | "";
+            name: string;
+            options?: {
+                [key: string]: unknown;
+            };
+            /** @description Default UTC. */
+            timezone?: string;
         };
         CreateVersionInputBody: {
             /**
@@ -792,6 +846,11 @@ export interface components {
             /** @description Empty on the last page. */
             next_cursor?: string;
         };
+        ListSchedulesOutputBody: {
+            items: components["schemas"]["Schedule"][] | null;
+            /** @description Empty on the last page. */
+            next_cursor?: string;
+        };
         ListSecretsOutputBody: {
             items: components["schemas"]["SecretMeta"][] | null;
             /** @description Empty on the last page. */
@@ -857,6 +916,22 @@ export interface components {
             port?: number;
             tags?: string[];
             transport?: string;
+        };
+        PatchScheduleInputBody: {
+            cron?: string;
+            enabled?: boolean;
+            /**
+             * Format: int64
+             * @description The version the caller read; 409 if it moved. Omitted: the version current when handled.
+             */
+            if_version?: number;
+            /** @enum {string} */
+            misfire?: "run_once" | "skip";
+            name?: string;
+            options?: {
+                [key: string]: unknown;
+            };
+            timezone?: string;
         };
         Plugin: {
             name: string;
@@ -1021,6 +1096,41 @@ export interface components {
             items: components["schemas"]["RunTarget"][] | null;
             /** @description Empty on the last page. */
             next_cursor?: string;
+        };
+        Schedule: {
+            /** Format: date-time */
+            created_at: string;
+            /** @description Five fields (minute hour day-of-month month day-of-week) or @hourly, @daily, @weekly, @monthly, @yearly. */
+            cron: string;
+            enabled: boolean;
+            id: string;
+            job_id: string;
+            /** @description Why the last fire time made no run, or a warning about the schedule. Never an option value. */
+            last_error?: string;
+            /**
+             * Format: date-time
+             * @description When the last run was started.
+             */
+            last_fire_at?: string;
+            last_run_id?: string;
+            /** @description run_once starts one run for the missed fire times after downtime; skip starts none. */
+            misfire: string;
+            name: string;
+            /**
+             * Format: date-time
+             * @description Absent while disabled.
+             */
+            next_fire_at?: string;
+            /** @description The options each run starts with; checked against spec.options when saved and again when the schedule fires. */
+            options: {
+                [key: string]: unknown;
+            };
+            /** @description An IANA zone name. */
+            timezone: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int64 */
+            version: number;
         };
         SecretMeta: {
             /** Format: date-time */
@@ -3003,6 +3113,368 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "list-schedules": {
+        parameters: {
+            query?: {
+                /** @description Only the schedules of this job. */
+                job_id?: string;
+                /** @description Opaque cursor from a previous page's next_cursor. */
+                cursor?: string;
+                /** @description Page size. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListSchedulesOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "create-schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateScheduleInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Schedule"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "get-schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Schedule"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "delete-schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "patch-schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchScheduleInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Schedule"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

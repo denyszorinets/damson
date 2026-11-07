@@ -202,6 +202,24 @@ type RunTarget struct {
 	Node     string
 }
 
+type Schedule struct {
+	ID         string
+	JobID      string
+	Name       string
+	Cron       string
+	Timezone   string
+	Options    string
+	Enabled    bool
+	Misfire    string
+	NextFireAt pgtype.Timestamptz
+	LastFireAt pgtype.Timestamptz
+	LastRunID  string
+	LastError  string
+	Version    int64
+	CreatedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
+}
+
 type Secret struct {
 	ID             string
 	ScopePath      string
