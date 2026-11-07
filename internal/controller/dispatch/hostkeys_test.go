@@ -258,3 +258,50 @@ func TestHostKeyObservedUnresolvablePluginDropped(t *testing.T) {
 		}
 	})
 }
+
+// inventoryPlugins resolves every plugin to a TargetInventory manifest.
+type inventoryPlugins struct{}
+
+func (inventoryPlugins) Resolve(ref string, _ pluginreg.Filter) (pluginreg.Resolution, error) {
+	return pluginreg.Resolution{Manifest: pluginsdk.Manifest{Name: ref, TargetMode: pluginsdk.TargetInventory, NodeListPath: "/hosts"}}, nil
+}
+
+// For a TargetInventory step the fence is membership of the host list: a
+// report for a listed host is recorded, one for an unlisted host is not.
+func TestHostKeyObservedFencingInventoryMode(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		ctx := context.Background()
+		now := time.Now()
+		rec := &recordKeys{}
+		d := newBareWith(t, st, func() time.Time { return now }, func(c *dispatch.Config) { c.HostKeys = rec; c.Plugins = inventoryPlugins{} })
+		_, jv, err := st.CreateJob(ctx, store.NewJob{ProjectID: store.DefaultProjectID, Name: "hk4", Spec: json.RawMessage(twoStepSpec), Checksum: "s"}, t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input := `{"hosts":["web-1","web-2"]}`
+		if _, err := st.CreateRun(ctx, store.NewRun{JobID: jv.JobID, JobVersionID: jv.ID, Steps: []store.NewStepInstance{
+			{Path: "s1", Plugin: "ansible", Input: json.RawMessage(input), Execution: &store.NewExecution{Pool: "default", ScheduledAt: now}}}}, now); err != nil {
+			t.Fatal(err)
+		}
+		got, err := st.ClaimExecutions(ctx, store.ClaimParams{AgentID: "a1", ControllerID: "ctl-1", Pools: []string{"default"}, Limit: 1, LeaseTTL: time.Minute}, now)
+		if err != nil || len(got) != 1 {
+			t.Fatalf("claim = %v, %v", got, err)
+		}
+		ex := got[0]
+		if err := st.MarkExecutionRunning(ctx, ex.ID, ex.AttemptID, now); err != nil {
+			t.Fatal(err)
+		}
+		other, _ := hostKeyReport(t, ex.AttemptID, "db-1")
+		d.HostKeyObserved(ctx, "a1", other)
+		if rec.count() != 0 {
+			t.Fatal("a host outside the list was recorded")
+		}
+		for _, host := range []string{"web-1", "web-2"} {
+			r, _ := hostKeyReport(t, ex.AttemptID, host)
+			d.HostKeyObserved(ctx, "a1", r)
+		}
+		if rec.count() != 2 {
+			t.Fatalf("recorded %d; want both listed hosts", rec.count())
+		}
+	})
+}

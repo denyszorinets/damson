@@ -71,6 +71,12 @@ generated input and output schemas, ``Idempotent``, ``Requires`` capabilities
 pointers into the input that each name a node, for example
 ``/source/node/name``; ``Manifest.NodeNames(input)`` returns the names. See
 :doc:`/architecture/decisions/0048-plugins-that-target-several-nodes`.
+``NodeListPath`` (SDK 0.4.0, mode ``inventory`` only, required there) is one
+JSON pointer to an array of up to ``MaxNodeList`` (1000) node names, for example
+``/hosts``; ``NodeNames`` returns them deduplicated and sorted, and the
+controller resolves each one with its credential and tags
+(:doc:`/architecture/decisions/0055-inventory-target-mode`). ``NodeInfo.Tags``
+(SDK 0.4.0) carries the node's inventory tags.
 ``Manifest.Validate`` checks it and ``Manifest.Checksum`` gives
 the digest the controller uses to detect schema conflicts between agents. The
 checksum is computed over the canonical JSON (decoded to generic values and

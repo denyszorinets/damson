@@ -10,4 +10,4 @@ package pluginsdk
 
 // Version is the semantic version of this SDK. Breaking API changes require a
 // new major version.
-const Version = "0.3.0"
+const Version = "0.4.0"

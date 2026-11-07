@@ -330,7 +330,7 @@ The engine evaluates these rules deterministically:
   - It is evaluated once, at trigger, and the matching nodes are frozen into the run's `run_targets` rows (ADR-0045). More than 1000 matches rejects the trigger with 422 at `spec.targets` and creates no run. Each `for_each` group also freezes the list it iterates when it starts.
 - `targets` is the enabled inventory nodes (ADR-0043) that the project's node scope allows (`inventory.Scope`; `AllNodes` until M8), sorted by name, filtered by the selector (the whole inventory is scanned; more than 1000 matches is a 422 at `spec.targets`). Each is a plain map of `id`, `name`, `address`, `tags`, `attributes`, `pool`, `os` and `transport`, and never a credential ref, host key, host key policy or port. The list is read at trigger only when the job can use it: `engine.UsesTargets` is true if `spec.targets` is set or the word `targets` appears anywhere in the spec (conservative). A failed read fails the trigger with a 5xx and creates no run. The advancer does not read the inventory: when `engine.UsesTargets(job)` it decodes the run's `run_targets` rows (`store.ListRunTargets`) as `targets`, and a run without rows has empty targets. `--dev-nodes` seeds its file into the inventory at startup (ADR-0044), so seeded nodes are served like any other. With no nodes, `targets` is empty. A node for which the selector does not evaluate to true, or fails to, does not match. A `for_each` group freezes the list it iterates when it starts (ADR-0038), so the lanes of a run do not change.
 - Frozen run targets (ADR-0045): each `run_targets` row holds `name`, `node_id` and the node as JSON (the map above, with `id`; never credential or host key), so nodes added, disabled or renamed after the trigger never change a running run's lanes. Dispatch resolves a step's node name through the snapshot: a name in the snapshot follows its frozen `node_id` (a rename still reaches the node, `NodeInfo.Name` stays the requested name, a deleted node is `unknown node`); a name outside the snapshot is looked up by name. The scope check, the enabled check and the host key policy apply to the node's current row, so address, credential and host key are those at dispatch time. A literal `node: <name>` in step input also reaches inventory nodes (ADR-0043). `node.pool` routes the step at dispatch (§11, ADR-0052).
-- Plugins that accept a whole inventory (Ansible) receive `targets` directly. Plugins that work on one node (SSH, WinRM) take a `node` field, usually `${{ node.name }}` inside `for_each`.
+- Plugins that accept several nodes (Ansible, `TargetMode = inventory`, ADR-0055) take a list of node **names** at `Manifest.NodeListPath` (ansible: `hosts`, usually `${{ targets.map(t, t.name) }}`), up to 1000. Dispatch resolves every name, checks scope and enabled state and attaches each node's credential; a name that cannot be used fails the whole step. Plugins that work on one node (SSH, WinRM) take a `node` field, usually `${{ node.name }}` inside `for_each`.
 
 ---
 
@@ -397,9 +397,10 @@ The SDK is semver `0.x` (`pluginsdk.Version`): treated as stable, but breaking c
 ```go
 package pluginsdk
 
-const Version = "0.3.0"
+const Version = "0.4.0"
 
 type TargetMode string // wire values: "none" | "single_node" | "inventory" | "nodes"; Valid() bool
+// "inventory": Manifest.NodeListPath (one JSON Pointer to an array of node names, <= MaxNodeList = 1000, SDK 0.4.0, ADR-0055)
 
 type Manifest struct {
     Name         string             // "ssh": [a-z][a-z0-9_-]*
@@ -460,6 +461,7 @@ type NodeInfo struct { // names and wire tags follow the node fields of §11
     Transport     string         `json:"transport,omitempty"`       // ssh | winrm
     OS            string         `json:"os,omitempty"`
     Attributes    map[string]any `json:"attributes,omitempty"`      // string | number | bool
+    Tags          []string       `json:"tags,omitempty"`            // inventory tags (SDK 0.4.0); the ansible plugin builds groups from them
     Credential    string         `json:"credential,omitempty"`      // secret:// ref, never a value
     HostKey       string         `json:"host_key,omitempty"`
     HostKeyPolicy string         `json:"host_key_policy,omitempty"` // strict | tofu | insecure
@@ -565,7 +567,7 @@ One plugin covers server-to-server copies *and* S3 in both directions. It uses `
   - `limit`, `tags`, `skip_tags`, `check`, `diff`, `forks`, `verbosity`
   - `vault_password` (secret ref)
   - `credential` (the default SSH or WinRM credential for hosts)
-- **`TargetMode = Inventory`:** the controller sends `targets`. The agent generates a JSON inventory (hosts, groups from tags, hostvars from node attributes, `ansible_host`, `ansible_port`, `ansible_user`, `ansible_connection`).
+- **`TargetMode = Inventory`** (ADR-0055): `hosts` is a list of node names (`NodeListPath` `/hosts`, at most 1000, usually `${{ targets.map(t, t.name) }}`). The controller resolves each name (scope, enabled, host key policy) and sends it in `nodes` with its credential and tags; an unusable name fails the step. The agent generates a JSON inventory (hosts, groups from tags, hostvars from node attributes, `ansible_host`, `ansible_port`, `ansible_user`, `ansible_connection`).
 - **Execution on the agent:**
   1. Shared checkout (`plugins/internal/gitcheckout`: depth-1 fetch of a branch, tag or commit, detached) into `WorkDir`. An optional local cache keyed by URL and commit is allowed.
   2. Write credentials to `WorkDir/creds/` (mode 0600, on tmpfs when available). Remove them after.
@@ -711,7 +713,7 @@ Params and results are MessagePack maps with snake_case keys; unknown keys are i
 | `agent.hello` params | `protocol`, `session_seq`, `agent_version`, `pool`, `labels`, `max_concurrent`, `capabilities`, `manifests` (the §6 manifest as a map), `executions` (`[{attempt_id, state: running\|finished}]`) |
 | `agent.hello` result | `protocol` (accepted), `heartbeat_interval_ms`, `limits` (`max_frame_bytes`, `log_batch_bytes`, `log_batch_interval_ms`), `reconciliation` (`[{attempt_id, action: continue\|cancel}]`) |
 | `agent.heartbeat` | `running_attempts`, `free_slots`, `cpu_percent`, `memory_bytes`, `load1`, `spool_bytes` |
-| `step.execute` params | `attempt_id`, `execution_id`, `step_path`, `plugin`, `plugin_version`, `input` (object), `secrets` (`{ref -> {field -> value}}`, §9.3), `nodes` (`{name -> NodeInfo}`, §11), `timeout_ms`, `trace` (`traceparent`, `tracestate`) |
+| `step.execute` params | `attempt_id`, `execution_id`, `step_path`, `plugin`, `plugin_version`, `input` (object), `secrets` (`{ref -> {field -> value}}`, §9.3), `nodes` (`{name -> NodeInfo}`, §11; `NodeInfo.tags` is optional and skipped by a peer at N-1, ADR-0055), `timeout_ms`, `trace` (`traceparent`, `tracestate`) |
 | `step.execute` result | `accepted`, `reason` (set when rejected) |
 | `log.append` | `attempt_id`, `seq_from`, optional `gap_to` (uint64, omitted when unset), `entries`: each entry is the array `[ts_unix_ns, stream, line]`. Without `gap_to`, entry i has seq `seq_from + i`. With `gap_to` the agent declares seqs `seq_from..gap_to` inclusive dropped and never to be sent; entry i then has seq `gap_to + 1 + i`. The controller treats a declared gap as contiguous when it computes `log.ack`. Additive and optional, so N-1 compatible: a peer that ignores `gap_to` sees a hole it must already tolerate. |
 | `log.ack` | `attempt_id`, `seq` |

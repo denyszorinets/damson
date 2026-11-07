@@ -171,6 +171,9 @@ change nothing until accepted.
    * - 0054
      - :doc:`0054-audit-retention`
      - Accepted
+   * - 0055
+     - :doc:`0055-inventory-target-mode`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -229,3 +232,4 @@ change nothing until accepted.
    0052-route-steps-by-node-pool-at-dispatch
    0053-audit-events
    0054-audit-retention
+   0055-inventory-target-mode
