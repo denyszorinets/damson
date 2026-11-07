@@ -576,7 +576,7 @@ One plugin covers server-to-server copies *and* S3 in both directions. It uses `
   4. Run `ansible-playbook` with `ANSIBLE_CALLBACKS_ENABLED=damson_events`. Human-readable stdout is streamed as logs.
 - **Output:** `stats` (per host: ok, changed, failed, unreachable, skipped), `failed_hosts`, `changed_hosts`, `commit` (the resolved SHA).
 - **Error mapping:** unreachable hosts map to `connection`, failed tasks to `exit_code`. `output` also has `exit_code`; a failed step still returns it.
-- **Status:** implemented (#181; `docs/reference/plugin-ansible.rst`), tested with fake ansible binaries and, where `ansible-playbook` is installed (CI installs ansible-core), on a real ansible-core. Hosts and credentials: ADR-0055; host keys use a per-node `HostKeyAlias`; `agent.allow_insecure_git` gates `http`/`git`/`file` repository URLs.
+- **Status:** implemented (#181; `docs/reference/plugin-ansible.rst`), tested with fake ansible binaries and, where `ansible-playbook` is installed (CI installs ansible-core), on a real ansible-core. Hosts and credentials: ADR-0055; host keys use a per-node `HostKeyAlias`; `agent.allow_insecure_git` gates `http`/`git`/`file` repository URLs. Inventory and `extra_vars` strings are marked unsafe (never templated), ssh ignores the agent user's own identity and config, and the environment is minimal; a playbook is trusted code, so run ansible in a dedicated pool. Credential files are under `WorkDir/creds` (not tmpfs).
 - **Agent image:** pinned `ansible-core`, `git`, and a curated set of collections. Users can build derived images. The agent advertises `bin:ansible-playbook` and `bin:git` capabilities.
 
 ### 6.5 `buildah`

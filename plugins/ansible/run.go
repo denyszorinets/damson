@@ -54,14 +54,17 @@ func (w *lineWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// pump logs each line of r until it ends.
+// maxLogLine bounds one buffered log line.
+const maxLogLine = 256 << 10
+
+// pump logs each line of r until it ends. A longer line is split.
 func pump(r io.Reader, emit pluginsdk.Emitter, stream pluginsdk.Stream) {
 	br := bufio.NewReaderSize(r, 64<<10)
 	var carry strings.Builder
 	for {
 		chunk, prefix, err := br.ReadLine()
 		carry.Write(chunk)
-		if !prefix && (len(chunk) > 0 || carry.Len() > 0) {
+		if !prefix && (len(chunk) > 0 || carry.Len() > 0) || carry.Len() > maxLogLine {
 			emit.Log(stream, carry.String())
 			carry.Reset()
 		}
@@ -92,7 +95,12 @@ func environment(workDir string) []string {
 		"ANSIBLE_COLLECTIONS_PATH=" + filepath.Join(workDir, "galaxy", "collections"),
 		"ANSIBLE_CALLBACK_PLUGINS=" + filepath.Join(workDir, "callbacks"),
 		"ANSIBLE_CALLBACKS_ENABLED=damson_events",
-		"DAMSON_EVENTS_FILE=" + filepath.Join(workDir, "events.jsonl"),
+		"DAMSON_EVENTS_FILE=" + filepath.Join(workDir, "creds", "events.jsonl"),
+		// Environment variables beat the repository's ansible.cfg, so these
+		// settings cannot be undone from the checkout: no ssh master that outlives
+		// a cancel (it escapes the process group), no user ssh config, no log file.
+		"ANSIBLE_SSH_ARGS=-F /dev/null -o ControlMaster=no -o ControlPath=none",
+		"ANSIBLE_LOG_PATH=/dev/null",
 		"PYTHONUNBUFFERED=1",
 		"LC_ALL=C.UTF-8",
 	}
@@ -134,9 +142,9 @@ func runPlaybook(ctx context.Context, workDir, repoDir string, in Input, pl plan
 	}
 	code, err := runCommand(ctx, repoDir, env, emit, "ansible-playbook", playbookArgs(in, pl, extra, vault)...)
 	if err != nil {
-		return runOutcome{exitCode: code, stats: readStats(filepath.Join(workDir, "events.jsonl"))}, err
+		return runOutcome{exitCode: code, stats: readStats(filepath.Join(workDir, "creds", "events.jsonl"))}, err
 	}
-	return runOutcome{exitCode: code, stats: readStats(filepath.Join(workDir, "events.jsonl"))}, nil
+	return runOutcome{exitCode: code, stats: readStats(filepath.Join(workDir, "creds", "events.jsonl"))}, nil
 }
 
 // playbookArgs builds the ansible-playbook argument list. No secret is in it:
@@ -150,7 +158,7 @@ func playbookArgs(in Input, pl plan, extra, vault string) []string {
 		args = append(args, "--vault-password-file", vault)
 	}
 	if in.Limit != "" {
-		args = append(args, "--limit", in.Limit)
+		args = append(args, "--limit="+in.Limit)
 	}
 	if len(in.Tags) > 0 {
 		args = append(args, "--tags", strings.Join(in.Tags, ","))

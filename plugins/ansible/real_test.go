@@ -36,6 +36,14 @@ func realRepo(t *testing.T) string {
       ansible.builtin.command: "true"
       delegate_to: localhost
 `,
+		"show.yml": `- hosts: all
+  gather_facts: false
+  tasks:
+    - name: show
+      ansible.builtin.debug:
+        msg: "motd=[{{ motd }}] token=[{{ token }}] plain=[{{ plain }}] who=[{{ ansible_user }}]"
+      delegate_to: localhost
+`,
 		"fail.yml": `- hosts: all
   gather_facts: false
   tasks:
@@ -96,5 +104,40 @@ func TestRealAnsible(t *testing.T) {
 	}
 	if !strings.Contains(out, `"failed":1`) || !strings.Contains(out, `"failed_hosts":["a","b"]`) {
 		t.Errorf("outputs = %s", out)
+	}
+}
+
+// Strings from attributes, credentials, secrets and run parameters are data,
+// never templates: a lookup in any of them is printed literally and does not run.
+func TestRealAnsibleDoesNotTemplateUntrustedStrings(t *testing.T) {
+	if _, err := osexec.LookPath("ansible-playbook"); err != nil {
+		t.Skip("ansible-playbook is not installed")
+	}
+	if _, err := osexec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	e := &env{t: t, url: realRepo(t)}
+	n := node("a", "ssh", "secret://h/tmpl")
+	n.Attributes = map[string]any{"motd": "{{ 7*7 }}"}
+	c := e.caseOf(map[string]any{
+		"hosts": []string{"a"}, "playbook": "show.yml",
+		"extra_vars": map[string]any{"token": "secret://h/token", "plain": "{{ lookup('pipe','echo PWNED-PLAIN') }}"},
+	}, n)
+	c.Secrets["secret://h/token"] = "{{ lookup('pipe','echo PWNED-SECRET') }}"
+	c.Bundle["secret://h/tmpl"] = map[string]string{"username": "u{{ 1+1 }}", "private_key": keyBody}
+	o := exec(t, c)
+	if o.Result.Error != nil {
+		t.Fatalf("show.yml failed: %v", o.Result.Error)
+	}
+	got := o.Emitter.Text()
+	for _, want := range []string{"motd=[{{ 7*7 }}]", "who=[u{{ 1+1 }}]", "plain=[{{ lookup('pipe','echo PWNED-PLAIN') }}]"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected the literal %q in the log:\n%s", want, got)
+		}
+	}
+	for _, bad := range []string{"motd=[49]", "who=[u2]", "PWNED-PLAIN\n", "=[PWNED"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("a string was templated (%q):\n%s", bad, got)
+		}
 	}
 }

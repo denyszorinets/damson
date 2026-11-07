@@ -149,12 +149,37 @@ func writeExtraVars(dir string, in Input, req pluginsdk.ExecRequest) (string, er
 	if err != nil {
 		return "", err
 	}
-	raw, err := json.Marshal(resolved)
+	// Every string is marked unsafe, so ansible never templates it: a value
+	// that came from a run parameter or a secret cannot run a lookup on the
+	// agent. The playbook does its own templating.
+	raw, err := json.Marshal(markUnsafe(resolved))
 	if err != nil {
 		return "", pluginsdk.ValidationError("extra_vars cannot be encoded")
 	}
 	path := filepath.Join(dir, "extra_vars.json")
 	return path, writeSecret(path, raw)
+}
+
+// markUnsafe wraps every string as {"__ansible_unsafe": s}, which ansible's JSON
+// loader reads as an unsafe (never templated) string.
+func markUnsafe(v any) any {
+	switch x := v.(type) {
+	case string:
+		return map[string]any{"__ansible_unsafe": x}
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, e := range x {
+			out[k] = markUnsafe(e)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = markUnsafe(e)
+		}
+		return out
+	}
+	return v
 }
 
 func resolveValue(v any, secrets pluginsdk.SecretResolver) (any, error) {

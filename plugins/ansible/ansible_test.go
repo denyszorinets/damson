@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 	"github.com/denyszorinets/damson/pkg/pluginsdk/plugintest"
 	"github.com/denyszorinets/damson/plugins/ansible"
@@ -111,7 +113,7 @@ func TestRunsThePlaybookAndReportsTheRecap(t *testing.T) {
 	}
 
 	args := e.fake.Read(t, "args.txt")
-	for _, want := range []string{"--limit\nweb*", "--tags\ndeploy", "--skip-tags\nslow", "--check", "--diff", "--forks\n5", "-vv", "--vault-password-file", "-e\n@", "--\nsite.yml"} {
+	for _, want := range []string{"--limit=web*", "--tags\ndeploy", "--skip-tags\nslow", "--check", "--diff", "--forks\n5", "-vv", "--vault-password-file", "-e\n@", "--\nsite.yml"} {
 		if !strings.Contains(args, want) {
 			t.Errorf("args lack %q:\n%s", want, args)
 		}
@@ -123,7 +125,8 @@ func TestRunsThePlaybookAndReportsTheRecap(t *testing.T) {
 		}
 	}
 	env := e.fake.Read(t, "env.txt")
-	for _, want := range []string{"ANSIBLE_HOST_KEY_CHECKING=True", "ANSIBLE_CALLBACKS_ENABLED=damson_events", "DAMSON_EVENTS_FILE="} {
+	for _, want := range []string{"ANSIBLE_HOST_KEY_CHECKING=True", "ANSIBLE_CALLBACKS_ENABLED=damson_events", "DAMSON_EVENTS_FILE=",
+		"ANSIBLE_SSH_ARGS=-F /dev/null -o ControlMaster=no", "ANSIBLE_LOG_PATH=/dev/null"} {
 		if !strings.Contains(env, want) {
 			t.Errorf("env lacks %s", want)
 		}
@@ -134,13 +137,13 @@ func TestRunsThePlaybookAndReportsTheRecap(t *testing.T) {
 
 	var inv struct {
 		All struct {
-			Hosts    map[string]map[string]any `json:"hosts"`
+			Hosts    map[string]map[string]any `yaml:"hosts"`
 			Children map[string]struct {
-				Hosts map[string]any `json:"hosts"`
-			} `json:"children"`
-		} `json:"all"`
+				Hosts map[string]any `yaml:"hosts"`
+			} `yaml:"children"`
+		} `yaml:"all"`
 	}
-	if err := json.Unmarshal([]byte(e.fake.Read(t, "inventory.json")), &inv); err != nil {
+	if err := yaml.Unmarshal([]byte(e.fake.Read(t, "inventory.yml")), &inv); err != nil {
 		t.Fatal(err)
 	}
 	w1, w2 := inv.All.Hosts["web1"], inv.All.Hosts["web2"]
@@ -151,20 +154,86 @@ func TestRunsThePlaybookAndReportsTheRecap(t *testing.T) {
 		t.Errorf("web2 vars (default credential) = %v", w2)
 	}
 	cargs, _ := w1["ansible_ssh_common_args"].(string)
-	for _, want := range []string{"HostKeyAlias=web1", "StrictHostKeyChecking=yes", "GlobalKnownHostsFile=/dev/null"} {
+	for _, want := range []string{"HostKeyAlias=web1", "StrictHostKeyChecking=yes", "GlobalKnownHostsFile=/dev/null",
+		"-F /dev/null", "IdentitiesOnly=yes", "IdentityAgent=none", "GSSAPIAuthentication=no", "HostbasedAuthentication=no", "BatchMode=yes"} {
 		if !strings.Contains(cargs, want) {
 			t.Errorf("ssh args lack %s: %s", want, cargs)
 		}
+	}
+	// A key credential offers only that key; a password credential offers no key,
+	// so the agent user's own keys can never be tried.
+	if strings.Contains(cargs, "PubkeyAuthentication=no") {
+		t.Errorf("the key node must use public keys: %s", cargs)
+	}
+	if pargs, _ := w2["ansible_ssh_common_args"].(string); !strings.Contains(pargs, "PubkeyAuthentication=no") {
+		t.Errorf("the password node must not offer keys: %s", pargs)
 	}
 	if len(inv.All.Children["web"].Hosts) != 2 || inv.All.Children["prod_eu"].Hosts["web1"] == nil || inv.All.Children["tag_9lives"].Hosts["web2"] == nil {
 		t.Errorf("groups = %v", inv.All.Children)
 	}
 	var vars map[string]any
-	if err := json.Unmarshal([]byte(e.fake.Read(t, "extra_vars.json")), &vars); err != nil || vars["token"] != tokenSecret || vars["version"] != "1.2" {
-		t.Errorf("extra vars = %v, %v", vars, err)
+	if err := json.Unmarshal([]byte(e.fake.Read(t, "extra_vars.json")), &vars); err != nil {
+		t.Fatal(err)
+	}
+	// Every string is wrapped as unsafe, so ansible never templates it.
+	unsafe := func(v any) any { m, _ := v.(map[string]any); return m["__ansible_unsafe"] }
+	if unsafe(vars["token"]) != tokenSecret || unsafe(vars["version"]) != "1.2" {
+		t.Errorf("extra vars = %v", vars)
+	}
+	if list, _ := vars["nested"].([]any); len(list) != 1 || unsafe(list[0]) != tokenSecret {
+		t.Errorf("nested extra vars = %v", vars["nested"])
 	}
 	if got := strings.TrimSpace(e.fake.Read(t, "vault_password")); got != vaultSecret {
 		t.Errorf("vault file = %q", got)
+	}
+}
+
+// The agent's own environment (its token, its ssh agent) never reaches ansible.
+func TestAgentEnvironmentDoesNotReachAnsible(t *testing.T) {
+	t.Setenv("DAMSON_AGENT__TOKEN", "agent-TOKEN-6602")
+	t.Setenv("SSH_AUTH_SOCK", "/tmp/agent-sock-6602")
+	e := newEnv(t)
+	e.fake.Stats(t, `{"a":{"ok":1,"changed":0,"failed":0,"unreachable":0,"skipped":0}}`)
+	requireOK(t, exec(t, e.caseOf(map[string]any{"hosts": []string{"a"}}, node("a", "ssh", "secret://h/key"))))
+	if env := e.fake.Read(t, "env.txt"); strings.Contains(env, "6602") || strings.Contains(env, "SSH_AUTH_SOCK") {
+		t.Errorf("the agent's environment leaked into ansible:\n%s", env)
+	}
+}
+
+// Attributes cannot override the connection variables, and tags cannot collide
+// with reserved groups or host names.
+func TestAttributesAndTagsCannotBreakTheInventory(t *testing.T) {
+	e := newEnv(t)
+	e.fake.Stats(t, `{"a":{"ok":1,"changed":0,"failed":0,"unreachable":0,"skipped":0}}`)
+	n := node("a", "ssh", "secret://h/key", "all", "ungrouped", "b", "web")
+	n.Attributes = map[string]any{
+		"ansible_python_interpreter": "/tmp/evil", "ansible_ssh_common_args": "-o StrictHostKeyChecking=no",
+		"ansible_host": "evil.example", "motd": "{{ lookup('pipe','id') }}", "nested": map[string]any{"x": 1}, "bad-name": "x",
+	}
+	requireOK(t, exec(t, e.caseOf(map[string]any{"hosts": []string{"a", "b"}}, n, node("b", "ssh", "secret://h/key"))))
+	raw := e.fake.Read(t, "inventory.yml")
+	for _, bad := range []string{"/tmp/evil", "evil.example", "StrictHostKeyChecking=no", "bad-name", "nested"} {
+		if strings.Contains(raw, bad) {
+			t.Errorf("%q reached the inventory:\n%s", bad, raw)
+		}
+	}
+	if !strings.Contains(raw, `motd: !unsafe "{{ lookup('pipe','id') }}"`) {
+		t.Errorf("a string attribute must be tagged !unsafe:\n%s", raw)
+	}
+	var inv struct {
+		All struct {
+			Children map[string]struct {
+				Hosts map[string]any `yaml:"hosts"`
+			} `yaml:"children"`
+		} `yaml:"all"`
+	}
+	if err := yaml.Unmarshal([]byte(raw), &inv); err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range []string{"tag_all", "tag_ungrouped", "tag_b", "web"} {
+		if _, ok := inv.All.Children[g]; !ok {
+			t.Errorf("group %s is missing: %v", g, inv.All.Children)
+		}
 	}
 }
 
@@ -183,7 +252,7 @@ func TestCredentialFilesAreRemoved(t *testing.T) {
 	if _, err := os.Stat(workDir + "/creds"); !os.IsNotExist(err) {
 		t.Fatalf("the credentials directory is still there: %v", err)
 	}
-	if !strings.Contains(e.fake.Read(t, "creds-listing.txt"), "inventory.json") {
+	if !strings.Contains(e.fake.Read(t, "creds-listing.txt"), "inventory.yml") {
 		t.Error("the run did not see its inventory")
 	}
 }
@@ -301,10 +370,10 @@ func TestWinRMHostsGetNTLMOverHTTPS(t *testing.T) {
 	requireOK(t, exec(t, c))
 	var inv struct {
 		All struct {
-			Hosts map[string]map[string]any `json:"hosts"`
-		} `json:"all"`
+			Hosts map[string]map[string]any `yaml:"hosts"`
+		} `yaml:"all"`
 	}
-	_ = json.Unmarshal([]byte(e.fake.Read(t, "inventory.json")), &inv)
+	_ = yaml.Unmarshal([]byte(e.fake.Read(t, "inventory.yml")), &inv)
 	w := inv.All.Hosts["w"]
 	if w["ansible_connection"] != "winrm" || w["ansible_winrm_transport"] != "ntlm" || w["ansible_winrm_scheme"] != "https" ||
 		w["ansible_winrm_server_cert_validation"] != "validate" || w["ansible_winrm_ca_trust_path"] == nil || w["ansible_ssh_common_args"] != nil {
@@ -349,10 +418,10 @@ func TestTrustOnFirstUseKeysAreReported(t *testing.T) {
 	}
 	var inv struct {
 		All struct {
-			Hosts map[string]map[string]any `json:"hosts"`
-		} `json:"all"`
+			Hosts map[string]map[string]any `yaml:"hosts"`
+		} `yaml:"all"`
 	}
-	_ = json.Unmarshal([]byte(e.fake.Read(t, "inventory.json")), &inv)
+	_ = yaml.Unmarshal([]byte(e.fake.Read(t, "inventory.yml")), &inv)
 	check := func(host, want string) {
 		a, _ := inv.All.Hosts[host]["ansible_ssh_common_args"].(string)
 		if !strings.Contains(a, "StrictHostKeyChecking="+want+" ") && !strings.HasSuffix(a, "StrictHostKeyChecking="+want) {

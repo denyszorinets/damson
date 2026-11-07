@@ -42,13 +42,13 @@ type plan struct {
 // resolved node, a host without a credential and an unsupported transport are
 // errors, so a play never runs on a host it has no vetted connection for.
 func writeInventory(dir string, in Input, req pluginsdk.ExecRequest) (plan, error) {
-	p := plan{inventory: filepath.Join(dir, "inventory.json"), knownHosts: filepath.Join(dir, "known_hosts")}
+	p := plan{inventory: filepath.Join(dir, "inventory.yml"), knownHosts: filepath.Join(dir, "known_hosts")}
 	if !safePathRe.MatchString(dir) {
 		return p, pluginsdk.NewError(pluginsdk.KindInternal, "the work directory path has unsupported characters", nil)
 	}
 	names := uniqueSorted(in.Hosts)
-	hosts := map[string]any{}
-	groups := map[string]map[string]any{}
+	hosts := map[string]map[string]any{}
+	groups := map[string][]string{}
 	keyFiles := map[string]string{} // credential ref -> key file
 	var knownHosts []string
 	for _, name := range names {
@@ -71,21 +71,15 @@ func writeInventory(dir string, in Input, req pluginsdk.ExecRequest) (plan, erro
 			p.tofu = append(p.tofu, name)
 		}
 		for _, tag := range node.Tags {
-			g := groupName(tag)
-			if groups[g] == nil {
-				groups[g] = map[string]any{}
+			g := groupName(tag, req.Nodes)
+			if !contains(groups[g], name) {
+				groups[g] = append(groups[g], name)
 			}
-			groups[g][name] = map[string]any{}
 		}
 	}
-	children := map[string]any{}
-	for g, members := range groups {
-		children[g] = map[string]any{"hosts": members}
-	}
-	doc := map[string]any{"all": map[string]any{"hosts": hosts, "children": children}}
-	raw, err := json.MarshalIndent(doc, "", "  ")
+	raw, err := renderInventory(hosts, groups)
 	if err != nil {
-		return p, pluginsdk.NewError(pluginsdk.KindInternal, "encoding the inventory failed", err)
+		return p, err
 	}
 	if err := writeSecret(p.inventory, raw); err != nil {
 		return p, err
@@ -153,7 +147,7 @@ func hostVars(dir, name string, node pluginsdk.NodeInfo, in Input, req pluginsdk
 		} else {
 			return nil, "", false, pluginsdk.NewError(pluginsdk.KindAuth, fmt.Sprintf("credential %s for node %q has no private_key or password", ref, name), nil)
 		}
-		args, kh, isTofu, herr := sshArgs(dir, name, node, req)
+		args, kh, isTofu, herr := sshArgs(dir, name, node, req, fields["private_key"] == "")
 		if herr != nil {
 			return nil, "", false, herr
 		}
@@ -185,10 +179,17 @@ func hostVars(dir, name string, node pluginsdk.NodeInfo, in Input, req pluginsdk
 	return nil, "", false, pluginsdk.ValidationError("node %q: transport %q is not supported by the ansible plugin", name, node.Transport)
 }
 
-// sshArgs returns ansible_ssh_common_args and the node's known_hosts line. The
-// host key is looked up by node name (HostKeyAlias), so address and port do not
-// matter, and an observed key survives an address change.
-func sshArgs(dir, name string, node pluginsdk.NodeInfo, req pluginsdk.ExecRequest) (args, knownHost string, tofu bool, err error) {
+// sshArgs returns ansible_ssh_common_args. ssh must not use the agent user's own
+// identity: OpenSSH resolves "~" from the passwd entry, not $HOME, so the user's
+// config, default keys, agent and GSSAPI are all switched off explicitly.
+// The host key is looked up by node name (HostKeyAlias), so address and port do
+// not matter, and an observed key survives an address change. It also returns
+// the node's known_hosts line and whether the host is trust-on-first-use.
+func sshArgs(dir, name string, node pluginsdk.NodeInfo, req pluginsdk.ExecRequest, password bool) (args, knownHost string, tofu bool, err error) {
+	usePubkey := ""
+	if password {
+		usePubkey = " -o PubkeyAuthentication=no"
+	}
 	kh := filepath.Join(dir, "known_hosts")
 	check := "yes"
 	switch node.HostKeyPolicy {
@@ -208,7 +209,7 @@ func sshArgs(dir, name string, node pluginsdk.NodeInfo, req pluginsdk.ExecReques
 		}
 		knownHost = name + " " + node.HostKey
 	}
-	args = "-o HostKeyAlias=" + name + " -o UserKnownHostsFile=" + kh + " -o GlobalKnownHostsFile=/dev/null -o HashKnownHosts=no -o StrictHostKeyChecking=" + check
+	args = "-F /dev/null -o IdentitiesOnly=yes -o IdentityAgent=none -o GSSAPIAuthentication=no -o HostbasedAuthentication=no -o BatchMode=yes" + usePubkey + " -o HostKeyAlias=" + name + " -o UserKnownHostsFile=" + kh + " -o GlobalKnownHostsFile=/dev/null -o HashKnownHosts=no -o StrictHostKeyChecking=" + check
 	return args, knownHost, tofu, nil
 }
 
@@ -236,13 +237,83 @@ func writeSecret(path string, data []byte) error {
 	return nil
 }
 
-// groupName makes a tag a valid ansible group name.
-func groupName(tag string) string {
+// groupName makes a tag a valid ansible group name that cannot collide with
+// the reserved groups or a host name.
+func groupName(tag string, nodes map[string]pluginsdk.NodeInfo) string {
 	g := groupBadRe.ReplaceAllString(tag, "_")
-	if g == "" || (g[0] >= '0' && g[0] <= '9') {
+	_, isHost := nodes[g]
+	if g == "" || (g[0] >= '0' && g[0] <= '9') || g == "all" || g == "ungrouped" || isHost {
 		g = "tag_" + g
 	}
 	return g
+}
+
+func contains(s []string, v string) bool {
+	for _, e := range s {
+		if e == v {
+			return true
+		}
+	}
+	return false
+}
+
+// renderInventory writes the inventory as YAML. Every string value is tagged
+// !unsafe, so ansible never runs it through Jinja2: an attribute, a user name or
+// a password that contains "{{" is data, not a template (a CMDB-synced attribute
+// must not be able to run a lookup on the agent). Names are validated and group
+// names sanitized, so they are safe as plain keys.
+func renderInventory(hosts map[string]map[string]any, groups map[string][]string) ([]byte, error) {
+	var b strings.Builder
+	b.WriteString("all:\n  hosts:\n")
+	if len(hosts) == 0 {
+		b.WriteString("    {}\n")
+	}
+	for _, name := range sortedKeys(hosts) {
+		b.WriteString("    " + name + ":\n")
+		vars := hosts[name]
+		for _, k := range sortedKeys(vars) {
+			v, err := yamlValue(vars[k])
+			if err != nil {
+				return nil, err
+			}
+			b.WriteString("      " + k + ": " + v + "\n")
+		}
+	}
+	b.WriteString("  children:\n")
+	if len(groups) == 0 {
+		b.WriteString("    {}\n")
+	}
+	for _, g := range sortedKeys(groups) {
+		b.WriteString("    " + g + ":\n      hosts:\n")
+		members := append([]string(nil), groups[g]...)
+		sort.Strings(members)
+		for _, m := range members {
+			b.WriteString("        " + m + ": {}\n")
+		}
+	}
+	return []byte(b.String()), nil
+}
+
+// yamlValue renders a scalar. Strings are JSON-quoted (a YAML double-quoted
+// scalar) and tagged !unsafe.
+func yamlValue(v any) (string, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return "", pluginsdk.NewError(pluginsdk.KindInternal, "encoding the inventory failed", err)
+	}
+	if _, isStr := v.(string); isStr {
+		return "!unsafe " + string(raw), nil
+	}
+	return string(raw), nil
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func uniqueSorted(in []string) []string {

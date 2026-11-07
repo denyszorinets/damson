@@ -23,7 +23,7 @@ for a in "$@"; do
   if [ "$prev" = "-i" ]; then inv="$a"; fi
   prev="$a"
 done
-cp "$inv" "$d/inventory.json"
+cp "$inv" "$d/inventory.yml"
 creds=$(dirname "$inv")
 ls "$creds" > "$d/creds-listing.txt"
 for f in extra_vars.json vault_password; do
@@ -90,7 +90,7 @@ func (f *Fake) AppendKnownHosts(t *testing.T, s string) { f.write(t, "kh.append"
 
 // A playbook named block.yml makes the fake sleep until it is killed.
 
-// Read returns a file the fake recorded ("args.txt", "inventory.json", ...).
+// Read returns a file the fake recorded ("args.txt", "inventory.yml", ...).
 func (f *Fake) Read(t *testing.T, name string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(f.Dir, name))
