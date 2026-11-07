@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -72,5 +73,25 @@ func TestValidate_SecretOptionSchema(t *testing.T) {
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})
+	}
+}
+
+func TestSecretOptionKeys(t *testing.T) {
+	schema := map[string]any{
+		"properties": map[string]any{
+			"plain":  map[string]any{"type": "string"},
+			"key":    map[string]any{"type": "string", "x-damson-secret": true},
+			"nested": map[string]any{"type": "object", "properties": map[string]any{"pw": map[string]any{"x-damson-secret": true}}},
+			"list":   map[string]any{"type": "array", "items": map[string]any{"x-damson-secret": true}},
+		},
+		"additionalProperties": map[string]any{"x-damson-secret": true},
+	}
+	got := engine.SecretOptionKeys(schema, []string{"plain", "key", "nested", "list", "unlisted"})
+	want := []string{"key", "list", "nested", "unlisted"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got := engine.SecretOptionKeys(nil, []string{"a"}); len(got) != 0 {
+		t.Errorf("nil schema: %v", got)
 	}
 }

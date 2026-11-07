@@ -11,6 +11,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 
+	"github.com/denyszorinets/damson/internal/expr"
 	"github.com/denyszorinets/damson/internal/store"
 )
 
@@ -33,6 +34,7 @@ type DataStore interface {
 	store.RunTargetStore
 	store.AuditStore
 	store.ScheduleStore
+	store.WebhookStore
 	PurgeExecutionLogs(ctx context.Context, executionID string, now time.Time) (store.LogPurge, error)
 
 	ListAgents(ctx context.Context, cursor string, limit int) (store.AgentPage, error)
@@ -120,7 +122,7 @@ func typeForStatus(status int) string {
 }
 
 // newHuma registers the typed API on mux under APIPrefix.
-func newHuma(mux *http.ServeMux, d deps) huma.API {
+func newHuma(mux *http.ServeMux, d deps, env *expr.Env) huma.API {
 	installErrorModel()
 	cfg := huma.DefaultConfig("Damson API", "1")
 	cfg.Info.Description = "Damson controller HTTP API (ARCHITECTURE section 14)."
@@ -143,6 +145,7 @@ func newHuma(mux *http.ServeMux, d deps) huma.API {
 	registerAudit(api, d)
 	registerNodes(api, d)
 	registerSchedules(api, d)
+	registerWebhooks(api, d, env)
 	registerInventorySync(api, d)
 	return api
 }

@@ -109,7 +109,11 @@ func orEmptyList(l []any) []any {
 // Eval runs the program and returns the result as a JSON-compatible Go value
 // (nil, bool, float64, string, []any, map[string]any).
 func (e *Env) Eval(p *Program, vars Vars) (any, error) {
-	out, _, err := p.prog.Eval(vars.activation())
+	return e.eval(p, vars.activation())
+}
+
+func (e *Env) eval(p *Program, activation map[string]any) (any, error) {
+	out, _, err := p.prog.Eval(activation)
 	if err != nil {
 		if strings.Contains(err.Error(), "actual cost limit exceeded") {
 			return nil, fmt.Errorf("%w: %w (limit %d)", ErrEval, ErrCost, e.limits.CostLimit)

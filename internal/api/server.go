@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/denyszorinets/damson/internal/expr"
 )
 
 // Config configures a Server.
@@ -92,7 +94,13 @@ func routes(cfg Config) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthz)
 	mux.HandleFunc("/readyz", readyz(cfg.Store))
-	newHuma(mux, newDeps(cfg))
+	d := newDeps(cfg)
+	env, err := expr.NewRequestEnv(expr.Limits{})
+	if err != nil { // a constant environment: only a broken CEL library fails here
+		panic(fmt.Sprintf("building the webhook environment: %v", err))
+	}
+	newHuma(mux, d, env)
+	mux.Handle(hookPrefix, newHookHandler(d, env))
 	mux.HandleFunc("/api/", notFound)
 	mux.HandleFunc("/internal/", notFound) // served only on the internal listener (ADR-0040)
 	for pattern, h := range cfg.Mounts {

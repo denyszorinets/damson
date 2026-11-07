@@ -1037,16 +1037,19 @@ Both sync routes need the admin token, accept at most 16 MiB and 5000 nodes, and
 | **UI button** | A run dialog generated from `spec.options` (JSON Schema form) |
 | **API** | `POST /api/v1/projects/{path}/jobs/{name}/runs` with `{options}` |
 | **Schedule** | `schedules(id, job_id, name, cron, timezone, options, enabled, misfire: run_once|skip, next_fire_at, last_fire_at, last_run_id, last_error, version)`, name unique per job. The `scheduler` duty ticks every 10s, selects enabled schedules with `next_fire_at <= now` (batch 100) and, per schedule in one fenced transaction, creates the run through the API trigger path (`api.Starter`) and moves `next_fire_at` with `FireSchedule`, a CAS on the value it read. Run trigger: `{"type":"schedule","schedule_id":..,"fire_at":..}`. Details, misfire and DST rules: ADR-0058. |
-| **Webhook** | `POST /hooks/{token}` |
+| **Webhook** | `POST /hooks/{token}`; details below and ADR-0059 |
 
 **Webhook details**
 
-- The token is 32 random bytes in base64url (43 chars). It is **shown once** at creation, stored as SHA-256, and looked up by hash.
-- A job can have multiple named webhooks, each revocable, with `last_used_at`.
-- Optional `options_mapping`: a CEL map from `{body, headers, query}` to options, validated against `spec.options`.
-- Returns `202 {run_id}`.
-- Rate-limited per token.
-- The token is a credential. Logs must redact `/hooks/*` paths.
+- Table `webhooks(id, job_id, name, token_hash UNIQUE, options, options_mapping, revoked_at, last_used_at, version, created_at, updated_at)`. A job can have multiple named webhooks; `(job_id, name)` is unique among non-revoked rows, so a name can be reused after a revoke.
+- The token is 32 random bytes in base64url (43 chars, no prefix). It is **shown once**, in the create response (`token`, `path`). Only its SHA-256 hex is stored and looked up.
+- Revoke is `DELETE /api/v1/webhooks/{id}` (204, idempotent). The row stays with `revoked_at`. There is no PATCH: to change a webhook, revoke it and create a new one (which also rotates the token).
+- `POST /hooks/{token}` needs no other auth; the token is the credential. A malformed token gives 404. Unknown and revoked tokens give an identical 404. Body limit 1 MiB.
+- Rate limit per token (keyed by the token's hash): token bucket of 5 requests/s, burst 20, per controller, in memory (not durable state). Over the limit gives 429 with `Retry-After`.
+- Options are the static `options` merged with the result of the optional `options_mapping` (the mapping wins), validated against the job's `spec.options` with defaults applied; `x-damson-secret` options must be `secret://` refs. Failure gives 422 naming fields, never values.
+- `options_mapping` is a CEL expression in a dedicated environment with only the variables `body` (parsed JSON when Content-Type contains json, else the text, null when empty), `headers` (lower-cased names to first value; Authorization, Proxy-Authorization and Cookie removed) and `query` (first value per key). It must produce a map and is compile-checked at create time. Evaluation failure gives 422 and never quotes the request. The mapping may not set an option whose schema is or contains `x-damson-secret`: those come from the static options only (422 at `options.<key>`), so a caller cannot choose which secret a run uses. With a mapping, static options are checked against the schema per request only, except that secret options must be `secret://` references at create; without a mapping all options are checked at create. Authorization, Proxy-Authorization, Cookie, X-Gitlab-Token and X-Api-Key headers are removed.
+- The run is created in one transaction with the `last_used_at` update (written at most once per minute; a webhook revoked meanwhile stops the run) and the `run.advance` enqueue. Run trigger: `{"type":"webhook","webhook_id":..}`. Returns `202 {"run_id":..}`.
+- The token is a credential. The request log path is `/hooks/[redacted]`.
 
 ### 12.4 Authorization
 
@@ -1061,7 +1064,7 @@ Both sync routes need the admin token, accept at most 16 MiB and 5000 nodes, and
 - They attach to **projects** (inherited by descendants) and optionally to **jobs** (additive for that job only).
 - **Effective role** = the maximum role granted by any matching rule on the job, the project, or any ancestor.
 - Rules are compiled once per change, and evaluation is cached per session for 60s.
-- Every mutation and trigger writes an **audit event**: actor, action, target, project path, details JSON, request id. `project_path` is the project scope of the target (empty when none) and is kept for per-subtree visibility in M8. The event is written in the **same transaction** as the change, and an audited write without an actor fails (`ErrInvalid`). Until M8 the actors are `admin-token:<12 hex of the token hash>`, `system:dev-nodes` and `cli:<os user>`; M8 adds `user:<sub>`, `sa:<id>` and `system:<duty>`. Today secret writes, `rotate-kek`, admin-token create and revoke, log purges (`log.purge`, target type `execution`) and schedule changes (`schedule.create`, `schedule.update`, `schedule.delete`, target type `schedule`) are audited (ADR-0053, ADR-0058). Scheduler fires are not audited: the run records its trigger, and the scheduler's actor is `system:scheduler`. With `audit.retention_days` set, the retention duty (§8.4) deletes older events and writes an `audit.prune` event per pass (ADR-0054); the default `0` keeps everything.
+- Every mutation and trigger writes an **audit event**: actor, action, target, project path, details JSON, request id. `project_path` is the project scope of the target (empty when none) and is kept for per-subtree visibility in M8. The event is written in the **same transaction** as the change, and an audited write without an actor fails (`ErrInvalid`). Until M8 the actors are `admin-token:<12 hex of the token hash>`, `system:dev-nodes` and `cli:<os user>`; M8 adds `user:<sub>`, `sa:<id>` and `system:<duty>`. Today secret writes, `rotate-kek`, admin-token create and revoke, log purges (`log.purge`, target type `execution`) schedule changes (`schedule.create`, `schedule.update`, `schedule.delete`, target type `schedule`) and webhook changes (`webhook.create`, `webhook.revoke`, target type `webhook`; details `job_id`, `name`, `has_mapping`, never the token, hash or options) are audited (ADR-0053, ADR-0058, ADR-0059). Scheduler fires are not audited: the run records its trigger, and the scheduler's actor is `system:scheduler`. With `audit.retention_days` set, the retention duty (§8.4) deletes older events and writes an `audit.prune` event per pass (ADR-0054); the default `0` keeps everything.
 
 ---
 
@@ -1101,7 +1104,7 @@ All routes are under `/api/v1`, with the OpenAPI document at `/api/v1/openapi.js
 - `runs` — list, get (with step tree), `graph` (graph plus current step states, `{graph, steps[]}`), cancel, rerun (same version and options), SSE `/runs/{id}/events`
 - `executions` — get, logs (SSE)
 - `schedules` — `GET`/`POST /schedules`, `GET`/`PATCH`/`DELETE /schedules/{id}`; list filter `job_id`, cursor-paged; admin token until M8 (ADR-0058)
-- `webhooks`
+- `webhooks` — `GET`/`POST /webhooks`, `GET`/`DELETE /webhooks/{id}` (revoke); list filter `job_id`, cursor-paged; admin token until M8. `POST /hooks/{token}` is outside `/api/v1` and authenticated by the token (ADR-0059)
 - `nodes` — list (`GET /nodes`), get, create (`POST`, `source=manual`), update (`PATCH`, optional `if_version`), delete; `?force=true` is needed to write a node of another source (it keeps the source). All nodes routes need the admin token (§12.2), reads included. The sync routes (`PUT /inventory/sources/{source}/nodes` and `:batch`) are in §11; they need the admin token too.
 - `runs/{id}/targets` — admin token; the nodes frozen at trigger, cursor-paged (`limit` default 50, max 200), never credential or host key
 - `agents` — list, get (telemetry), drain; `pools` and pool tokens

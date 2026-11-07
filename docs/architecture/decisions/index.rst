@@ -183,6 +183,9 @@ change nothing until accepted.
    * - 0058
      - :doc:`0058-schedules-and-the-scheduler-duty`
      - Accepted
+   * - 0059
+     - :doc:`0059-webhooks`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -245,3 +248,4 @@ change nothing until accepted.
    0056-buildah-registry-credentials
    0057-helm-credentials
    0058-schedules-and-the-scheduler-duty
+   0059-webhooks

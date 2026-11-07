@@ -255,3 +255,17 @@ type StepInstance struct {
 	StartedAt  pgtype.Timestamptz
 	FinishedAt pgtype.Timestamptz
 }
+
+type Webhook struct {
+	ID             string
+	JobID          string
+	Name           string
+	TokenHash      string
+	Options        string
+	OptionsMapping string
+	RevokedAt      pgtype.Timestamptz
+	LastUsedAt     pgtype.Timestamptz
+	Version        int64
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
