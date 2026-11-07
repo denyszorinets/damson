@@ -151,6 +151,12 @@ written as a double underscore: ``agent.controller_url`` is
      - Let the ``transfer`` plugin use ``protocol: ftp`` (clear text). Without it
        plain ftp is refused. Environment variable
        ``DAMSON_AGENT__ALLOW_PLAIN_FTP`` (:doc:`/reference/plugin-transfer`).
+   * - ``agent.allow_plain_s3``
+     - agent
+     - ``false``
+     - Let the ``transfer`` plugin use an ``s3`` endpoint over plain ``http://``
+       (clear text). Without it such an endpoint is refused. Environment variable
+       ``DAMSON_AGENT__ALLOW_PLAIN_S3`` (:doc:`/reference/plugin-transfer`).
    * - ``agent.tls_ca_file``
      - agent
      - empty

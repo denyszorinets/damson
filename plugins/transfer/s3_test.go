@@ -49,6 +49,7 @@ func s3Case(f *sshtest.Fixture, srv *s3test.Server, in string) plugintest.Case {
 	if srv != nil {
 		c.Bundle[s3Ref] = srv.Connection()
 	}
+	c.Config = map[string]string{transfer.ConfigAllowPlainS3: "true"}
 	return c
 }
 
@@ -145,6 +146,11 @@ func TestS3Problems(t *testing.T) {
 	to := func(b, k string) string { return mixed("copy", side{sshtest.NodeName, "sftp", src}, s3Side{b, k}, nil) }
 
 	requireKind(t, exec_(t, s3Case(f, srv, to("nobucket", "k"))), pluginsdk.KindValidation, "bucket")
+
+	// A plain http endpoint needs the operator's opt-in.
+	off := s3Case(f, srv, to("bucket-one", "k"))
+	off.Config = nil
+	requireKind(t, exec_(t, off), pluginsdk.KindValidation, "agent.allow_plain_s3")
 
 	c := s3Case(f, srv, to("bucket-one", "k"))
 	c.Bundle[s3Ref] = map[string]string{"endpoint": srv.URL(), "region": "us-east-1"}

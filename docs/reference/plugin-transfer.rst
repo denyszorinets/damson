@@ -261,7 +261,9 @@ secret):
    * - ``path_style``
      - Optional, ``"true"`` or ``"false"``; default auto.
 
-A plain ``http://`` endpoint writes a warning to the step log per step. An
+A plain ``http://`` endpoint is refused (a ``validation`` error) unless the
+operator sets ``agent.allow_plain_s3`` (``DAMSON_AGENT__ALLOW_PLAIN_S3``); with it
+the endpoint writes a warning to the step log per step. An
 ``https`` endpoint is verified against the system roots plus the agent setting
 ``agent.tls_ca_file`` (a private PKI); there is no skip-verify. The
 secret and the keys are masked by the agent and never appear in errors.

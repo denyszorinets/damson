@@ -533,7 +533,7 @@ Details: `docs/reference/plugin-winrm.rst`, ADR-0049.
 
 One plugin covers server-to-server copies *and* S3 in both directions. It uses `TargetMode = nodes` with `NodePaths` `/source/node/name` and `/destination/node/name`; an S3 endpoint has no node and is skipped (ADR-0048).
 
-**Status:** all protocols are implemented: `sftp` (#144), `scp` (#145), `ftp` or `ftps` (#146), and `s3` (#147). Details of what runs today: `docs/reference/plugin-transfer.rst`. Plain `ftp` is refused unless the agent sets `agent.allow_plain_ftp` (#161).
+**Status:** all protocols are implemented: `sftp` (#144), `scp` (#145), `ftp` or `ftps` (#146), and `s3` (#147). Details of what runs today: `docs/reference/plugin-transfer.rst`. Plain `ftp` is refused unless the agent sets `agent.allow_plain_ftp` (#161), and a plain-http S3 endpoint unless it sets `agent.allow_plain_s3`.
 
 - **Input:**
   - `mode` is `copy` or `move`.
