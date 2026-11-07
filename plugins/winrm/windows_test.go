@@ -180,7 +180,10 @@ func TestRealCancelEndsTheRunningProcess(t *testing.T) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the process is still running on the host: %v", o.Result.Error)
+			// Say whether the node still has the shell (the delete never arrived) or
+			// has no shell but a live process.
+			diag := realExec(t, mk(map[string]any{"powershell": "Get-WSManInstance -ResourceURI shell -Enumerate | ForEach-Object { 'shell ' + $_.ShellId + ' idle=' + $_.IdleTime + ' owner=' + $_.Owner }\nGet-Process -Id ([int](Get-Content " + pidFile + ")) | Format-List Id,StartTime,Name | Out-String"}))
+			t.Fatalf("the process is still running on the host: %v\n%s", o.Result.Error, diag.Result.Outputs)
 		}
 		time.Sleep(2 * time.Second)
 	}
