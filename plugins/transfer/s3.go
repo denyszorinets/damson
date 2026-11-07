@@ -105,6 +105,9 @@ func dialS3(req pluginsdk.ExecRequest, e *S3Endpoint, emit pluginsdk.Emitter) (f
 		return nil, err
 	}
 	if !cn.secure {
+		if req.Config[ConfigAllowPlainS3] != "true" {
+			return nil, pluginsdk.ValidationError("a plain http s3 endpoint is not enabled on this agent (agent.allow_plain_s3); use https")
+		}
 		emit.Log(pluginsdk.System, "warning: the s3 endpoint "+cn.endpoint+" uses plain http; credentials and data are not encrypted")
 	}
 	lookup := minio.BucketLookupAuto

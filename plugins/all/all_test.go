@@ -53,6 +53,7 @@ func contractOptions(t *testing.T) map[string]plugintest.Options {
 			sshtest.NodeName, src)),
 		Nodes:  map[string]pluginsdk.NodeInfo{sshtest.NodeName: f.Node},
 		Bundle: map[string]map[string]string{sshtest.CredentialRef: f.Bundle[sshtest.CredentialRef], "secret://s3/conn": s3srv.Connection()},
+		Config: map[string]string{"allow_plain_s3": "true"},
 	}
 	// winrm: the password is a bundle value, so the suite checks it never leaks.
 	winSrv := winrmtest.Start(t, winrmtest.Options{User: "svc", Password: "contract-winrm-PASSWORD"})

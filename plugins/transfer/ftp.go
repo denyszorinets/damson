@@ -33,6 +33,10 @@ const ConfigTLSCAPEM = tlsroots.ConfigKey
 // "ftp" (no encryption). The agent sets it from agent.allow_plain_ftp.
 const ConfigAllowPlainFTP = "allow_plain_ftp"
 
+// ConfigAllowPlainS3 is the ExecRequest.Config key that permits an s3 endpoint
+// over plain http. The agent sets it from agent.allow_plain_s3.
+const ConfigAllowPlainS3 = "allow_plain_s3"
+
 const (
 	protoFTP  = "ftp"
 	protoFTPS = "ftps"

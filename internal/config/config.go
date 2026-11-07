@@ -117,6 +117,9 @@ type Agent struct {
 	// AllowPlainFTP lets the transfer plugin use protocol "ftp", which sends
 	// the password and the data in clear text. Off by default; use ftps.
 	AllowPlainFTP bool `koanf:"allow_plain_ftp"`
+	// AllowPlainS3 lets the transfer plugin use an s3 endpoint over plain
+	// http (credentials and data in clear text). Off by default; use https.
+	AllowPlainS3 bool `koanf:"allow_plain_s3"`
 }
 
 // SlogLevel returns the configured level. Validate guarantees it parses.
