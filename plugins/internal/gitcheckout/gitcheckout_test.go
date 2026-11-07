@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -169,6 +170,7 @@ func TestValidation(t *testing.T) {
 		"password in url":      {gitcheckout.Repo{URL: "https://u:p@h/r.git"}, gitcheckout.Auth{}, "must not carry a password"},
 		"token over ssh":       {gitcheckout.Repo{URL: "ssh://h/r.git"}, gitcheckout.Auth{Token: "t", KnownHosts: "h ssh-ed25519 AAAA"}, "needs an https url"},
 		"key over https":       {gitcheckout.Repo{URL: "https://h/r.git"}, gitcheckout.Auth{SSHKey: "k"}, "needs an ssh url"},
+		"token in url user":    {gitcheckout.Repo{URL: "https://ghp_abc@h/r.git"}, gitcheckout.Auth{Token: "t"}, "must not carry"},
 		"ssh without hosts":    {gitcheckout.Repo{URL: "git@h:r.git"}, gitcheckout.Auth{}, "known_hosts"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -177,6 +179,87 @@ func TestValidation(t *testing.T) {
 				t.Fatalf("err = %v (%s), want validation containing %q", err, kind(err), c.want)
 			}
 		})
+	}
+}
+
+func TestNonEmptyDirIsRefused(t *testing.T) {
+	src, _, _ := origin(t)
+	dst := t.TempDir()
+	write(t, dst, "x", "y")
+	_, err := gitcheckout.Clone(context.Background(), dst, gitcheckout.Repo{URL: "file://" + src, AllowInsecure: true}, gitcheckout.Auth{}, gitcheckout.Options{})
+	if kind(err) != pluginsdk.KindValidation || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// A server that holds the connection open: canceling must end the fetch (and
+// its process group) promptly.
+func TestCancelDuringFetchReturnsPromptly(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
+	defer srv.Close()
+	defer close(release)
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(500*time.Millisecond, cancel)
+	start := time.Now()
+	_, err := gitcheckout.Clone(ctx, filepath.Join(t.TempDir(), "w"), gitcheckout.Repo{URL: srv.URL + "/r.git", AllowInsecure: true}, gitcheckout.Auth{}, gitcheckout.Options{})
+	if kind(err) != pluginsdk.KindCancelled {
+		t.Fatalf("err = %v (%s)", err, kind(err))
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Fatalf("cancel took %s", d)
+	}
+}
+
+// The token is for the repository's host only: a submodule on another host and
+// a redirect to another host get no credential.
+func TestTokenIsNotSentToOtherHosts(t *testing.T) {
+	src, _, _ := origin(t)
+	other := &seenAuth{}
+	evil := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		other.add(r.Header.Get("Authorization"))
+		w.Header().Set("WWW-Authenticate", `Basic realm="evil"`)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer evil.Close()
+
+	// (a) redirect from the repository's host to the other one.
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, evil.URL+r.URL.RequestURI(), http.StatusFound)
+	}))
+	defer redirect.Close()
+	_, err := gitcheckout.Clone(context.Background(), filepath.Join(t.TempDir(), "w"), gitcheckout.Repo{URL: redirect.URL + "/repo.git", AllowInsecure: true}, gitcheckout.Auth{Username: "ci", Token: "tok-ONLY-for-A"}, gitcheckout.Options{})
+	if err == nil {
+		t.Fatal("the clone through the redirect succeeded")
+	}
+	for _, a := range other.all() {
+		if a != "" {
+			t.Fatalf("the other host received credentials: %q", a)
+		}
+	}
+
+	// (b) a submodule that points at the other host.
+	super := t.TempDir()
+	git(t, super, "init", "-q", "-b", "main")
+	write(t, super, ".gitmodules", "[submodule \"lib\"]\n\tpath = lib\n\turl = "+evil.URL+"/lib.git\n")
+	git(t, super, "add", ".gitmodules")
+	git(t, super, "update-index", "--add", "--cacheinfo", "160000,"+git(t, src, "rev-parse", "HEAD")+",lib")
+	git(t, super, "commit", "-q", "-m", "evil submodule")
+	good2, _ := httpRepo(t, super, "tok-ONLY-for-A")
+	_, err = gitcheckout.Clone(context.Background(), filepath.Join(t.TempDir(), "w"), gitcheckout.Repo{URL: good2.URL + "/repo.git", Ref: "main", Submodules: true, AllowInsecure: true}, gitcheckout.Auth{Username: "ci", Token: "tok-ONLY-for-A"}, gitcheckout.Options{})
+	if err == nil {
+		t.Fatal("the submodule clone from the unauthorized host succeeded")
+	}
+	for _, a := range other.all() {
+		if a != "" {
+			t.Fatalf("the submodule host received credentials: %q", a)
+		}
+	}
+	if len(other.all()) == 0 {
+		t.Error("the other host was never contacted; the test did not exercise it")
 	}
 }
 
@@ -196,20 +279,32 @@ func TestCancellationStopsTheClone(t *testing.T) {
 
 // httpRepo serves src over git's smart http protocol and requires basic auth
 // with the given token; it records the Authorization headers it saw.
-func httpRepo(t *testing.T, src, token string) (*httptest.Server, *[]string) {
+type seenAuth struct {
+	mu sync.Mutex
+	v  []string
+}
+
+func (s *seenAuth) add(a string) { s.mu.Lock(); s.v = append(s.v, a); s.mu.Unlock() }
+func (s *seenAuth) all() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.v...)
+}
+
+func httpRepo(t *testing.T, src, token string) (*httptest.Server, *seenAuth) {
 	t.Helper()
 	execPath := git(t, src, "--exec-path")
 	root := t.TempDir()
 	bare := filepath.Join(root, "repo.git")
 	git(t, root, "clone", "-q", "--bare", src, bare)
-	var seen []string
+	seen := &seenAuth{}
 	h := &cgi.Handler{
 		Path: filepath.Join(execPath, "git-http-backend"),
 		Env:  []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1"},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, p, ok := r.BasicAuth()
-		seen = append(seen, r.Header.Get("Authorization"))
+		seen.add(r.Header.Get("Authorization"))
 		if !ok || u != "ci" || p != token {
 			w.Header().Set("WWW-Authenticate", `Basic realm="git"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -218,7 +313,7 @@ func httpRepo(t *testing.T, src, token string) (*httptest.Server, *[]string) {
 		h.ServeHTTP(w, r)
 	}))
 	t.Cleanup(srv.Close)
-	return srv, &seen
+	return srv, seen
 }
 
 func TestTokenAuthOverHTTP(t *testing.T) {
@@ -239,7 +334,7 @@ func TestTokenAuthOverHTTP(t *testing.T) {
 	if cfg := read(t, filepath.Join(dst, ".git", "config")); strings.Contains(cfg, "s3cret") {
 		t.Errorf("the token is in .git/config: %s", cfg)
 	}
-	if len(*seen) == 0 {
+	if len(seen.all()) == 0 {
 		t.Fatal("the server saw no request")
 	}
 
@@ -247,7 +342,7 @@ func TestTokenAuthOverHTTP(t *testing.T) {
 	if kind(err) != pluginsdk.KindAuth {
 		t.Fatalf("wrong token: %v (%s)", err, kind(err))
 	}
-	if strings.Contains(err.Error(), "wrong") && strings.Contains(err.Error(), "Authorization") {
+	if strings.Contains(err.Error(), "wrong") {
 		t.Errorf("error text: %v", err)
 	}
 	_, err = gitcheckout.Clone(context.Background(), filepath.Join(t.TempDir(), "w"), repo, gitcheckout.Auth{}, gitcheckout.Options{})

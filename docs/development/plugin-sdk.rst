@@ -203,18 +203,26 @@ Rules the helper enforces:
   from an operator setting. ``ext::``, ``fd::`` and local paths are refused, as
   are URLs or refs that start with ``-`` and URLs that carry a password.
 * Credentials never appear in an argument, a URL, the environment or a log
-  line. A token reaches git through a ``GIT_ASKPASS`` script that reads it from
-  a 0600 file; an SSH key is a 0600 file named by ``GIT_SSH_COMMAND``. Both live
-  in a private temporary directory that is removed before ``Clone`` returns. The
-  token is not written to ``.git/config``.
-* An ssh clone needs ``Auth.KnownHosts`` to verify the host, or an explicit
-  ``Auth.InsecureHostKey`` (the plugins take that from
-  ``agent.allow_insecure_host_keys``).
+  line, and a URL that carries a user, token or password is refused. A token is
+  a 0600 file read by a git credential helper that answers **only for the
+  repository's own host**: a redirect or a submodule on another host gets no
+  credential. An SSH key is a 0600 file named by ``GIT_SSH_COMMAND``. Both live
+  in a private directory under the system temporary directory (``TMPDIR``),
+  removed before ``Clone`` returns; a crash can leave it behind, so run agents
+  with a private tmpfs ``TMPDIR`` (ARCHITECTURE 6.4 asks for tmpfs where
+  available). The token is not written to ``.git/config``.
+* ssh always ignores the agent user's ``~/.ssh`` config and keys (``-F
+  /dev/null``, ``IdentitiesOnly``, no default keys, no control master) and
+  offers only the given key. It needs ``Auth.KnownHosts`` to verify the host, or
+  an explicit ``Auth.InsecureHostKey`` (the plugins take that from
+  ``agent.allow_insecure_host_keys``); with neither it fails closed. This also
+  holds for an ssh submodule of an https repository.
+* ``dir`` must be empty; git runs with no templates, so no hooks are installed.
 * git runs with no user or system config, no prompts and an explicit protocol
   allow-list. Cancellation kills git's whole process group; ``Options.Timeout``
   gives a ``timeout`` error.
 * Errors map by git's output to ``auth``, ``connection``, ``validation`` (bad ref
   or repository) or ``exit_code``.
 
-The helper uses a POSIX ``sh`` for the askpass script, so token credentials
-need agents on Linux or macOS (the agent images are Linux).
+The token helper is a small POSIX ``sh`` function, so token credentials need
+agents on Linux or macOS (the agent images are Linux).

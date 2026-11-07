@@ -12,7 +12,6 @@ package gitcheckout
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/url"
 	"os"
@@ -71,6 +70,9 @@ func Clone(ctx context.Context, dir string, repo Repo, auth Auth, opt Options) (
 		ctx, cancel = context.WithTimeout(ctx, opt.Timeout)
 		defer cancel()
 	}
+	if entries, rerr := os.ReadDir(dir); rerr == nil && len(entries) > 0 {
+		return Result{}, pluginsdk.ValidationError("the checkout directory must be empty")
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return Result{}, pluginsdk.NewError(pluginsdk.KindInternal, "creating the checkout directory failed", err)
 	}
@@ -79,17 +81,17 @@ func Clone(ctx context.Context, dir string, repo Repo, auth Auth, opt Options) (
 		return Result{}, pluginsdk.NewError(pluginsdk.KindInternal, "creating the credentials directory failed", err)
 	}
 	defer func() { _ = os.RemoveAll(secretDir) }()
-	env, err := environment(secretDir, repo, auth)
+	env, conf, err := environment(secretDir, repo, auth)
 	if err != nil {
 		return Result{}, err
 	}
-	r := runner{git: opt.Git, dir: dir, env: env, out: opt.Out}
+	r := runner{git: opt.Git, dir: dir, env: env, conf: conf, out: opt.Out}
 	if r.git == "" {
 		r.git = "git"
 	}
 	remote := repo.URL
 	steps := [][]string{
-		{"init", "--quiet", "."},
+		{"init", "--quiet", "--template=", "."},
 		{"remote", "add", "origin", "--", remote},
 	}
 	for _, args := range steps {
@@ -143,8 +145,9 @@ func validate(repo Repo, auth Auth) error {
 		return pluginsdk.ValidationError("the repository url must use https or ssh")
 	}
 	if u, perr := url.Parse(repo.URL); perr == nil && u.User != nil {
-		if _, has := u.User.Password(); has {
-			return pluginsdk.ValidationError("the repository url must not carry a password; use a credential")
+		_, hasPassword := u.User.Password()
+		if hasPassword || (auth.Token != "" && scheme != "ssh") {
+			return pluginsdk.ValidationError("the repository url must not carry a password or token; use a credential")
 		}
 	}
 	if auth.Token != "" && scheme != "https" && scheme != "http" {
@@ -176,13 +179,14 @@ func schemeOf(raw string) (string, error) {
 type runner struct {
 	git, dir string
 	env      []string
+	conf     []string // "-c key=value" arguments before the subcommand
 	out      io.Writer
 }
 
 // run executes one git command and returns its stdout. stderr goes to out and
 // is kept (bounded) for the error text.
 func (r runner) run(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, r.git, args...)
+	cmd := exec.CommandContext(ctx, r.git, append(append([]string{}, r.conf...), args...)...)
 	cmd.Dir = r.dir
 	cmd.Env = r.env
 	prepare(cmd)
@@ -229,5 +233,3 @@ func (t *tailBuffer) Write(p []byte) (int, error) {
 func (t *tailBuffer) String() string { return strings.TrimSpace(string(t.b)) }
 
 func credPath(dir, name string) string { return filepath.Join(dir, name) }
-
-var errNoGit = fmt.Errorf("git not found")
