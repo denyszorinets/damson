@@ -295,6 +295,48 @@ Tests: ``lib/nodes.test.ts`` (vitest) covers form parsing and ``formOf`` with
 null tags and attributes. The Playwright test ``web/e2e/nodes.test.ts`` mocks
 the nodes API.
 
+.. _web-ui-run-dialog:
+
+Run dialog and triggers
+-----------------------
+
+The job page (``/jobs/{id}``) has a **Run…** button that opens the run dialog.
+The form is generated from the job's ``spec.options`` JSON Schema through
+``SchemaForm.svelte``, which wraps ``@sjsf/form`` with the basic theme and Ajv
+validation; enum properties render as selects. A job without options shows
+"This job takes no options." and a **Start run** button. Submit sends
+``POST /api/v1/jobs/{id}/runs`` with ``{options}`` and opens the run page.
+Validation errors from the server are shown in the dialog. Before M8 these
+routes need no token unless ``auth.require_token`` is on; with it on, the UI
+pages for jobs and runs stop working
+(:doc:`/architecture/decisions/0060-service-accounts-and-api-tokens`).
+
+The same page has a **Triggers** section guarded by the admin token, kept in
+this tab's ``sessionStorage`` like the secrets page (``lib/admin.ts``). Logic
+lives in ``lib/triggers.ts``.
+
+* **Schedules** table: name, cron and time zone, next fire, last result. Add
+  takes a name, a 5-field cron and a time zone. Each row can be enabled,
+  disabled or deleted.
+* **Webhooks** table: name, last used and a revoked flag. Add takes a name and
+  an optional CEL options mapping. Rows can be revoked. The webhook URL path
+  (``/hooks/<token>``) is shown once, right after creation, and then dropped
+  from the page.
+
+Test: ``web/e2e/triggers.test.ts``.
+
+.. _web-ui-service-accounts:
+
+Service accounts page
+---------------------
+
+``/service-accounts`` (nav link "Accounts") needs the admin token, handled as
+on the secrets page. It lists service accounts and can create and delete them.
+Selecting an account shows its tokens: name, scope, role and last used. Create
+token takes a name, a project (empty for all projects) and a role (viewer,
+runner or editor). The token secret (``dms_…``) is shown once. Tokens can be
+revoked. See :doc:`/architecture/decisions/0060-service-accounts-and-api-tokens`.
+
 Dependencies and licenses
 -------------------------
 
@@ -303,6 +345,12 @@ Dependencies and licenses
 contains only MIT, ISC, Apache-2.0 and BSD-3-Clause. ``vitest`` (MIT) is a dev
 dependency; its dev tree includes MPL-2.0, BlueOak-1.0.0 and Python-2.0, which
 are never shipped (:doc:`/architecture/decisions/0033-blueoak-licensed-dev-only-tooling-dependencies`).
+
+The run dialog adds ``@sjsf/form`` (MIT AND Apache-2.0), ``@sjsf/ajv8-validator``
+(MIT) and ``@sjsf/basic-theme`` (MIT), with the peer dependencies
+``json-schema-merge-allof`` (MIT), ``json-schema-typed``, ``@standard-schema/spec``
+and ``esm-env``. The basic theme was chosen over the shadcn theme to avoid a
+large component set.
 
 The secrets page adds, via shadcn-svelte, ``bits-ui`` (MIT), ``@lucide/svelte``
 (ISC) and ``@internationalized/date`` (Apache-2.0).

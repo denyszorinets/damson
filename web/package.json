@@ -48,8 +48,16 @@
 		"vitest": "^5.1.0"
 	},
 	"dependencies": {
+		"@sjsf/ajv8-validator": "^3.9.1",
+		"@sjsf/basic-theme": "^3.9.1",
+		"@sjsf/form": "^3.9.1",
+		"@standard-schema/spec": "^1.1.0",
+		"@types/json-schema-merge-allof": "^0.6.5",
 		"@xyflow/svelte": "^1.7.1",
 		"clsx": "^2.1.1",
+		"esm-env": "^1.2.2",
+		"json-schema-merge-allof": "^0.8.1",
+		"json-schema-typed": "^8.0.2",
 		"openapi-fetch": "^0.17.0",
 		"tailwind-merge": "^3.7.0"
 	},

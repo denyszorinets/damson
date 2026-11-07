@@ -189,6 +189,9 @@ change nothing until accepted.
    * - 0060
      - :doc:`0060-service-accounts-and-api-tokens`
      - Accepted
+   * - 0061
+     - :doc:`0061-basic-theme-for-schema-forms`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -253,3 +256,4 @@ change nothing until accepted.
    0058-schedules-and-the-scheduler-duty
    0059-webhooks
    0060-service-accounts-and-api-tokens
+   0061-basic-theme-for-schema-forms

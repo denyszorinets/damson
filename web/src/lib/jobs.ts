@@ -22,5 +22,5 @@ export async function fetchJobGraph(id: string, signal?: AbortSignal) {
 		signal
 	});
 	if (g.error !== undefined || !g.data) throw g.error ?? new Error('Empty response');
-	return { job, graph: g.data };
+	return { job, graph: g.data, spec: detail.data.version.spec as unknown };
 }
