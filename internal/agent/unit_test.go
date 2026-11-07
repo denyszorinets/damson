@@ -1,12 +1,16 @@
 package agent
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/denyszorinets/damson/pkg/pluginsdk"
 )
 
 func TestBackoffDelay(t *testing.T) {
@@ -216,6 +220,53 @@ func TestConfigValidation(t *testing.T) {
 	b, _ := New(Config{ControllerURL: "wss://h/base/", Token: "t", AgentID: "a", Pool: "p"})
 	if b.connURL != "wss://h/base/agent/v1/connect" {
 		t.Errorf("connect URL = %q", b.connURL)
+	}
+}
+
+type requiresPlugin struct {
+	name     string
+	requires []string
+}
+
+func (p requiresPlugin) Manifest() pluginsdk.Manifest {
+	return pluginsdk.Manifest{Name: p.name, Version: "1.0.0", Title: p.name, Requires: p.requires, TargetMode: pluginsdk.TargetNone,
+		InputSchema: pluginsdk.MustSchemaFor[struct{}](), OutputSchema: pluginsdk.MustSchemaFor[struct{}]()}
+}
+func (requiresPlugin) Validate(context.Context, json.RawMessage) error { return nil }
+func (requiresPlugin) Execute(context.Context, pluginsdk.ExecRequest, pluginsdk.Emitter) (pluginsdk.Result, error) {
+	return pluginsdk.Result{}, nil
+}
+
+// A plugin is offered only when every program it requires is on the agent.
+func TestPluginsAreOfferedOnlyWithTheirPrograms(t *testing.T) {
+	c := Config{
+		Plugins: []pluginsdk.Plugin{
+			requiresPlugin{"plain", nil},
+			requiresPlugin{"needs-git", []string{"bin:git"}},
+			requiresPlugin{"needs-both", []string{"bin:git", "bin:helm"}},
+			requiresPlugin{"needs-buildah", []string{"bin:buildah", "bin:git"}},
+		},
+		LookPath: func(name string) (string, error) {
+			if name == "git" || name == "helm" {
+				return "/usr/bin/" + name, nil
+			}
+			return "", os.ErrNotExist
+		},
+	}
+	var names []string
+	for _, m := range c.manifests() {
+		names = append(names, m.Name)
+	}
+	if strings.Join(names, ",") != "plain,needs-git,needs-both" {
+		t.Errorf("offered = %v", names)
+	}
+	if _, withheld := c.offered(); len(withheld) != 1 || strings.Join(withheld["needs-buildah"], ",") != "bin:buildah" {
+		t.Errorf("withheld = %v", withheld)
+	}
+	// A configured capability counts too.
+	c.Capabilities = []string{"bin:buildah"}
+	if len(c.manifests()) != 4 {
+		t.Errorf("a configured capability must satisfy a requirement")
 	}
 }
 

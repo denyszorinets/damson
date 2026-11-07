@@ -11,6 +11,7 @@ Reference
    protocol
    agent
    plugin-ssh
+   images
    plugin-ansible
    plugin-buildah
    plugin-helm

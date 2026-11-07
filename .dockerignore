@@ -1,0 +1,10 @@
+.git
+.claude
+bin
+damson.db
+docs/_build
+web/node_modules
+web/build
+web/test-results
+web/.svelte-kit
+**/*.test

@@ -171,6 +171,9 @@ func (s *session) hello(ctx context.Context, seq uint64) (protocol.HelloResponse
 	cfg := &s.a.cfg
 	ctx, cancel := context.WithTimeout(ctx, cfg.HelloTimeout)
 	defer cancel()
+	if _, withheld := cfg.offered(); len(withheld) > 0 {
+		s.a.log.Warn("plugins not offered: the agent lacks the programs they need", "missing", withheld)
+	}
 	req := protocol.HelloRequest{
 		Protocol:      protocol.ProtocolVersion,
 		SessionSeq:    seq,

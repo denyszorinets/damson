@@ -1194,7 +1194,7 @@ An activity-diagram view (UML-like) of a job's structure. It appears in three pl
   - `damson-agent` adds `ansible-core`, `git`, and `openssh-client`.
   - `damson-agent-build` adds `buildah`, `helm`, and `git`, for build pools.
   
-  Agents detect the available binaries at startup and advertise them as capabilities. Custom plugin sets are built with `damson build --with …` on top of either image.
+  Agents detect the available binaries at startup and advertise them as capabilities (`bin:<name>`); **an agent offers a plugin only when every capability in its manifest `Requires` is present** and logs the plugins it withholds. `deploy/docker/Dockerfile` builds the images (targets `damson`, `damson-agent`, `damson-agent-build`; `docs/reference/images.rst`), and the "Images" workflow builds them in CI without pushing. Custom plugin sets are built with `damson build --with …` on top of either image.
 - **Kubernetes:** a Helm chart.
   - Controller Deployment (replicas ≥ 2, PodDisruptionBudget, readiness on database plus the migrations check).
   - Agent Deployment(s) per pool (HPA-friendly; `terminationGracePeriodSeconds` covers the drain timeout).

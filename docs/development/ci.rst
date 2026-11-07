@@ -84,6 +84,15 @@ Conventions
   local run prints ``SKIPPED lint``.
 - Inspect results of a pull request with ``gh pr checks <number>``.
 
+Images
+------
+
+:repo:`.github/workflows/images.yml` builds the three targets of
+:repo:`deploy/docker/Dockerfile` (``damson``, ``damson-agent``,
+``damson-agent-build``) with ``docker build`` on pull requests that touch the
+Dockerfile or the workflow, and on demand, and runs each tool once (``git``,
+``ansible-playbook``, ``ssh``, ``buildah``, ``helm``). Nothing is pushed.
+
 WinRM on Windows
 ----------------
 
