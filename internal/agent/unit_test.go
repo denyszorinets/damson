@@ -255,7 +255,7 @@ func TestPluginsAreOfferedOnlyWithTheirPrograms(t *testing.T) {
 	}
 	var names []string
 	for _, m := range c.manifests() {
-		names = append(names, m.Manifest.Name)
+		names = append(names, m.Name)
 	}
 	if strings.Join(names, ",") != "plain,needs-git,needs-both" {
 		t.Errorf("offered = %v", names)
