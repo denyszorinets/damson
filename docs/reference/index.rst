@@ -10,6 +10,7 @@ Reference
    http-api
    schedules
    webhooks
+   service-accounts
    protocol
    agent
    plugin-ssh

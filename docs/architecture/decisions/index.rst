@@ -186,6 +186,9 @@ change nothing until accepted.
    * - 0059
      - :doc:`0059-webhooks`
      - Accepted
+   * - 0060
+     - :doc:`0060-service-accounts-and-api-tokens`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -249,3 +252,4 @@ change nothing until accepted.
    0057-helm-credentials
    0058-schedules-and-the-scheduler-duty
    0059-webhooks
+   0060-service-accounts-and-api-tokens

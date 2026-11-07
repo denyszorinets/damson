@@ -194,6 +194,15 @@ written as a double underscore: ``agent.controller_url`` is
        roots, for ``ftps`` and ``https`` S3 endpoints of the ``transfer`` plugin
        and for ``winrm`` over https. Read at start (a change needs a restart); a
        bad file fails startup. Certificate verification cannot be turned off.
+   * - ``auth.require_token``
+     - controller
+     - ``false``
+     - Require a Bearer token (the admin token or a service account token) on
+       the job, run and execution routes. Off: a request without an
+       ``Authorization`` header passes, as these routes were open before. A
+       token that is sent is checked either way. Interim until OIDC in M8
+       (:doc:`/reference/service-accounts`). Environment variable
+       ``DAMSON_AUTH__REQUIRE_TOKEN``.
 
 .. _reference-config-kek:
 
