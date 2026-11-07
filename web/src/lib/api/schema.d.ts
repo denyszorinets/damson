@@ -568,7 +568,7 @@ export interface components {
             version: string;
         };
         AuditEvent: {
-            /** @description secret.create, secret.update, secret.delete or secret.kek_rotate. */
+            /** @description secret.create, secret.update, secret.delete, secret.kek_rotate, log.purge, admin_token.create, admin_token.revoke or audit.prune. */
             action: string;
             /** @description admin-token:<hash prefix>, cli:<user> or system:<duty> until accounts arrive (ADR-0053). */
             actor: string;
@@ -579,9 +579,9 @@ export interface components {
             id: string;
             project_path?: string;
             request_id?: string;
-            /** @description <scope>/<name> for a secret. */
+            /** @description <scope>/<name> for a secret, the execution id for log.purge. */
             target: string;
-            /** @description secret or instance. */
+            /** @description secret, execution or instance. */
             target_type: string;
         };
         BatchInputBody: {

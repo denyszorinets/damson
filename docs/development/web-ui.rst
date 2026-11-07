@@ -102,6 +102,9 @@ Pages
 ``/secrets``
    Secret metadata and management (see :ref:`web-ui-secrets`).
 
+``/audit``
+   The audit trail (see :ref:`web-ui-audit`).
+
 ``/nodes``, ``/nodes/[name]``
    The node inventory list and the node detail page (see
    :ref:`web-ui-nodes`).
@@ -235,6 +238,19 @@ pages (``lib/admin.ts`` and the ``TokenGate`` component).
 Tests: ``lib/secrets.test.ts`` (vitest) covers field handling; the Playwright
 test ``web/e2e/secrets.test.ts`` mocks the secrets API, because the dev
 controller has no KEK until #115.
+
+.. _web-ui-audit:
+
+Audit page
+----------
+
+``/audit`` shows ``GET /api/v1/audit`` (ADR-0053) and needs the admin token,
+handled as on the secrets page (``lib/admin.ts``, ``sessionStorage`` only,
+"Forget token", a new prompt after a 401). It is read-only: a table of time
+(UTC), actor, action, target and the details as one compact JSON line (they never
+hold secret values), newest first, with a target type and target filter and a
+"Load more" button that follows ``next_cursor``. Logic lives in
+``lib/audit.ts``; the test ``web/e2e/audit.test.ts`` mocks the API.
 
 .. _web-ui-nodes:
 
