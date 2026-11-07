@@ -12,5 +12,6 @@ Reference
    agent
    plugin-ssh
    plugin-ansible
+   plugin-buildah
    plugin-transfer
    plugin-winrm

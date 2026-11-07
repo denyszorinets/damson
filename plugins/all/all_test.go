@@ -11,6 +11,7 @@ import (
 	"github.com/denyszorinets/damson/pkg/pluginsdk/plugintest"
 	"github.com/denyszorinets/damson/plugins/all"
 	"github.com/denyszorinets/damson/plugins/internal/ansibletest"
+	"github.com/denyszorinets/damson/plugins/internal/buildahtest"
 	"github.com/denyszorinets/damson/plugins/internal/ftptest"
 	"github.com/denyszorinets/damson/plugins/internal/s3test"
 	"github.com/denyszorinets/damson/plugins/internal/sshtest"
@@ -87,7 +88,24 @@ func contractOptions(t *testing.T) map[string]plugintest.Options {
 		}
 	}
 	ansibleBlocking := ansibleCase("blocking", "block.yml")
+	// buildah: fake buildah and a local repository; the registry password and
+	// the build secret are bundle values, so the suite checks they never leak.
+	buildahURL, _ := buildahtest.Repo(t)
+	buildahtest.Install(t)
+	buildahCase := func(name string, tags string) plugintest.Case {
+		return plugintest.Case{
+			Name:  name,
+			Input: json.RawMessage(fmt.Sprintf(`{"repo":{"url":%q,"ref":"main"},"image":"registry.test/team/app","tags":[%q],"build_secrets":{"npmrc":"secret://b/npm"},"registry_credentials":[{"registry":"registry.test","credential":"secret://b/reg"}]}`, buildahURL, tags)),
+			Bundle: map[string]map[string]string{
+				"secret://b/reg": {"username": "builder", "password": "contract-registry-PASSWORD"},
+				"secret://b/npm": {"value": "contract-npm-TOKEN"},
+			},
+			Config: map[string]string{"allow_insecure_git": "true"},
+		}
+	}
+	buildahBlocking := buildahCase("blocking", "block")
 	return map[string]plugintest.Options{
+		"buildah": {Cases: []plugintest.Case{buildahCase("build", "1.0")}, Blocking: &buildahBlocking},
 		"ansible": {Cases: []plugintest.Case{ansibleCase("playbook", "site.yml")}, Blocking: &ansibleBlocking},
 		"winrm": {
 			Cases:    []plugintest.Case{winCase("command", `{"node":"win1","auth":"basic","command":"echo hello"}`)},

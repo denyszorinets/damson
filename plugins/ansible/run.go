@@ -4,77 +4,21 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
+	"github.com/denyszorinets/damson/plugins/internal/proc"
 )
 
 // runOutcome is what a run produced.
 type runOutcome struct {
 	stats    map[string]HostStats
 	exitCode int
-}
-
-// lineWriter turns writes into log lines.
-type lineWriter struct {
-	emit   pluginsdk.Emitter
-	stream pluginsdk.Stream
-	mu     sync.Mutex
-	buf    []byte
-}
-
-func (w *lineWriter) Write(p []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.buf = append(w.buf, p...)
-	for {
-		i := strings.IndexAny(string(w.buf), "\r\n")
-		if i < 0 {
-			break
-		}
-		if line := strings.TrimSpace(string(w.buf[:i])); line != "" {
-			w.emit.Log(w.stream, line)
-		}
-		w.buf = w.buf[i+1:]
-	}
-	if len(w.buf) > 64<<10 {
-		w.emit.Log(w.stream, string(w.buf))
-		w.buf = nil
-	}
-	return len(p), nil
-}
-
-// maxLogLine bounds one buffered log line.
-const maxLogLine = 256 << 10
-
-// pump logs each line of r until it ends. A longer line is split.
-func pump(r io.Reader, emit pluginsdk.Emitter, stream pluginsdk.Stream) {
-	br := bufio.NewReaderSize(r, 64<<10)
-	var carry strings.Builder
-	for {
-		chunk, prefix, err := br.ReadLine()
-		carry.Write(chunk)
-		if !prefix && (len(chunk) > 0 || carry.Len() > 0) || carry.Len() > maxLogLine {
-			emit.Log(stream, carry.String())
-			carry.Reset()
-		}
-		if err != nil {
-			if carry.Len() > 0 {
-				emit.Log(stream, carry.String())
-			}
-			return
-		}
-	}
 }
 
 // environment is the minimal environment of ansible commands. The agent's own
@@ -188,48 +132,10 @@ func playbookArgs(in Input, pl plan, extra, vault string) []string {
 	return append(args, "--", in.Playbook)
 }
 
-// runCommand runs one command in dir, streaming its output, and returns its
-// exit code. A cancelled or timed out context kills the process group.
+// runCommand runs one command in dir and returns its exit code.
 func runCommand(ctx context.Context, dir string, env []string, emit pluginsdk.Emitter, name string, args ...string) (int, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Dir = dir
-	cmd.Env = env
-	prepare(cmd)
-	cmd.WaitDelay = 5 * time.Second
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return -1, pluginsdk.NewError(pluginsdk.KindInternal, "preparing "+name+" failed", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return -1, pluginsdk.NewError(pluginsdk.KindInternal, "preparing "+name+" failed", err)
-	}
-	if err := cmd.Start(); err != nil {
-		if errors.Is(err, exec.ErrNotFound) {
-			return -1, pluginsdk.NewError(pluginsdk.KindInternal, name+" is not installed on this agent", err)
-		}
-		return -1, pluginsdk.NewError(pluginsdk.KindInternal, "starting "+name+" failed", err)
-	}
-	var wg sync.WaitGroup
-	wg.Go(func() { pump(stdout, emit, pluginsdk.Stdout) })
-	wg.Go(func() { pump(stderr, emit, pluginsdk.Stderr) })
-	wg.Wait()
-	waitErr := cmd.Wait()
-	if ctx.Err() != nil {
-		kind := pluginsdk.KindCancelled
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			kind = pluginsdk.KindTimeout
-		}
-		return -1, pluginsdk.NewError(kind, name+" was interrupted", ctx.Err())
-	}
-	var ee *exec.ExitError
-	switch {
-	case waitErr == nil:
-		return 0, nil
-	case errors.As(waitErr, &ee):
-		return ee.ExitCode(), nil
-	}
-	return -1, pluginsdk.NewError(pluginsdk.KindInternal, "running "+name+" failed", waitErr)
+	res, err := proc.Run(ctx, proc.Spec{Dir: dir, Env: env, Name: name, Args: args}, emit)
+	return res.ExitCode, err
 }
 
 // readStats returns the recap of the callback's last stats event, nil if none.

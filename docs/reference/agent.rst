@@ -73,6 +73,10 @@ is masked before it leaves (plain, base64 and URL-encoded forms).
 * ``agent.allow_insecure_git`` (``DAMSON_AGENT__ALLOW_INSECURE_GIT``) lets the
   ``ansible`` plugin clone from ``http://``, ``git://`` and ``file://`` URLs.
   Off by default; use ``https`` or ``ssh``. Separate from the other switches.
+* ``agent.allow_insecure_registry`` (``DAMSON_AGENT__ALLOW_INSECURE_REGISTRY``)
+  lets the ``buildah`` plugin run with ``tls_verify: false``. Off by default;
+  trust a private CA through the system roots instead. Separate from the other
+  switches.
 * ``agent.allow_plain_s3`` (``DAMSON_AGENT__ALLOW_PLAIN_S3``) lets the ``transfer``
   plugin use an ``s3`` endpoint over plain ``http://``; the keys and the data
   travel in clear text. Off by default; use ``https``. Separate from the other

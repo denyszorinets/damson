@@ -166,6 +166,13 @@ written as a double underscore: ``agent.controller_url`` is
        ``file://`` URLs. Without it only ``https`` and ``ssh`` are accepted.
        Environment variable ``DAMSON_AGENT__ALLOW_INSECURE_GIT``
        (:doc:`/reference/plugin-ansible`).
+   * - ``agent.allow_insecure_registry``
+     - agent
+     - ``false``
+     - Let the ``buildah`` plugin run with ``tls_verify: false``. Without it such
+       a step is refused. Environment variable
+       ``DAMSON_AGENT__ALLOW_INSECURE_REGISTRY``
+       (:doc:`/reference/plugin-buildah`).
    * - ``agent.allow_plain_s3``
      - agent
      - ``false``

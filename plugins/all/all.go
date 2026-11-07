@@ -5,6 +5,7 @@ package all
 import (
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 	"github.com/denyszorinets/damson/plugins/ansible"
+	"github.com/denyszorinets/damson/plugins/buildah"
 	"github.com/denyszorinets/damson/plugins/ssh"
 	"github.com/denyszorinets/damson/plugins/transfer"
 	"github.com/denyszorinets/damson/plugins/winrm"
@@ -14,6 +15,7 @@ import (
 func Plugins() []pluginsdk.Plugin {
 	var ps []pluginsdk.Plugin
 	ps = append(ps, ansible.Plugins()...)
+	ps = append(ps, buildah.Plugins()...)
 	ps = append(ps, ssh.Plugins()...)
 	ps = append(ps, transfer.Plugins()...)
 	ps = append(ps, winrm.Plugins()...)

@@ -17,6 +17,7 @@ import (
 	"github.com/denyszorinets/damson/internal/version"
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 	"github.com/denyszorinets/damson/plugins/ansible"
+	"github.com/denyszorinets/damson/plugins/buildah"
 	"github.com/denyszorinets/damson/plugins/ssh"
 	"github.com/denyszorinets/damson/plugins/transfer"
 	"github.com/denyszorinets/damson/plugins/winrm"
@@ -66,6 +67,18 @@ func pluginConfig(cfg config.Agent) (map[string]map[string]string, error) {
 	}
 	if cfg.AllowInsecureHostKeys || cfg.AllowInsecureGit {
 		out["ansible"] = map[string]string{}
+	}
+	if cfg.AllowInsecureHostKeys || cfg.AllowInsecureGit || cfg.AllowInsecureRegistry {
+		out["buildah"] = map[string]string{}
+	}
+	if cfg.AllowInsecureHostKeys {
+		out["buildah"][buildah.ConfigAllowInsecureHostKeys] = "true"
+	}
+	if cfg.AllowInsecureGit {
+		out["buildah"][buildah.ConfigAllowInsecureGit] = "true"
+	}
+	if cfg.AllowInsecureRegistry {
+		out["buildah"][buildah.ConfigAllowInsecureRegistry] = "true"
 	}
 	if cfg.AllowInsecureHostKeys {
 		out["ansible"][ansible.ConfigAllowInsecureHostKeys] = "true"
