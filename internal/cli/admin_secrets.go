@@ -29,7 +29,7 @@ func kekGenerate(stdout, stderr io.Writer) error {
 
 // adminTokenCreate makes a new admin bootstrap token and replaces any existing
 // one, which stops working at once. Only the hash is stored.
-func adminTokenCreate(ctx context.Context, st store.Store, c adminCmd, _ time.Time) error {
+func adminTokenCreate(ctx context.Context, st store.Store, c adminCmd, now time.Time) error {
 	plain, hash, err := tokens.GenerateWithPrefix(rand.Reader, tokens.AdminPrefix)
 	if err != nil {
 		return err
@@ -43,6 +43,9 @@ func adminTokenCreate(ctx context.Context, st store.Store, c adminCmd, _ time.Ti
 	}
 	if err != nil {
 		return fmt.Errorf("storing admin token: %w", err)
+	}
+	if err := auditAdminToken(ctx, st, store.ActionAdminTokenCreate, now); err != nil {
+		return err
 	}
 	if c.json {
 		err = writeJSON(c.stdout, map[string]string{"token": plain})
@@ -58,7 +61,7 @@ func adminTokenCreate(ctx context.Context, st store.Store, c adminCmd, _ time.Ti
 
 // adminTokenRevoke disables the admin token. The secrets and inventory write
 // endpoints then answer 401 until a new token is created.
-func adminTokenRevoke(ctx context.Context, st store.Store, c adminCmd, _ time.Time) error {
+func adminTokenRevoke(ctx context.Context, st store.Store, c adminCmd, now time.Time) error {
 	cur, err := st.GetSetting(ctx, tokens.AdminSettingKey)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && cur.Value == "") {
 		return errors.New("there is no admin token")
@@ -69,9 +72,25 @@ func adminTokenRevoke(ctx context.Context, st store.Store, c adminCmd, _ time.Ti
 	if err != nil {
 		return fmt.Errorf("revoking admin token: %w", err)
 	}
+	if err := auditAdminToken(ctx, st, store.ActionAdminTokenRevoke, now); err != nil {
+		return err
+	}
 	if c.json {
 		return writeJSON(c.stdout, map[string]string{"status": "revoked"})
 	}
 	fmt.Fprintln(c.stdout, "revoked the admin token")
+	return nil
+}
+
+// auditAdminToken records a token change after it was stored. If recording
+// fails the change has already taken effect, and the error says so.
+func auditAdminToken(ctx context.Context, st store.Store, action string, now time.Time) error {
+	ev, err := store.NewAdminTokenEvent(store.WithAudit(ctx, store.AuditMeta{Actor: cliActor()}), action, now)
+	if err == nil {
+		err = st.AppendAuditEvent(ctx, ev)
+	}
+	if err != nil {
+		return fmt.Errorf("the admin token changed but recording the audit event failed: %w", err)
+	}
 	return nil
 }

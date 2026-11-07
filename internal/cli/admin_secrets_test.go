@@ -62,6 +62,26 @@ func TestAdminTokenCreateAndRevoke(t *testing.T) {
 		}
 		// After a revoke a new token can be created.
 		mustAdmin(t, env, "admin-token", "create")
+		// create, create, revoke, create: one event each; the failed revoke wrote none.
+		evs, err := st.ListAuditEvents(context.Background(), store.AuditFilter{TargetType: store.AuditTargetInstance}, 10)
+		if err != nil || len(evs) != 4 {
+			t.Fatalf("events = %+v, %v", evs, err)
+		}
+		creates, revokes := 0, 0
+		for _, e := range evs {
+			switch e.Action {
+			case store.ActionAdminTokenCreate:
+				creates++
+			case store.ActionAdminTokenRevoke:
+				revokes++
+			}
+			if !strings.HasPrefix(e.Actor, "cli:") || string(e.Details) != "{}" || strings.Contains(e.Target+string(e.Details), tokens.Hash(first)) {
+				t.Errorf("event = %+v", e)
+			}
+		}
+		if creates != 3 || revokes != 1 {
+			t.Errorf("creates %d revokes %d", creates, revokes)
+		}
 	})
 }
 

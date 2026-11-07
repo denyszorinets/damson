@@ -332,7 +332,8 @@ random bytes and prints it **exactly once** on stdout (``--json`` gives
 (``instance_settings`` key ``auth.admin_token_hash``). Creating again replaces
 it and the old token stops working immediately; that is how you rotate it. It
 is one shared token until OIDC arrives in M8, which keeps it as the recovery
-token.
+token. Create and revoke each write an ``admin_token.create`` or
+``admin_token.revoke`` audit event (no token or hash in it).
 
 ``kek generate`` prints a new 32-byte base64 key on stdout and the ``kek_id``
 plus a warning on stderr. It needs no database or config. Keep the key safe:
