@@ -10,6 +10,7 @@ import (
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 	"github.com/denyszorinets/damson/pkg/pluginsdk/plugintest"
 	"github.com/denyszorinets/damson/plugins/all"
+	"github.com/denyszorinets/damson/plugins/internal/ansibletest"
 	"github.com/denyszorinets/damson/plugins/internal/ftptest"
 	"github.com/denyszorinets/damson/plugins/internal/s3test"
 	"github.com/denyszorinets/damson/plugins/internal/sshtest"
@@ -68,7 +69,26 @@ func contractOptions(t *testing.T) map[string]plugintest.Options {
 	winBlocking := winCase("blocking", `{"node":"win1","auth":"basic","command":"block"}`)
 	// An endless source keeps the transfer running until it is cancelled.
 	transferBlocking := transferCase("blocking", "/dev/zero", filepath.Join(dir, "never"))
+	// ansible: fake ansible binaries and a local repository; the credentials are
+	// bundle values, so the suite checks they never leak.
+	ansibleURL, _ := ansibletest.Repo(t)
+	fake := ansibletest.Install(t)
+	fake.Stats(t, `{"web1":{"ok":1,"changed":0,"failed":0,"unreachable":0,"skipped":0}}`)
+	ansibleCase := func(name, playbook string) plugintest.Case {
+		return plugintest.Case{
+			Name:  name,
+			Input: json.RawMessage(fmt.Sprintf(`{"repo":{"url":%q,"ref":"main"},"playbook":%q,"hosts":["web1"],"vault_password":"secret://ans/vault"}`, ansibleURL, playbook)),
+			Nodes: map[string]pluginsdk.NodeInfo{"web1": {Name: "web1", Address: "10.0.0.1", Transport: "ssh", Credential: "secret://ans/cred", HostKeyPolicy: "strict", Tags: []string{"web"}}},
+			Bundle: map[string]map[string]string{
+				"secret://ans/cred":  {"username": "ops", "password": "contract-ansible-PASSWORD"},
+				"secret://ans/vault": {"value": "contract-vault-PASSWORD"},
+			},
+			Config: map[string]string{"allow_insecure_git": "true"},
+		}
+	}
+	ansibleBlocking := ansibleCase("blocking", "block.yml")
 	return map[string]plugintest.Options{
+		"ansible": {Cases: []plugintest.Case{ansibleCase("playbook", "site.yml")}, Blocking: &ansibleBlocking},
 		"winrm": {
 			Cases:    []plugintest.Case{winCase("command", `{"node":"win1","auth":"basic","command":"echo hello"}`)},
 			Blocking: &winBlocking,

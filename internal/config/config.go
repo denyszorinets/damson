@@ -132,6 +132,9 @@ type Agent struct {
 	// AllowPlainS3 lets the transfer plugin use an s3 endpoint over plain
 	// http (credentials and data in clear text). Off by default; use https.
 	AllowPlainS3 bool `koanf:"allow_plain_s3"`
+	// AllowInsecureGit lets the ansible plugin clone from http://, git:// and
+	// file:// URLs. Off by default; use https or ssh.
+	AllowInsecureGit bool `koanf:"allow_insecure_git"`
 }
 
 // SlogLevel returns the configured level. Validate guarantees it parses.
@@ -186,5 +189,6 @@ func defaults() map[string]any {
 		"agent.tls_ca_file":                  "",
 		"agent.allow_insecure_winrm":         false,
 		"agent.allow_plain_ftp":              false,
+		"agent.allow_insecure_git":           false,
 	}
 }

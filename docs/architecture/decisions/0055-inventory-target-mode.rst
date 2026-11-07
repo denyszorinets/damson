@@ -97,6 +97,13 @@ Consequences
   controller's for the same ``name@version`` and a schema conflict can be
   flagged until all controllers run the same version. No inventory plugin
   shipped before this change.
+- The ansible plugin marks every inventory string and every ``extra_vars``
+  string unsafe (never templated by Jinja2), so inventory attributes (written by
+  external systems) and run parameters (filled in by runners) cannot run lookups
+  on the agent. This changes the meaning of a templated ``extra_vars`` value: it
+  is now literal, and the playbook templates its own text. A repository's
+  ``ansible.cfg``, ``host_vars`` and play variables are trusted code and can
+  still turn host key checking off; ansible steps belong in a dedicated pool.
 - Credentials of up to 1000 nodes are in agent memory for the run; the plugin
   writes them only to 0600 files that it removes on every exit path.
 
