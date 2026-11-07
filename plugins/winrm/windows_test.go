@@ -160,30 +160,53 @@ func TestRealHTTPWithNTLMSealing(t *testing.T) {
 }
 
 // Cancelling a running step returns promptly and ends the process on the host.
+// The first shell can take 25 s to start, so the cancel waits until the script
+// has recorded its pid, then checks that this process is gone afterwards.
 func TestRealCancelEndsTheRunningProcess(t *testing.T) {
 	mk := realFixture(t, "")
 	pidFile := `$env:TEMP\damson-cancel.pid`
 	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(10*time.Second, cancel)
-	start := time.Now()
-	script := "$PID | Out-File -Encoding ascii " + pidFile + "\nStart-Sleep -Seconds 300"
-	o := plugintest.Exec(ctx, t, plug(), mk(map[string]any{"powershell": script}))
-	if d := time.Since(start); d > 40*time.Second {
-		t.Fatalf("cancel took %s", d)
+	defer cancel()
+	type result struct {
+		o plugintest.Outcome
+		d time.Duration
 	}
-	requireKind(t, o, pluginsdk.KindCancelled, "")
-	check := "$p = [int](Get-Content " + pidFile + ")\nif (Get-Process -Id $p -ErrorAction SilentlyContinue) { exit 9 }"
+	done := make(chan result, 1)
+	var cancelledAt time.Time
+	go func() {
+		script := "$PID | Out-File -Encoding ascii " + pidFile + "\nStart-Sleep -Seconds 300"
+		o := plugintest.Exec(ctx, t, plug(), mk(map[string]any{"powershell": script}))
+		done <- result{o, time.Since(cancelledAt)}
+	}()
+	// Wait until the process is up: the pid file exists and names a live process.
+	alive := "$p = [int](Get-Content " + pidFile + " -ErrorAction Stop)\nif ($p -le 0) { exit 8 }\nGet-Process -Id $p -ErrorAction Stop | Out-Null"
+	up := time.Now().Add(90 * time.Second)
+	for {
+		if realExec(t, mk(map[string]any{"powershell": alive})).Result.Error == nil {
+			break
+		}
+		if time.Now().After(up) {
+			cancel()
+			t.Fatal("the long step never started on the host")
+		}
+		time.Sleep(2 * time.Second)
+	}
+	cancelledAt = time.Now()
+	cancel()
+	r := <-done
+	if r.d > 40*time.Second {
+		t.Fatalf("cancel took %s", r.d)
+	}
+	requireKind(t, r.o, pluginsdk.KindCancelled, "")
+	gone := "$p = [int](Get-Content " + pidFile + " -ErrorAction Stop)\nif (Get-Process -Id $p -ErrorAction SilentlyContinue) { exit 9 }"
 	deadline := time.Now().Add(30 * time.Second)
 	for {
-		o := realExec(t, mk(map[string]any{"powershell": check}))
+		o := realExec(t, mk(map[string]any{"powershell": gone}))
 		if o.Result.Error == nil {
 			return
 		}
 		if time.Now().After(deadline) {
-			// Say whether the node still has the shell (the delete never arrived) or
-			// has no shell but a live process.
-			diag := realExec(t, mk(map[string]any{"powershell": "Get-WSManInstance -ResourceURI shell -Enumerate | ForEach-Object { 'shell ' + $_.ShellId + ' idle=' + $_.IdleTime + ' owner=' + $_.Owner }\nGet-Process -Id ([int](Get-Content " + pidFile + ")) | Format-List Id,StartTime,Name | Out-String"}))
-			t.Fatalf("the process is still running on the host: %v\n%s", o.Result.Error, diag.Result.Outputs)
+			t.Fatalf("the process is still running on the host: %v", o.Result.Error)
 		}
 		time.Sleep(2 * time.Second)
 	}
