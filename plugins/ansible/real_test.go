@@ -83,6 +83,9 @@ func TestRealAnsible(t *testing.T) {
 			t.Fatalf("plugin fault: %v", o.Err)
 		}
 		if o.Result.Error != nil {
+			t.Logf("ansible output:\n%s", o.Emitter.Text())
+		}
+		if o.Result.Error != nil {
 			errKind = string(o.Result.Error.Kind) + ": " + o.Result.Error.Message
 		}
 		return string(o.Result.Outputs), errKind
@@ -127,7 +130,7 @@ func TestRealAnsibleDoesNotTemplateUntrustedStrings(t *testing.T) {
 	c.Bundle["secret://h/tmpl"] = map[string]string{"username": "u{{ 1+1 }}", "private_key": keyBody}
 	o := exec(t, c)
 	if o.Result.Error != nil {
-		t.Fatalf("show.yml failed: %v", o.Result.Error)
+		t.Fatalf("show.yml failed: %v\n%s", o.Result.Error, o.Emitter.Text())
 	}
 	got := o.Emitter.Text()
 	for _, want := range []string{"motd=[{{ 7*7 }}]", "who=[u{{ 1+1 }}]", "plain=[{{ lookup('pipe','echo PWNED-PLAIN') }}]"} {

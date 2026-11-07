@@ -82,9 +82,16 @@ func pump(r io.Reader, emit pluginsdk.Emitter, stream pluginsdk.Stream) {
 // reach a Galaxy mirror or proxy.
 func environment(workDir string) []string {
 	home := filepath.Join(workDir, "home")
+	// The agent's HOME is kept so a user-site Python install of ansible (pip
+	// install --user) still imports; ansible itself writes only under ANSIBLE_HOME
+	// and ANSIBLE_LOCAL_TEMP, and ssh ignores ~ (it runs with -F /dev/null).
+	userHome := os.Getenv("HOME")
+	if userHome == "" {
+		userHome = home
+	}
 	env := []string{
 		"PATH=" + os.Getenv("PATH"),
-		"HOME=" + home,
+		"HOME=" + userHome,
 		"ANSIBLE_HOME=" + filepath.Join(home, ".ansible"),
 		"ANSIBLE_LOCAL_TEMP=" + filepath.Join(home, "tmp"),
 		"ANSIBLE_NOCOLOR=1",
