@@ -159,6 +159,13 @@ written as a double underscore: ``agent.controller_url`` is
      - Let the ``transfer`` plugin use ``protocol: ftp`` (clear text). Without it
        plain ftp is refused. Environment variable
        ``DAMSON_AGENT__ALLOW_PLAIN_FTP`` (:doc:`/reference/plugin-transfer`).
+   * - ``agent.allow_insecure_git``
+     - agent
+     - ``false``
+     - Let the ``ansible`` plugin clone from ``http://``, ``git://`` and
+       ``file://`` URLs. Without it only ``https`` and ``ssh`` are accepted.
+       Environment variable ``DAMSON_AGENT__ALLOW_INSECURE_GIT``
+       (:doc:`/reference/plugin-ansible`).
    * - ``agent.allow_plain_s3``
      - agent
      - ``false``

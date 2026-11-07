@@ -36,6 +36,14 @@ func TestPluginConfig(t *testing.T) {
 	if err != nil || got["transfer"]["allow_plain_s3"] != "true" || got["transfer"]["allow_plain_ftp"] != "" || got["ssh"] != nil {
 		t.Errorf("plugin config = %v, %v", got, err)
 	}
+	got, err = pluginConfig(config.Agent{AllowInsecureGit: true})
+	if err != nil || got["ansible"]["allow_insecure_git"] != "true" || got["ansible"]["allow_insecure_host_keys"] != "" || got["transfer"] != nil {
+		t.Errorf("plugin config = %v, %v", got, err)
+	}
+	got, err = pluginConfig(config.Agent{AllowInsecureHostKeys: true})
+	if err != nil || got["ansible"]["allow_insecure_host_keys"] != "true" || got["ansible"]["allow_insecure_git"] != "" {
+		t.Errorf("plugin config = %v, %v", got, err)
+	}
 	// The winrm gate is its own setting; allow_insecure_host_keys does not open it.
 	got, err = pluginConfig(config.Agent{AllowInsecureWinRM: true})
 	if err != nil || got["winrm"]["allow_insecure_winrm"] != "true" || got["ssh"] != nil || got["transfer"] != nil {

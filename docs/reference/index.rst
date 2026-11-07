@@ -11,5 +11,6 @@ Reference
    protocol
    agent
    plugin-ssh
+   plugin-ansible
    plugin-transfer
    plugin-winrm

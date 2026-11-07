@@ -16,6 +16,7 @@ import (
 	"github.com/denyszorinets/damson/internal/store/tokens"
 	"github.com/denyszorinets/damson/internal/version"
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
+	"github.com/denyszorinets/damson/plugins/ansible"
 	"github.com/denyszorinets/damson/plugins/ssh"
 	"github.com/denyszorinets/damson/plugins/transfer"
 	"github.com/denyszorinets/damson/plugins/winrm"
@@ -63,6 +64,15 @@ func pluginConfig(cfg config.Agent) (map[string]map[string]string, error) {
 		out["ssh"] = map[string]string{ssh.ConfigAllowInsecureHostKeys: "true"}
 		out["transfer"] = map[string]string{transfer.ConfigAllowInsecureHostKeys: "true"}
 	}
+	if cfg.AllowInsecureHostKeys || cfg.AllowInsecureGit {
+		out["ansible"] = map[string]string{}
+	}
+	if cfg.AllowInsecureHostKeys {
+		out["ansible"][ansible.ConfigAllowInsecureHostKeys] = "true"
+	}
+	if cfg.AllowInsecureGit {
+		out["ansible"][ansible.ConfigAllowInsecureGit] = "true"
+	}
 	if cfg.AllowInsecureWinRM {
 		out["winrm"] = map[string]string{winrm.ConfigAllowInsecureWinRM: "true"}
 	}
@@ -94,6 +104,10 @@ func pluginConfig(cfg config.Agent) (map[string]map[string]string, error) {
 			out["winrm"] = map[string]string{}
 		}
 		out["winrm"][winrm.ConfigTLSCAPEM] = string(pem)
+		if out["ansible"] == nil {
+			out["ansible"] = map[string]string{}
+		}
+		out["ansible"][ansible.ConfigTLSCAPEM] = string(pem)
 	}
 	if len(out) == 0 {
 		return nil, nil

@@ -572,10 +572,11 @@ One plugin covers server-to-server copies *and* S3 in both directions. It uses `
 - **Execution on the agent:**
   1. Shared checkout (`plugins/internal/gitcheckout`: depth-1 fetch of a branch, tag or commit, detached) into `WorkDir`. An optional local cache keyed by URL and commit is allowed.
   2. Write credentials to `WorkDir/creds/` (mode 0600, on tmpfs when available). Remove them after.
-  3. Write the embedded Python callback plugin `damson_events.py`. It emits JSON lines per task and host result plus the final recap to a file descriptor the agent reads.
+  3. Write the embedded Python callback plugin `damson_events.py`. It emits JSON lines per task and host result (names and statuses only, never results) plus the final recap to `DAMSON_EVENTS_FILE`, which the plugin reads after the run.
   4. Run `ansible-playbook` with `ANSIBLE_CALLBACKS_ENABLED=damson_events`. Human-readable stdout is streamed as logs.
 - **Output:** `stats` (per host: ok, changed, failed, unreachable, skipped), `failed_hosts`, `changed_hosts`, `commit` (the resolved SHA).
-- **Error mapping:** unreachable hosts map to `connection`, failed tasks to `exit_code`.
+- **Error mapping:** unreachable hosts map to `connection`, failed tasks to `exit_code`. `output` also has `exit_code`; a failed step still returns it.
+- **Status:** implemented (#181; `docs/reference/plugin-ansible.rst`), tested with fake ansible binaries and, where `ansible-playbook` is installed (CI installs ansible-core), on a real ansible-core. Hosts and credentials: ADR-0055; host keys use a per-node `HostKeyAlias`; `agent.allow_insecure_git` gates `http`/`git`/`file` repository URLs.
 - **Agent image:** pinned `ansible-core`, `git`, and a curated set of collections. Users can build derived images. The agent advertises `bin:ansible-playbook` and `bin:git` capabilities.
 
 ### 6.5 `buildah`

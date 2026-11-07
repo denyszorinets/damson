@@ -70,6 +70,9 @@ is masked before it leaves (plain, base64 and URL-encoded forms).
 * ``agent.allow_plain_ftp`` (``DAMSON_AGENT__ALLOW_PLAIN_FTP``) lets the ``transfer``
   plugin use ``protocol: ftp``, which sends the password and the data in clear
   text. Off by default; use ``ftps``. It is separate from the other two switches.
+* ``agent.allow_insecure_git`` (``DAMSON_AGENT__ALLOW_INSECURE_GIT``) lets the
+  ``ansible`` plugin clone from ``http://``, ``git://`` and ``file://`` URLs.
+  Off by default; use ``https`` or ``ssh``. Separate from the other switches.
 * ``agent.allow_plain_s3`` (``DAMSON_AGENT__ALLOW_PLAIN_S3``) lets the ``transfer``
   plugin use an ``s3`` endpoint over plain ``http://``; the keys and the data
   travel in clear text. Off by default; use ``https``. Separate from the other
