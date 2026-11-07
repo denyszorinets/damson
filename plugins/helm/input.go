@@ -91,7 +91,7 @@ var (
 	versionRe   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$`)
 	chartNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	ociRe       = regexp.MustCompile(`^oci://[a-z0-9][a-z0-9.:/_-]*$`)
-	setKeyRe    = regexp.MustCompile(`^[A-Za-z0-9_.\[\]-]+$`)
+	setKeyRe    = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.\[\]-]*$`)
 	registryRe  = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*(:[0-9]{1,5})?$`)
 	ctxNameRe   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9@_.:/-]*$`)
 )
@@ -128,6 +128,8 @@ func (in Input) validate() error {
 		return pluginsdk.ValidationError("rollback_revision must not be negative")
 	case in.RollbackRevision > 0 && in.Action != actionRollback:
 		return pluginsdk.ValidationError("rollback_revision needs action rollback")
+	case in.Action == actionUpgrade && in.atomic() && in.Wait != nil && !*in.Wait:
+		return pluginsdk.ValidationError("wait=false needs atomic=false: helm's --atomic always waits")
 	}
 	if err := in.validateCluster(); err != nil {
 		return err
@@ -159,8 +161,10 @@ func (in Input) validate() error {
 		seen[rc.Registry] = true
 	}
 	for _, f := range in.ValuesFiles {
-		if err := safeRepoPath("values_files", f, false); err != nil {
-			return err
+		// Relative to the chart directory; "../shared.yaml" is fine as long as it
+		// stays inside the checkout, which resolveInRepo enforces.
+		if f == "" || strings.ContainsAny(f, "\x00\n\r") || path.IsAbs(f) || strings.HasPrefix(f, "-") {
+			return pluginsdk.ValidationError("values_files must be relative paths")
 		}
 	}
 	if len(in.ValuesFiles) > 0 && (in.Chart.Git == nil) {
@@ -216,9 +220,9 @@ func (in Input) validateChart() error {
 			return pluginsdk.ValidationError("chart.oci must look like oci://registry.internal/charts/app, without a tag (use version)")
 		}
 	case c.Repo != nil:
-		if !strings.HasPrefix(c.Repo.URL, "https://") || strings.ContainsAny(c.Repo.URL, " \x00\n\r") || !chartNameRe.MatchString(c.Repo.Name) ||
+		if !strings.HasPrefix(c.Repo.URL, "https://") || strings.ContainsAny(c.Repo.URL, " \x00\n\r@") || !chartNameRe.MatchString(c.Repo.Name) ||
 			(c.Repo.Version != "" && !versionRe.MatchString(c.Repo.Version)) {
-			return pluginsdk.ValidationError("chart.repo needs an https url, a chart name and an optional version")
+			return pluginsdk.ValidationError("chart.repo needs an https url without credentials, a chart name and an optional version")
 		}
 	case c.Git != nil:
 		if c.Git.URL == "" {

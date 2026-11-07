@@ -4,4 +4,4 @@ package proc
 
 import "os/exec"
 
-func prepare(*exec.Cmd) {}
+func prepare(*exec.Cmd, bool) {}

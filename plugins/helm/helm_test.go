@@ -98,7 +98,7 @@ func has(args []string, seq ...string) bool {
 
 func TestUpgradeFromAnOCIChart(t *testing.T) {
 	e := newEnv(t)
-	e.fake.Stdout(t, "upgrade", helmtest.Release("app", "team-app", 4, "deployed"))
+	e.fake.Stdout(t, "get", helmtest.Release("app", "team-app", 4, "deployed"))
 	c := e.caseOf(map[string]any{
 		"create_namespace": true, "timeout": "5m", "cluster": map[string]any{"kubeconfig": "secret://team/kubeall", "context": "prod"},
 		"values":               map[string]any{"image": map[string]any{"digest": "sha256:abc"}, "db": map[string]any{"password": "secret://team/db"}},
@@ -112,8 +112,8 @@ func TestUpgradeFromAnOCIChart(t *testing.T) {
 	call := e.fake.Calls(t, "upgrade")[0]
 	for _, seq := range [][]string{
 		{"upgrade", "--install", "app", "oci://registry.test/charts/app", "--version", "2.3.0"}, {"--namespace", "team-app"},
-		{"--kube-context", "prod"}, {"--create-namespace"}, {"--atomic"}, {"--wait"}, {"--timeout", "5m", "--output", "json"},
-		{"--set-string", `a.b=x\,y`}, {"--set-string", `env=back\\slash`}, {"--kubeconfig"}, {"--values"}, {"--registry-config"},
+		{"--kube-context", "prod"}, {"--create-namespace"}, {"--atomic"}, {"--wait"}, {"--timeout", "5m"},
+		{`--set-string=a.b=x\,y`}, {`--set-string=env=back\\slash`}, {"--kubeconfig"}, {"--values"}, {"--registry-config"},
 	} {
 		if !has(call, seq...) {
 			t.Errorf("args lack %v:\n%s", seq, strings.Join(call, " "))
@@ -144,7 +144,7 @@ func TestUpgradeFromAnOCIChart(t *testing.T) {
 
 func TestAtomicAndWaitCanBeTurnedOff(t *testing.T) {
 	e := newEnv(t)
-	e.fake.Stdout(t, "upgrade", helmtest.Release("app", "team-app", 1, "deployed"))
+	e.fake.Stdout(t, "get", helmtest.Release("app", "team-app", 1, "deployed"))
 	requireOK(t, exec(t, e.caseOf(map[string]any{"atomic": false, "wait": false})))
 	call := e.fake.Calls(t, "upgrade")[0]
 	if has(call, "--atomic") || has(call, "--wait") {
@@ -160,7 +160,7 @@ func TestRepoChartAndEnvironment(t *testing.T) {
 	t.Setenv("DAMSON_AGENT__TOKEN", "agent-TOKEN-6602")
 	t.Setenv("HOME", "/home/agentuser")
 	e := newEnv(t)
-	e.fake.Stdout(t, "upgrade", helmtest.Release("app", "team-app", 2, "deployed"))
+	e.fake.Stdout(t, "get", helmtest.Release("app", "team-app", 2, "deployed"))
 	requireOK(t, exec(t, e.caseOf(map[string]any{"chart": map[string]any{"repo": map[string]any{"url": "https://charts.test", "name": "app", "version": "1.0.0"}}})))
 	call := e.fake.Calls(t, "upgrade")[0]
 	if !has(call, "upgrade", "--install", "app", "app", "--repo", "https://charts.test", "--version", "1.0.0") {
@@ -182,11 +182,11 @@ func TestRepoChartAndEnvironment(t *testing.T) {
 func TestGitChartAndValuesFiles(t *testing.T) {
 	e := newEnv(t)
 	url := helmtest.Repo(t)
-	e.fake.Stdout(t, "upgrade", helmtest.Release("app", "team-app", 1, "deployed"))
+	e.fake.Stdout(t, "get", helmtest.Release("app", "team-app", 1, "deployed"))
 	chart := func(path string) map[string]any {
 		return map[string]any{"git": map[string]any{"url": url, "ref": "main", "path": path}}
 	}
-	requireOK(t, exec(t, e.caseOf(map[string]any{"chart": chart("charts/app"), "values_files": []string{"values-prod.yaml"}})))
+	requireOK(t, exec(t, e.caseOf(map[string]any{"chart": chart("charts/app"), "values_files": []string{"values-prod.yaml", "../../shared/common.yaml"}})))
 	call := e.fake.Calls(t, "upgrade")[0]
 	if !strings.HasSuffix(call[3], "/chart/charts/app") || !strings.HasPrefix(call[3], "/") {
 		t.Errorf("chart argument = %q; want the absolute checkout path", call[3])
@@ -207,9 +207,10 @@ func TestGitChartAndValuesFiles(t *testing.T) {
 	}{
 		"no Chart.yaml":     {map[string]any{"chart": chart("charts/nochart")}, "no Chart.yaml"},
 		"symlinked chart":   {map[string]any{"chart": chart("linkchart")}, "resolves outside the repository"},
-		"symlinked values":  {map[string]any{"chart": chart("charts/app"), "values_files": []string{"values-evil.yaml"}}, "resolves outside the repository"},
+		"symlinked values":  {map[string]any{"chart": chart("charts/app"), "values_files": []string{"../../shared/values-evil.yaml"}}, "resolves outside the repository"},
 		"missing values":    {map[string]any{"chart": chart("charts/app"), "values_files": []string{"nope.yaml"}}, "not in the repository"},
 		"missing chart dir": {map[string]any{"chart": chart("charts/zzz")}, "not in the repository"},
+		"chart symlink out": {map[string]any{"chart": chart("charts/leaky")}, "symlink"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			before := len(e.fake.Calls(t, "upgrade"))
@@ -223,7 +224,7 @@ func TestGitChartAndValuesFiles(t *testing.T) {
 
 func TestRollbackFollowsUpWithStatus(t *testing.T) {
 	e := newEnv(t)
-	e.fake.Stdout(t, "status", helmtest.Release("app", "team-app", 6, "deployed"))
+	e.fake.Stdout(t, "get", helmtest.Release("app", "team-app", 6, "deployed"))
 	out := requireOK(t, exec(t, e.caseOf(map[string]any{"action": "rollback", "chart": nil, "rollback_revision": 5})))
 	if out.Revision != 6 || out.Status != "deployed" {
 		t.Fatalf("output = %+v", out)
@@ -232,8 +233,8 @@ func TestRollbackFollowsUpWithStatus(t *testing.T) {
 	if !has(rb, "rollback", "app", "5") || !has(rb, "--wait") {
 		t.Errorf("rollback args = %v", rb)
 	}
-	if st := e.fake.Calls(t, "status"); len(st) != 1 || !has(st[0], "--output", "json") {
-		t.Errorf("status calls = %v", st)
+	if st := e.fake.Calls(t, "get"); len(st) != 1 || !has(st[0], "get", "metadata", "app") || !has(st[0], "--output", "json") {
+		t.Errorf("metadata calls = %v", st)
 	}
 	// Without a revision helm picks the previous one.
 	requireOK(t, exec(t, e.caseOf(map[string]any{"action": "rollback", "chart": nil})))
@@ -244,7 +245,7 @@ func TestRollbackFollowsUpWithStatus(t *testing.T) {
 
 func TestStatusAndUninstall(t *testing.T) {
 	e := newEnv(t)
-	e.fake.Stdout(t, "status", helmtest.Release("app", "team-app", 3, "failed"))
+	e.fake.Stdout(t, "get", helmtest.Release("app", "team-app", 3, "failed"))
 	out := requireOK(t, exec(t, e.caseOf(map[string]any{"action": "status", "chart": nil})))
 	if out.Status != "failed" || out.Revision != 3 {
 		t.Fatalf("status output = %+v", out)
@@ -259,7 +260,7 @@ func TestInClusterIsGated(t *testing.T) {
 	t.Setenv("KUBERNETES_SERVICE_HOST", "10.96.0.1")
 	t.Setenv("KUBERNETES_SERVICE_PORT", "443")
 	e := newEnv(t)
-	e.fake.Stdout(t, "upgrade", helmtest.Release("app", "team-app", 1, "deployed"))
+	e.fake.Stdout(t, "get", helmtest.Release("app", "team-app", 1, "deployed"))
 	c := e.caseOf(map[string]any{"cluster": map[string]any{"in_cluster": true}})
 	requireKind(t, exec(t, c), pluginsdk.KindValidation, helm.ConfigAllowInCluster)
 	if len(e.fake.Calls(t, "upgrade")) != 0 {
@@ -303,8 +304,53 @@ func TestFailuresMapToErrorKinds(t *testing.T) {
 
 func TestUnparsableOutputIsAnInternalError(t *testing.T) {
 	e := newEnv(t)
-	e.fake.Stdout(t, "upgrade", "Release \"app\" has been upgraded. Happy Helming!")
-	requireKind(t, exec(t, e.caseOf(nil)), pluginsdk.KindInternal, "no valid release JSON")
+	e.fake.Stdout(t, "get", "Release \"app\" has been upgraded. Happy Helming!")
+	requireKind(t, exec(t, e.caseOf(nil)), pluginsdk.KindInternal, "no valid JSON")
+}
+
+// helm's own output can be huge (it prints the manifest and notes) and is never
+// parsed: a large upgrade output does not turn a deploy into a failure, and what
+// `helm get metadata` prints beyond the known fields is not returned.
+func TestLargeUpgradeOutputAndExtraMetadataFields(t *testing.T) {
+	e := newEnv(t)
+	e.fake.Stdout(t, "upgrade", strings.Repeat("x", 600_000)+"\nNOTES: all good\n")
+	e.fake.Stdout(t, "get", strings.Replace(helmtest.Release("app", "team-app", 2, "deployed"), "}", `,"config":{"db":"`+dbPassword+`"},"manifest":"secret: `+dbPassword+`"}`, 1))
+	o := exec(t, e.caseOf(nil))
+	out := requireOK(t, o)
+	if out.Revision != 2 {
+		t.Fatalf("output = %+v", out)
+	}
+	if strings.Contains(string(o.Result.Outputs), dbPassword) || strings.Contains(o.Emitter.Text(), dbPassword) {
+		t.Error("a value from helm's release reached the outputs or the log")
+	}
+}
+
+func TestKubeconfigWithFileReferencesOrPluginsIsRefused(t *testing.T) {
+	e := newEnv(t)
+	for name, kc := range map[string]string{
+		"tokenFile":     "users:\n- name: u\n  user:\n    tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token\n",
+		"exec":          "users:\n- name: u\n  user:\n    exec:\n      command: /bin/sh\n",
+		"auth-provider": "users:\n- name: u\n  user:\n    auth-provider:\n      name: gcp\n",
+		"ca file":       "clusters:\n- name: c\n  cluster:\n    certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n",
+		"client key":    "users:\n- name: u\n  user:\n    client-key: /etc/x\n",
+		"client cert":   "users:\n- name: u\n  user:\n    client-certificate: /etc/x\n",
+		"not a mapping": "- a\n- b\n",
+		"not yaml":      "a: [unclosed",
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := e.caseOf(nil)
+			c.Bundle["secret://team/kube"] = map[string]string{"kubeconfig": kc}
+			requireKind(t, exec(t, c), pluginsdk.KindValidation, "kubeconfig")
+			if len(e.fake.Calls(t, "upgrade")) != 0 {
+				t.Fatal("helm ran")
+			}
+		})
+	}
+	// The inline forms are fine.
+	e.fake.Stdout(t, "get", helmtest.Release("app", "team-app", 1, "deployed"))
+	c := e.caseOf(nil)
+	c.Bundle["secret://team/kube"] = map[string]string{"kubeconfig": "clusters:\n- name: c\n  cluster:\n    server: https://k.test\n    certificate-authority-data: QQ==\nusers:\n- name: u\n  user:\n    token: abc\n"}
+	requireOK(t, exec(t, c))
 }
 
 func TestMissingSecretsFailBeforeHelm(t *testing.T) {
@@ -375,7 +421,7 @@ func TestValidate(t *testing.T) {
 
 func TestContract(t *testing.T) {
 	e := newEnv(t)
-	e.fake.Stdout(t, "upgrade", helmtest.Release("app", "team-app", 1, "deployed"))
+	e.fake.Stdout(t, "get", helmtest.Release("app", "team-app", 1, "deployed"))
 	ok := e.caseOf(map[string]any{
 		"values":               map[string]any{"db": map[string]any{"password": "secret://team/db"}},
 		"registry_credentials": []map[string]string{{"registry": "registry.test", "credential": "secret://team/reg"}},

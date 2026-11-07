@@ -80,6 +80,22 @@ func TestCancelDoesNotHangOnAnEscapedChild(t *testing.T) {
 	}
 }
 
+// With a grace period a cancel sends SIGTERM first, so the program can clean up.
+func TestGracefulCancelLetsTheProgramFinish(t *testing.T) {
+	marker := t.TempDir() + "/terminated"
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(500*time.Millisecond, cancel)
+	s := spec("trap 'echo done > " + marker + "; exit 0' TERM; sleep 30 & wait")
+	s.Grace = 10 * time.Second
+	_, err := proc.Run(ctx, s, &plugintest.FakeEmitter{})
+	if se := pluginsdk.AsStepError(err); se == nil || se.Kind != pluginsdk.KindCancelled {
+		t.Fatalf("cancel: %v", err)
+	}
+	if _, serr := os.Stat(marker); serr != nil {
+		t.Fatalf("the program did not get SIGTERM and time to clean up: %v", serr)
+	}
+}
+
 func TestMissingProgramAndCancellation(t *testing.T) {
 	_, err := proc.Run(context.Background(), proc.Spec{Env: []string{"PATH=/nonexistent"}, Name: "no-such-tool"}, &plugintest.FakeEmitter{})
 	if se := pluginsdk.AsStepError(err); se == nil || se.Kind != pluginsdk.KindInternal || !strings.Contains(se.Message, "not installed") {

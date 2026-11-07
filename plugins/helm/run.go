@@ -6,10 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 	"github.com/denyszorinets/damson/plugins/internal/proc"
@@ -88,13 +92,91 @@ func kubeconfig(ref string, req pluginsdk.ExecRequest) (string, error) {
 		if err != nil || v == "" {
 			return "", pluginsdk.NewError(pluginsdk.KindAuth, "resolving the kubeconfig "+ref+" failed", err)
 		}
-		return v, nil
+		return v, validateKubeconfig(v)
 	}
 	f, err := req.Secrets.ResolveFields(ref)
 	if err != nil || f["kubeconfig"] == "" {
 		return "", pluginsdk.NewError(pluginsdk.KindAuth, "the kubeconfig secret "+ref+" cannot be read or has no field kubeconfig", err)
 	}
-	return f["kubeconfig"], nil
+	return f["kubeconfig"], validateKubeconfig(f["kubeconfig"])
+}
+
+// validateKubeconfig refuses a kubeconfig that would let the job reach the
+// agent's own files or run programs on the agent: client-go reads the file
+// fields (tokenFile, certificate-authority, client-certificate, client-key) from
+// the agent's disk, so a job could point them at the agent's service account
+// token, and exec or auth-provider run a program. Only the inline forms (token,
+// certificate-authority-data, client-certificate-data, client-key-data) are
+// accepted.
+func validateKubeconfig(kc string) error {
+	var doc any
+	if err := yaml.Unmarshal([]byte(kc), &doc); err != nil {
+		return pluginsdk.NewError(pluginsdk.KindValidation, "the kubeconfig is not valid YAML", nil)
+	}
+	if _, ok := doc.(map[string]any); !ok {
+		return pluginsdk.ValidationError("the kubeconfig is not a YAML mapping")
+	}
+	if bad := forbiddenKubeconfigKey(doc); bad != "" {
+		return pluginsdk.ValidationError("the kubeconfig uses %q, which is not allowed: file references and exec or auth-provider plugins are refused; use the inline -data forms and a token", bad)
+	}
+	return nil
+}
+
+func forbiddenKubeconfigKey(v any) string {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, e := range x {
+			switch k {
+			case "exec", "auth-provider", "tokenFile", "certificate-authority", "client-certificate", "client-key":
+				return k
+			}
+			if bad := forbiddenKubeconfigKey(e); bad != "" {
+				return bad
+			}
+		}
+	case []any:
+		for _, e := range x {
+			if bad := forbiddenKubeconfigKey(e); bad != "" {
+				return bad
+			}
+		}
+	}
+	return ""
+}
+
+// checkNoEscapingSymlinks walks the chart directory and refuses a symlink that
+// resolves outside the checkout: helm follows symlinks inside a chart, so
+// .Files.Get could otherwise read any file the agent can (its service account
+// token, other steps' work directories) and render it into a deployment or an
+// error message.
+func checkNoEscapingSymlinks(chartDir, root string) error {
+	rootReal, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return pluginsdk.NewError(pluginsdk.KindInternal, "resolving the checkout failed", err)
+	}
+	return filepath.WalkDir(chartDir, func(p string, d fs.DirEntry, werr error) error {
+		if werr != nil {
+			return pluginsdk.NewError(pluginsdk.KindInternal, "reading the chart failed", werr)
+		}
+		if d.Type()&fs.ModeSymlink == 0 {
+			return nil
+		}
+		target, rerr := filepath.EvalSymlinks(p)
+		if rerr != nil {
+			return pluginsdk.ValidationError("the chart has a broken symlink %q", relTo(chartDir, p))
+		}
+		if rel, e := filepath.Rel(rootReal, target); e != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return pluginsdk.ValidationError("the chart has a symlink %q that resolves outside the repository", relTo(chartDir, p))
+		}
+		return nil
+	})
+}
+
+func relTo(base, p string) string {
+	if rel, err := filepath.Rel(base, p); err == nil {
+		return rel
+	}
+	return p
 }
 
 func writeSecret(path string, data []byte) error {
@@ -227,6 +309,9 @@ func (r *runner) resolveChart(ctx context.Context, req pluginsdk.ExecRequest, em
 		if st, serr := os.Stat(filepath.Join(chart, "Chart.yaml")); serr != nil || !st.Mode().IsRegular() {
 			return pluginsdk.ValidationError("chart.git.path %q has no Chart.yaml", rel)
 		}
+		if err := checkNoEscapingSymlinks(chart, dir); err != nil {
+			return err
+		}
 		r.chartRef = chart
 		for _, vf := range r.in.ValuesFiles {
 			full, err := resolveInRepo(dir, "values_files", filepath.Join(rel, vf))
@@ -288,7 +373,7 @@ func (r *runner) args() []string {
 			args = append(args, "--values", r.files.values)
 		}
 		for _, k := range sortedKeys(in.Set) {
-			args = append(args, "--set-string", k+"="+escapeSet(in.Set[k]))
+			args = append(args, "--set-string="+k+"="+escapeSet(in.Set[k]))
 		}
 		if in.atomic() {
 			args = append(args, "--atomic")
@@ -296,7 +381,7 @@ func (r *runner) args() []string {
 		if in.wait() {
 			args = append(args, "--wait")
 		}
-		return append(args, "--timeout", in.timeout(), "--output", "json")
+		return append(args, "--timeout", in.timeout())
 	case actionRollback:
 		args := []string{"rollback", in.Release}
 		if in.RollbackRevision > 0 {
@@ -314,11 +399,15 @@ func (r *runner) args() []string {
 		}
 		return append(args, "--timeout", in.timeout())
 	}
-	return r.statusArgs()
+	return r.metadataArgs()
 }
 
-func (r *runner) statusArgs() []string {
-	return append(append([]string{"status", r.in.Release}, r.global()...), "--output", "json")
+// metadataArgs reads the release back with `helm get metadata`, which prints
+// only name, namespace, revision, status, chart, version and app version. The
+// plugin never parses (or holds) helm's release object, which carries the
+// resolved values and the rendered manifests.
+func (r *runner) metadataArgs() []string {
+	return append(append([]string{"get", "metadata", r.in.Release}, r.global()...), "--output", "json")
 }
 
 // escapeSet escapes the characters that --set-string treats specially.
@@ -335,47 +424,57 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
-// run executes the action and builds the output.
+// run executes the action and reads the release back.
 func (r *runner) run(ctx context.Context, emit pluginsdk.Emitter) (Output, error) {
-	res, stdout, err := r.helm(ctx, r.args(), emit)
-	if err != nil {
-		return Output{}, err
-	}
-	if res.ExitCode != 0 {
-		return Output{}, classify(r.in.Action, res)
-	}
-	switch r.in.Action {
-	case actionUninstall:
-		return Output{Release: r.in.Release, Namespace: r.in.Namespace, Status: "uninstalled"}, nil
-	case actionRollback:
-		// Rollback prints no JSON: follow up with the status of the release.
-		res, stdout, err = r.helm(ctx, r.statusArgs(), emit)
+	if r.in.Action != actionStatus {
+		res, err := r.helm(ctx, r.args(), emit, true)
 		if err != nil {
 			return Output{}, err
 		}
 		if res.ExitCode != 0 {
-			return Output{}, classify("status", res)
+			return Output{}, classify(r.in.Action, res)
+		}
+		if r.in.Action == actionUninstall {
+			return Output{Release: r.in.Release, Namespace: r.in.Namespace, Status: "uninstalled"}, nil
 		}
 	}
-	return parseRelease(stdout, r.in)
+	var meta strings.Builder
+	res, err := proc.Run(ctx, proc.Spec{Dir: r.workDir, Env: r.env, Name: "helm", Args: r.metadataArgs()}, &capture{emit: emit, out: &meta})
+	if err != nil {
+		return Output{}, err
+	}
+	if res.ExitCode != 0 {
+		return Output{}, classify("get metadata", res)
+	}
+	return parseMetadata(meta.String(), r.in)
 }
 
-// helm runs one helm command. Its JSON output is captured, not logged.
-func (r *runner) helm(ctx context.Context, args []string, emit pluginsdk.Emitter) (proc.Result, string, error) {
-	cp := &capture{emit: emit}
-	res, err := proc.Run(ctx, proc.Spec{Dir: r.workDir, Env: r.env, Name: "helm", Args: args}, cp)
-	return res, cp.stdout(), err
+// helm runs one helm command; with graceful a cancel sends SIGTERM first, so
+// an atomic upgrade can roll itself back.
+func (r *runner) helm(ctx context.Context, args []string, emit pluginsdk.Emitter, graceful bool) (proc.Result, error) {
+	spec := proc.Spec{Dir: r.workDir, Env: r.env, Name: "helm", Args: args}
+	if graceful {
+		spec.Grace = terminationGrace
+	}
+	return proc.Run(ctx, spec, emit)
 }
 
-// capture keeps stdout (helm's JSON) and forwards everything else to the log.
+// terminationGrace is how long helm gets to finish after a cancel (an atomic
+// upgrade rolls back). The step's own timeout must exceed helm's timeout plus
+// this, or a timed-out step leaves the release in a pending state.
+const terminationGrace = 60 * time.Second
+
+// capture keeps stdout (the small JSON of `helm get metadata`) and forwards
+// everything else to the log.
 type capture struct {
 	emit pluginsdk.Emitter
-	out  []string
+	out  *strings.Builder
 }
 
 func (c *capture) Log(stream pluginsdk.Stream, line string) {
 	if stream == pluginsdk.Stdout {
-		c.out = append(c.out, line)
+		c.out.WriteString(line)
+		c.out.WriteByte('\n')
 		return
 	}
 	c.emit.Log(stream, line)
@@ -383,34 +482,23 @@ func (c *capture) Log(stream pluginsdk.Stream, line string) {
 
 func (c *capture) Progress(pct float64, msg string) { c.emit.Progress(pct, msg) }
 
-func (c *capture) stdout() string { return strings.Join(c.out, "\n") }
-
-// release is the part of helm's JSON release object the plugin reads.
-type release struct {
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
-	Version   int    `json:"version"`
-	Info      struct {
-		Status string `json:"status"`
-	} `json:"info"`
-	Chart struct {
-		Metadata struct {
-			Name       string `json:"name"`
-			Version    string `json:"version"`
-			AppVersion string `json:"appVersion"`
-		} `json:"metadata"`
-	} `json:"chart"`
+// metadata is the output of `helm get metadata --output json`.
+type metadata struct {
+	Name       string `json:"name"`
+	Namespace  string `json:"namespace"`
+	Revision   int    `json:"revision"`
+	Status     string `json:"status"`
+	Chart      string `json:"chart"`
+	Version    string `json:"version"`
+	AppVersion string `json:"appVersion"`
 }
 
-func parseRelease(stdout string, in Input) (Output, error) {
-	var rel release
-	if err := json.Unmarshal([]byte(stdout), &rel); err != nil || rel.Name == "" {
-		return Output{}, pluginsdk.NewError(pluginsdk.KindInternal, "helm printed no valid release JSON", errors.New("unparsable helm output"))
+func parseMetadata(stdout string, in Input) (Output, error) {
+	var m metadata
+	if err := json.Unmarshal([]byte(stdout), &m); err != nil || m.Name == "" {
+		return Output{}, pluginsdk.NewError(pluginsdk.KindInternal, "helm get metadata printed no valid JSON (helm 3.13 or newer is required)", errors.New("unparsable helm output"))
 	}
-	out := Output{
-		Release: rel.Name, Namespace: rel.Namespace, Revision: rel.Version, Status: rel.Info.Status,
-		Chart: rel.Chart.Metadata.Name, ChartVersion: rel.Chart.Metadata.Version, AppVersion: rel.Chart.Metadata.AppVersion,
-	}
+	out := Output{Release: m.Name, Namespace: m.Namespace, Revision: m.Revision, Status: m.Status, Chart: m.Chart, ChartVersion: m.Version, AppVersion: m.AppVersion}
 	if out.Namespace == "" {
 		out.Namespace = in.Namespace
 	}
@@ -418,14 +506,16 @@ func parseRelease(stdout string, in Input) (Output, error) {
 }
 
 // classify maps a failed helm command to a step error. Only helm's own "Error:"
-// lines are read.
+// lines are read, and only phrases that client-go and helm use for these cases.
 func classify(action string, res proc.Result) error {
 	low := strings.ToLower(errorLines(res.Stderr))
 	msg := fmt.Sprintf("helm %s exited with code %d", action, res.ExitCode)
 	switch {
-	case containsAny(low, "unauthorized", "forbidden", "authentication required", "denied:", "requested access to the resource is denied", "you must be logged in", "invalid username/password"):
+	case containsAny(low, "another operation (install/upgrade/rollback) is in progress"):
+		return pluginsdk.ExitCodeError(res.ExitCode, msg+": another operation is in progress on this release (a previous step may have been interrupted; run a rollback)")
+	case containsAny(low, ": unauthorized", "is forbidden: user", "authentication required", "denied: ", "requested access to the resource is denied", "you must be logged in", "invalid username/password"):
 		return pluginsdk.NewError(pluginsdk.KindAuth, msg+": authentication or authorization failed", nil)
-	case containsAny(low, "cluster unreachable", "no such host", "connection refused", "i/o timeout", "network is unreachable", "dial tcp", "tls handshake timeout", "x509:", "certificate", "no route to host"):
+	case containsAny(low, "cluster unreachable", "no such host", "connection refused", "i/o timeout", "network is unreachable", "dial tcp", "tls handshake timeout", "x509:", "failed to verify certificate", "no route to host"):
 		return pluginsdk.NewError(pluginsdk.KindConnection, msg+": the cluster or registry is unreachable", nil)
 	case containsAny(low, "timed out waiting for the condition", "context deadline exceeded"):
 		return pluginsdk.NewError(pluginsdk.KindTimeout, msg+": timed out waiting for the release to become ready", nil)

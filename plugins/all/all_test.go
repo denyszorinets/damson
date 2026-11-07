@@ -108,14 +108,14 @@ func contractOptions(t *testing.T) map[string]plugintest.Options {
 	// helm: fake helm; the kubeconfig and the registry password are bundle values,
 	// so the suite checks they never leak.
 	helmFake := helmtest.Install(t)
-	helmFake.Stdout(t, "upgrade", helmtest.Release("app", "team-app", 1, "deployed"))
+	helmFake.Stdout(t, "get", helmtest.Release("app", "team-app", 1, "deployed"))
 	helmCase := func(name, release string) plugintest.Case {
 		return plugintest.Case{
 			Name:  name,
 			Input: json.RawMessage(fmt.Sprintf(`{"release":%q,"namespace":"team-app","chart":{"oci":"oci://registry.test/charts/app","version":"2.3.0"},"cluster":{"kubeconfig":"secret://h/kube#kubeconfig"},"registry_credentials":[{"registry":"registry.test","credential":"secret://h/reg"}]}`, release)),
 			Bundle: map[string]map[string]string{
 				"secret://h/reg":  {"username": "puller", "password": "contract-helm-REGISTRY-PW"},
-				"secret://h/kube": {"kubeconfig": "contract-KUBECONFIG-secret"},
+				"secret://h/kube": {"kubeconfig": "apiVersion: v1\nkind: Config\n# contract-KUBECONFIG-secret\n"},
 			},
 		}
 	}

@@ -35,10 +35,10 @@ code=0
 exit "$code"
 `
 
-// Release returns a helm release JSON.
+// Release returns the JSON of `helm get metadata --output json`.
 func Release(name, ns string, revision int, status string) string {
-	return `{"name":"` + name + `","namespace":"` + ns + `","version":` + itoa(revision) +
-		`,"info":{"status":"` + status + `"},"chart":{"metadata":{"name":"app","version":"2.3.0","appVersion":"1.9.1"}}}`
+	return `{"name":"` + name + `","namespace":"` + ns + `","revision":` + itoa(revision) +
+		`,"status":"` + status + `","chart":"app","version":"2.3.0","appVersion":"1.9.1"}`
 }
 
 func itoa(n int) string {
@@ -119,7 +119,7 @@ func (f *Fake) Read(t *testing.T, name string) string {
 }
 
 // Repo creates a git repository with the chart charts/app (Chart.yaml and
-// values-prod.yaml) and two symlinks that leave the repository, and returns its
+// values-prod.yaml, plus shared/ values files), a chart with a symlink that leaves the repository, and a symlinked values file, and returns its
 // file:// URL (which needs the plugin's allow_insecure_git setting).
 func Repo(t *testing.T) string {
 	t.Helper()
@@ -152,7 +152,22 @@ func Repo(t *testing.T) string {
 	if err := os.Symlink("..", filepath.Join(dir, "linkchart")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("/etc/passwd", filepath.Join(dir, "charts", "app", "values-evil.yaml")); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "shared"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc/passwd", filepath.Join(dir, "shared", "values-evil.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "shared", "common.yaml"), []byte("tier: prod\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "charts", "leaky", "files"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "charts", "leaky", "Chart.yaml"), []byte("apiVersion: v2\nname: leaky\nversion: 0.1.0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc/passwd", filepath.Join(dir, "charts", "leaky", "files", "token")); err != nil {
 		t.Fatal(err)
 	}
 	run("add", ".")

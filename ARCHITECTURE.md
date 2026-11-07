@@ -634,10 +634,10 @@ Deploys charts to Kubernetes. It runs on the agent (`TargetMode = None`).
 - **Execution:**
   1. Write `values` to `WorkDir/values.json`.
   2. Write the kubeconfig to `WorkDir/creds/` (0600).
-  3. Run the helm command. `upgrade` and `status` use `--output json`; after `rollback`, the plugin follows up with `helm status --output json`.
+  3. Run the helm command, then read the release back with `helm get metadata --output json` (helm 3.13 or newer); the release object itself is never parsed. A cancel sends SIGTERM and waits 60 s so `--atomic` can roll back.
 - **Output:** `release`, `namespace`, `revision`, `status`, `chart`, `chart_version`, `app_version`.
 - **Requires:** `bin:helm`, plus `bin:git` for git chart sources.
-- **Status:** implemented (#183; `docs/reference/plugin-helm.rst`, ADR-0057), tested with a fake helm. The kubeconfig, the values (which may hold `secret://` strings) and the registry logins are in 0600 files; helm gets a minimal environment with its cache, config and data inside the work directory and no `KUBECONFIG`. A git chart and its values files are resolved through symlinks and must stay inside the checkout. Not yet run against a real helm and cluster (the build-agent image arrives with #184).
+- **Status:** implemented (#183; `docs/reference/plugin-helm.rst`, ADR-0057), tested with a fake helm. The kubeconfig (self-contained: no file references, `exec` or `auth-provider`), the values (which may hold `secret://` strings) and the registry logins are in 0600 files; helm gets a minimal environment with its cache, config and data inside the work directory and no `KUBECONFIG`. A git chart and its values files are resolved through symlinks and must stay inside the checkout, and a chart may not contain a symlink that leaves it. Not yet run against a real helm and cluster (the build-agent image arrives with #184).
 
 **Example: build, deploy, smoke test, and roll back on failure.** With `atomic: true`, Helm already rolls back a failed upgrade on its own. The `catch` covers failures *after* a successful upgrade, such as the smoke test.
 
