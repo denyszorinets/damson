@@ -132,7 +132,7 @@ func testServiceAccounts(t *testing.T, s store.Store) {
 		}
 		for _, e := range evs {
 			n++
-			if strings.Contains(string(e.Details), strings.Repeat("a", 64)) {
+			if strings.Contains(string(e.Details), hashOf("a")) || strings.Contains(string(e.Details), hashOf("b")) || strings.Contains(string(e.Details), hashOf("1")) {
 				t.Fatalf("audit details leak a hash: %s", e.Details)
 			}
 		}

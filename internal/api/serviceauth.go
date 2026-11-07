@@ -101,8 +101,15 @@ func authorize(api huma.API, d deps) func(ctx huma.Context, next func(huma.Conte
 		}
 		h := ctx.Header("Authorization")
 		tok := ""
-		if len(h) > 7 && strings.EqualFold(h[:7], "Bearer ") {
+		if len(h) >= 7 && strings.EqualFold(h[:7], "Bearer ") {
 			tok = strings.TrimSpace(h[7:])
+			if tok == "" { // a client that means to send a token must not run anonymously
+				deny(ctx, http.StatusUnauthorized, "the token is empty")
+				return
+			}
+		} else if strings.HasPrefix(h, ServiceTokenPrefix) || strings.HasPrefix(h, tokens.AdminPrefix) {
+			deny(ctx, http.StatusUnauthorized, "send the token as: Authorization: Bearer <token>")
+			return
 		}
 		if tok == "" {
 			if d.requireToken {
@@ -142,7 +149,7 @@ func authorize(api huma.API, d deps) func(ctx huma.Context, next func(huma.Conte
 				deny(ctx, http.StatusServiceUnavailable, "a required dependency is not available")
 				return
 			} else if !ok {
-				deny(ctx, http.StatusNotFound, "not found")
+				denyNotFound(api, ctx)
 				return
 			}
 			_ = d.ds.TouchServiceToken(ctx.Context(), st.ID, d.now()) // best effort
@@ -152,6 +159,13 @@ func authorize(api huma.API, d deps) func(ctx huma.Context, next func(huma.Conte
 			deny(ctx, http.StatusUnauthorized, "the token is not valid")
 		}
 	}
+}
+
+// denyNotFound answers like the handlers do for a missing target, so a target
+// out of the token's scope cannot be told from one that does not exist.
+func denyNotFound(api huma.API, ctx huma.Context) {
+	p := problemFor(store.ErrNotFound)
+	_ = huma.WriteErr(api, ctx, p.Status, p.Detail)
 }
 
 // adminActor checks an admin token against the stored hash and returns its
@@ -196,8 +210,13 @@ func (d deps) inScope(ctx huma.Context, scope string, on subject) (bool, error) 
 	case subjExec:
 		var ex store.Execution
 		if ex, err = d.ds.GetExecution(ctx.Context(), ctx.Param("id")); err == nil {
-			project, err = d.projectOfRun(ctx.Context(), ex.RunID)
+			if project, err = d.projectOfRun(ctx.Context(), ex.RunID); errors.Is(err, store.ErrNotFound) {
+				err = errNoParent
+			}
 		}
+	}
+	if errors.Is(err, errNoParent) {
+		return false, nil
 	}
 	if errors.Is(err, store.ErrNotFound) {
 		return true, nil
@@ -208,16 +227,32 @@ func (d deps) inScope(ctx huma.Context, scope string, on subject) (bool, error) 
 	return covers(scope, project), nil
 }
 
+// errNoParent marks a target whose job or project row is missing: the scope
+// cannot be decided, so the request is refused.
+var errNoParent = errors.New("the target's project is unknown")
+
 func (d deps) projectOfRun(ctx context.Context, runID string) (string, error) {
 	run, err := d.ds.GetRun(ctx, runID)
 	if err != nil {
-		return "", err
+		return "", err // the run itself is missing: the handler answers 404
 	}
-	return d.projectOfJob(ctx, run.JobID)
+	return d.projectOfJobRow(ctx, run.JobID)
 }
 
 func (d deps) projectOfJob(ctx context.Context, jobID string) (string, error) {
+	if _, err := d.ds.GetJob(ctx, jobID); err != nil {
+		return "", err // the job itself is missing: the handler answers 404
+	}
+	return d.projectOfJobRow(ctx, jobID)
+}
+
+// projectOfJobRow is the project name of a job that a found run or execution
+// points at; a missing job or project is errNoParent.
+func (d deps) projectOfJobRow(ctx context.Context, jobID string) (string, error) {
 	job, err := d.ds.GetJob(ctx, jobID)
+	if errors.Is(err, store.ErrNotFound) {
+		return "", errNoParent
+	}
 	if err != nil {
 		return "", err
 	}
@@ -230,5 +265,5 @@ func (d deps) projectOfJob(ctx context.Context, jobID string) (string, error) {
 			return p.Name, nil
 		}
 	}
-	return "", store.ErrNotFound
+	return "", errNoParent
 }

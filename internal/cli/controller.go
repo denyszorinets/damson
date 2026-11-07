@@ -62,6 +62,9 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mod
 	if err != nil {
 		return err
 	}
+	if !dev && !cfg.Auth.RequireToken {
+		log.Warn("auth.require_token is off: the job, run and execution API accepts requests without a token (interim until OIDC; ADR-0060)")
+	}
 	id, err := controllerID()
 	if err != nil {
 		return err

@@ -95,8 +95,24 @@ Consequences
   routes stay open to callers that send no token. Operators who want them
   closed set it to ``true``.
 - A token is a bearer secret; losing it means revoking and creating a new one.
-- Scope by path prefix is trivially correct while projects are flat and keeps
-  working when M8 adds the tree.
+- Scope by path prefix is trivially correct while projects are flat. It stays
+  correct in M8 only if a project's name is its path and projects are not
+  renamed; otherwise the token must store the project id.
+- With ``auth.require_token: true`` the embedded web UI stops working for job
+  and run pages: it sends no token there, and the live streams use
+  ``EventSource``, which cannot set headers. The UI authenticates with OIDC
+  sessions in M8; until then use the option for API-only deployments.
+- ``auth.require_token`` covers the job, run and execution routes only. The
+  agent, pool and plugin read routes stay open (they are listed on purpose in
+  the completeness test), and the admin routes keep needing the admin token.
+- A live stream (run events, execution logs) is authorized when it opens. A
+  token revoked or expired afterwards does not end a stream already open; the
+  stream ends with the run or when the client disconnects. A request
+  authorized just before a revoke can still start one run, attributed to the
+  token's account.
+- A test lists every API operation and fails for one that is neither governed,
+  admin-guarded nor named as public, so a new route cannot be left open by
+  accident.
 
 References
 ----------

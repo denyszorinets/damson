@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -211,3 +213,117 @@ func (f *schedFixture) runOf(t *testing.T, rec *httptest.ResponseRecorder) runBo
 	return r
 }
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
+
+// insertProject adds a project row, which no API creates until M8.
+func insertProject(t *testing.T, st store.Store, id, name string) {
+	t.Helper()
+	err := st.WithTx(t.Context(), func(tx store.Tx) error {
+		switch n := tx.Native().(type) {
+		case *sql.Tx:
+			_, err := n.ExecContext(t.Context(), "INSERT INTO projects (id, name, created_at) VALUES (?, ?, ?)", id, name, "2026-01-02T03:04:05.000000Z")
+			return err
+		case pgx.Tx:
+			_, err := n.Exec(t.Context(), "INSERT INTO projects (id, name, created_at) VALUES ($1, $2, now())", id, name)
+			return err
+		}
+		return fmt.Errorf("unknown transaction type %T", tx.Native())
+	})
+	require.NoError(t, err)
+}
+
+// A token scoped to one project gets 404 on every governed route of another,
+// exactly as for a target that does not exist, and 200 in its own.
+func TestServiceTokenProjectScope(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		f := newSchedFixture(t, st)
+		insertProject(t, st, "00000000-0000-7000-8000-0000000000aa", "other")
+		oj, _, err := st.CreateJob(t.Context(), store.NewJob{
+			ProjectID: "00000000-0000-7000-8000-0000000000aa", Name: "other-job",
+			Spec: json.RawMessage(specDoc("other-job", "", "ssh", `{"host":"h"}`)), Checksum: "x",
+		}, t0)
+		require.NoError(t, err)
+
+		// A run (with an execution) in each project, started by the admin token.
+		runIn := func(jobID string) (runID, execID string) {
+			rec := f.as(f.admin, "POST", "/api/v1/jobs/"+jobID+"/runs", `{}`)
+			require.Equal(t, 201, rec.Code, rec.Body.String())
+			r := f.runOf(t, rec)
+			require.NotEmpty(t, r.Steps)
+			require.NotEmpty(t, r.Steps[0].Executions)
+			return r.ID, r.Steps[0].Executions[0].ID
+		}
+		otherRun, otherExec := runIn(oj.ID)
+		ownRun, ownExec := runIn(f.jobID)
+
+		a := f.newAccount(t, "ci")
+		inDefault := f.newToken(t, a.ID, "default", "runner").Token
+		inOther := f.newToken(t, a.ID, "other", "runner").Token
+
+		routes := func(job, run, exec, project string) [][2]string {
+			return [][2]string{
+				{"GET", "/api/v1/jobs/" + job}, {"GET", "/api/v1/jobs/" + job + "/versions"},
+				{"GET", "/api/v1/jobs/" + job + "/versions/1/graph"}, {"GET", "/api/v1/jobs/" + job + "/versions/1"},
+				{"POST", "/api/v1/jobs/" + job + "/runs"},
+				{"GET", "/api/v1/runs/" + run}, {"GET", "/api/v1/runs/" + run + "/graph"}, {"POST", "/api/v1/runs/" + run + "/cancel"},
+				{"GET", "/api/v1/executions/" + exec},
+				{"GET", "/api/v1/jobs?project=" + project}, {"GET", "/api/v1/runs?job=" + job},
+			}
+		}
+		// Out of scope: 404 everywhere, and no run is created.
+		before, err := st.QueryRuns(t.Context(), store.RunFilter{}, "", 50)
+		require.NoError(t, err)
+		for _, r := range routes(oj.ID, otherRun, otherExec, "other") {
+			body := ""
+			if r[0] == "POST" {
+				body = `{}`
+			}
+			rec := f.as(inDefault, r[0], r[1], body)
+			assert.Equal(t, 404, rec.Code, "%s %s", r[0], r[1])
+		}
+		after, err := st.QueryRuns(t.Context(), store.RunFilter{}, "", 50)
+		require.NoError(t, err)
+		assert.Len(t, after.Runs, len(before.Runs), "a refused trigger made no run")
+		// The refusal looks like a missing target.
+		missing := f.as(inDefault, "GET", "/api/v1/jobs/"+oj.ID, "")
+		gone := f.as(inDefault, "GET", "/api/v1/jobs/does-not-exist", "")
+		assert.Equal(t, stripID(gone.Body.String()), stripID(missing.Body.String()))
+
+		// In scope: not 404 (cancel of a pending run and re-trigger may answer 200/201/409).
+		for _, r := range routes(f.jobID, ownRun, ownExec, "default") {
+			body := ""
+			if r[0] == "POST" {
+				body = `{}`
+			}
+			assert.NotEqual(t, 404, f.as(inDefault, r[0], r[1], body).Code, "%s %s", r[0], r[1])
+		}
+		for _, r := range routes(oj.ID, otherRun, otherExec, "other") {
+			body := ""
+			if r[0] == "POST" {
+				body = `{}`
+			}
+			assert.NotEqual(t, 404, f.as(inOther, r[0], r[1], body).Code, "%s %s", r[0], r[1])
+		}
+		assert.Equal(t, 404, f.as(inOther, "GET", "/api/v1/jobs/"+f.jobID, "").Code)
+	})
+}
+
+func TestBearerHeaderIsNotSilentlyIgnored(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		f := newSchedFixture(t, st)
+		for name, h := range map[string]string{
+			"empty bearer": "Bearer ", "bare service token": api.ServiceTokenPrefix + "abc", "bare admin token": tokens.AdminPrefix + "abc",
+		} {
+			req := httptest.NewRequest("GET", "/api/v1/jobs/"+f.jobID, nil)
+			req.Header.Set("Authorization", h)
+			rec := httptest.NewRecorder()
+			api.NewServer(f.cfg).Handler().ServeHTTP(rec, req)
+			assert.Equal(t, 401, rec.Code, name)
+		}
+		// Other schemes (a proxy's basic auth) are not ours to refuse.
+		req := httptest.NewRequest("GET", "/api/v1/jobs/"+f.jobID, nil)
+		req.Header.Set("Authorization", "Basic dXNlcjpwdw==")
+		rec := httptest.NewRecorder()
+		api.NewServer(f.cfg).Handler().ServeHTTP(rec, req)
+		assert.Equal(t, 200, rec.Code)
+	})
+}
