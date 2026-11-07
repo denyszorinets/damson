@@ -9,6 +9,7 @@ Reference
    cli
    http-api
    schedules
+   webhooks
    protocol
    agent
    plugin-ssh
