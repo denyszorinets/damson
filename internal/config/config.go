@@ -135,6 +135,9 @@ type Agent struct {
 	// AllowInsecureGit lets the ansible plugin clone from http://, git:// and
 	// file:// URLs. Off by default; use https or ssh.
 	AllowInsecureGit bool `koanf:"allow_insecure_git"`
+	// AllowInsecureRegistry lets the buildah plugin run with tls_verify=false.
+	// Off by default; put a private CA in TLSCAFile or the system roots instead.
+	AllowInsecureRegistry bool `koanf:"allow_insecure_registry"`
 }
 
 // SlogLevel returns the configured level. Validate guarantees it parses.
@@ -190,5 +193,6 @@ func defaults() map[string]any {
 		"agent.allow_insecure_winrm":         false,
 		"agent.allow_plain_ftp":              false,
 		"agent.allow_insecure_git":           false,
+		"agent.allow_insecure_registry":      false,
 	}
 }

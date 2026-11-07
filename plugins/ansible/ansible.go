@@ -15,6 +15,7 @@ import (
 
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 	"github.com/denyszorinets/damson/plugins/internal/gitcheckout"
+	"github.com/denyszorinets/damson/plugins/internal/proc"
 )
 
 //go:embed damson_events.py
@@ -123,7 +124,7 @@ func checkout(ctx context.Context, dir string, r Repo, req pluginsdk.ExecRequest
 	}
 	auth.InsecureHostKey = req.Config[ConfigAllowInsecureHostKeys] == "true"
 	repo := gitcheckout.Repo{URL: r.URL, Ref: r.Ref, Submodules: r.Submodules, AllowInsecure: req.Config[ConfigAllowInsecureGit] == "true"}
-	return gitcheckout.Clone(ctx, dir, repo, auth, gitcheckout.Options{Out: &lineWriter{emit: emit, stream: pluginsdk.System}})
+	return gitcheckout.Clone(ctx, dir, repo, auth, gitcheckout.Options{Out: &proc.LineWriter{Emit: emit, Stream: pluginsdk.System}})
 }
 
 // ConfigAllowInsecureGit is the Config key that also permits http, git and

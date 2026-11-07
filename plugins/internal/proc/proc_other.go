@@ -1,6 +1,6 @@
 //go:build !unix
 
-package ansible
+package proc
 
 import "os/exec"
 
