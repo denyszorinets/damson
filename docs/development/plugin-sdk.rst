@@ -184,3 +184,37 @@ linked into the binary:
 #. ``damson plugin validate <name>`` checks the manifest and schemas.
 #. ``damson plugin run <name> --input input.json [--secrets s.json] [--nodes n.json]``
    runs it once without a controller, with the agent's masking applied.
+
+Shared git checkout
+-------------------
+
+The ``ansible``, ``buildah`` and ``helm`` plugins clone with
+``plugins/internal/gitcheckout`` (built-in plugins only; it is not public API).
+``gitcheckout.Clone(ctx, dir, repo, auth, opts)`` needs the ``git`` binary
+(capability ``bin:git``) and does a depth-1 fetch of ``repo.Ref`` (a branch, a
+tag or a full 40-hex commit; empty means the default branch) into ``dir``,
+checks it out detached and returns the resolved commit. Submodules are cloned
+only when asked.
+
+Rules the helper enforces:
+
+* Only ``https`` and ``ssh`` URLs (scp-like ``host:path`` is ssh). ``http``,
+  ``git`` and ``file`` need ``Repo.AllowInsecure``, which the plugins set only
+  from an operator setting. ``ext::``, ``fd::`` and local paths are refused, as
+  are URLs or refs that start with ``-`` and URLs that carry a password.
+* Credentials never appear in an argument, a URL, the environment or a log
+  line. A token reaches git through a ``GIT_ASKPASS`` script that reads it from
+  a 0600 file; an SSH key is a 0600 file named by ``GIT_SSH_COMMAND``. Both live
+  in a private temporary directory that is removed before ``Clone`` returns. The
+  token is not written to ``.git/config``.
+* An ssh clone needs ``Auth.KnownHosts`` to verify the host, or an explicit
+  ``Auth.InsecureHostKey`` (the plugins take that from
+  ``agent.allow_insecure_host_keys``).
+* git runs with no user or system config, no prompts and an explicit protocol
+  allow-list. Cancellation kills git's whole process group; ``Options.Timeout``
+  gives a ``timeout`` error.
+* Errors map by git's output to ``auth``, ``connection``, ``validation`` (bad ref
+  or repository) or ``exit_code``.
+
+The helper uses a POSIX ``sh`` for the askpass script, so token credentials
+need agents on Linux or macOS (the agent images are Linux).
