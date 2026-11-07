@@ -120,6 +120,9 @@ func RunContract(t *testing.T, p pluginsdk.Plugin, opts Options) {
 	m := p.Manifest()
 	t.Run("manifest", func(t *testing.T) { checkManifest(t, m) })
 	t.Run("nodes", func(t *testing.T) { checkCaseNodes(t, m, opts) })
+	if m.TargetMode == pluginsdk.TargetInventory {
+		t.Run("nodes_fail_closed", func(t *testing.T) { checkInventoryFailsClosed(t, p, opts) })
+	}
 	t.Run("validate", func(t *testing.T) { checkValidate(t, p, opts) })
 	t.Run("execute", func(t *testing.T) { checkExecute(t, p, opts) })
 	t.Run("cancellation", func(t *testing.T) { checkCancel(t, p, opts) })
@@ -370,17 +373,56 @@ func (l *lockedBuffer) String() string {
 
 // checkCaseNodes requires every case to pass exactly the nodes the manifest's
 // target mode says dispatch would deliver for that input (single_node: the
-// "node" input; nodes: those at node_paths), so a plugin is tested with the
-// node set it will really get.
+// "node" input; nodes: those at node_paths; inventory: the list at
+// node_list_path), so a plugin is tested with the node set it will really get.
+// For inventory it also requires the plugin to fail closed when a listed host
+// was not delivered, as an older controller would do (ADR-0055).
 func checkCaseNodes(t *testing.T, m pluginsdk.Manifest, opts Options) {
 	for _, p := range caseNodeProblems(m, opts) {
 		t.Error(p)
 	}
 }
 
+// checkInventoryFailsClosed drops one listed host from the first case's Nodes
+// and requires a validation error: a controller at SDK 0.3.0 accepts the
+// inventory mode but delivers no nodes, so the plugin must not run on hosts it
+// has no resolved node (and credential) for.
+func checkInventoryFailsClosed(t *testing.T, p pluginsdk.Plugin, opts Options) {
+	t.Helper()
+	if len(opts.Cases) == 0 || len(opts.Cases[0].Nodes) == 0 {
+		t.Skip("the first case lists no hosts")
+	}
+	if problem := inventoryFailClosedProblem(t, p, opts); problem != "" {
+		t.Error(problem)
+	}
+}
+
+func inventoryFailClosedProblem(t testing.TB, p pluginsdk.Plugin, opts Options) string {
+	c := opts.Cases[0]
+	drop := make([]string, 0, len(c.Nodes))
+	for name := range c.Nodes {
+		drop = append(drop, name)
+	}
+	slices.Sort(drop)
+	nodes := make(map[string]pluginsdk.NodeInfo, len(c.Nodes))
+	for k, v := range c.Nodes {
+		if k != drop[0] {
+			nodes[k] = v
+		}
+	}
+	c.Nodes = nodes
+	ctx, cancel := context.WithTimeout(context.Background(), opts.Timeout)
+	defer cancel()
+	o := Exec(ctx, t, p, c)
+	if o.Err != nil || o.Result.Error == nil || o.Result.Error.Kind != pluginsdk.KindValidation {
+		return fmt.Sprintf("host %q was not delivered: want a validation error, got err=%v step=%v", drop[0], o.Err, o.Result.Error)
+	}
+	return ""
+}
+
 // caseNodeProblems lists the cases whose nodes differ from the input's.
 func caseNodeProblems(m pluginsdk.Manifest, opts Options) []string {
-	if m.TargetMode != pluginsdk.TargetSingleNode && m.TargetMode != pluginsdk.TargetNodes {
+	if m.TargetMode != pluginsdk.TargetSingleNode && m.TargetMode != pluginsdk.TargetNodes && m.TargetMode != pluginsdk.TargetInventory {
 		return nil
 	}
 	cases := append([]Case(nil), opts.Cases...)

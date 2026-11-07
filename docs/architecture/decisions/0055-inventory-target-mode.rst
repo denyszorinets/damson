@@ -40,7 +40,8 @@ ansible options; they can only narrow the generated inventory.
 
 - Names are resolved in sorted order through the existing node source: scope,
   enabled state and host key policy apply to each, and every node credential is
-  added to the bundle as an ``_inventory`` node credential, authorized as before.
+  authorized as a node credential (the ``_inventory`` scope is allowed for it),
+  as before, and added to the bundle.
   The bundle is keyed by ref, so a shared credential is sent once; the limit of
   64 distinct refs is unchanged.
 - A name that is unknown, out of scope, disabled or whose policy is ``insecure``
@@ -91,6 +92,11 @@ Consequences
   can turn host key checking off. The check guards against network
   man-in-the-middle, not against a hostile playbook, which can already read the
   credential files with ``delegate_to: localhost``. Playbooks are trusted code.
+- During a rolling upgrade a controller at SDK 0.3.0 decodes an inventory
+  manifest without ``node_list_path``, so its checksum differs from the new
+  controller's for the same ``name@version`` and a schema conflict can be
+  flagged until all controllers run the same version. No inventory plugin
+  shipped before this change.
 - Credentials of up to 1000 nodes are in agent memory for the run; the plugin
   writes them only to 0600 files that it removes on every exit path.
 
@@ -100,7 +106,10 @@ Validation
 ``pluginsdk`` tests cover ``NodeNames`` and manifest validation; the dispatch
 end-to-end test covers delivery, duplicates, an empty list, unknown and disabled
 hosts and the cap on both databases; the host key fence has an inventory case;
-the codec test pins ``NodeInfo.tags`` against an N-1 decoder.
+the codec test pins ``NodeInfo.tags`` against an N-1 decoder; the ``plugintest``
+contract suite checks an inventory plugin's cases against ``NodeNames`` and, with
+a ``nodes_fail_closed`` check, that it refuses a listed host that was not
+delivered. ``examples/plugins/hello`` has mode ``none`` and needs no change.
 
 References
 ----------

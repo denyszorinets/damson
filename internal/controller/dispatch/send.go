@@ -168,9 +168,16 @@ func (d *Dispatcher) buildRequest(ctx context.Context, a controller.AgentView, e
 	}
 	// A request that cannot fit one frame can never be sent; fail it for good
 	// instead of sending into the ambiguous-outcome path (ADR-0055).
-	if b, err := protocol.Encode(req); err == nil && len(b) > maxRequestBytes {
+	b, err := protocol.Encode(req)
+	size := len(b)
+	clear(b) // the encoding holds every secret value in plaintext
+	if err != nil {
 		wipe(bundle)
-		return protocol.StepExecute{}, &permanent{fmt.Errorf("the step request is %d bytes; at most %d (too many nodes or secrets)", len(b), maxRequestBytes)}
+		return protocol.StepExecute{}, &permanent{errors.New("the step request cannot be encoded")}
+	}
+	if size > maxRequestBytes {
+		wipe(bundle)
+		return protocol.StepExecute{}, &permanent{fmt.Errorf("the step request is %d bytes; at most %d (too many nodes or secrets)", size, maxRequestBytes)}
 	}
 	return req, nil
 }

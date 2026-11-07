@@ -3,6 +3,7 @@ package dispatch_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -94,4 +95,36 @@ func TestInventoryModeDeliversTheListedNodes(t *testing.T) {
 			})
 		})
 	}
+}
+
+// bigSources serves any node name with a large attribute blob, so a list of
+// them cannot fit one protocol frame.
+type bigSources struct{ fakeSources }
+
+func (b *bigSources) Node(_ context.Context, _, name string) (pluginsdk.NodeInfo, error) {
+	return pluginsdk.NodeInfo{
+		Name: name, Address: "10.0.0.1", Credential: "secret://dev/cred", HostKeyPolicy: "strict",
+		Attributes: map[string]any{"blob": strings.Repeat("x", 5000)},
+	}, nil
+}
+
+// A request that cannot fit one frame fails the step for good, before
+// anything is sent, and says nothing about the secrets it carried.
+func TestInventoryRequestTooLargeFailsPermanently(t *testing.T) {
+	hosts := make([]string, 1000)
+	for i := range hosts {
+		hosts[i] = fmt.Sprintf("h%04d", i)
+	}
+	input, _ := json.Marshal(map[string]any{"hosts": hosts})
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		c := startClusterPlugins(t, st, nodeSpec, []pluginsdk.Plugin{listPlugin{}}, func(cfg *dispatch.Config) {
+			src := &bigSources{}
+			cfg.Nodes, cfg.Secrets = src, src
+		})
+		tree := c.waitRun(c.triggerInput("hostlist", string(input)), store.RunFailed)
+		ex := tree.Steps[0].Executions[0]
+		if ex.State != store.ExecFailed || !strings.Contains(ex.Error, "step request is") || strings.Contains(ex.Error, secretMarker) {
+			t.Fatalf("execution = %s %q", ex.State, ex.Error)
+		}
+	})
 }
