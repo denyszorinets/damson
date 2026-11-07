@@ -168,6 +168,9 @@ change nothing until accepted.
    * - 0053
      - :doc:`0053-audit-events`
      - Accepted
+   * - 0054
+     - :doc:`0054-audit-retention`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -225,3 +228,4 @@ change nothing until accepted.
    0051-non-secret-s3-connection-fields
    0052-route-steps-by-node-pool-at-dispatch
    0053-audit-events
+   0054-audit-retention

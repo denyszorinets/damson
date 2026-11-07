@@ -50,6 +50,13 @@ type Tx interface {
 	// SQLite the transaction is exclusive, so the check is strict; on Postgres
 	// it is best effort, which suffices for idempotent duties.
 	CheckLeader(ctx context.Context, name, holder string, term int64, now time.Time) error
+	// PruneAuditEvents deletes up to limit audit events recorded before the
+	// cutoff, oldest first, and, if it deleted any, appends one audit.prune
+	// event (NewAuditPruneEvent) in this transaction, so audit rows never go
+	// without a record. The actor comes from ctx (WithAudit); without one it
+	// fails with ErrInvalid before deleting. It returns the number deleted. It
+	// is the only way to remove audit rows (ADR-0054).
+	PruneAuditEvents(ctx context.Context, before time.Time, limit int, now time.Time) (int64, error)
 	// Native returns the driver transaction (pgx.Tx on Postgres, *sql.Tx on
 	// SQLite) so River can InsertTx on it. Only the queue adapter uses it.
 	Native() any

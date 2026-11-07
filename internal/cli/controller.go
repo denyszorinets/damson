@@ -90,6 +90,13 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mod
 		}
 		return err
 	}
+	stopRetention, err := startRetention(ctx, st, cfg, id, log)
+	if err != nil {
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
+		defer cancel()
+		return errors.Join(err, n.Stop(sctx))
+	}
+	defer stopRetention() // runs on every exit path
 	srv := n.Server()
 	if err := n.Listen(ctx); err != nil {
 		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)

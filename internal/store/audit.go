@@ -14,6 +14,7 @@ const (
 	ActionSecretDelete     = "secret.delete"
 	ActionSecretKEKRotate  = "secret.kek_rotate"
 	ActionLogPurge         = "log.purge"
+	ActionAuditPrune       = "audit.prune"
 	ActionAdminTokenCreate = "admin_token.create"
 	ActionAdminTokenRevoke = "admin_token.revoke"
 )
@@ -151,6 +152,34 @@ func NewKEKRotateEvent(ctx context.Context, d KEKRotateAuditDetails, now time.Ti
 	return AuditEvent{
 		ID: id, At: NormalizeTime(now), Actor: meta.Actor, Action: ActionSecretKEKRotate, TargetType: AuditTargetInstance,
 		Target: "kek", Details: details, RequestID: meta.RequestID,
+	}, nil
+}
+
+// AuditPruneDetails is the details of an audit.prune event: a count and the
+// cutoff, never any content of the deleted events.
+type AuditPruneDetails struct {
+	Deleted int64     `json:"deleted"`
+	Before  time.Time `json:"before"`
+}
+
+// NewAuditPruneEvent builds the event of one prune batch for the actor in ctx.
+func NewAuditPruneEvent(ctx context.Context, d AuditPruneDetails, now time.Time) (AuditEvent, error) {
+	meta, err := AuditFrom(ctx)
+	if err != nil {
+		return AuditEvent{}, err
+	}
+	id, err := NewID()
+	if err != nil {
+		return AuditEvent{}, err
+	}
+	d.Before = NormalizeTime(d.Before)
+	details, err := json.Marshal(d)
+	if err != nil {
+		return AuditEvent{}, fmt.Errorf("encoding audit details: %w", err)
+	}
+	return AuditEvent{
+		ID: id, At: NormalizeTime(now), Actor: meta.Actor, Action: ActionAuditPrune, TargetType: AuditTargetInstance,
+		Target: "audit", Details: details, RequestID: meta.RequestID,
 	}, nil
 }
 

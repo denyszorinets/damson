@@ -834,7 +834,7 @@ Action = CreateStepInstance | ScheduleExecution | SettleStep | SkipStep | Comple
 - Duties:
   - **scheduler** (§12.3)
   - **reaper** (expired leases → `lost`; dead `controller_instances` cleanup)
-  - **retention** (old runs, logs, audit; per-project policy)
+  - **retention** (old runs, logs, audit; per-project policy). Only the audit part exists today: `audit.retention_days` (default 0 = keep forever), under its own `retention` lease, each batch fenced and recorded by an `audit.prune` event in the same transaction (ADR-0054)
 - Each duty is idempotent, so a brief double-leader overlap during failover is harmless.
 - Per-controller duties stay on every controller: dispatch, lease renewal, cancels, adoption, and the sweep (a River unique key). The scheduler (M7) will need the lease plus a unique `(schedule_id, fire_at)`.
 - Reaper and complete transactions touch rows in a fixed order: step rows first, then each distinct run once, sorted by run id.
@@ -1055,7 +1055,7 @@ Both sync routes need the admin token, accept at most 16 MiB and 5000 nodes, and
 - They attach to **projects** (inherited by descendants) and optionally to **jobs** (additive for that job only).
 - **Effective role** = the maximum role granted by any matching rule on the job, the project, or any ancestor.
 - Rules are compiled once per change, and evaluation is cached per session for 60s.
-- Every mutation and trigger writes an **audit event**: actor, action, target, project path, details JSON, request id. `project_path` is the project scope of the target (empty when none) and is kept for per-subtree visibility in M8. The event is written in the **same transaction** as the change, and an audited write without an actor fails (`ErrInvalid`). Until M8 the actors are `admin-token:<12 hex of the token hash>`, `system:dev-nodes` and `cli:<os user>`; M8 adds `user:<sub>`, `sa:<id>` and `system:<duty>`. Today secret writes, `rotate-kek` and log purges (`log.purge`, target type `execution`) are audited (ADR-0053).
+- Every mutation and trigger writes an **audit event**: actor, action, target, project path, details JSON, request id. `project_path` is the project scope of the target (empty when none) and is kept for per-subtree visibility in M8. The event is written in the **same transaction** as the change, and an audited write without an actor fails (`ErrInvalid`). Until M8 the actors are `admin-token:<12 hex of the token hash>`, `system:dev-nodes` and `cli:<os user>`; M8 adds `user:<sub>`, `sa:<id>` and `system:<duty>`. Today secret writes, `rotate-kek`, admin-token create and revoke, and log purges (`log.purge`, target type `execution`) are audited (ADR-0053). With `audit.retention_days` set, the retention duty (§8.4) deletes older events and writes an `audit.prune` event per pass (ADR-0054); the default `0` keeps everything.
 
 ---
 

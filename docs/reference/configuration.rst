@@ -99,6 +99,14 @@ written as a double underscore: ``agent.controller_url`` is
      - none
      - File holding the previous (old) KEK, used while running ``damson admin rotate-kek``. Alternatively set
        ``DAMSON_KEK_PREVIOUS``; not both.
+   * - ``audit.retention_days``
+     - controller, dev
+     - ``0``
+     - Days to keep audit events; ``0`` keeps them forever. A positive value lets
+       the leader of the retention duty delete older events and record an
+       ``audit.prune`` event per batch (at most 36500). Environment variable
+       ``DAMSON_AUDIT__RETENTION_DAYS``. See
+       :doc:`/architecture/decisions/0054-audit-retention`.
    * - ``engine.finally_grace``
      - controller, dev
      - ``2m``

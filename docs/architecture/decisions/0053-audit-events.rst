@@ -69,13 +69,13 @@ Not audited
   per run, also when it fails).
 - Failed or unauthorized attempts; the request log covers them.
 - Secret reads at dispatch; they arrive with M8.
-- Admin-token create and revoke: a follow-up.
+- Admin-token create and revoke are audited (``admin_token.create``,
+  ``admin_token.revoke``).
 
 Consequences
 ------------
 
-- Known gap: no retention and no UI yet. The retention duty in ARCHITECTURE
-  section 8 will prune the table.
+- Known gap: no UI yet. Retention: :doc:`0054-audit-retention`.
 - Maintainer-overridable choices: the admin-token actor label exposes a 12-hex
   prefix of the token hash; ``rotate-kek`` and admin-token create and
   revoke are audited. The event is written after the token changed (the settings

@@ -67,3 +67,26 @@ func (s *Store) ListAuditEvents(ctx context.Context, f store.AuditFilter, limit 
 	}
 	return out, nil
 }
+
+// PruneAuditEvents implements store.Tx.
+func (t *txn) PruneAuditEvents(ctx context.Context, before time.Time, limit int, now time.Time) (int64, error) {
+	// A missing actor fails before anything is deleted.
+	if _, err := store.AuditFrom(ctx); err != nil {
+		return 0, err
+	}
+	n, err := t.q.PruneAuditEvents(ctx, gen.PruneAuditEventsParams{BeforeAt: fmtTime(before), RowLimit: int64(store.ClampLimit(limit))})
+	if err != nil {
+		return 0, fmt.Errorf("pruning audit events: %w", err)
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	ev, err := store.NewAuditPruneEvent(ctx, store.AuditPruneDetails{Deleted: n, Before: before}, now)
+	if err != nil {
+		return 0, err
+	}
+	if err := insertAudit(ctx, t.q, ev); err != nil {
+		return 0, err
+	}
+	return n, nil
+}

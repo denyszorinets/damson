@@ -31,6 +31,7 @@ type Config struct {
 	Database   Database   `koanf:"database"`
 	Controller Controller `koanf:"controller"`
 	Engine     Engine     `koanf:"engine"`
+	Audit      Audit      `koanf:"audit"`
 	Agent      Agent      `koanf:"agent"`
 	Secrets    Secrets    `koanf:"secrets"`
 }
@@ -79,6 +80,17 @@ type Engine struct {
 	// or the job-level timeout, as a Go duration. Default 2m.
 	FinallyGrace string `koanf:"finally_grace"`
 }
+
+// Audit configures the audit trail (controller and dev roles).
+type Audit struct {
+	// RetentionDays is how long audit events are kept. 0 keeps them forever
+	// (the default); a positive value lets the retention duty delete older
+	// events (ADR-0054).
+	RetentionDays int `koanf:"retention_days"`
+}
+
+// MaxAuditRetentionDays bounds audit.retention_days (100 years).
+const MaxAuditRetentionDays = 36500
 
 // MaxFinallyGrace bounds engine.finally_grace.
 const MaxFinallyGrace = 24 * time.Hour
@@ -163,6 +175,7 @@ func defaults() map[string]any {
 		"secrets.kek_previous_file":          "",
 		"controller.trust_forwarded_proto":   false,
 		"engine.finally_grace":               "2m",
+		"audit.retention_days":               0,
 		"agent.controller_url":               "",
 		"agent.token":                        "",
 		"agent.pool":                         "default",
