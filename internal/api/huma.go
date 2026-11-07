@@ -35,6 +35,7 @@ type DataStore interface {
 	store.AuditStore
 	store.ScheduleStore
 	store.WebhookStore
+	store.ServiceAccountStore
 	PurgeExecutionLogs(ctx context.Context, executionID string, now time.Time) (store.LogPurge, error)
 
 	ListAgents(ctx context.Context, cursor string, limit int) (store.AgentPage, error)
@@ -134,6 +135,7 @@ func newHuma(mux *http.ServeMux, d deps, env *expr.Env) huma.API {
 		"bearerAuth": {Type: "http", Scheme: "bearer", Description: "The admin bootstrap token (damson admin admin-token create)."},
 	}
 	api := humago.NewWithPrefix(mux, APIPrefix, cfg)
+	api.UseMiddleware(authorize(api, d))
 	registerAgents(api, d.ds)
 	registerPools(api, d.ds)
 	registerPlugins(api, d.plugins)
@@ -146,6 +148,7 @@ func newHuma(mux *http.ServeMux, d deps, env *expr.Env) huma.API {
 	registerNodes(api, d)
 	registerSchedules(api, d)
 	registerWebhooks(api, d, env)
+	registerServiceAccounts(api, d)
 	registerInventorySync(api, d)
 	return api
 }

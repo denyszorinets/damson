@@ -62,6 +62,9 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mod
 	if err != nil {
 		return err
 	}
+	if !dev && !cfg.Auth.RequireToken {
+		log.Warn("auth.require_token is off: the job, run and execution API accepts requests without a token (interim until OIDC; ADR-0060)")
+	}
 	id, err := controllerID()
 	if err != nil {
 		return err
@@ -81,7 +84,7 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mod
 		SingleController: cfg.Database.Driver == config.DriverSQLite,
 		ClusterSecret:    secret, ClusterSecretPrevious: previous, InternalListen: cfg.Controller.InternalListen,
 		Store: st, ControllerID: id, InternalURL: cfg.Controller.InternalURL, Plugins: plugins, DevFile: devNodes, KEK: cfg.Secrets.KEK, KEKPrevious: cfg.Secrets.KEKPrevious, FinallyGrace: cfg.FinallyGraceDuration(),
-		InsecureDev: cfg.Controller.InsecureDev, TrustForwardedProto: cfg.Controller.TrustForwardedProto,
+		RequireToken: cfg.Auth.RequireToken, InsecureDev: cfg.Controller.InsecureDev, TrustForwardedProto: cfg.Controller.TrustForwardedProto,
 		Addr: cfg.Controller.Listen, UI: webui.Handler(web.Build()), Logger: log,
 	})
 	if err != nil {

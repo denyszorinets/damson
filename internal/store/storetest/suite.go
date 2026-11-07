@@ -52,6 +52,7 @@ func Run(t *testing.T, f Factory) {
 		{"Schedules", testSchedules},
 		{"ScheduleFire", testScheduleFire},
 		{"ScheduleFireRace", testScheduleFireRace},
+		{"ServiceAccounts", testServiceAccounts},
 		{"Webhooks", testWebhooks},
 		{"WebhookTouch", testWebhookTouch},
 		{"Nodes", testNodes},

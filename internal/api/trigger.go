@@ -40,7 +40,7 @@ func triggerRun(ctx context.Context, d deps, in *triggerRunInput) (*runDetailOut
 		return nil, apiError(ctx, invalid("unsupported concurrency policy",
 			ProblemDetail{Message: fmt.Sprintf("%q is not supported yet; only %q is", p, policyQueue), Location: "body.concurrency_policy"}))
 	}
-	nr, number, err := d.prepareRun(ctx, in.ID, body.Version, body.Options, Trigger{Type: triggerAPI})
+	nr, number, err := d.prepareRun(ctx, in.ID, body.Version, body.Options, triggerFor(ctx))
 	if err != nil {
 		return nil, apiError(ctx, err)
 	}
@@ -245,4 +245,14 @@ func initialSteps(actions []engine.Action) []store.NewStepInstance {
 		}
 	}
 	return steps
+}
+
+// triggerFor is the trigger of a run started by an API request: it names the
+// token's owner when the request sent one.
+func triggerFor(ctx context.Context) Trigger {
+	t := Trigger{Type: triggerAPI}
+	if p, ok := PrincipalFrom(ctx); ok {
+		t.Actor = p.Actor
+	}
+	return t
 }

@@ -17,6 +17,7 @@ type Trigger struct {
 	ScheduleID string `json:"schedule_id,omitempty"` // schedule
 	WebhookID  string `json:"webhook_id,omitempty"`  // webhook
 	FireAt     string `json:"fire_at,omitempty"`     // schedule: the RFC 3339 fire time
+	Actor      string `json:"actor,omitempty"`       // api: who sent the token (sa:<id> or admin-token:<hash prefix>)
 }
 
 // Trigger types.
