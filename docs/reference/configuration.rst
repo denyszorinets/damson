@@ -146,8 +146,8 @@ written as a double underscore: ``agent.controller_url`` is
      - agent
      - ``false``
      - Let the ``ssh``, ``transfer`` and ``ansible`` plugins connect to nodes with
-       host key policy ``insecure``, and the ``ansible`` and ``buildah`` plugins
-       clone ssh repositories without a known_hosts entry.
+       host key policy ``insecure``, and the ``ansible``, ``buildah`` and ``helm``
+       plugins clone ssh repositories without a known_hosts entry.
    * - ``agent.allow_insecure_winrm``
      - agent
      - ``false``
@@ -163,10 +163,17 @@ written as a double underscore: ``agent.controller_url`` is
    * - ``agent.allow_insecure_git``
      - agent
      - ``false``
-     - Let the ``ansible`` and ``buildah`` plugins clone from ``http://``, ``git://`` and
+     - Let the ``ansible``, ``buildah`` and ``helm`` plugins clone from ``http://``, ``git://`` and
        ``file://`` URLs. Without it only ``https`` and ``ssh`` are accepted.
        Environment variable ``DAMSON_AGENT__ALLOW_INSECURE_GIT``
        (:doc:`/reference/plugin-ansible`).
+   * - ``agent.allow_helm_in_cluster``
+     - agent
+     - ``false``
+     - Let the ``helm`` plugin deploy with the agent's own Kubernetes service
+       account (``cluster.in_cluster``). Without it such a step is refused.
+       Environment variable ``DAMSON_AGENT__ALLOW_HELM_IN_CLUSTER``
+       (:doc:`/reference/plugin-helm`).
    * - ``agent.allow_insecure_registry``
      - agent
      - ``false``

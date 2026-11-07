@@ -13,5 +13,6 @@ Reference
    plugin-ssh
    plugin-ansible
    plugin-buildah
+   plugin-helm
    plugin-transfer
    plugin-winrm

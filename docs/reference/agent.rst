@@ -63,8 +63,8 @@ is masked before it leaves (plain, base64 and URL-encoded forms).
   ``agent.hello`` so the controller can decide.
 * ``agent.allow_insecure_host_keys`` lets the ``ssh``, ``transfer`` and ``ansible``
   plugins connect to nodes whose host key policy is ``insecure``, and the
-  ``ansible`` and ``buildah`` plugins clone ssh repositories without a known_hosts
-  entry. Off by default.
+  ``ansible``, ``buildah`` and ``helm`` plugins clone ssh repositories without a
+  known_hosts entry. Off by default.
 * ``agent.allow_insecure_winrm`` (``DAMSON_AGENT__ALLOW_INSECURE_WINRM``) lets the
   ``winrm`` plugin use ``transport: http`` and ``insecure_skip_verify``
   (:doc:`/reference/plugin-winrm`). Off by default. It is separate from
@@ -73,8 +73,12 @@ is masked before it leaves (plain, base64 and URL-encoded forms).
   plugin use ``protocol: ftp``, which sends the password and the data in clear
   text. Off by default; use ``ftps``. It is separate from the other two switches.
 * ``agent.allow_insecure_git`` (``DAMSON_AGENT__ALLOW_INSECURE_GIT``) lets the
-  ``ansible`` and ``buildah`` plugins clone from ``http://``, ``git://`` and ``file://`` URLs.
+  ``ansible``, ``buildah`` and ``helm`` plugins clone from ``http://``, ``git://`` and ``file://`` URLs.
   Off by default; use ``https`` or ``ssh``. Separate from the other switches.
+* ``agent.allow_helm_in_cluster`` (``DAMSON_AGENT__ALLOW_HELM_IN_CLUSTER``) lets
+  the ``helm`` plugin deploy with the agent's own Kubernetes service account.
+  Off by default: that account is the pool's authority, not a credential the job
+  brought. Separate from the other switches.
 * ``agent.allow_insecure_registry`` (``DAMSON_AGENT__ALLOW_INSECURE_REGISTRY``)
   lets the ``buildah`` plugin run with ``tls_verify: false``. Off by default;
   trust a private CA through the system roots instead. Separate from the other

@@ -128,24 +128,8 @@ func execute(ctx context.Context, req pluginsdk.ExecRequest, emit pluginsdk.Emit
 	return out, nil
 }
 
-// checkout resolves the repository credential and clones it.
+// checkout clones the repository of the step.
 func checkout(ctx context.Context, dir string, r Repo, req pluginsdk.ExecRequest, emit pluginsdk.Emitter) (gitcheckout.Result, error) {
-	var auth gitcheckout.Auth
-	if r.Credential != "" {
-		if req.Secrets == nil {
-			return gitcheckout.Result{}, pluginsdk.NewError(pluginsdk.KindAuth, "no secret resolver available", nil)
-		}
-		f, err := req.Secrets.ResolveFields(r.Credential)
-		if err != nil {
-			return gitcheckout.Result{}, pluginsdk.NewError(pluginsdk.KindAuth, "resolving credential "+r.Credential+" failed", err)
-		}
-		tok := f["token"]
-		if tok == "" {
-			tok = f["password"]
-		}
-		auth = gitcheckout.Auth{Username: f["username"], Token: tok, SSHKey: f["private_key"], KnownHosts: f["known_hosts"]}
-	}
-	auth.InsecureHostKey = req.Config[ConfigAllowInsecureHostKeys] == "true"
-	repo := gitcheckout.Repo{URL: r.URL, Ref: r.Ref, Submodules: r.Submodules, AllowInsecure: req.Config[ConfigAllowInsecureGit] == "true"}
-	return gitcheckout.Clone(ctx, dir, repo, auth, gitcheckout.Options{Out: &proc.LineWriter{Emit: emit, Stream: pluginsdk.System}})
+	return gitcheckout.CloneFor(ctx, dir, gitcheckout.Spec{URL: r.URL, Ref: r.Ref, Credential: r.Credential, Submodules: r.Submodules}, req,
+		&proc.LineWriter{Emit: emit, Stream: pluginsdk.System})
 }
