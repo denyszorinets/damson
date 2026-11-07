@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/invopop/jsonschema"
@@ -26,6 +27,10 @@ const (
 
 // MaxNodePaths bounds Manifest.NodePaths.
 const MaxNodePaths = 8
+
+// MaxNodeList bounds the node names in the array at Manifest.NodeListPath. It
+// equals the cap on spec.targets (ARCHITECTURE 5.5).
+const MaxNodeList = 1000
 
 // Valid reports whether m is a known mode.
 func (m TargetMode) Valid() bool {
@@ -48,6 +53,11 @@ type Manifest struct {
 	// absent from the input is skipped; one that is present must be a non-empty
 	// string. omitempty keeps the checksum of existing manifests unchanged.
 	NodePaths []string `json:"node_paths,omitempty"`
+	// NodeListPath is one RFC 6901 JSON Pointer into the step input to an array
+	// of node names (SDK 0.4.0, ADR-0055). Required with TargetInventory,
+	// forbidden otherwise. The pointer must be present and name an array of up
+	// to MaxNodeList non-empty strings; an empty array is allowed.
+	NodeListPath string `json:"node_list_path,omitempty"`
 }
 
 var (
@@ -109,6 +119,18 @@ func (m Manifest) Checksum() (string, error) {
 }
 
 func (m Manifest) validateNodePaths() error {
+	if m.TargetMode == TargetInventory {
+		if !pointerRe.MatchString(m.NodeListPath) {
+			return fmt.Errorf("manifest node_list_path %q must be a JSON Pointer (required with target mode %q)", m.NodeListPath, TargetInventory)
+		}
+		if len(m.NodePaths) > 0 {
+			return fmt.Errorf("manifest node_paths needs target mode %q", TargetNodes)
+		}
+		return nil
+	}
+	if m.NodeListPath != "" {
+		return fmt.Errorf("manifest node_list_path needs target mode %q", TargetInventory)
+	}
 	if m.TargetMode != TargetNodes {
 		if len(m.NodePaths) > 0 {
 			return fmt.Errorf("manifest node_paths needs target mode %q", TargetNodes)
@@ -142,6 +164,8 @@ func (m Manifest) NodeNames(input map[string]any) ([]string, error) {
 	case TargetSingleNode:
 		paths, required = []string{"/node"}, true
 	case TargetNodes:
+	case TargetInventory:
+		return m.nodeList(input)
 	default:
 		return nil, nil
 	}
@@ -164,6 +188,37 @@ func (m Manifest) NodeNames(input map[string]any) ([]string, error) {
 			names = append(names, name)
 		}
 	}
+	return names, nil
+}
+
+// nodeList is NodeNames for TargetInventory: the names in the array at
+// NodeListPath, without duplicates, sorted, so dispatch always meets the same
+// first bad node.
+func (m Manifest) nodeList(input map[string]any) ([]string, error) {
+	v, ok := lookupPointer(input, m.NodeListPath)
+	if !ok {
+		return nil, fmt.Errorf("step input %q must be a list of node names", m.NodeListPath[1:])
+	}
+	list, isList := v.([]any)
+	if !isList {
+		return nil, fmt.Errorf("step input at %q must be a list of node names", m.NodeListPath)
+	}
+	if len(list) > MaxNodeList {
+		return nil, fmt.Errorf("step input at %q names %d nodes; at most %d", m.NodeListPath, len(list), MaxNodeList)
+	}
+	seen := make(map[string]bool, len(list))
+	names := make([]string, 0, len(list))
+	for i, e := range list {
+		name, isStr := e.(string)
+		if !isStr || name == "" {
+			return nil, fmt.Errorf("step input at %q, item %d must be a node name", m.NodeListPath, i)
+		}
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
 	return names, nil
 }
 

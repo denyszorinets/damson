@@ -143,3 +143,80 @@ func TestCaseNodeProblems(t *testing.T) {
 		})
 	}
 }
+
+func TestCaseNodeProblemsInventory(t *testing.T) {
+	m := pluginsdk.Manifest{TargetMode: pluginsdk.TargetInventory, NodeListPath: "/hosts"}
+	two := map[string]pluginsdk.NodeInfo{"a": {Name: "a"}, "b": {Name: "b"}}
+	in := json.RawMessage(`{"hosts":["b","a"]}`)
+	for name, tc := range map[string]struct {
+		c    Case
+		want int
+	}{
+		"matches":      {Case{Name: "ok", Input: in, Nodes: two}, 0},
+		"missing host": {Case{Name: "m", Input: in, Nodes: map[string]pluginsdk.NodeInfo{"a": {}}}, 1},
+		"extra host":   {Case{Name: "e", Input: json.RawMessage(`{"hosts":["a"]}`), Nodes: two}, 1},
+		"no list":      {Case{Name: "n", Input: json.RawMessage(`{}`)}, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := caseNodeProblems(m, Options{Cases: []Case{tc.c}}); len(got) != tc.want {
+				t.Fatalf("problems = %v; want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// inventoryPlugin runs on the hosts it was given; failClosed makes it refuse a
+// listed host that has no resolved node.
+type inventoryPlugin struct{ failClosed bool }
+
+func (inventoryPlugin) Manifest() pluginsdk.Manifest {
+	return pluginsdk.Manifest{
+		Name: "inv", Version: "1.0.0", Title: "inv", TargetMode: pluginsdk.TargetInventory, NodeListPath: "/hosts",
+		InputSchema: pluginsdk.MustSchemaFor[struct {
+			Hosts []string `json:"hosts"`
+		}](), OutputSchema: pluginsdk.MustSchemaFor[struct{}](),
+	}
+}
+
+func (inventoryPlugin) Validate(_ context.Context, in json.RawMessage) error {
+	var v struct {
+		Hosts []string `json:"hosts"`
+	}
+	if err := json.Unmarshal(in, &v); err != nil {
+		return pluginsdk.ValidationError("bad input: %v", err)
+	}
+	return nil
+}
+
+func (p inventoryPlugin) Execute(ctx context.Context, req pluginsdk.ExecRequest, _ pluginsdk.Emitter) (pluginsdk.Result, error) {
+	if err := ctx.Err(); err != nil {
+		return pluginsdk.Result{}, err
+	}
+	var in struct {
+		Hosts []string `json:"hosts"`
+	}
+	_ = json.Unmarshal(req.Input, &in)
+	for _, h := range in.Hosts {
+		if _, ok := req.Nodes[h]; !ok && p.failClosed {
+			return pluginsdk.Result{Error: pluginsdk.ValidationError("node %q not resolved by the controller", h)}, nil
+		}
+	}
+	return pluginsdk.Result{Outputs: json.RawMessage(`{}`)}, nil
+}
+
+func TestInventoryFailClosedCheck(t *testing.T) {
+	opts := Options{Cases: []Case{{
+		Name: "c", Input: json.RawMessage(`{"hosts":["a","b"]}`),
+		Nodes: map[string]pluginsdk.NodeInfo{"a": {Name: "a"}, "b": {Name: "b"}},
+	}}}
+	t.Run("a plugin that fails closed passes the suite", func(t *testing.T) {
+		RunContract(t, inventoryPlugin{failClosed: true}, opts)
+	})
+	t.Run("a plugin that runs anyway is caught", func(t *testing.T) {
+		o := opts
+		o.Timeout = time.Second
+		if inventoryFailClosedProblem(t, inventoryPlugin{}, o) == "" {
+			t.Fatal("the check did not catch a plugin that ignores a missing node")
+		}
+	})
+}

@@ -81,7 +81,7 @@ func (s *InventoryNodes) Node(ctx context.Context, runID, name string) (pluginsd
 	}
 	return pluginsdk.NodeInfo{
 		Name: name, Address: n.Address, Port: n.Port, Transport: n.Transport, OS: n.OS, Attributes: n.Attributes,
-		Credential: n.Credential, HostKey: key, HostKeyPolicy: n.HostKeyPolicy,
+		Credential: n.Credential, HostKey: key, HostKeyPolicy: n.HostKeyPolicy, Tags: n.Tags,
 	}, nil
 }
 

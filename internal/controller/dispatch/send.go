@@ -161,12 +161,29 @@ func (d *Dispatcher) buildRequest(ctx context.Context, a controller.AgentView, e
 	if err != nil {
 		return protocol.StepExecute{}, err
 	}
-	return protocol.StepExecute{
+	req := protocol.StepExecute{
 		AttemptID: ex.AttemptID, ExecutionID: ex.ID, StepPath: step.Path,
 		PluginName: res.Manifest.Name, PluginVersion: res.Manifest.Version, Input: input,
 		Nodes: nodes, Secrets: bundle, TimeoutMS: ex.Timeout.Milliseconds(),
-	}, nil
+	}
+	// A request that cannot fit one frame can never be sent; fail it for good
+	// instead of sending into the ambiguous-outcome path (ADR-0055).
+	b, err := protocol.Encode(req)
+	size := len(b)
+	clear(b) // the encoding holds every secret value in plaintext
+	if err != nil {
+		wipe(bundle)
+		return protocol.StepExecute{}, &permanent{errors.New("the step request cannot be encoded")}
+	}
+	if size > maxRequestBytes {
+		wipe(bundle)
+		return protocol.StepExecute{}, &permanent{fmt.Errorf("the step request is %d bytes; at most %d (too many nodes or secrets)", size, maxRequestBytes)}
+	}
+	return req, nil
 }
+
+// maxRequestBytes leaves room for the JSON-RPC envelope in a frame.
+const maxRequestBytes = protocol.MaxFrameSize - 64<<10
 
 // failDispatched ends a claimed execution that can never be sent (an unknown
 // node or secret): it fails under its attempt_id and wakes the run. The

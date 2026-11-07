@@ -80,6 +80,9 @@ type NodeInfo struct {
 	OS string `json:"os,omitempty"`
 	// Attributes values are strings, numbers or bools.
 	Attributes map[string]any `json:"attributes,omitempty"`
+	// Tags are the node's inventory tags (SDK 0.4.0). The ansible plugin builds
+	// its groups from them.
+	Tags []string `json:"tags,omitempty"`
 	// Credential is a secret:// ref, never a value.
 	Credential string `json:"credential,omitempty"`
 	// HostKey is the pinned public host key, if any.
