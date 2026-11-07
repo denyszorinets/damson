@@ -567,7 +567,7 @@ One plugin covers server-to-server copies *and* S3 in both directions. It uses `
   - `credential` (the default SSH or WinRM credential for hosts)
 - **`TargetMode = Inventory`:** the controller sends `targets`. The agent generates a JSON inventory (hosts, groups from tags, hostvars from node attributes, `ansible_host`, `ansible_port`, `ansible_user`, `ansible_connection`).
 - **Execution on the agent:**
-  1. `git clone --depth 1 --branch <ref>` into `WorkDir`. An optional local cache keyed by URL and commit is allowed.
+  1. Shared checkout (`plugins/internal/gitcheckout`: depth-1 fetch of a branch, tag or commit, detached) into `WorkDir`. An optional local cache keyed by URL and commit is allowed.
   2. Write credentials to `WorkDir/creds/` (mode 0600, on tmpfs when available). Remove them after.
   3. Write the embedded Python callback plugin `damson_events.py`. It emits JSON lines per task and host result plus the final recap to a file descriptor the agent reads.
   4. Run `ansible-playbook` with `ANSIBLE_CALLBACKS_ENABLED=damson_events`. Human-readable stdout is streamed as logs.
