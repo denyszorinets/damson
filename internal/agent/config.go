@@ -213,11 +213,43 @@ func (c *Config) labels() map[string]string {
 	return l
 }
 
-// manifests wraps the plugin manifests for the wire.
+// manifests wraps the manifests of the plugins this agent can run for the wire.
+// A plugin whose Requires (ARCHITECTURE 6) are not all among the capabilities
+// is not offered, so no step is routed to an agent that lacks its tool.
 func (c *Config) manifests() []protocol.WireManifest {
-	out := make([]protocol.WireManifest, 0, len(c.Plugins))
-	for _, p := range c.Plugins {
+	offered, _ := c.offered()
+	out := make([]protocol.WireManifest, 0, len(offered))
+	for _, p := range offered {
 		out = append(out, protocol.WireManifest{Manifest: p.Manifest()})
 	}
 	return out
+}
+
+// offered splits the plugins into those the agent can run and, for the others,
+// the capabilities they need and the agent lacks (keyed by plugin name).
+func (c *Config) offered() ([]pluginsdk.Plugin, map[string][]string) {
+	have := map[string]bool{}
+	for _, cap := range c.capabilities() {
+		have[cap] = true
+	}
+	var out []pluginsdk.Plugin
+	var withheld map[string][]string
+	for _, p := range c.Plugins {
+		m := p.Manifest()
+		var missing []string
+		for _, r := range m.Requires {
+			if !have[r] {
+				missing = append(missing, r)
+			}
+		}
+		if len(missing) == 0 {
+			out = append(out, p)
+			continue
+		}
+		if withheld == nil {
+			withheld = map[string][]string{}
+		}
+		withheld[m.Name] = missing
+	}
+	return out, withheld
 }

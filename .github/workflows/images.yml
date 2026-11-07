@@ -1,0 +1,36 @@
+name: Images
+
+# Builds the container images (deploy/docker/Dockerfile) without pushing them,
+# so a broken Dockerfile is found in review. Runs on changes to the Dockerfile
+# and the agent's capability code, and on demand.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "deploy/docker/**"
+      - ".dockerignore"
+      - ".github/workflows/images.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [damson, damson-agent, damson-agent-build]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build
+        run: docker build -f deploy/docker/Dockerfile --target ${{ matrix.target }} -t ${{ matrix.target }}:ci .
+      - name: Check the tools in the image
+        run: |
+          case "${{ matrix.target }}" in
+            damson)             docker run --rm ${{ matrix.target }}:ci version ;;
+            damson-agent)       docker run --rm --entrypoint sh ${{ matrix.target }}:ci -c 'git --version && ansible-playbook --version | head -1 && ssh -V' ;;
+            damson-agent-build) docker run --rm --entrypoint sh ${{ matrix.target }}:ci -c 'git --version && buildah --version && helm version --short' ;;
+          esac
