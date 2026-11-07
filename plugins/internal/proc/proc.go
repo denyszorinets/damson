@@ -29,6 +29,10 @@ type Spec struct {
 	Env  []string // the whole environment; nothing is inherited
 	Name string
 	Args []string
+	// Grace, when positive, makes a cancel send SIGTERM first and wait up to
+	// Grace for the program to finish (helm rolls an atomic upgrade back on
+	// SIGTERM) before it is killed.
+	Grace time.Duration
 }
 
 // Result is the outcome of a command that ran to its end.
@@ -47,8 +51,11 @@ func Run(ctx context.Context, s Spec, emit pluginsdk.Emitter) (Result, error) {
 	cmd := exec.CommandContext(ctx, s.Name, s.Args...)
 	cmd.Dir = s.Dir
 	cmd.Env = s.Env
-	prepare(cmd)
+	prepare(cmd, s.Grace > 0)
 	cmd.WaitDelay = 5 * time.Second
+	if s.Grace > 0 {
+		cmd.WaitDelay = s.Grace
+	}
 	// Writers, not pipes: Wait copies the output itself, so WaitDelay also bounds
 	// a child that left the process group and keeps the output open.
 	tail := &tailBuf{max: stderrTail}

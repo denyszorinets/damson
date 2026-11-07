@@ -18,6 +18,7 @@ import (
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
 	"github.com/denyszorinets/damson/plugins/ansible"
 	"github.com/denyszorinets/damson/plugins/buildah"
+	"github.com/denyszorinets/damson/plugins/helm"
 	"github.com/denyszorinets/damson/plugins/ssh"
 	"github.com/denyszorinets/damson/plugins/transfer"
 	"github.com/denyszorinets/damson/plugins/winrm"
@@ -85,6 +86,18 @@ func pluginConfig(cfg config.Agent) (map[string]map[string]string, error) {
 	}
 	if cfg.AllowInsecureGit {
 		out["ansible"][ansible.ConfigAllowInsecureGit] = "true"
+	}
+	if cfg.AllowInsecureHostKeys || cfg.AllowInsecureGit || cfg.AllowHelmInCluster {
+		out["helm"] = map[string]string{}
+	}
+	if cfg.AllowInsecureHostKeys {
+		out["helm"][helm.ConfigAllowInsecureHostKeys] = "true"
+	}
+	if cfg.AllowInsecureGit {
+		out["helm"][helm.ConfigAllowInsecureGit] = "true"
+	}
+	if cfg.AllowHelmInCluster {
+		out["helm"][helm.ConfigAllowInCluster] = "true"
 	}
 	if cfg.AllowInsecureWinRM {
 		out["winrm"] = map[string]string{winrm.ConfigAllowInsecureWinRM: "true"}

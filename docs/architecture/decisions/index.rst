@@ -177,6 +177,9 @@ change nothing until accepted.
    * - 0056
      - :doc:`0056-buildah-registry-credentials`
      - Accepted
+   * - 0057
+     - :doc:`0057-helm-credentials`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -237,3 +240,4 @@ change nothing until accepted.
    0054-audit-retention
    0055-inventory-target-mode
    0056-buildah-registry-credentials
+   0057-helm-credentials

@@ -626,17 +626,18 @@ Deploys charts to Kubernetes. It runs on the agent (`TargetMode = None`).
     - `{repo: {url, name, version}}` (a classic Helm repository)
     - `{git: {url, ref, path, credential}}` (a chart in a git repo, using the shared checkout)
   - `values`: an object. This is the natural place for interpolated build outputs such as `${{ steps.build.outputs.digest }}`.
-  - `values_files` (paths within a git chart source), `set` (map)
-  - `cluster`: `{kubeconfig: <secret ref of type kubeconfig>, context}` **or** `{in_cluster: true}` (the agent's own service account)
+  - `values_files` (paths relative to the chart directory of a git chart source), `set` (map of strings, passed with `--set-string`; no secrets, use `values`)
+  - `cluster`: `{kubeconfig: <secret ref>, context}` **or** `{in_cluster: true}` (the agent's own service account; needs `agent.allow_helm_in_cluster`). The kubeconfig is the field `kubeconfig` of a secret (`secret://team/kube#kubeconfig`); there is no `kubeconfig` secret type (ADR-0057)
   - `atomic` (default true), `wait` (default true), `timeout` (default `10m`)
-  - `registry_credentials` (for OCI charts)
+  - `registry_credentials` (for OCI charts): `{registry, credential}` pairs as for buildah (ADR-0056)
   - `rollback_revision` (for `action: rollback`; default is the previous revision)
 - **Execution:**
   1. Write `values` to `WorkDir/values.json`.
   2. Write the kubeconfig to `WorkDir/creds/` (0600).
-  3. Run the helm command. `upgrade` and `status` use `--output json`; after `rollback`, the plugin follows up with `helm status --output json`.
+  3. Run the helm command, then read the release back with `helm get metadata --output json` (helm 3.13 or newer); the release object itself is never parsed. A cancel sends SIGTERM and waits 60 s so `--atomic` can roll back.
 - **Output:** `release`, `namespace`, `revision`, `status`, `chart`, `chart_version`, `app_version`.
 - **Requires:** `bin:helm`, plus `bin:git` for git chart sources.
+- **Status:** implemented (#183; `docs/reference/plugin-helm.rst`, ADR-0057), tested with a fake helm. The kubeconfig (self-contained: no file references, `exec` or `auth-provider`), the values (which may hold `secret://` strings) and the registry logins are in 0600 files; helm gets a minimal environment with its cache, config and data inside the work directory and no `KUBECONFIG`. A git chart and its values files are resolved through symlinks and must stay inside the checkout, and a chart may not contain a symlink that leaves it. Not yet run against a real helm and cluster (the build-agent image arrives with #184).
 
 **Example: build, deploy, smoke test, and roll back on failure.** With `atomic: true`, Helm already rolls back a failed upgrade on its own. The `catch` covers failures *after* a successful upgrade, such as the smoke test.
 
@@ -647,7 +648,7 @@ Deploys charts to Kubernetes. It runs on the agent (`TargetMode = None`).
                         "credential": "secret://team/git-ro" },
               "image": "registry.internal/team/app",
               "tags": ["${{ inputs.ref }}"],
-              "registry_credentials": ["secret://team/registry-push"] } },
+              "registry_credentials": [{ "registry": "registry.internal", "credential": "secret://team/registry-push" }] } },
   { "id": "deploy", "type": "group",
     "steps": [
       { "id": "upgrade", "plugin": "helm",
@@ -655,7 +656,7 @@ Deploys charts to Kubernetes. It runs on the agent (`TargetMode = None`).
                   "chart": { "oci": "oci://registry.internal/charts/app", "version": "2.3.0" },
                   "values": { "image": { "repository": "registry.internal/team/app",
                                          "digest": "${{ steps.build.outputs.digest }}" } },
-                  "cluster": { "kubeconfig": "secret://team/kube-prod" } } },
+                  "cluster": { "kubeconfig": "secret://team/kube-prod#kubeconfig" } } },
       { "id": "smoke", "plugin": "ssh",
         "with": { "node": "ops-bastion", "command": "curl -fsS https://app.internal/healthz" } }
     ],

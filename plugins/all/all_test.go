@@ -13,6 +13,7 @@ import (
 	"github.com/denyszorinets/damson/plugins/internal/ansibletest"
 	"github.com/denyszorinets/damson/plugins/internal/buildahtest"
 	"github.com/denyszorinets/damson/plugins/internal/ftptest"
+	"github.com/denyszorinets/damson/plugins/internal/helmtest"
 	"github.com/denyszorinets/damson/plugins/internal/s3test"
 	"github.com/denyszorinets/damson/plugins/internal/sshtest"
 	"github.com/denyszorinets/damson/plugins/internal/winrmtest"
@@ -104,7 +105,23 @@ func contractOptions(t *testing.T) map[string]plugintest.Options {
 		}
 	}
 	buildahBlocking := buildahCase("blocking", "block")
+	// helm: fake helm; the kubeconfig and the registry password are bundle values,
+	// so the suite checks they never leak.
+	helmFake := helmtest.Install(t)
+	helmFake.Stdout(t, "get", helmtest.Release("app", "team-app", 1, "deployed"))
+	helmCase := func(name, release string) plugintest.Case {
+		return plugintest.Case{
+			Name:  name,
+			Input: json.RawMessage(fmt.Sprintf(`{"release":%q,"namespace":"team-app","chart":{"oci":"oci://registry.test/charts/app","version":"2.3.0"},"cluster":{"kubeconfig":"secret://h/kube#kubeconfig"},"registry_credentials":[{"registry":"registry.test","credential":"secret://h/reg"}]}`, release)),
+			Bundle: map[string]map[string]string{
+				"secret://h/reg":  {"username": "puller", "password": "contract-helm-REGISTRY-PW"},
+				"secret://h/kube": {"kubeconfig": "apiVersion: v1\nkind: Config\n# contract-KUBECONFIG-secret\n"},
+			},
+		}
+	}
+	helmBlocking := helmCase("blocking", "block")
 	return map[string]plugintest.Options{
+		"helm":    {Cases: []plugintest.Case{helmCase("upgrade", "app")}, Blocking: &helmBlocking},
 		"buildah": {Cases: []plugintest.Case{buildahCase("build", "1.0")}, Blocking: &buildahBlocking},
 		"ansible": {Cases: []plugintest.Case{ansibleCase("playbook", "site.yml")}, Blocking: &ansibleBlocking},
 		"winrm": {

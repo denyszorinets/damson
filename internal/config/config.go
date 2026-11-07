@@ -138,6 +138,10 @@ type Agent struct {
 	// AllowInsecureRegistry lets the buildah plugin run with tls_verify=false.
 	// Off by default; put a private CA in TLSCAFile or the system roots instead.
 	AllowInsecureRegistry bool `koanf:"allow_insecure_registry"`
+	// AllowHelmInCluster lets the helm plugin deploy with the agent's own
+	// Kubernetes service account (cluster.in_cluster). Off by default: that is
+	// the agent pool's ambient authority, not a credential the job brought.
+	AllowHelmInCluster bool `koanf:"allow_helm_in_cluster"`
 }
 
 // SlogLevel returns the configured level. Validate guarantees it parses.
@@ -194,5 +198,6 @@ func defaults() map[string]any {
 		"agent.allow_plain_ftp":              false,
 		"agent.allow_insecure_git":           false,
 		"agent.allow_insecure_registry":      false,
+		"agent.allow_helm_in_cluster":        false,
 	}
 }
