@@ -5,3 +5,4 @@ Tutorial
    :maxdepth: 1
 
    ssh-job
+   build-and-deploy

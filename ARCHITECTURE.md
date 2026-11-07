@@ -639,7 +639,7 @@ Deploys charts to Kubernetes. It runs on the agent (`TargetMode = None`).
 - **Requires:** `bin:helm`, plus `bin:git` for git chart sources.
 - **Status:** implemented (#183; `docs/reference/plugin-helm.rst`, ADR-0057), tested with a fake helm. The kubeconfig (self-contained: no file references, `exec` or `auth-provider`), the values (which may hold `secret://` strings) and the registry logins are in 0600 files; helm gets a minimal environment with its cache, config and data inside the work directory and no `KUBECONFIG`. A git chart and its values files are resolved through symlinks and must stay inside the checkout, and a chart may not contain a symlink that leaves it. Not yet run against a real helm and cluster (the build-agent image arrives with #184).
 
-**Example: build, deploy, smoke test, and roll back on failure.** With `atomic: true`, Helm already rolls back a failed upgrade on its own. The `catch` covers failures *after* a successful upgrade, such as the smoke test.
+**Example: build, deploy, smoke test, and roll back on failure** (the full job is `examples/jobs/build-and-deploy.json`, checked by a test; walkthrough in `docs/tutorial/build-and-deploy.rst`). With `atomic: true`, Helm already rolls back a failed upgrade on its own. The `catch` covers failures *after* a successful upgrade, such as the smoke test.
 
 ```json
 "steps": [
@@ -663,7 +663,7 @@ Deploys charts to Kubernetes. It runs on the agent (`TargetMode = None`).
     "catch": [
       { "id": "rollback", "plugin": "helm",
         "with": { "action": "rollback", "release": "app", "namespace": "team-app",
-                  "cluster": { "kubeconfig": "secret://team/kube-prod" } } }
+                  "cluster": { "kubeconfig": "secret://team/kube-prod#kubeconfig" } } }
     ],
     "rethrow": true }
 ]
