@@ -149,6 +149,16 @@ func Repo(t *testing.T) (url, commit string) {
 			t.Fatal(err)
 		}
 	}
+	// Symlinks that leave the repository: a context, and a Containerfile.
+	if err := os.Symlink("..", filepath.Join(dir, "linkctx")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "evilfile"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc/passwd", filepath.Join(dir, "evilfile", "Containerfile")); err != nil {
+		t.Fatal(err)
+	}
 	run("add", ".")
 	run("commit", "-q", "-m", "images")
 	return "file://" + dir, run("rev-parse", "HEAD")

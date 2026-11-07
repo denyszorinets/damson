@@ -39,7 +39,10 @@ Input
      - ``url``, ``ref``, ``credential`` and ``submodules`` as for the
        :doc:`ansible plugin <plugin-ansible>` (the shared checkout).
    * - ``context``
-     - Build context directory in the repository, default ``.``.
+     - Build context directory in the repository, default ``.``. It is resolved
+       through symlinks and must stay inside the checkout; a value that looks
+       like a URL (``https://...``, ``github.com/x/y``) is not a context and is
+       refused.
    * - ``containerfile``
      - Path in the repository. Default: ``Containerfile`` in the context, else
        ``Dockerfile``.
@@ -72,10 +75,11 @@ Input
 
 .. note::
 
-   ARCHITECTURE section 6.5 describes ``registry_credentials`` as refs "of type
-   ``registry``". There is no such secret type; the plugin uses explicit
-   ``{registry, credential}`` pairs with the existing ``password`` type, which
-   also says which registry a login is for.
+   ``registry_credentials`` are explicit ``{registry, credential}`` pairs with the
+   existing ``password`` secret type, which also says which registry a login is
+   for (:doc:`/architecture/decisions/0056-buildah-registry-credentials`). The
+   ``image`` must start with a registry host (a name with a dot, a port, or
+   ``localhost``): a bare ``team/app`` would silently mean docker.io.
 
 Execution
 ---------
@@ -92,9 +96,17 @@ Execution
 #. ``buildah rmi --all --force`` runs even after a failure or a cancel, and the
    credential files are removed.
 
-Buildah gets a minimal environment, not the agent's own (``HOME``, ``PATH``,
-proxy and TLS variables and the ``BUILDAH_``, ``CONTAINERS_`` and ``STORAGE_``
-families pass through). No secret is on a command line.
+Buildah gets a minimal environment, not the agent's own. ``HOME``, the runtime
+directory and ``TMPDIR`` are private directories in the work directory, so the
+agent user's own registry logins (``~/.docker/config.json``, ``auth.json``) are
+never used and no temporary file outlives the step. ``PATH``, proxy and TLS
+variables and the ``BUILDAH_``, ``CONTAINERS_`` and ``STORAGE_`` families pass
+through (for example ``CONTAINERS_STORAGE_CONF`` for a rootless setup). No
+secret is on a command line.
+
+Cleanup runs even after a failure or a cancel: ``buildah rm --all``,
+``buildah rmi --all --force`` and ``buildah unshare rm -rf`` on the storage
+(rootless storage is owned by sub-uids, so a plain removal would fail).
 
 Output and errors
 -----------------
@@ -106,4 +118,7 @@ are empty. A failed step still returns ``image``, ``tags`` and ``commit``.
 
 Registry authentication failures are ``auth``, an unreachable registry or
 network is ``connection``, and other build or push failures are ``exit_code``.
-The buildah output is in the step log.
+Only buildah's own ``Error:`` lines are read for this, not the output of
+``RUN`` steps. The buildah output is in the step log. If the tags were pushed
+with different digests the step fails with an ``internal`` error; the tags
+pushed before the mismatch stay pushed.

@@ -591,7 +591,7 @@ Builds a container image from a git repository and pushes it to a registry. It r
   - `tags` (list; default is the short commit SHA)
   - `build_args` (map), `labels` (map), `target` (stage name)
   - `build_secrets`: a map of id → secret ref, passed as `--secret id=<id>,src=<tmpfile>`. Secrets are never passed as build args.
-  - `registry_credentials`: a list of secret refs of type `registry`, used for pulling base images and for pushing
+  - `registry_credentials`: a list of `{registry, credential}` pairs; `credential` is a `password` secret (`username`, `password`). Used for pulling base images and for pushing (ADR-0056)
   - `cache: {from, to}`: registry-based layer caching (`--cache-from`, `--cache-to`)
   - `push` (default true), `tls_verify` (default true)
   - `platform` (a single platform in v1)
@@ -608,7 +608,7 @@ Builds a container image from a git repository and pushes it to a registry. It r
   - `tags`
   - `commit`
 - **Error mapping:** registry auth failures map to `auth`, an unreachable network or registry to `connection`, and build failures to `exit_code`.
-- **Status:** implemented (#182; `docs/reference/plugin-buildah.rst`), tested with a fake buildah. `registry_credentials` is a list of `{registry, credential}` pairs with a `password` secret (there is no `registry` secret type); `tls_verify: false` needs `agent.allow_insecure_registry`; storage is confined to the work directory; `push: false` has no registry digest, so `digest` and `image_ref` are empty. Not yet run against a real buildah (the build-agent image arrives with #184).
+- **Status:** implemented (#182; `docs/reference/plugin-buildah.rst`), tested with a fake buildah. `tls_verify: false` needs `agent.allow_insecure_registry`; storage, `HOME`, the runtime and temporary directories are confined to the work directory, and the build context and Containerfile are resolved through symlinks and must stay inside the checkout (passed to buildah as absolute paths); `push: false` has no registry digest, so `digest` and `image_ref` are empty. Not yet run against a real buildah (the build-agent image arrives with #184).
 - **Requires:** `bin:buildah`, `bin:git`.
 - **Security:** a Containerfile is arbitrary code, so builds never run on general-purpose agent pools.
 - **Kubernetes:** rootless buildah needs user namespaces and `fuse-overlayfs` (or the slower `vfs` storage driver). That usually means a relaxed `securityContext` for the build pool. The Helm chart documents the exact pod spec.

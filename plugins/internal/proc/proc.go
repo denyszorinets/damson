@@ -6,10 +6,8 @@
 package proc
 
 import (
-	"bufio"
 	"context"
 	"errors"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -51,26 +49,21 @@ func Run(ctx context.Context, s Spec, emit pluginsdk.Emitter) (Result, error) {
 	cmd.Env = s.Env
 	prepare(cmd)
 	cmd.WaitDelay = 5 * time.Second
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return Result{ExitCode: -1}, pluginsdk.NewError(pluginsdk.KindInternal, "preparing "+s.Name+" failed", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return Result{ExitCode: -1}, pluginsdk.NewError(pluginsdk.KindInternal, "preparing "+s.Name+" failed", err)
-	}
+	// Writers, not pipes: Wait copies the output itself, so WaitDelay also bounds
+	// a child that left the process group and keeps the output open.
+	tail := &tailBuf{max: stderrTail}
+	outSink := &sink{emit: emit, stream: pluginsdk.Stdout}
+	errSink := &sink{emit: emit, stream: pluginsdk.Stderr, tail: tail}
+	cmd.Stdout, cmd.Stderr = outSink, errSink
 	if err := cmd.Start(); err != nil {
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 			return Result{ExitCode: -1}, pluginsdk.NewError(pluginsdk.KindInternal, s.Name+" is not installed on this agent", err)
 		}
 		return Result{ExitCode: -1}, pluginsdk.NewError(pluginsdk.KindInternal, "starting "+s.Name+" failed", err)
 	}
-	tail := &tailBuf{max: stderrTail}
-	var wg sync.WaitGroup
-	wg.Go(func() { Pump(stdout, emit, pluginsdk.Stdout, nil) })
-	wg.Go(func() { Pump(stderr, emit, pluginsdk.Stderr, tail) })
-	wg.Wait()
 	waitErr := cmd.Wait()
+	outSink.flush()
+	errSink.flush()
 	if ctx.Err() != nil {
 		kind := pluginsdk.KindCancelled
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -80,7 +73,7 @@ func Run(ctx context.Context, s Spec, emit pluginsdk.Emitter) (Result, error) {
 	}
 	var ee *exec.ExitError
 	switch {
-	case waitErr == nil:
+	case waitErr == nil, errors.Is(waitErr, exec.ErrWaitDelay):
 		return Result{Stderr: tail.String()}, nil
 	case errors.As(waitErr, &ee):
 		return Result{ExitCode: ee.ExitCode(), Stderr: tail.String()}, nil
@@ -103,31 +96,49 @@ func (t *tailBuf) add(line string) {
 
 func (t *tailBuf) String() string { return strings.TrimSpace(string(t.b)) }
 
-// Pump logs each line of r until it ends. A line longer than maxLogLine is
-// split. When tail is non-nil it also keeps the last bytes.
-func Pump(r io.Reader, emit pluginsdk.Emitter, stream pluginsdk.Stream, tail *tailBuf) {
-	br := bufio.NewReaderSize(r, 64<<10)
-	var carry strings.Builder
-	flush := func() {
-		line := carry.String()
-		carry.Reset()
-		emit.Log(stream, line)
-		if tail != nil {
-			tail.add(line)
-		}
-	}
+// sink is an io.Writer that logs each line and, for stderr, keeps a tail. A line
+// longer than maxLogLine is split.
+type sink struct {
+	emit   pluginsdk.Emitter
+	stream pluginsdk.Stream
+	tail   *tailBuf
+	mu     sync.Mutex
+	buf    []byte
+}
+
+func (w *sink) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.buf = append(w.buf, p...)
 	for {
-		chunk, prefix, err := br.ReadLine()
-		carry.Write(chunk)
-		if (!prefix && (len(chunk) > 0 || carry.Len() > 0)) || carry.Len() >= maxLogLine {
-			flush()
+		i := strings.IndexByte(string(w.buf), '\n')
+		if i < 0 {
+			break
 		}
-		if err != nil {
-			if carry.Len() > 0 {
-				flush()
-			}
-			return
-		}
+		w.line(strings.TrimRight(string(w.buf[:i]), "\r"))
+		w.buf = w.buf[i+1:]
+	}
+	for len(w.buf) >= maxLogLine {
+		w.line(string(w.buf[:maxLogLine]))
+		w.buf = w.buf[maxLogLine:]
+	}
+	return len(p), nil
+}
+
+func (w *sink) line(l string) {
+	w.emit.Log(w.stream, l)
+	if w.tail != nil {
+		w.tail.add(l)
+	}
+}
+
+// flush logs an unterminated last line.
+func (w *sink) flush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.buf) > 0 {
+		w.line(strings.TrimRight(string(w.buf), "\r"))
+		w.buf = nil
 	}
 }
 

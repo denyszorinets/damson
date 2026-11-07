@@ -115,9 +115,9 @@ func TestBuildsAndPushesWithTheDigest(t *testing.T) {
 	}
 	b := builds[0]
 	for _, seq := range [][]string{
-		{"build", "--layers", "--tls-verify=true", "-f", "Containerfile"}, {"-t", image + ":1.2"}, {"-t", image + ":latest"},
-		{"--build-arg", "VERSION=1.2"}, {"--label", "org.opencontainers.image.revision=abc"}, {"--target", "release"},
-		{"--platform", "linux/arm64"}, {"--cache-from", "registry.test/cache/app"}, {"--cache-to", "registry.test/cache/app"}, {"--", "."},
+		{"build", "--layers", "--tls-verify=true", "-f"}, {"-t", image + ":1.2"}, {"-t", image + ":latest"},
+		{"--build-arg", "VERSION=1.2"}, {"--label", "org.opencontainers.image.revision=abc"}, {"--target=release"},
+		{"--platform", "linux/arm64"}, {"--cache-from", "registry.test/cache/app"}, {"--cache-to", "registry.test/cache/app"}, {"--"},
 	} {
 		if !has(b, seq...) {
 			t.Errorf("build args lack %v:\n%s", seq, strings.Join(b, " "))
@@ -125,6 +125,13 @@ func TestBuildsAndPushesWithTheDigest(t *testing.T) {
 	}
 	if !has(b, "--root") || !has(b, "--runroot") {
 		t.Error("storage is not confined to the work directory")
+	}
+	// The Containerfile and the context are absolute paths inside the checkout,
+	// so buildah can never read them as a remote URL.
+	for i, a := range b {
+		if (a == "-f" || a == "--") && (!strings.HasPrefix(b[i+1], "/") || !strings.Contains(b[i+1], "/repo")) {
+			t.Errorf("%s %s is not an absolute path in the checkout", a, b[i+1])
+		}
 	}
 	joined := strings.Join(b, "\n")
 	if !strings.Contains(joined, "id=npmrc,src=") || strings.Contains(joined, npmSecret) {
@@ -138,8 +145,10 @@ func TestBuildsAndPushesWithTheDigest(t *testing.T) {
 	if len(pushes) != 2 || !has(pushes[0], "docker://"+image+":1.2") || !has(pushes[1], "docker://"+image+":latest") || !has(pushes[0], "--digestfile") {
 		t.Fatalf("pushes = %v", pushes)
 	}
-	if len(e.fake.Calls(t, "rmi")) != 1 {
-		t.Error("local images were not removed")
+	for _, sub := range []string{"rm", "rmi", "unshare"} {
+		if len(e.fake.Calls(t, sub)) != 1 {
+			t.Errorf("cleanup step %s did not run once", sub)
+		}
 	}
 
 	// Registry credentials are in the auth file, never on a command line or in the environment.
@@ -174,14 +183,76 @@ func TestDefaultTagContainerfileFallbackAndPathOptions(t *testing.T) {
 		t.Fatalf("default tag = %v; want the short commit", out.Tags)
 	}
 	b := e.fake.Calls(t, "build")[0]
-	if !has(b, "-f", "app/Dockerfile") || !has(b, "--", "app") {
-		t.Errorf("the Dockerfile fallback was not used:\n%s", strings.Join(b, " "))
+	var cf, cx string
+	for i, a := range b {
+		switch a {
+		case "-f":
+			cf = b[i+1]
+		case "--":
+			cx = b[i+1]
+		}
+	}
+	if !strings.HasSuffix(cf, "/repo/app/Dockerfile") || !strings.HasSuffix(cx, "/repo/app") {
+		t.Errorf("the Dockerfile fallback was not used: -f %s, context %s", cf, cx)
 	}
 	requireOK(t, exec(t, e.caseOf(map[string]any{"containerfile": "custom/Containerfile.x"})))
 	o := exec(t, e.caseOf(map[string]any{"containerfile": "nope"}))
 	requireKind(t, o, pluginsdk.KindValidation, "not in the repository")
 	o = exec(t, e.caseOf(map[string]any{"context": "custom"}))
 	requireKind(t, o, pluginsdk.KindValidation, "no Containerfile or Dockerfile")
+}
+
+// The context and the Containerfile cannot leave the checkout through a symlink,
+// and a context that looks like a remote URL is not one.
+func TestBuildPathsStayInsideTheCheckout(t *testing.T) {
+	e := newEnv(t)
+	for name, tc := range map[string]struct {
+		body map[string]any
+		text string
+	}{
+		"context symlink":       {map[string]any{"context": "linkctx"}, "resolves outside the repository"},
+		"containerfile symlink": {map[string]any{"context": "evilfile"}, "resolves outside the repository"},
+		"explicit symlink":      {map[string]any{"containerfile": "evilfile/Containerfile"}, "resolves outside the repository"},
+		"https context":         {map[string]any{"context": "https://example.com/x"}, "not in the repository"},
+		"git hosting context":   {map[string]any{"context": "github.com/x/y"}, "not in the repository"},
+		"url containerfile":     {map[string]any{"containerfile": "https://example.com/Dockerfile"}, "not in the repository"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			requireKind(t, exec(t, e.caseOf(tc.body)), pluginsdk.KindValidation, tc.text)
+			if len(e.fake.Calls(t, "build")) != 0 {
+				t.Fatal("buildah ran")
+			}
+		})
+	}
+}
+
+// The agent user's own registry logins and caches (HOME, XDG, TMPDIR) are not
+// reachable from buildah.
+func TestBuildahGetsAPrivateHome(t *testing.T) {
+	t.Setenv("HOME", "/home/agentuser")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+	t.Setenv("XDG_CONFIG_HOME", "/home/agentuser/.config")
+	e := newEnv(t)
+	requireOK(t, exec(t, e.caseOf(nil)))
+	env := e.fake.CallFile(t, "build", ".env")
+	for _, bad := range []string{"/home/agentuser", "/run/user/1000"} {
+		if strings.Contains(env, bad) {
+			t.Errorf("the agent user's %s reached buildah:\n%s", bad, env)
+		}
+	}
+	for _, want := range []string{"HOME=", "/home\n", "XDG_RUNTIME_DIR=", "BUILDAH_TMPDIR="} {
+		if !strings.Contains(env, want) {
+			t.Errorf("env lacks %q", want)
+		}
+	}
+}
+
+// Output of RUN steps in the stderr tail is not read as a registry problem.
+func TestRunOutputIsNotClassified(t *testing.T) {
+	e := newEnv(t)
+	e.fake.Exit(t, "build", "125")
+	e.fake.Stderr(t, "build", "dial tcp 10.0.0.1:80: connection refused (from a test in RUN)\nunauthorized: tests need a login\nError: building at STEP \"RUN make test\": exit status 1")
+	requireKind(t, exec(t, e.caseOf(nil)), pluginsdk.KindExitCode, "buildah build exited with code 125")
 }
 
 func TestPushFalseKeepsTheImageLocal(t *testing.T) {
@@ -229,7 +300,7 @@ func TestFailuresMapToErrorKinds(t *testing.T) {
 			if out.Digest != "" || out.Image != image {
 				t.Errorf("a failed %s returned %+v", tc.sub, out)
 			}
-			if len(e.fake.Calls(t, "rmi")) != 1 {
+			if len(e.fake.Calls(t, "rmi")) != 1 || len(e.fake.Calls(t, "unshare")) != 1 {
 				t.Error("local images were not removed after a failure")
 			}
 		})

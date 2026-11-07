@@ -3,6 +3,7 @@ package proc_test
 import (
 	"context"
 	"os"
+	osexec "os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -58,6 +59,24 @@ func TestLongLinesAreSplit(t *testing.T) {
 	}
 	if total != 600000 {
 		t.Errorf("logged %d bytes, want 600000", total)
+	}
+}
+
+// A child that leaves the process group and keeps the output open must not make
+// Run hang after a cancel (the hard rule on honoring ctx).
+func TestCancelDoesNotHangOnAnEscapedChild(t *testing.T) {
+	if _, err := osexec.LookPath("setsid"); err != nil {
+		t.Skip("setsid is not installed")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(300*time.Millisecond, cancel)
+	start := time.Now()
+	_, err := proc.Run(ctx, spec("setsid sleep 20 & sleep 20"), &plugintest.FakeEmitter{})
+	if se := pluginsdk.AsStepError(err); se == nil || se.Kind != pluginsdk.KindCancelled {
+		t.Fatalf("cancel: %v", err)
+	}
+	if d := time.Since(start); d > 12*time.Second {
+		t.Fatalf("Run waited %s for a child that escaped the group", d)
 	}
 }
 

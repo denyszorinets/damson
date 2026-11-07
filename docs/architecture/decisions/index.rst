@@ -174,6 +174,9 @@ change nothing until accepted.
    * - 0055
      - :doc:`0055-inventory-target-mode`
      - Accepted
+   * - 0056
+     - :doc:`0056-buildah-registry-credentials`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -233,3 +236,4 @@ change nothing until accepted.
    0053-audit-events
    0054-audit-retention
    0055-inventory-target-mode
+   0056-buildah-registry-credentials

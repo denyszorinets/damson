@@ -103,14 +103,17 @@ func execute(ctx context.Context, req pluginsdk.ExecRequest, emit pluginsdk.Emit
 	emit.Log(pluginsdk.System, "checked out "+co.Commit)
 	out := Output{Image: in.Image, Tags: tagsOf(in, co.Commit), Commit: co.Commit}
 
-	containerfile, err := findContainerfile(repoDir, in)
+	ctxDir, containerfile, err := buildPaths(repoDir, in)
 	if err != nil {
 		return out, err
 	}
+	if err := prepareDirs(req.WorkDir); err != nil {
+		return out, err
+	}
 	b := builder{in: in, env: environment(req.WorkDir, authFile), root: filepath.Join(req.WorkDir, "storage"), runroot: filepath.Join(req.WorkDir, "run")}
-	defer b.cleanup(out.Tags, emit)
+	defer b.cleanup(emit)
 
-	if err := b.build(ctx, repoDir, containerfile, out.Tags, authFile, secretArgs, emit); err != nil {
+	if err := b.build(ctx, repoDir, ctxDir, containerfile, out.Tags, authFile, secretArgs, emit); err != nil {
 		return out, err
 	}
 	if !in.push() {

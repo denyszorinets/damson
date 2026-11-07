@@ -57,13 +57,15 @@ type Output struct {
 	Commit   string   `json:"commit" jsonschema:"description=The resolved commit SHA of the checkout"`
 }
 
+var portRe = regexp.MustCompile(`^[0-9]{1,5}$`)
+
 var (
 	imageRe    = regexp.MustCompile(`^[a-z0-9][a-z0-9._/:-]*$`)
 	cacheRe    = regexp.MustCompile(`^[a-z0-9][a-z0-9._/:-]*$`)
 	tagRe      = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
 	argNameRe  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	labelKeyRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
-	targetRe   = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+	targetRe   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 	platformRe = regexp.MustCompile(`^[a-z0-9]+/[a-z0-9]+(/[a-z0-9]+)?$`)
 	secretIDRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 	registryRe = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*(:[0-9]{1,5})?$`)
@@ -146,14 +148,23 @@ func (in Input) validate() error {
 func validateImage(what, image string) error {
 	bad := image == "" || !imageRe.MatchString(image) || strings.Contains(image, "..") || strings.Contains(image, "//") || strings.HasSuffix(image, "/")
 	segs := strings.Split(image, "/")
-	// A colon is allowed only in the first segment, as the registry port.
-	for i, s := range segs {
-		if strings.Contains(s, ":") && (i != 0 || len(segs) == 1) {
+	// The first segment must name the registry (a host with a dot, a port, or
+	// localhost): a bare "team/app" would silently mean docker.io. A colon is
+	// allowed only there, as a numeric port.
+	if len(segs) < 2 {
+		bad = true
+	} else if host, port, hasPort := strings.Cut(segs[0], ":"); !strings.Contains(segs[0], ".") && !hasPort && host != "localhost" {
+		bad = true
+	} else if hasPort && !portRe.MatchString(port) {
+		bad = true
+	}
+	for _, s := range segs[1:] {
+		if strings.Contains(s, ":") {
 			bad = true
 		}
 	}
 	if bad {
-		return pluginsdk.ValidationError("%s must be an image repository such as registry.internal/team/app, without a scheme, tag or digest (use tags)", what)
+		return pluginsdk.ValidationError("%s must be an image repository that starts with a registry host, such as registry.internal/team/app, without a scheme, tag or digest (use tags)", what)
 	}
 	return nil
 }

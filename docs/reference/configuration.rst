@@ -145,8 +145,9 @@ written as a double underscore: ``agent.controller_url`` is
    * - ``agent.allow_insecure_host_keys``
      - agent
      - ``false``
-     - Let the ``ssh`` and ``transfer`` plugins connect to nodes with host key policy
-       ``insecure``.
+     - Let the ``ssh``, ``transfer`` and ``ansible`` plugins connect to nodes with
+       host key policy ``insecure``, and the ``ansible`` and ``buildah`` plugins
+       clone ssh repositories without a known_hosts entry.
    * - ``agent.allow_insecure_winrm``
      - agent
      - ``false``
@@ -162,7 +163,7 @@ written as a double underscore: ``agent.controller_url`` is
    * - ``agent.allow_insecure_git``
      - agent
      - ``false``
-     - Let the ``ansible`` plugin clone from ``http://``, ``git://`` and
+     - Let the ``ansible`` and ``buildah`` plugins clone from ``http://``, ``git://`` and
        ``file://`` URLs. Without it only ``https`` and ``ssh`` are accepted.
        Environment variable ``DAMSON_AGENT__ALLOW_INSECURE_GIT``
        (:doc:`/reference/plugin-ansible`).
