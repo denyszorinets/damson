@@ -27,6 +27,7 @@ require (
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.50.0
 	github.com/riverqueue/river/riverdriver/riversqlite v0.50.0
 	github.com/riverqueue/river/rivertype v0.50.0
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/afero v1.15.0
 	github.com/stretchr/testify v1.12.1

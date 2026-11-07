@@ -40,31 +40,7 @@ func triggerRun(ctx context.Context, d deps, in *triggerRunInput) (*runDetailOut
 		return nil, apiError(ctx, invalid("unsupported concurrency policy",
 			ProblemDetail{Message: fmt.Sprintf("%q is not supported yet; only %q is", p, policyQueue), Location: "body.concurrency_policy"}))
 	}
-	job, err := d.ds.GetJob(ctx, in.ID)
-	if err != nil {
-		return nil, apiError(ctx, err)
-	}
-	number := job.CurrentVersion
-	if body.Version != nil {
-		number = *body.Version
-	}
-	ver, err := d.ds.GetJobVersionByNumber(ctx, job.ID, number)
-	if errors.Is(err, store.ErrNotFound) && body.Version != nil {
-		return nil, apiError(ctx, invalid("unknown job version",
-			ProblemDetail{Message: "no such version", Location: "body.version"}))
-	}
-	if err != nil {
-		return nil, apiError(ctx, err)
-	}
-	spec, err := d.eng.Parse(ver.Spec)
-	if err != nil {
-		return nil, apiError(ctx, fmt.Errorf("stored spec of job %s version %d: %w", job.ID, number, err))
-	}
-	opts, err := resolveOptions(spec, body.Options)
-	if err != nil {
-		return nil, apiError(ctx, err)
-	}
-	nr, err := d.newRun(ctx, job, ver, spec, opts)
+	nr, number, err := d.prepareRun(ctx, in.ID, body.Version, body.Options, Trigger{Type: triggerAPI})
 	if err != nil {
 		return nil, apiError(ctx, err)
 	}
@@ -77,7 +53,7 @@ func triggerRun(ctx context.Context, d deps, in *triggerRunInput) (*runDetailOut
 	if err != nil {
 		return nil, apiError(ctx, err)
 	}
-	return &runDetailOutput{Body: toRunDetail(tree, ver.Version)}, nil
+	return &runDetailOutput{Body: toRunDetail(tree, number)}, nil
 }
 
 // resolveOptions applies the schema defaults and validates the result against
@@ -150,12 +126,12 @@ func hasLocation(fields []ProblemDetail, loc string) bool {
 // newRun builds the run insert from what Decide returns for a queued run: the
 // step instances it creates and their first executions. The other actions
 // (start, skip, fail, complete) are applied by run.advance.
-func (d deps) newRun(ctx context.Context, job store.Job, ver store.JobVersion, spec *engine.Job, opts map[string]any) (store.NewRun, error) {
+func (d deps) newRun(ctx context.Context, job store.Job, ver store.JobVersion, spec *engine.Job, opts map[string]any, trig Trigger) (store.NewRun, error) {
 	id, err := store.NewID()
 	if err != nil {
 		return store.NewRun{}, err
 	}
-	trigger, err := json.Marshal(map[string]string{"type": triggerAPI})
+	trigger, err := json.Marshal(trig)
 	if err != nil {
 		return store.NewRun{}, fmt.Errorf("encoding trigger: %w", err)
 	}
@@ -165,7 +141,7 @@ func (d deps) newRun(ctx context.Context, job store.Job, ver store.JobVersion, s
 	}
 	now := d.now()
 	state := engine.RunState{
-		ID: id, Status: engine.RunQueued, Trigger: triggerAPI, Inputs: opts,
+		ID: id, Status: engine.RunQueued, Trigger: trig.Type, Inputs: opts,
 		Job: engine.JobInfo{Name: spec.Metadata.Name, Project: spec.Metadata.Project, Version: strconv.Itoa(ver.Version)},
 	}
 	var frozen []store.RunTarget

@@ -21,6 +21,7 @@ import (
 	"github.com/denyszorinets/damson/internal/controller/internalauth"
 	"github.com/denyszorinets/damson/internal/controller/leader"
 	"github.com/denyszorinets/damson/internal/controller/logs"
+	"github.com/denyszorinets/damson/internal/controller/scheduler"
 	"github.com/denyszorinets/damson/internal/controller/tailproxy"
 	"github.com/denyszorinets/damson/internal/devnodes"
 	"github.com/denyszorinets/damson/internal/engine"
@@ -42,6 +43,7 @@ type Timing struct {
 	LeaseTTL                      time.Duration // dispatcher and adoption on reconnect
 	LeaderTTL, LeaderRenew        time.Duration // leader lease of the singleton duties
 	AdvancePoll, AdvanceSweep     time.Duration // run.advance
+	Schedule                      time.Duration // scheduler tick; zero selects 10s
 }
 
 // Config assembles a controller.
@@ -105,6 +107,9 @@ type Node struct {
 	intl *internalapi.Server
 	intL net.Listener
 	srv  *api.Server
+	// sched and schedLead are the scheduler duty and its lease, nil on an unmigrated database.
+	sched     *scheduler.Scheduler
+	schedLead *leader.Elector
 	// secrets is the db secret backend, nil while secrets are disabled.
 	secrets *secretsdb.Backend
 }
@@ -154,6 +159,9 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 		apiCfg.Secrets = n.secrets
 	}
 	n.srv = api.NewServer(apiCfg)
+	if err := n.startScheduler(ctx, cfg, apiCfg); err != nil {
+		return nil, errors.Join(err, n.stopOrchestration(context.WithoutCancel(ctx)))
+	}
 	return n, nil
 }
 
@@ -247,7 +255,7 @@ func (n *Node) Advancer() *advance.Advancer { return n.adv }
 // flushed, then the run.advance workers drain. Stopping a component that never
 // started is a no-op.
 func (n *Node) Stop(ctx context.Context) error {
-	return errors.Join(n.srv.Stop(ctx), n.stopOrchestration(ctx))
+	return errors.Join(n.srv.Stop(ctx), n.stopScheduler(ctx), n.stopOrchestration(ctx))
 }
 
 func (n *Node) stopOrchestration(ctx context.Context) error {

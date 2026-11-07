@@ -180,6 +180,9 @@ change nothing until accepted.
    * - 0057
      - :doc:`0057-helm-credentials`
      - Accepted
+   * - 0058
+     - :doc:`0058-schedules-and-the-scheduler-duty`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -241,3 +244,4 @@ change nothing until accepted.
    0055-inventory-target-mode
    0056-buildah-registry-credentials
    0057-helm-credentials
+   0058-schedules-and-the-scheduler-duty

@@ -18,8 +18,8 @@ type AuditEvent struct {
 	ID          string          `json:"id"`
 	At          time.Time       `json:"at"`
 	Actor       string          `json:"actor" doc:"admin-token:<hash prefix>, cli:<user> or system:<duty> until accounts arrive (ADR-0053)."`
-	Action      string          `json:"action" doc:"secret.create, secret.update, secret.delete, secret.kek_rotate, log.purge, admin_token.create, admin_token.revoke or audit.prune."`
-	TargetType  string          `json:"target_type" doc:"secret, execution or instance."`
+	Action      string          `json:"action" doc:"secret.create, secret.update, secret.delete, secret.kek_rotate, log.purge, admin_token.create, admin_token.revoke, audit.prune, schedule.create, schedule.update or schedule.delete."`
+	TargetType  string          `json:"target_type" doc:"secret, execution, schedule or instance."`
 	Target      string          `json:"target" doc:"<scope>/<name> for a secret, the execution id for log.purge."`
 	ProjectPath string          `json:"project_path,omitempty"`
 	Details     json.RawMessage `json:"details" doc:"A JSON object; never a secret value."`
