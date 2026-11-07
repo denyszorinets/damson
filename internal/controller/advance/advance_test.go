@@ -87,6 +87,9 @@ func (t *fakeTx) ApplyAdvance(_ context.Context, _ string, v int64, a store.Adva
 }
 
 func (t *fakeTx) AppendAuditEvent(context.Context, store.AuditEvent) error { return nil }
+func (t *fakeTx) PruneAuditEvents(context.Context, time.Time, int, time.Time) (int64, error) {
+	return 0, nil
+}
 
 func (t *fakeTx) CreateRun(context.Context, store.NewRun, time.Time) (store.RunTree, error) {
 	return store.RunTree{}, errors.New("unused")

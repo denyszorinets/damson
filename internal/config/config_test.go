@@ -154,6 +154,16 @@ func TestLoad(t *testing.T) {
 			wantErr: []string{"engine.finally_grace"},
 		},
 		{
+			name: "audit retention must not be negative", role: RoleController,
+			env:     []string{"DAMSON_AUDIT__RETENTION_DAYS=-1"},
+			wantErr: []string{"audit.retention_days"},
+		},
+		{
+			name: "audit retention is bounded", role: RoleDev,
+			env:     []string{"DAMSON_AUDIT__RETENTION_DAYS=40000"},
+			wantErr: []string{"audit.retention_days"},
+		},
+		{
 			name: "dev rejects postgres", role: RoleDev,
 			env:     []string{"DAMSON_DATABASE__DRIVER=postgres"},
 			wantErr: []string{"dev mode uses sqlite"},

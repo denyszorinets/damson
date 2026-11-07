@@ -410,3 +410,55 @@ func testAuditList(t *testing.T, s store.Store) {
 		t.Fatalf("target filter = %+v %v", onlyB, err)
 	}
 }
+
+func testAuditPrune(t *testing.T, s store.Store) {
+	ctx := actorCtx()
+	migrated(t, s)
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < 5; i++ {
+		ev := store.AuditEvent{ID: fmt.Sprintf("p-%d", i), At: base.Add(time.Duration(i) * time.Hour), Actor: "x", Action: "secret.update", TargetType: store.AuditTargetSecret, Target: "t"}
+		if err := s.AppendAuditEvent(ctx, ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := base.Add(48 * time.Hour)
+	cutoff := base.Add(3 * time.Hour) // events 0, 1, 2 are older; 3 is not (strictly before)
+	prune := func(c context.Context, limit int) (n int64, err error) {
+		err = s.WithTx(c, func(tx store.Tx) error {
+			var e error
+			n, e = tx.PruneAuditEvents(c, cutoff, limit, now)
+			return e
+		})
+		return n, err
+	}
+	// Without an actor nothing is deleted.
+	if _, err := prune(context.Background(), 2); !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("no actor: err = %v, want ErrInvalid", err)
+	}
+	if all, _ := s.ListAuditEvents(ctx, store.AuditFilter{}, 10); len(all) != 5 {
+		t.Fatalf("a refused prune deleted rows: %d left", len(all))
+	}
+	if n, err := prune(ctx, 2); err != nil || n != 2 {
+		t.Fatalf("first batch = %d, %v; want 2", n, err)
+	}
+	left, _ := s.ListAuditEvents(ctx, store.AuditFilter{}, 10)
+	// 3 originals plus the prune event (at = now, newest).
+	if len(left) != 4 || left[0].Action != store.ActionAuditPrune || left[3].ID != "p-2" {
+		t.Fatalf("the oldest must go first, with one prune event; left = %+v", left)
+	}
+	var d store.AuditPruneDetails
+	if err := json.Unmarshal(left[0].Details, &d); err != nil || d.Deleted != 2 || !d.Before.Equal(cutoff) || left[0].Actor != "test:actor" {
+		t.Fatalf("prune event = %+v, %s, %v", left[0], left[0].Details, err)
+	}
+	if n, err := prune(ctx, 2); err != nil || n != 1 {
+		t.Fatalf("second batch = %d, %v; want 1", n, err)
+	}
+	// Nothing left to delete: no new event.
+	if n, err := prune(ctx, 2); err != nil || n != 0 {
+		t.Fatalf("third batch = %d, %v; want 0", n, err)
+	}
+	left, _ = s.ListAuditEvents(ctx, store.AuditFilter{}, 10)
+	if len(left) != 4 { // p-3, p-4 and two prune events
+		t.Fatalf("left = %+v", left)
+	}
+}

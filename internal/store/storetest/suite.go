@@ -48,6 +48,7 @@ func Run(t *testing.T, f Factory) {
 		{"PurgeExecutionLogs", testPurgeExecutionLogs},
 		{"SecretWritesNeedAnActor", testSecretWritesNeedAnActor},
 		{"AuditList", testAuditList},
+		{"AuditPrune", testAuditPrune},
 		{"Nodes", testNodes},
 		{"NodeList", testNodeList},
 		{"NodeRaces", testNodeRaces},

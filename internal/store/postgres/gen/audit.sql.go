@@ -99,3 +99,22 @@ func (q *Queries) ListAuditEvents(ctx context.Context, arg ListAuditEventsParams
 	}
 	return items, nil
 }
+
+const pruneAuditEvents = `-- name: PruneAuditEvents :execrows
+DELETE FROM audit_events
+WHERE id IN (SELECT a.id FROM audit_events a WHERE a.at < $1 ORDER BY a.at, a.id LIMIT $2)
+`
+
+type PruneAuditEventsParams struct {
+	BeforeAt pgtype.Timestamptz
+	RowLimit int32
+}
+
+// Deletes up to row_limit events older than before_at, oldest first.
+func (q *Queries) PruneAuditEvents(ctx context.Context, arg PruneAuditEventsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, pruneAuditEvents, arg.BeforeAt, arg.RowLimit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

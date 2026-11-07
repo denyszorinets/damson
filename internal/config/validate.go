@@ -37,6 +37,9 @@ func (c Config) Validate(role Role) error {
 		if d, err := time.ParseDuration(c.Engine.FinallyGrace); err != nil || d <= 0 || d > MaxFinallyGrace {
 			add("engine.finally_grace", "must be a duration such as \"2m\", positive and at most %s; got %q", MaxFinallyGrace, c.Engine.FinallyGrace)
 		}
+		if d := c.Audit.RetentionDays; d < 0 || d > MaxAuditRetentionDays {
+			add("audit.retention_days", "must be 0 (keep forever) or at most %d days; got %d", MaxAuditRetentionDays, d)
+		}
 	}
 	if role == RoleAgent {
 		c.validateAgent(add)

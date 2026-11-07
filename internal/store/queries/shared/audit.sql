@@ -13,3 +13,8 @@ WHERE (CAST(sqlc.arg(target_type) AS TEXT) = '' OR target_type = sqlc.arg(target
   AND (at < sqlc.arg(before_at) OR (at = sqlc.arg(before_at) AND id < sqlc.arg(before_id)))
 ORDER BY at DESC, id DESC
 LIMIT sqlc.arg(row_limit);
+
+-- name: PruneAuditEvents :execrows
+-- Deletes up to row_limit events older than before_at, oldest first.
+DELETE FROM audit_events
+WHERE id IN (SELECT a.id FROM audit_events a WHERE a.at < sqlc.arg(before_at) ORDER BY a.at, a.id LIMIT sqlc.arg(row_limit));
