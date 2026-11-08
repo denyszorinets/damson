@@ -15,6 +15,9 @@ var _ store.AccessStore = (*Store)(nil)
 
 // ListProjectChain implements store.AccessStore.
 func (s *Store) ListProjectChain(ctx context.Context, path string) ([]store.Project, error) {
+	if store.ValidateProjectPath(path) != nil {
+		return nil, nil
+	}
 	rows, err := s.q.ListProjectChain(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("listing project chain: %w", err)

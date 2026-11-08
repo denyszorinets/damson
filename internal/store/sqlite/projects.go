@@ -46,6 +46,9 @@ func toProjects(rows []gen.Project) ([]store.Project, error) {
 
 // GetProjectByPath implements store.ProjectStore.
 func (s *Store) GetProjectByPath(ctx context.Context, path string) (store.Project, error) {
+	if store.ValidateProjectPath(path) != nil { // never a project; also keeps NUL bytes away from the database
+		return store.Project{}, fmt.Errorf("project %q: %w", "invalid", store.ErrNotFound)
+	}
 	row, err := s.q.GetProjectByPath(ctx, path)
 	if errors.Is(err, sql.ErrNoRows) {
 		return store.Project{}, fmt.Errorf("project %q: %w", path, store.ErrNotFound)
