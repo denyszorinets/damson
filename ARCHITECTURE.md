@@ -1244,8 +1244,9 @@ An activity-diagram view (UML-like) of a job's structure. It appears in three pl
 - **VMs:** hardened systemd units for `damson controller` and `damson agent` in `deploy/systemd` (credentials only in `EnvironmentFile`s of mode 0600, `systemd-sysusers` service user; guide: `docs/reference/systemd.rst`). The binary has no runtime dependencies (the Ansible plugin needs ansible on that agent host).
 - **Mixed:** VM agents connect to the k8s ingress `wss://`. k8s agents connect to a VM controller. Both are fine.
 - **Postgres connections:** the pool sets `idle_in_transaction_session_timeout` to 30s (overridable in the DSN), so a controller host that dies mid-transaction cannot hold row locks until TCP keepalive notices. No transaction waits on anything but the database. Servers should also set `tcp_keepalives_*`.
-- **Migrations:** `damson migrate up` runs explicitly, or controllers run it at start behind a database advisory lock (Postgres) with `--auto-migrate`.
+- **Migrations:** controllers run them at start with `--auto-migrate`, behind a database advisory lock (Postgres); there is no separate migrate command yet.
 - **Air-gapped:** no runtime internet access. Offline bundle (`make bundle`, `deploy/bundle`): static binaries, Helm chart, systemd units, optional container images (`WITH_IMAGES=1`) and `SHA256SUMS`; see `docs/reference/offline-bundle.rst`.
+- **Operations guide:** install, upgrade, backup, HA runbook, monitoring, hardening and troubleshooting are in `docs/operations`.
 - **Dev:** `damson dev` runs a controller and an agent in one process with SQLite, the fs log store, and the db secret backend. Docker Compose provides Postgres, an S3-compatible server, and sshd and FTP test targets.
 
 ---
@@ -1257,6 +1258,8 @@ An activity-diagram view (UML-like) of a job's structure. It appears in three pl
 - **Metrics:** `damson_runs_total{status}`, `damson_step_duration_seconds{plugin,status}`, `damson_queue_depth{pool}`, `damson_agents_connected{pool}`, `damson_agent_slots_free{pool}`, `damson_log_bytes_total`, `damson_ws_messages_total{method}`, `damson_leases_lost_total`.
 - **Endpoints:** `/healthz` (process), `/readyz` (DB and log store reachable, migrations current), `/metrics`.
 - **Logs:** `slog` JSON with `run_id`, `execution_id`, `attempt_id`, `agent_id`, `request_id`.
+
+**Status.** Implemented: `slog` JSON logs with those attributes (plus `role` and `controller_id`), `/healthz`, and `/readyz` (database ping plus migrations applied; it does not check the log store). Planned, not implemented: OTel traces, all metrics, `/metrics`, and the log store check in `/readyz`. Operators monitor with `/readyz`, logs and the agent and audit APIs (`docs/operations/monitoring.rst`).
 
 ---
 
