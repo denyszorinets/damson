@@ -192,6 +192,9 @@ change nothing until accepted.
    * - 0061
      - :doc:`0061-basic-theme-for-schema-forms`
      - Accepted
+   * - 0062
+     - :doc:`0062-project-tree`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -257,3 +260,4 @@ change nothing until accepted.
    0059-webhooks
    0060-service-accounts-and-api-tokens
    0061-basic-theme-for-schema-forms
+   0062-project-tree

@@ -26,21 +26,6 @@ func mustJob(t *testing.T, s store.Store, name string) (store.Job, store.JobVers
 	return j, v
 }
 
-func testProjects(t *testing.T, s store.Store) {
-	ctx := context.Background()
-	migrated(t, s)
-	p, err := s.GetProjectByName(ctx, store.DefaultProjectName)
-	if err != nil || p.ID != store.DefaultProjectID {
-		t.Fatalf("default project = %+v, %v", p, err)
-	}
-	if _, err := s.GetProjectByName(ctx, "nope"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("missing project: %v; want ErrNotFound", err)
-	}
-	if list, err := s.ListProjects(ctx); err != nil || len(list) != 1 {
-		t.Fatalf("ListProjects = %+v, %v", list, err)
-	}
-}
-
 func testJobs(t *testing.T, s store.Store) {
 	ctx := context.Background()
 	migrated(t, s)

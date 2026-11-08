@@ -32,7 +32,7 @@ type advanceStore interface {
 	GetJob(ctx context.Context, id string) (store.Job, error)
 	GetJobVersion(ctx context.Context, id string) (store.JobVersion, error)
 	ListRunTargets(ctx context.Context, runID string) ([]store.RunTarget, error)
-	ListProjects(ctx context.Context) ([]store.Project, error)
+	GetProject(ctx context.Context, id string) (store.Project, error)
 	ListPluginManifests(ctx context.Context) ([]store.PluginManifest, error)
 }
 
@@ -158,16 +158,11 @@ func (c *core) loadJob(ctx context.Context, tree store.RunTree) (*engine.Job, jo
 	if err != nil {
 		return nil, jobMeta{}, fmt.Errorf("loading job of run %s: %w", tree.ID, err)
 	}
-	projects, err := c.st.ListProjects(ctx)
+	proj, err := c.st.GetProject(ctx, sj.ProjectID)
 	if err != nil {
-		return nil, jobMeta{}, fmt.Errorf("listing projects: %w", err)
+		return nil, jobMeta{}, fmt.Errorf("loading project of job %s: %w", sj.ID, err)
 	}
-	meta := jobMeta{Name: sj.Name, Version: jv.Version}
-	for _, p := range projects {
-		if p.ID == sj.ProjectID {
-			meta.Project = p.Name
-		}
-	}
+	meta := jobMeta{Name: sj.Name, Version: jv.Version, Project: proj.Path}
 	return job, meta, nil
 }
 

@@ -7,20 +7,6 @@ import (
 	"time"
 )
 
-// DefaultProjectID and DefaultProjectName identify the project seeded by
-// migration 00003. M2 has exactly one project; the tree comes later.
-const (
-	DefaultProjectID   = "00000000-0000-7000-8000-000000000001"
-	DefaultProjectName = "default"
-)
-
-// Project groups jobs.
-type Project struct {
-	ID        string
-	Name      string
-	CreatedAt time.Time
-}
-
 // Job is a named job pointing at its current version number.
 type Job struct {
 	ID             string
@@ -60,10 +46,6 @@ type JobPage struct {
 
 // JobStore persists projects, jobs and their immutable versions.
 type JobStore interface {
-	// GetProjectByName returns ErrNotFound if absent.
-	GetProjectByName(ctx context.Context, name string) (Project, error)
-	ListProjects(ctx context.Context) ([]Project, error)
-
 	// CreateJob inserts the job and its version 1 in one transaction. It
 	// returns ErrNotFound if the project is absent, ErrConflict if the name
 	// is taken in the project, and ErrInvalid for an empty name or checksum,

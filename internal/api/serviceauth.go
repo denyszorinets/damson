@@ -195,7 +195,7 @@ func (d deps) inScope(ctx huma.Context, scope string, on subject) (bool, error) 
 	case subjProject:
 		project = ctx.Query("project")
 		if project == "" {
-			project = store.DefaultProjectName
+			project = store.DefaultProjectPath
 		}
 	case subjListRuns:
 		job := ctx.Query("job")
@@ -256,14 +256,12 @@ func (d deps) projectOfJobRow(ctx context.Context, jobID string) (string, error)
 	if err != nil {
 		return "", err
 	}
-	ps, err := d.ds.ListProjects(ctx)
+	p, err := d.ds.GetProject(ctx, job.ProjectID)
+	if errors.Is(err, store.ErrNotFound) {
+		return "", errNoParent
+	}
 	if err != nil {
 		return "", err
 	}
-	for _, p := range ps {
-		if p.ID == job.ProjectID {
-			return p.Name, nil
-		}
-	}
-	return "", errNoParent
+	return p.Path, nil
 }

@@ -220,10 +220,10 @@ func insertProject(t *testing.T, st store.Store, id, name string) {
 	err := st.WithTx(t.Context(), func(tx store.Tx) error {
 		switch n := tx.Native().(type) {
 		case *sql.Tx:
-			_, err := n.ExecContext(t.Context(), "INSERT INTO projects (id, name, created_at) VALUES (?, ?, ?)", id, name, "2026-01-02T03:04:05.000000Z")
+			_, err := n.ExecContext(t.Context(), "INSERT INTO projects (id, path, created_at) VALUES (?, ?, ?)", id, name, "2026-01-02T03:04:05.000000Z")
 			return err
 		case pgx.Tx:
-			_, err := n.Exec(t.Context(), "INSERT INTO projects (id, name, created_at) VALUES ($1, $2, now())", id, name)
+			_, err := n.Exec(t.Context(), "INSERT INTO projects (id, path, created_at) VALUES ($1, $2, now())", id, name)
 			return err
 		}
 		return fmt.Errorf("unknown transaction type %T", tx.Native())

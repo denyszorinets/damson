@@ -49,6 +49,7 @@ type Store interface {
 	PluginStore
 	ControllerStore
 	LeaderStore
+	ProjectStore
 	JobStore
 	RunStore
 	ExecutionStore

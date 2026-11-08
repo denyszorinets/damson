@@ -215,7 +215,7 @@ func createServiceToken(ctx context.Context, d deps, in *createServiceTokenInput
 		fields = append(fields, ProblemDetail{Message: "must be in the future", Location: "body.expires_at"})
 	}
 	if b.Project != "" {
-		if _, err := d.ds.GetProjectByName(ctx, b.Project); errors.Is(err, store.ErrNotFound) {
+		if _, err := d.ds.GetProjectByPath(ctx, b.Project); errors.Is(err, store.ErrNotFound) {
 			fields = append(fields, ProblemDetail{Message: "no such project", Location: "body.project"})
 		} else if err != nil {
 			return nil, apiError(ctx, err)

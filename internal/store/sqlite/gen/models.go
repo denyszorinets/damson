@@ -173,9 +173,13 @@ type PoolToken struct {
 }
 
 type Project struct {
-	ID        string
-	Name      string
-	CreatedAt string
+	ID          string
+	Path        string
+	CreatedAt   string
+	ParentID    sql.NullString
+	Description string
+	Version     int64
+	UpdatedAt   string
 }
 
 type Run struct {
