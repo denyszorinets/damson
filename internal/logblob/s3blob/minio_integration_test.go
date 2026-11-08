@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	minioImage = "minio/minio:RELEASE.2025-04-22T22-12-26Z"
+	minioImage = "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z"
 	minioPort  = "9000/tcp"
 	minioUser  = "minio-test-user"
 	minioPass  = "minio-test-password-DO-NOT-LEAK"
