@@ -46,6 +46,8 @@ func Run(t *testing.T, f Factory) {
 		{"SecretsRecreate", testSecretsRecreate},
 		{"SecretAudit", testSecretAudit},
 		{"PurgeExecutionLogs", testPurgeExecutionLogs},
+		{"LogObjectDeleteQueue", testLogObjectDeleteQueue},
+		{"PurgeDBOnlyQueuesNothing", testPurgeDBOnlyQueuesNothing},
 		{"SecretWritesNeedAnActor", testSecretWritesNeedAnActor},
 		{"AuditList", testAuditList},
 		{"AuditPrune", testAuditPrune},

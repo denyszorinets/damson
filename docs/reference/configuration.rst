@@ -194,6 +194,16 @@ written as a double underscore: ``agent.controller_url`` is
        roots, for ``ftps`` and ``https`` S3 endpoints of the ``transfer`` plugin
        and for ``winrm`` over https. Read at start (a change needs a restart); a
        bad file fails startup. Certificate verification cannot be turned off.
+   * - ``logs.store``
+     - controller, dev
+     - ``db``
+     - Where new log chunks are written: ``db`` or ``s3``. ``fs`` is refused
+       ("not implemented"). See :ref:`reference-config-logs`.
+   * - ``logs.s3.*``
+     - controller, dev
+     - off
+     - S3-compatible log store, used when ``logs.s3.bucket`` is set. All keys
+       in :ref:`reference-config-logs`.
    * - ``auth.require_token``
      - controller
      - ``false``
@@ -210,6 +220,72 @@ written as a double underscore: ``agent.controller_url`` is
      - Browser login with an OpenID Connect provider (issuer, client id and
        secret, redirect URL, groups claim, admin rule). All keys and their
        defaults are in :doc:`/reference/authentication`.
+
+.. _reference-config-logs:
+
+Log store
+---------
+
+``logs.store`` chooses where new chunks go. Chunks already written stay
+readable through their stored backend (``db`` or ``s3``). Operations guide:
+:doc:`log-store`. Design: :doc:`/architecture/decisions/0067-s3-log-store-and-deferred-deletes`.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 14 58
+
+   * - Key
+     - Default
+     - Notes
+   * - ``logs.store``
+     - ``db``
+     - ``db`` or ``s3``. With ``s3`` the bucket is probed at start (10 s) and a
+       failure refuses to start.
+   * - ``logs.s3.endpoint``
+     - empty (AWS)
+     - ``http(s)`` URL with no user info, path, query or fragment. Validation errors name the key only and never echo the value.
+   * - ``logs.s3.region``
+     - empty
+     - Bucket region.
+   * - ``logs.s3.bucket``
+     - empty
+     - Required with ``logs.store = s3``. When set, ``s3`` is also registered
+       for reads with ``logs.store = db``.
+   * - ``logs.s3.prefix``
+     - empty
+     - Key prefix without leading or trailing ``/`` and without empty, ``.`` or
+       ``..`` segments. Stored with a trailing ``/``.
+   * - ``logs.s3.path_style``
+     - ``false``
+     - Path-style addressing (MinIO and most self-hosted servers).
+   * - ``logs.s3.allow_plain_http``
+     - ``false``
+     - An ``http`` endpoint is refused without it. Use only on a trusted network.
+   * - ``logs.s3.tls_ca_file``
+     - empty
+     - Extra root certificates (PEM). Verification cannot be disabled.
+   * - ``logs.s3.access_key_id``
+     - empty
+     - Without it the credential chain is used: AWS environment variables, then
+       IAM or IRSA.
+   * - ``logs.s3.secret_access_key``
+     - empty
+     - Required with ``access_key_id`` unless the file form is used. Secret,
+       masked in the redacted config. Environment variable
+       ``DAMSON_LOGS__S3__SECRET_ACCESS_KEY``.
+   * - ``logs.s3.secret_access_key_file``
+     - empty
+     - File holding the key (whitespace trimmed). Not together with
+       ``secret_access_key``.
+   * - ``logs.s3.session_token``
+     - empty
+     - Temporary credentials; needs ``access_key_id``. Secret, masked.
+   * - ``logs.s3.sse``
+     - empty
+     - Server-side encryption: empty (off), ``AES256`` or ``aws:kms``.
+   * - ``logs.s3.sse_kms_key_id``
+     - empty
+     - KMS key id; needs ``sse = aws:kms``.
 
 .. _reference-config-kek:
 

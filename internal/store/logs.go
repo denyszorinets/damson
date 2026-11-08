@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
@@ -67,7 +68,67 @@ type LogStore interface {
 // LogPurge is what PurgeExecutionLogs removed.
 type LogPurge struct {
 	Chunks  int64 // chunk rows removed
-	Objects int64 // stored log objects removed
+	Objects int64 // database log objects removed
+	Queued  int64 // external (s3) object prefixes queued for deletion
+}
+
+// Deferred deletes (ADR-0067): log objects outside the database are removed by
+// a sweeper from a table written in the transaction that drops their chunk rows.
+const (
+	// ClaimDeleteGrace delays the delete of a previous attempt's objects past
+	// the longest write a stale writer can still have in flight.
+	ClaimDeleteGrace = 2 * time.Minute
+	// MaxLogDeleteBackoff caps the retry delay of a failing delete.
+	MaxLogDeleteBackoff = time.Hour
+)
+
+// LogObjectDelete is a queued delete of every external log object under Prefix.
+type LogObjectDelete struct {
+	ID        string
+	Prefix    string
+	NotBefore time.Time
+	Tries     int
+}
+
+// LogDeleteStore is the queue the log sweeper drains.
+type LogDeleteStore interface {
+	// ListDueLogObjectDeletes returns up to limit entries due at now.
+	ListDueLogObjectDeletes(ctx context.Context, now time.Time, limit int) ([]LogObjectDelete, error)
+	// DeferLogObjectDelete moves an entry's due time to next and counts a try.
+	// It returns ErrStale when another controller changed or removed the entry.
+	DeferLogObjectDelete(ctx context.Context, d LogObjectDelete, next time.Time) error
+	// CompleteLogObjectDelete removes the entry; ErrStale as above.
+	CompleteLogObjectDelete(ctx context.Context, d LogObjectDelete) error
+	// CountLogObjectDeletes returns the queue length.
+	CountLogObjectDeletes(ctx context.Context) (int64, error)
+}
+
+// LogDeleteBackoff is the delay before the next try after tries failures.
+func LogDeleteBackoff(tries int) time.Duration {
+	d := 30 * time.Second
+	for i := 0; i < tries && d < MaxLogDeleteBackoff; i++ {
+		d *= 2
+	}
+	return min(d, MaxLogDeleteBackoff)
+}
+
+// ValidLogDeletePrefix reports whether p is an execution prefix
+// "logs/<execution>/" or an attempt prefix "logs/<execution>/<attempt>/".
+func ValidLogDeletePrefix(p string) bool {
+	rest, ok := strings.CutPrefix(p, "logs/")
+	if !ok || !strings.HasSuffix(rest, "/") {
+		return false
+	}
+	parts := strings.Split(strings.TrimSuffix(rest, "/"), "/")
+	if len(parts) < 1 || len(parts) > 2 {
+		return false
+	}
+	for _, s := range parts {
+		if s == "" || s == "." || s == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // LogPurgeAuditDetails is the details of a log.purge event.
@@ -76,6 +137,7 @@ type LogPurgeAuditDetails struct {
 	RunID       string `json:"run_id"`
 	Chunks      int64  `json:"chunks"`
 	Objects     int64  `json:"objects"`
+	Queued      int64  `json:"queued,omitempty"`
 }
 
 // LogDataPrefix is the key prefix under which every log object of an

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/denyszorinets/damson/internal/logblob"
 	"github.com/denyszorinets/damson/internal/protocol"
 	"github.com/denyszorinets/damson/internal/store"
 )
@@ -27,7 +28,6 @@ const (
 	DefaultMaxPendingBytes = 4 << 20
 	DefaultLookupRetries   = 2
 	DefaultLookupRetryWait = 150 * time.Millisecond
-	DefaultBackend         = "db"
 
 	attemptCacheSize = 4096
 	flushWorkers     = 8
@@ -86,8 +86,9 @@ type Config struct {
 	Clock  Clock
 	Logger *slog.Logger
 
-	// Backend names the LogStore backend recorded in log_chunks (default "db").
-	Backend string
+	// Blobs holds the object backends; new chunks go to its writer, and each
+	// chunk row records that backend's name. Required.
+	Blobs *logblob.Set
 
 	RingLines       int           // lines kept per execution for live tail
 	FlushInterval   time.Duration // age of the oldest unflushed line that triggers a chunk
@@ -105,6 +106,7 @@ type Config struct {
 var (
 	errNoStore = errors.New("logs: Config.Store is required")
 	errNoAcks  = errors.New("logs: Config.Acks is required")
+	errNoBlobs = errors.New("logs: Config.Blobs is required")
 )
 
 func (c *Config) applyDefaults() error {
@@ -117,8 +119,8 @@ func (c *Config) applyDefaults() error {
 	if c.Logger == nil {
 		c.Logger = slog.Default()
 	}
-	if c.Backend == "" {
-		c.Backend = DefaultBackend
+	if c.Blobs == nil {
+		return errNoBlobs
 	}
 	for _, d := range []struct {
 		v *time.Duration
@@ -147,6 +149,9 @@ func (c *Config) applyDefaults() error {
 		if *n.v <= 0 {
 			*n.v = n.d
 		}
+	}
+	if c.StoreTimeout >= store.ClaimDeleteGrace {
+		return errors.New("logs: StoreTimeout must stay below the claim delete grace")
 	}
 	if c.LookupRetries < 0 {
 		c.LookupRetries = 0

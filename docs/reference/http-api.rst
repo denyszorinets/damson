@@ -263,14 +263,18 @@ Log purge
 stored log chunks and objects of one terminal execution and writes a
 ``log.purge`` audit event (target type ``execution``; details ``execution_id``,
 ``run_id``, ``chunks``, ``objects``; never log content) in the same
-transaction. Answers: ``200`` with ``{"chunks": N, "objects": N}``, ``401``,
+transaction (details also carry ``queued``). Answers: ``200`` with
+``{"chunks": N, "objects": N, "queued": N}``, ``401``,
 ``404`` for an unknown execution, ``409`` while the execution is not terminal
 (cancel it first). Repeating the call is allowed. Limits: the live in-memory
 tail and the agent's local spool are not touched; the UI shows no purged marker
-(the execution just has no stored log); only the ``db`` log store exists today,
-so purge deletes db rows, and future ``fs``/``s3`` stores must implement the
-same delete. Design: :doc:`/architecture/decisions/0047-agent-side-masking-only`
-and :doc:`/architecture/decisions/0053-audit-events`.
+(the execution just has no stored log). ``chunks`` and ``objects`` count what the
+transaction deleted (``objects`` are db objects). Objects in an external store
+(``s3``) are deleted asynchronously by a sweeper within about a minute;
+``queued`` is the number of prefixes queued for that (1 when the execution had
+chunks in an external store, else 0, so always 0 on db-only installs), see :doc:`log-store`. Design: :doc:`/architecture/decisions/0047-agent-side-masking-only`
+and :doc:`/architecture/decisions/0053-audit-events` and
+:doc:`/architecture/decisions/0067-s3-log-store-and-deferred-deletes`.
 
 .. _reference-nodes-api:
 

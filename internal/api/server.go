@@ -12,6 +12,11 @@ import (
 	"github.com/denyszorinets/damson/internal/expr"
 )
 
+// LogReader reads a log chunk object from the named backend (logblob.Set).
+type LogReader interface {
+	Get(ctx context.Context, backend, key string) ([]byte, error)
+}
+
 // Config configures a Server.
 type Config struct {
 	Addr  string    // host:port; "127.0.0.1:0" picks a free port
@@ -27,6 +32,9 @@ type Config struct {
 	// LogTail serves the live part of execution logs. Nil means the stream
 	// polls the store until the execution ends.
 	LogTail LogTail
+	// LogBlobs reads stored log chunks from the backend each chunk names. Nil
+	// reads them from Data (the db backend only).
+	LogBlobs LogReader
 	// RunNotify wakes run event streams early. Nil means polling only.
 	RunNotify RunNotifier
 	// Advance enqueues run.advance in the same transaction as a trigger or a

@@ -45,7 +45,8 @@ type listAuditOutput struct {
 type purgeLogsOutput struct {
 	Body struct {
 		Chunks  int64 `json:"chunks" doc:"Log chunks removed."`
-		Objects int64 `json:"objects" doc:"Stored log objects removed."`
+		Objects int64 `json:"objects" doc:"Log objects removed from the database."`
+		Queued  int64 `json:"queued" doc:"Object prefixes queued for deletion from an external log store (s3); removed within about a minute."`
 	}
 }
 
@@ -62,7 +63,7 @@ func registerAudit(api huma.API, d deps) {
 			return nil, apiError(ctx, err)
 		}
 		out := &purgeLogsOutput{}
-		out.Body.Chunks, out.Body.Objects = res.Chunks, res.Objects
+		out.Body.Chunks, out.Body.Objects, out.Body.Queued = res.Chunks, res.Objects, res.Queued
 		return out, nil
 	})
 	huma.Register(api, huma.Operation{

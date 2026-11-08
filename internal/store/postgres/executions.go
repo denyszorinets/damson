@@ -83,6 +83,10 @@ func (s *Store) ClaimExecutions(ctx context.Context, p store.ClaimParams, now ti
 		if err != nil {
 			return nil, err
 		}
+		prev, err := q.GetExecution(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("reading execution %q before claim: %w", id, err)
+		}
 		row, err := q.ClaimExecutionCAS(ctx, gen.ClaimExecutionCASParams{
 			AttemptID: attemptID, AgentID: text(p.AgentID), ControllerID: text(p.ControllerID),
 			LeaseExpiresAt: ts(now.Add(p.LeaseTTL)), ID: id,
@@ -93,7 +97,7 @@ func (s *Store) ClaimExecutions(ctx context.Context, p store.ClaimParams, now ti
 		if err != nil {
 			return nil, fmt.Errorf("claiming execution %q: %w", id, err)
 		}
-		if err := dropPreviousAttemptLogs(ctx, q, id); err != nil {
+		if err := dropPreviousAttemptLogs(ctx, q, id, prev.AttemptID, now); err != nil {
 			return nil, err
 		}
 		out = append(out, toExecution(row))
@@ -106,8 +110,14 @@ func (s *Store) ClaimExecutions(ctx context.Context, p store.ClaimParams, now ti
 
 // dropPreviousAttemptLogs removes the log chunks of earlier attempts in the
 // claim's transaction: the attempt id rotates here, after which their writers
-// are fenced out, so nothing can race the delete.
-func dropPreviousAttemptLogs(ctx context.Context, q *gen.Queries, executionID string) error {
+// are fenced out, so nothing can race the delete of database rows. Objects in
+// an external store are queued for deletion after a grace that outlives a stale
+// writer's in-flight write, and only when an external chunk existed (ADR-0067).
+func dropPreviousAttemptLogs(ctx context.Context, q *gen.Queries, executionID, prevAttempt string, now time.Time) error {
+	external, err := q.CountExternalLogChunks(ctx, executionID)
+	if err != nil {
+		return fmt.Errorf("counting external log chunks of %q: %w", executionID, err)
+	}
 	if _, err := q.DeleteLogChunksOfExecution(ctx, executionID); err != nil {
 		return fmt.Errorf("dropping previous log chunks of %q: %w", executionID, err)
 	}
@@ -118,6 +128,11 @@ func dropPreviousAttemptLogs(ctx context.Context, q *gen.Queries, executionID st
 	}
 	if _, err := q.DeleteLogDataPrefix(ctx, gen.DeleteLogDataPrefixParams{PrefixLen: int32(l), Prefix: prefix}); err != nil {
 		return fmt.Errorf("dropping previous log data of %q: %w", executionID, err)
+	}
+	if external > 0 && prevAttempt != "" {
+		if err := queueLogObjectDelete(ctx, q, prefix+prevAttempt+"/", now.Add(store.ClaimDeleteGrace), now); err != nil {
+			return err
+		}
 	}
 	return nil
 }

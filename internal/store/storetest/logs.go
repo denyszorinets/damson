@@ -161,6 +161,9 @@ func testLogsDroppedOnReclaim(t *testing.T, s store.Store) {
 		t.Fatalf("claimed %d other executions; want 1", len(o))
 	}
 
+	if n, err := s.CountLogObjectDeletes(ctx); err != nil || n != 0 {
+		t.Fatalf("a first claim queued %d log deletes, %v; want none", n, err)
+	}
 	key := store.LogDataPrefix(e.ID) + e.AttemptID + "/1-10.ndjson"
 	otherKey := store.LogDataPrefix(o[0].ID) + o[0].AttemptID + "/1-5.ndjson"
 	for _, w := range []struct {
@@ -171,7 +174,11 @@ func testLogsDroppedOnReclaim(t *testing.T, s store.Store) {
 		if err := s.PutLogData(ctx, w.key, []byte("data"), claimNow); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.InsertLogChunk(ctx, w.ex.AttemptID, chunk(w.ex.ID, 1, w.to, w.key), claimNow); err != nil {
+		c := chunk(w.ex.ID, 1, w.to, w.key)
+		if w.ex.ID == e.ID {
+			c.Backend = "s3" // the object lives outside the database
+		}
+		if _, err := s.InsertLogChunk(ctx, w.ex.AttemptID, c, claimNow); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -184,6 +191,13 @@ func testLogsDroppedOnReclaim(t *testing.T, s store.Store) {
 		t.Fatalf("reclaim = %+v; want the same execution under a new attempt", re)
 	}
 
+	if due, _ := s.ListDueLogObjectDeletes(ctx, claimNow, 10); len(due) != 0 {
+		t.Fatalf("a reclaim queued a delete due at once: %+v", due)
+	}
+	due, err := s.ListDueLogObjectDeletes(ctx, claimNow.Add(store.ClaimDeleteGrace), 10)
+	if err != nil || len(due) != 1 || due[0].Prefix != store.LogDataPrefix(e.ID)+e.AttemptID+"/" {
+		t.Fatalf("queued deletes after the grace = %+v, %v; want the previous attempt's prefix", due, err)
+	}
 	if cs, err := s.ListLogChunks(ctx, e.ID, 0, 0, 10); err != nil || len(cs) != 0 {
 		t.Fatalf("chunks after reclaim = %+v, %v; want none", cs, err)
 	}
@@ -209,7 +223,9 @@ func testPurgeExecutionLogs(t *testing.T, s store.Store) {
 	migrated(t, s)
 	e := claimedOne(t, s)
 	key := store.LogDataPrefix(e.ID) + "1-10"
-	if _, err := s.InsertLogChunk(ctx, e.AttemptID, chunk(e.ID, 1, 10, key), claimNow); err != nil {
+	ext := chunk(e.ID, 1, 10, key)
+	ext.Backend = "s3"
+	if _, err := s.InsertLogChunk(ctx, e.AttemptID, ext, claimNow); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.PutLogData(ctx, key, []byte("leaked-line"), claimNow); err != nil {
@@ -231,8 +247,11 @@ func testPurgeExecutionLogs(t *testing.T, s store.Store) {
 		t.Fatalf("a refused purge removed data: %v", err)
 	}
 	got, err := s.PurgeExecutionLogs(ctx, e.ID, claimNow)
-	if err != nil || got.Chunks != 1 || got.Objects != 1 {
+	if err != nil || got.Chunks != 1 || got.Objects != 1 || got.Queued != 1 {
 		t.Fatalf("purge = %+v, %v", got, err)
+	}
+	if due, _ := s.ListDueLogObjectDeletes(ctx, claimNow, 10); len(due) != 1 || due[0].Prefix != store.LogDataPrefix(e.ID) {
+		t.Fatalf("queued deletes after purge = %+v; want the execution prefix", due)
 	}
 	if chunks, _ := s.ListLogChunks(ctx, e.ID, 0, 0, 10); len(chunks) != 0 {
 		t.Fatalf("chunks left: %+v", chunks)
@@ -249,5 +268,75 @@ func testPurgeExecutionLogs(t *testing.T, s store.Store) {
 	}
 	if strings.Contains(string(evs[1].Details), "leaked-line") {
 		t.Fatal("log content in the audit event")
+	}
+}
+
+func testLogObjectDeleteQueue(t *testing.T, s store.Store) {
+	ctx := actorCtx()
+	migrated(t, s)
+	e := claimedOne(t, s)
+	ext := chunk(e.ID, 1, 2, store.LogDataPrefix(e.ID)+e.AttemptID+"/1-2.ndjson")
+	ext.Backend = "s3"
+	if _, err := s.InsertLogChunk(ctx, e.AttemptID, ext, claimNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CompleteExecution(ctx, store.Completion{ExecutionID: e.ID, AttemptID: e.AttemptID, State: store.ExecFailed}, claimNow); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.CountLogObjectDeletes(ctx); n != 0 {
+		t.Fatalf("queue = %d before any purge", n)
+	}
+	if _, err := s.PurgeExecutionLogs(ctx, e.ID, claimNow); err != nil {
+		t.Fatal(err)
+	}
+	due, err := s.ListDueLogObjectDeletes(ctx, claimNow, 10)
+	if err != nil || len(due) != 1 || due[0].Tries != 0 {
+		t.Fatalf("due = %+v, %v", due, err)
+	}
+	d := due[0]
+	next := claimNow.Add(time.Minute)
+	if err := s.DeferLogObjectDelete(ctx, d, next); err != nil {
+		t.Fatal(err)
+	}
+	// A second controller holding the old view loses.
+	if err := s.DeferLogObjectDelete(ctx, d, next); !errors.Is(err, store.ErrStale) {
+		t.Fatalf("second defer = %v; want ErrStale", err)
+	}
+	if err := s.CompleteLogObjectDelete(ctx, d); !errors.Is(err, store.ErrStale) {
+		t.Fatalf("complete with an old view = %v; want ErrStale", err)
+	}
+	if due, _ := s.ListDueLogObjectDeletes(ctx, claimNow, 10); len(due) != 0 {
+		t.Fatalf("a deferred entry is still due: %+v", due)
+	}
+	due, _ = s.ListDueLogObjectDeletes(ctx, next, 10)
+	if len(due) != 1 || due[0].Tries != 1 || !due[0].NotBefore.Equal(next) {
+		t.Fatalf("after defer = %+v", due)
+	}
+	if err := s.CompleteLogObjectDelete(ctx, due[0]); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.CountLogObjectDeletes(ctx); n != 0 {
+		t.Fatalf("queue = %d after complete", n)
+	}
+}
+
+// A purge of an execution whose chunks all live in the database queues nothing:
+// there is no external object to delete.
+func testPurgeDBOnlyQueuesNothing(t *testing.T, s store.Store) {
+	ctx := actorCtx()
+	migrated(t, s)
+	e := claimedOne(t, s)
+	if _, err := s.InsertLogChunk(ctx, e.AttemptID, chunk(e.ID, 1, 2, store.LogDataPrefix(e.ID)+"1-2"), claimNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CompleteExecution(ctx, store.Completion{ExecutionID: e.ID, AttemptID: e.AttemptID, State: store.ExecFailed}, claimNow); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.PurgeExecutionLogs(ctx, e.ID, claimNow)
+	if err != nil || got.Chunks != 1 || got.Queued != 0 {
+		t.Fatalf("purge = %+v, %v", got, err)
+	}
+	if n, _ := s.CountLogObjectDeletes(ctx); n != 0 {
+		t.Fatalf("queue = %d after a db-only purge", n)
 	}
 }

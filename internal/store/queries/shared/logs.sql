@@ -19,9 +19,30 @@ ON CONFLICT (object_key) DO UPDATE SET data = excluded.data;
 -- name: GetLogData :one
 SELECT data FROM log_chunks_data WHERE object_key = sqlc.arg(object_key);
 
+-- name: CountExternalLogChunks :one
+SELECT count(*) FROM log_chunks WHERE execution_id = sqlc.arg(execution_id) AND backend <> 'db';
+
 -- name: DeleteLogChunksOfExecution :execrows
 DELETE FROM log_chunks WHERE execution_id = sqlc.arg(execution_id);
 
 -- substr is used instead of LIKE: SQLite LIKE is case-insensitive.
 -- name: DeleteLogDataPrefix :execrows
 DELETE FROM log_chunks_data WHERE substr(object_key, 1, sqlc.arg(prefix_len)) = sqlc.arg(prefix);
+
+-- name: InsertLogObjectDelete :exec
+INSERT INTO log_object_deletes (id, prefix, not_before, created_at)
+VALUES (sqlc.arg(id), sqlc.arg(prefix), sqlc.arg(not_before), sqlc.arg(created_at));
+
+-- name: ListDueLogObjectDeletes :many
+SELECT id, prefix, not_before, tries FROM log_object_deletes
+WHERE not_before <= sqlc.arg(now) ORDER BY not_before, id LIMIT sqlc.arg(row_limit);
+
+-- name: DeferLogObjectDeleteCAS :execrows
+UPDATE log_object_deletes SET not_before = sqlc.arg(next), tries = tries + 1
+WHERE id = sqlc.arg(id) AND not_before = sqlc.arg(seen);
+
+-- name: DeleteLogObjectDeleteCAS :execrows
+DELETE FROM log_object_deletes WHERE id = sqlc.arg(id) AND not_before = sqlc.arg(seen);
+
+-- name: CountLogObjectDeletes :one
+SELECT count(*) FROM log_object_deletes;

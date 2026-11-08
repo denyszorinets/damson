@@ -244,7 +244,11 @@ func TestRedactedMasksSecrets(t *testing.T) {
 		Agent:      Agent{Token: "tok-123"},
 		Controller: Controller{ClusterSecret: "cur", ClusterSecretPrevious: "prev"},
 		Auth:       Auth{OIDC: OIDC{ClientSecret: "oidc-secret"}},
+		Logs:       Logs{S3: S3Logs{SecretAccessKey: "s3-secret", SessionToken: "s3-token"}},
 	}.Redacted()
+	if c.Logs.S3.SecretAccessKey != "***" || c.Logs.S3.SessionToken != "***" {
+		t.Fatalf("s3 log credentials not masked: %+v", c.Logs.S3)
+	}
 	if c.Controller.ClusterSecret != "***" || c.Controller.ClusterSecretPrevious != "***" {
 		t.Fatalf("cluster secrets not masked: %+v", c.Controller)
 	}

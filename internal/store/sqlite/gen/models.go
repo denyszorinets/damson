@@ -139,6 +139,14 @@ type LogChunksDatum struct {
 	CreatedAt string
 }
 
+type LogObjectDelete struct {
+	ID        string
+	Prefix    string
+	NotBefore string
+	Tries     int64
+	CreatedAt string
+}
+
 type Node struct {
 	ID                string
 	Name              string

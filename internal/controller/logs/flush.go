@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/denyszorinets/damson/internal/logblob"
 	"github.com/denyszorinets/damson/internal/store"
 )
 
@@ -150,17 +151,24 @@ func (i *Ingest) putChunk(ctx context.Context, st *execState, run []Line) error 
 		return err
 	}
 	key := ObjectKey(st.execID, st.attempt, from, to)
+	backend, blob := i.cfg.Blobs.Writer()
+	pctx, pcancel := context.WithTimeout(ctx, i.cfg.StoreTimeout)
+	err = blob.Put(pctx, key, data)
+	pcancel()
+	if err != nil {
+		return fmt.Errorf("storing chunk object: %w", err)
+	}
 	sctx, cancel := context.WithTimeout(ctx, i.cfg.StoreTimeout)
 	defer cancel()
 	now := i.cfg.Clock.now()
-	if err := i.cfg.Store.PutLogData(sctx, key, data, now); err != nil {
-		return fmt.Errorf("storing chunk object: %w", err)
-	}
 	_, err = i.cfg.Store.InsertLogChunk(sctx, st.attempt, store.NewLogChunk{
-		ExecutionID: st.execID, SeqFrom: from, SeqTo: to, Backend: i.cfg.Backend, ObjectKey: key,
+		ExecutionID: st.execID, SeqFrom: from, SeqTo: to, Backend: backend, ObjectKey: key,
 		Bytes: int64(len(data)), TsFirst: run[0].TS, TsLast: run[len(run)-1].TS,
 	}, now)
 	if err != nil {
+		if backend != logblob.BackendDB && (errors.Is(err, store.ErrStale) || errors.Is(err, store.ErrNotFound)) {
+			i.dropOrphan(ctx, blob, key)
+		}
 		return err
 	}
 	i.stats.chunksWritten.Add(1)
@@ -234,4 +242,16 @@ func (i *Ingest) evict(st *execState) {
 	}
 	i.stats.executionsEvicted.Add(1)
 	i.log.Debug("evicted idle execution log state", "execution_id", st.execID, "attempt_id", st.attempt)
+}
+
+// dropOrphan deletes a chunk object whose manifest row was refused because the
+// attempt is stale: a claim that committed before the first row existed queued
+// nothing for it (ADR-0067). Best effort; a failure leaves the object to the
+// purge of its execution.
+func (i *Ingest) dropOrphan(ctx context.Context, blob logblob.Blob, key string) {
+	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), i.cfg.StoreTimeout)
+	defer cancel()
+	if _, err := blob.DeletePrefix(dctx, key); err != nil {
+		i.cfg.Logger.Warn("deleting an orphaned log object", "error", err)
+	}
 }

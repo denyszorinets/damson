@@ -79,6 +79,7 @@ type deps struct {
 	now     func() time.Time
 	stream  StreamConfig
 	tail    LogTail
+	logs    LogReader
 	notify  RunNotifier
 	advance RunEnqueuer
 	targets TargetSource
@@ -130,7 +131,7 @@ func (d deps) acquireStream() (release func(), err error) {
 func newDeps(cfg Config) deps {
 	d := deps{
 		ds: cfg.Data, plugins: cfg.Plugins, now: cfg.Now,
-		stream: cfg.Stream.withDefaults(), tail: cfg.LogTail, notify: cfg.RunNotify, advance: cfg.Advance, targets: cfg.Targets, authRefs: cfg.AuthorizeSecretRefs, requireToken: cfg.RequireToken, secrets: cfg.Secrets, oidc: cfg.OIDC,
+		stream: cfg.Stream.withDefaults(), tail: cfg.LogTail, logs: cfg.LogBlobs, notify: cfg.RunNotify, advance: cfg.Advance, targets: cfg.Targets, authRefs: cfg.AuthorizeSecretRefs, requireToken: cfg.RequireToken, secrets: cfg.Secrets, oidc: cfg.OIDC,
 	}
 	d.slots = make(chan struct{}, d.stream.MaxStreams)
 	d.grants = newGrantCache()

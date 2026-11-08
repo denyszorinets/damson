@@ -136,6 +136,10 @@ func (s *Store) PurgeExecutionLogs(ctx context.Context, executionID string, now 
 		if !ex.State.Terminal() {
 			return fmt.Errorf("execution %q is %s and can still write logs: %w", executionID, ex.State, store.ErrConflict)
 		}
+		external, err := q.CountExternalLogChunks(ctx, executionID)
+		if err != nil {
+			return fmt.Errorf("counting external log chunks of %q: %w", executionID, err)
+		}
 		if out.Chunks, err = q.DeleteLogChunksOfExecution(ctx, executionID); err != nil {
 			return fmt.Errorf("purging log chunks of %q: %w", executionID, err)
 		}
@@ -147,7 +151,13 @@ func (s *Store) PurgeExecutionLogs(ctx context.Context, executionID string, now 
 		if out.Objects, err = q.DeleteLogDataPrefix(ctx, gen.DeleteLogDataPrefixParams{PrefixLen: int32(l), Prefix: prefix}); err != nil {
 			return fmt.Errorf("purging log data of %q: %w", executionID, err)
 		}
-		ev, err := store.NewLogPurgeEvent(ctx, store.LogPurgeAuditDetails{ExecutionID: executionID, RunID: ex.RunID, Chunks: out.Chunks, Objects: out.Objects}, now)
+		if external > 0 {
+			if err := queueLogObjectDelete(ctx, q, prefix, now, now); err != nil {
+				return err
+			}
+			out.Queued = 1
+		}
+		ev, err := store.NewLogPurgeEvent(ctx, store.LogPurgeAuditDetails{ExecutionID: executionID, RunID: ex.RunID, Chunks: out.Chunks, Objects: out.Objects, Queued: out.Queued}, now)
 		if err != nil {
 			return err
 		}

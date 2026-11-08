@@ -9,6 +9,7 @@ Reference
    cli
    http-api
    projects
+   log-store
    access-rules
    schedules
    webhooks

@@ -55,11 +55,11 @@ func TestAppend_TransientLookupErrorAsksForResend(t *testing.T) {
 	f := newFx(t, openSQLite(t), func(c *Config) { c.LookupRetries, c.LookupRetryWait = 2, time.Millisecond })
 	f.mustSend(1, 0, "a")
 	f.in.cache.forget(f.exec.AttemptID)
-	f.in.cfg.Store = failingStore{Store: f.st, getErr: errors.New("db timeout")}
+	f.useStore(failingStore{Store: f.st, getErr: errors.New("db timeout")})
 	require.ErrorIs(t, f.send(2, 0, "b"), ErrNeedResend)
 	assert.EqualValues(t, 1, f.in.Stats().BatchesRefused)
 
-	f.in.cfg.Store = f.st // the database is back; the agent resends
+	f.useStore(f.st) // the database is back; the agent resends
 	f.mustSend(2, 0, "b")
 	f.flush()
 	assert.EqualValues(t, 2, f.acks.last(f.exec.AttemptID))

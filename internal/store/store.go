@@ -56,6 +56,7 @@ type Store interface {
 	RunStore
 	ExecutionStore
 	LogStore
+	LogDeleteStore
 	StampStore
 	SecretStore
 	AuditStore

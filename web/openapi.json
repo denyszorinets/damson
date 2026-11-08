@@ -1810,14 +1810,20 @@
             "type": "integer"
           },
           "objects": {
-            "description": "Stored log objects removed.",
+            "description": "Log objects removed from the database.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "queued": {
+            "description": "Object prefixes queued for deletion from an external log store (s3); removed within about a minute.",
             "format": "int64",
             "type": "integer"
           }
         },
         "required": [
           "chunks",
-          "objects"
+          "objects",
+          "queued"
         ],
         "type": "object"
       },
