@@ -83,16 +83,18 @@ var routePolicies = map[string]routePolicy{
 	"get-execution":         {store.RoleViewer, subjExec, false},
 	"stream-execution-logs": {store.RoleViewer, subjExec, false},
 
-	"list-audit-events":  {store.RoleAdmin, subjHandler, true},
-	"list-projects":      {store.RoleViewer, subjHandler, true},
-	"create-project":     {store.RoleAdmin, subjHandler, true},
-	"get-project":        {store.RoleViewer, subjProjectPath, true},
-	"update-project":     {store.RoleAdmin, subjProjectPath, true},
-	"delete-project":     {store.RoleAdmin, subjProjectPath, true},
-	"get-project-access": {store.RoleAdmin, subjProjectPath, true},
-	"set-project-access": {store.RoleAdmin, subjProjectPath, true},
-	"get-job-access":     {store.RoleAdmin, subjJob, true},
-	"set-job-access":     {store.RoleAdmin, subjJob, true},
+	"list-audit-events":      {store.RoleAdmin, subjHandler, true},
+	"list-projects":          {store.RoleViewer, subjHandler, true},
+	"create-project":         {store.RoleAdmin, subjHandler, true},
+	"get-project":            {store.RoleViewer, subjProjectPath, true},
+	"update-project":         {store.RoleAdmin, subjProjectPath, true},
+	"delete-project":         {store.RoleAdmin, subjProjectPath, true},
+	"get-project-access":     {store.RoleAdmin, subjProjectPath, true},
+	"set-project-access":     {store.RoleAdmin, subjProjectPath, true},
+	"get-project-node-scope": {store.RoleAdmin, subjProjectPath, true},
+	"set-project-node-scope": {store.RoleAdmin, subjProjectPath, true},
+	"get-job-access":         {store.RoleAdmin, subjJob, true},
+	"set-job-access":         {store.RoleAdmin, subjJob, true},
 }
 
 // covers reports whether a token scoped to scope may act in project: "" covers

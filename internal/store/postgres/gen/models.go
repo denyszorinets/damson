@@ -198,6 +198,7 @@ type Project struct {
 	Version     int32
 	UpdatedAt   pgtype.Timestamptz
 	AccessRules string
+	NodeScope   string
 }
 
 type Run struct {

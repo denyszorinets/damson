@@ -66,6 +66,49 @@ func (s *Store) SetProjectAccessRules(ctx context.Context, id string, rules []st
 	return out, err
 }
 
+// SetProjectNodeScope implements store.AccessStore.
+func (s *Store) SetProjectNodeScope(ctx context.Context, id string, scope string, expectedVersion int, now time.Time) (store.Project, error) {
+	if _, err := store.AuditFrom(ctx); err != nil {
+		return store.Project{}, err
+	}
+	if len(scope) > store.MaxNodeScopeBytes {
+		return store.Project{}, fmt.Errorf("a node scope is at most %d bytes: %w", store.MaxNodeScopeBytes, store.ErrInvalid)
+	}
+	var out store.Project
+	err := s.WithTx(ctx, func(tx store.Tx) error {
+		q := tx.(*txn).q
+		cur, err := q.GetProject(ctx, id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("project %q: %w", id, store.ErrNotFound)
+		}
+		if err != nil {
+			return fmt.Errorf("reading project: %w", err)
+		}
+		n, err := q.SetProjectNodeScopeCAS(ctx, gen.SetProjectNodeScopeCASParams{
+			ID: id, NodeScope: scope, UpdatedAt: fmtTime(now), ExpectedVersion: int64(expectedVersion),
+		})
+		if err != nil {
+			return fmt.Errorf("setting node scope: %w", err)
+		}
+		if n == 0 {
+			return fmt.Errorf("project %q version %d: %w", id, expectedVersion, store.ErrStale)
+		}
+		ev, err := store.NewEvent(ctx, store.ActionProjectNodeScopeUpdate, store.AuditTargetProject, id, cur.Path, struct {
+			Path string `json:"path"`
+			Set  bool   `json:"set"`
+		}{cur.Path, scope != ""}, now)
+		if err != nil {
+			return err
+		}
+		cur.NodeScope, cur.Version, cur.UpdatedAt = scope, int64(expectedVersion)+1, fmtTime(now)
+		if out, err = toProject(cur); err != nil {
+			return err
+		}
+		return tx.AppendAuditEvent(ctx, ev)
+	})
+	return out, err
+}
+
 // GetJobAccess implements store.AccessStore.
 func (s *Store) GetJobAccess(ctx context.Context, jobID string) (store.JobAccess, error) {
 	r, err := s.q.GetJobAccess(ctx, jobID)

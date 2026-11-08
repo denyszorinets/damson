@@ -11,8 +11,8 @@ type Scope interface {
 	Allows(ctx context.Context, project string, n store.Node) (bool, error)
 }
 
-// AllNodes is the scope until the project tree arrives (M8): every project's
-// node_scope is empty, which matches every node.
+// AllNodes matches every node. It is the scope of tests and of the dev-nodes
+// seeder; the controller uses ProjectScope.
 type AllNodes struct{}
 
 // Allows implements Scope.

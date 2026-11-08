@@ -177,8 +177,8 @@ The dispatcher reads node rows from the store at dispatch time
 (``node.InventoryNodes``, ADR-0043) and secrets from the db backend. There is
 no other source: ``--dev-nodes`` only seeds these stores at startup (ADR-0044).
 
-* A missing node, or one outside the project's node scope (``inventory.Scope``;
-  ``AllNodes`` until M8), fails the step permanently as ``unknown node``. There
+* A missing node, or one outside the project's node scope (``inventory.ProjectScope``,
+  ADR-0066), fails the step permanently as ``unknown node``. There
   is no probing.
 * A disabled node fails permanently as ``node is disabled``. A node deleted
   after the run started fails the same way at dispatch.

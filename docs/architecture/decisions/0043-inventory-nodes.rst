@@ -3,6 +3,7 @@ ADR-0043: Inventory nodes: schema, name grammar, interim node scope
 
 :Status: Accepted
 :Date: 2026-11-05
+:Amended by: :doc:`0066-project-node-scope` (the project ``node_scope`` replaces ``AllNodes``)
 
 Context
 -------

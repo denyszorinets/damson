@@ -78,6 +78,7 @@ func Run(t *testing.T, f Factory) {
 		{"AccessRaces", testAccessRaces},
 		{"AuditSubtreeAndNames", testAuditSubtreeAndNames},
 		{"JobAudit", testJobAudit},
+		{"ProjectNodeScope", testProjectNodeScope},
 		{"Sessions", testSessions},
 		{"OIDCLogins", testOIDCLogins},
 		{"SessionPurge", testSessionPurge},

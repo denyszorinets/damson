@@ -266,3 +266,51 @@ func testJobAudit(t *testing.T, s store.Store) {
 		}
 	}
 }
+
+func testProjectNodeScope(t *testing.T, s store.Store) {
+	ctx := actorCtx()
+	migrated(t, s)
+	p := mustProject(t, s, "ns-1", "scoped")
+	if p.NodeScope != "" {
+		t.Fatalf("new project scope = %q", p.NodeScope)
+	}
+	got, err := s.SetProjectNodeScope(ctx, p.ID, `'prod' in node.tags`, 1, t0)
+	if err != nil || got.Version != 2 || got.NodeScope != `'prod' in node.tags` {
+		t.Fatalf("SetProjectNodeScope = %+v, %v", got, err)
+	}
+	stored, _ := s.GetProject(context.Background(), p.ID)
+	if stored.NodeScope != got.NodeScope || stored.Version != 2 {
+		t.Fatalf("stored = %+v", stored)
+	}
+	if chain, _ := s.ListProjectChain(context.Background(), "scoped"); chain[0].NodeScope != got.NodeScope {
+		t.Fatalf("chain scope = %+v", chain)
+	}
+	if _, err := s.SetProjectNodeScope(ctx, p.ID, "true", 1, t0); !errors.Is(err, store.ErrStale) {
+		t.Errorf("stale: %v", err)
+	}
+	if _, err := s.SetProjectNodeScope(ctx, "nope", "true", 1, t0); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("missing: %v", err)
+	}
+	if _, err := s.SetProjectNodeScope(context.Background(), p.ID, "true", 2, t0); !errors.Is(err, store.ErrInvalid) {
+		t.Errorf("no actor: %v", err)
+	}
+	if _, err := s.SetProjectNodeScope(ctx, p.ID, strings.Repeat("a", store.MaxNodeScopeBytes+1), 2, t0); !errors.Is(err, store.ErrInvalid) {
+		t.Errorf("huge scope: %v", err)
+	}
+	if got, err := s.SetProjectNodeScope(ctx, p.ID, "", 2, t0); err != nil || got.NodeScope != "" {
+		t.Errorf("clear = %+v, %v", got, err)
+	}
+	evs, _ := s.ListAuditEvents(context.Background(), store.AuditFilter{TargetType: store.AuditTargetProject, Target: p.ID}, 10)
+	var n int
+	for _, e := range evs {
+		if e.Action == store.ActionProjectNodeScopeUpdate {
+			n++
+			if e.ProjectPath != "scoped" {
+				t.Errorf("event = %+v", e)
+			}
+		}
+	}
+	if n != 2 {
+		t.Errorf("%d node scope events; want 2", n)
+	}
+}
