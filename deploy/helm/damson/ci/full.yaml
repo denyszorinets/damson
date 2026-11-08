@@ -1,0 +1,64 @@
+nameOverride: dmn
+logLevel: debug
+database: {existingSecret: damson-db}
+secrets:
+  clusterSecret: {existingSecret: damson-cluster}
+  backend: openbao
+  openbao:
+    address: https://bao.example.com:8200
+    namespace: team-a
+    cacheTtl: 20s
+    caSecret: bao-ca
+    auth: {method: approle, existingSecret: bao-approle}
+logs:
+  store: s3
+  s3:
+    endpoint: https://s3.example.com
+    bucket: damson-logs
+    prefix: prod
+    sse: AES256
+    existingSecret: damson-s3
+oidc:
+  issuer: https://idp.example.com/realms/damson
+  clientId: damson
+  redirectUrl: https://damson.example.com/auth/callback
+  adminRule: "'damson-admins' in claims.groups"
+  existingSecret: damson-oidc
+audit: {retentionDays: 365}
+auth: {requireToken: true}
+controller:
+  replicas: 3
+  config:
+    engine: {finally_grace: 3m}
+  extraEnv:
+    - {name: TZ, value: UTC}
+ingress:
+  enabled: true
+  className: nginx
+  annotations: {nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"}
+  hosts: [{host: damson.example.com, paths: [{path: /, pathType: Prefix}]}]
+  tls: [{secretName: damson-tls, hosts: [damson.example.com]}]
+networkPolicy:
+  enabled: true
+  apiFrom:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}
+agents:
+  caSecret: damson-ca
+  pools:
+    - name: default
+      replicas: 3
+      slots: 8
+      tokenSecret: pool-default
+      resources: {requests: {cpu: 500m, memory: 512Mi}}
+      autoscaling: {enabled: true, minReplicas: 3, maxReplicas: 12, targetCPUUtilizationPercentage: 60}
+      podDisruptionBudget: {enabled: true, maxUnavailable: 1}
+    - name: build
+      replicas: 1
+      tokenSecret: pool-build
+      tokenKey: pool-token
+      image: {repository: damson-agent-build, tag: v1}
+      terminationGracePeriodSeconds: 600
+      resources: {requests: {cpu: "1", memory: 1Gi}}
+      # The agent image runs with HOME=/tmp here, so buildah storage lives under /tmp.
+      extraVolumes: [{name: containers, emptyDir: {}}]
+      extraVolumeMounts: [{name: containers, mountPath: /tmp/.local/share/containers}]

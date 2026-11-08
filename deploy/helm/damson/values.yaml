@@ -1,0 +1,203 @@
+# Damson chart values. Every secret value comes from a Kubernetes Secret you
+# create (existingSecret); the chart never puts a credential in a ConfigMap.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  # Build with: docker build -f deploy/docker/Dockerfile --target damson .
+  repository: damson
+  # Defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# ---- the database: PostgreSQL only. SQLite is for `damson dev`.
+database:
+  # Secret holding the DSN (postgres://user:pass@host/db?sslmode=verify-full).
+  existingSecret: ""
+  key: dsn
+
+# ---- shared secrets
+secrets:
+  # Secret with the cluster secret that authenticates controller-to-controller
+  # requests (at least 32 bytes). Required with more than one replica.
+  clusterSecret:
+    existingSecret: ""
+    key: cluster-secret
+  # Secret backend: "db" (envelope encryption with a KEK) or "openbao".
+  backend: db
+  kek:
+    # Secret holding the base64 AES-256 key (DAMSON_KEK). Required for db.
+    # Losing it means losing every stored secret.
+    existingSecret: ""
+    key: kek
+  openbao:
+    address: ""
+    namespace: ""
+    mount: secret
+    prefix: damson
+    readOnly: false
+    allowPlainHttp: false
+    cacheTtl: 0s
+    # Secret holding a CA bundle for the OpenBao certificate, and its key.
+    caSecret: ""
+    caKey: ca.crt
+    auth:
+      method: kubernetes   # token | approle | kubernetes
+      role: damson         # kubernetes
+      mount: ""
+      # Secret with the token (method token) or the role id and secret id
+      # (method approle). Both ids are credentials: they never go in a ConfigMap.
+      existingSecret: ""
+      tokenKey: token
+      roleIdKey: role-id
+      secretIdKey: secret-id
+
+# ---- log store: db (default) or s3
+logs:
+  store: db
+  s3:
+    endpoint: ""
+    region: ""
+    bucket: ""
+    prefix: ""
+    pathStyle: false
+    allowPlainHttp: false
+    sse: ""
+    # Secret with access-key-id and secret-access-key. Leave empty to use the
+    # pod's cloud identity (IRSA, workload identity).
+    existingSecret: ""
+    accessKeyIdKey: access-key-id
+    secretAccessKeyKey: secret-access-key
+
+# ---- login (OpenID Connect). Empty issuer keeps anonymous access.
+oidc:
+  issuer: ""
+  clientId: ""
+  redirectUrl: ""   # https://damson.example.com/auth/callback
+  scopes: [profile, email, groups]
+  groupsClaim: groups
+  adminRule: ""
+  existingSecret: ""
+  clientSecretKey: client-secret
+
+auth:
+  # Refuse requests without a token on the job, run and execution routes.
+  requireToken: false
+
+audit:
+  retentionDays: 0
+
+logLevel: info
+
+# ---- the controller
+controller:
+  replicas: 2
+  # Run migrations at start behind a database advisory lock.
+  autoMigrate: true
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 512Mi}
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  terminationGracePeriodSeconds: 30
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  extraEnv: []
+  # Extra settings merged over the generated config.toml, as nested maps, for
+  # example {engine: {finally_grace: 3m}}. No secrets here.
+  config: {}
+  # How long the startup probe waits for the first /healthz: migrations run
+  # before the listener opens. 2 s x this value.
+  startupFailureThreshold: 300
+  service:
+    type: ClusterIP
+    port: 8080
+  internalPort: 8081
+
+# The controller's ServiceAccount. Put cloud identity annotations (IRSA,
+# workload identity) for the S3 log store here, never on the agents'.
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: damson.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Agents connect over wss:// and the controller refuses plain ws:// unless told
+# a proxy terminates TLS. With ingress TLS set, this is turned on.
+trustForwardedProto: false
+
+networkPolicy:
+  # Restricts the controllers' internal port (plain HTTP, cluster secret) to the
+  # controller pods. Needs a CNI that enforces NetworkPolicy.
+  enabled: true
+  # Restricts the API port to these sources (NetworkPolicyPeer list, for example
+  # the ingress controller's namespace). Empty leaves the API port open.
+  apiFrom: []
+
+# ---- agents: one Deployment per pool
+agents:
+  # Agents run job code, so they get their own ServiceAccount: no annotations, no
+  # token mounted, no cloud identity.
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+  # Size limit of the log spool emptyDir.
+  spoolSizeLimit: 1Gi
+  # The URL agents dial: wss://damson.example.com. Defaults to the first
+  # ingress host when the ingress is enabled; otherwise it is required.
+  controllerUrl: ""
+  # Secret with a CA bundle (key ca.crt) for a controller certificate signed by a
+  # private CA.
+  caSecret: ""
+  caKey: ca.crt
+  image:
+    repository: damson-agent
+    tag: ""
+  pools:
+    - name: default
+      replicas: 2
+      slots: 0
+      # Secret holding the pool token created with `damson admin token create`.
+      tokenSecret: ""
+      tokenKey: token
+      # Running steps are cancelled when the pod stops (SIGTERM gives the agent 5 s).
+      terminationGracePeriodSeconds: 30
+      resources:
+        requests: {cpu: 100m, memory: 128Mi}
+        limits: {memory: 1Gi}
+      image: {}        # repository/tag override, for example damson-agent-build
+      env: []
+      nodeSelector: {}
+      tolerations: []
+      affinity: {}
+      podSecurityContext: {}
+      securityContext: {}
+      extraVolumes: []
+      extraVolumeMounts: []
+      autoscaling:
+        enabled: false
+        minReplicas: 2
+        maxReplicas: 10
+        targetCPUUtilizationPercentage: 70
+      podDisruptionBudget:
+        enabled: false
+        maxUnavailable: 1

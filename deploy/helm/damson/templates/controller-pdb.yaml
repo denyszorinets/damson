@@ -1,0 +1,13 @@
+{{- if and .Values.controller.podDisruptionBudget.enabled (gt (int .Values.controller.replicas) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "damson.fullname" . }}-controller
+  labels:
+    {{- include "damson.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.controller.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "damson.controllerSelector" . | nindent 6 }}
+{{- end }}

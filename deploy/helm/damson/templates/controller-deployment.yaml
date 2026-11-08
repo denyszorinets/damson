@@ -1,0 +1,169 @@
+{{- $fullname := include "damson.fullname" . -}}
+{{- $db := required "database.existingSecret is required: a Secret holding the PostgreSQL DSN" .Values.database.existingSecret -}}
+{{- $cluster := required "secrets.clusterSecret.existingSecret is required: controllers authenticate to each other with it" .Values.secrets.clusterSecret.existingSecret -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-controller
+  labels:
+    {{- include "damson.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+spec:
+  replicas: {{ .Values.controller.replicas }}
+  selector:
+    matchLabels:
+      {{- include "damson.controllerSelector" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "damson.labels" . | nindent 8 }}
+        app.kubernetes.io/component: controller
+        {{- with .Values.controller.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.controller.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "damson.serviceAccountName" . }}
+      automountServiceAccountToken: {{ and (eq .Values.secrets.backend "openbao") (eq .Values.secrets.openbao.auth.method "kubernetes") }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.controller.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- include "damson.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: controller
+          image: {{ include "damson.image" (dict "repository" .Values.image.repository "tag" .Values.image.tag "defaultTag" .Chart.AppVersion) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - controller
+            {{- if .Values.controller.autoMigrate }}
+            - --auto-migrate
+            {{- end }}
+          ports:
+            - {name: http, containerPort: 8080}
+            - {name: internal, containerPort: {{ .Values.controller.internalPort }}}
+          env:
+            - name: DAMSON_CONFIG
+              value: /etc/damson/config.toml
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: DAMSON_CONTROLLER__INTERNAL_URL
+              value: "http://$(POD_IP):{{ .Values.controller.internalPort }}"
+            {{- include "damson.secretEnv" (dict "name" "DAMSON_DATABASE__DSN" "secret" $db "key" .Values.database.key) | nindent 12 }}
+            {{- include "damson.secretEnv" (dict "name" "DAMSON_CONTROLLER__CLUSTER_SECRET" "secret" $cluster "key" .Values.secrets.clusterSecret.key) | nindent 12 }}
+            {{- if eq .Values.secrets.backend "db" }}
+            {{- include "damson.secretEnv" (dict "name" "DAMSON_KEK" "secret" (required "secrets.kek.existingSecret is required with the db secret backend" .Values.secrets.kek.existingSecret) "key" .Values.secrets.kek.key) | nindent 12 }}
+            {{- end }}
+            {{- if .Values.oidc.issuer }}
+            {{- include "damson.secretEnv" (dict "name" "DAMSON_AUTH__OIDC__CLIENT_SECRET" "secret" (required "oidc.existingSecret is required with oidc.issuer" .Values.oidc.existingSecret) "key" .Values.oidc.clientSecretKey) | nindent 12 }}
+            {{- end }}
+            {{- if and (eq .Values.secrets.backend "openbao") (eq .Values.secrets.openbao.auth.method "approle") }}
+            {{- include "damson.secretEnv" (dict "name" "DAMSON_OPENBAO_SECRET_ID" "secret" (required "secrets.openbao.auth.existingSecret is required for the approle method" .Values.secrets.openbao.auth.existingSecret) "key" .Values.secrets.openbao.auth.secretIdKey) | nindent 12 }}
+            {{- end }}
+            {{- if and (eq .Values.secrets.backend "openbao") (eq .Values.secrets.openbao.auth.method "token") }}
+            {{- $_ := required "secrets.openbao.auth.existingSecret is required for the token method" .Values.secrets.openbao.auth.existingSecret }}
+            {{- end }}
+            {{- if .Values.logs.s3.existingSecret }}
+            {{- include "damson.secretEnv" (dict "name" "DAMSON_LOGS__S3__ACCESS_KEY_ID" "secret" .Values.logs.s3.existingSecret "key" .Values.logs.s3.accessKeyIdKey) | nindent 12 }}
+            {{- include "damson.secretEnv" (dict "name" "DAMSON_LOGS__S3__SECRET_ACCESS_KEY" "secret" .Values.logs.s3.existingSecret "key" .Values.logs.s3.secretAccessKeyKey) | nindent 12 }}
+            {{- end }}
+            {{- with .Values.controller.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # /readyz pings the database for up to 3 s; the probe waits longer.
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Migrations run before the listener opens, so give them time.
+          startupProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 2
+            timeoutSeconds: 5
+            failureThreshold: {{ .Values.controller.startupFailureThreshold }}
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          securityContext:
+            {{- include "damson.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/damson, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            {{- if and (eq .Values.secrets.backend "openbao") .Values.secrets.openbao.caSecret }}
+            - {name: openbao-ca, mountPath: /etc/damson/openbao, readOnly: true}
+            {{- end }}
+            {{- if and (eq .Values.secrets.backend "openbao") (has .Values.secrets.openbao.auth.method (list "approle" "token")) }}
+            - {name: openbao-auth, mountPath: /etc/damson/openbao-auth, readOnly: true}
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $fullname }}-controller
+        - name: tmp
+          emptyDir: {}
+        {{- if and (eq .Values.secrets.backend "openbao") .Values.secrets.openbao.caSecret }}
+        - name: openbao-ca
+          secret:
+            secretName: {{ .Values.secrets.openbao.caSecret }}
+        {{- end }}
+        {{- if and (eq .Values.secrets.backend "openbao") (eq .Values.secrets.openbao.auth.method "approle") }}
+        - name: openbao-auth
+          secret:
+            secretName: {{ required "secrets.openbao.auth.existingSecret is required for the approle method" .Values.secrets.openbao.auth.existingSecret }}
+            items:
+              - {key: {{ .Values.secrets.openbao.auth.roleIdKey }}, path: role-id}
+        {{- end }}
+        {{- if and (eq .Values.secrets.backend "openbao") (eq .Values.secrets.openbao.auth.method "token") }}
+        - name: openbao-auth
+          secret:
+            secretName: {{ required "secrets.openbao.auth.existingSecret is required for the token method" .Values.secrets.openbao.auth.existingSecret }}
+            items:
+              - {key: {{ .Values.secrets.openbao.auth.tokenKey }}, path: token}
+        {{- end }}
+      {{- with .Values.controller.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.controller.affinity }}
+      affinity:
+        {{- toYaml .Values.controller.affinity | nindent 8 }}
+      {{- else }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "damson.controllerSelector" . | nindent 20 }}
+      {{- end }}
+      {{- with .Values.controller.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
