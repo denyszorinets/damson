@@ -266,6 +266,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who am I
+         * @description Describes the credentials of the request. With login configured a request without credentials gets 401.
+         */
+        get: operations["get-me"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/nodes": {
         parameters: {
             query?: never;
@@ -1096,6 +1116,23 @@ export interface components {
             /** @description Revoked webhooks are listed too. */
             items: components["schemas"]["Webhook"][] | null;
             next_cursor?: string;
+        };
+        Me: {
+            /** @description The audit actor: user:<sub>, sa:<id> or admin-token:<hash prefix>. */
+            actor?: string;
+            /** @description Send as X-CSRF-Token on writes made with the session cookie. */
+            csrf_token?: string;
+            email?: string;
+            groups?: string[] | null;
+            /** @description True for the admin token and for users the admin rule selected. */
+            instance_admin: boolean;
+            /**
+             * @description How the request was authenticated.
+             * @enum {string}
+             */
+            kind: "anonymous" | "admin_token" | "service_account" | "user";
+            name?: string;
+            sub?: string;
         };
         Node: {
             address: string;
@@ -2561,6 +2598,53 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "get-me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Me"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

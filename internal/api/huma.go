@@ -37,6 +37,7 @@ type DataStore interface {
 	store.WebhookStore
 	store.ServiceAccountStore
 	store.ProjectStore
+	store.SessionStore
 	PurgeExecutionLogs(ctx context.Context, executionID string, now time.Time) (store.LogPurge, error)
 
 	ListAgents(ctx context.Context, cursor string, limit int) (store.AgentPage, error)
@@ -149,6 +150,7 @@ func newHuma(mux *http.ServeMux, d deps, env *expr.Env) huma.API {
 	registerWebhooks(api, d, env)
 	registerServiceAccounts(api, d)
 	registerProjects(api, d)
+	registerMe(api, d)
 	registerInventorySync(api, d)
 	return api
 }

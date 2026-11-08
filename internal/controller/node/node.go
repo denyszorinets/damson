@@ -62,6 +62,8 @@ type Config struct {
 	DevFile *devnodes.File
 	// RequireToken is auth.require_token (ADR-0060).
 	RequireToken bool
+	// OIDC enables browser login (ADR-0063); nil leaves it off.
+	OIDC *api.OIDC
 	// KEK and KEKPrevious are the base64 key encryption keys of the db secret
 	// backend (ARCHITECTURE 9.2). Without a KEK secrets are disabled, unless
 	// the database holds encrypted secrets, which refuses the start.
@@ -148,7 +150,7 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	}
 	apiCfg := api.Config{
 		Addr: cfg.Addr, Store: cfg.Store, Data: cfg.Store, Plugins: cfg.Plugins, UI: cfg.UI, Logger: cfg.Logger,
-		Stream: cfg.Stream, RequireToken: cfg.RequireToken,
+		Stream: cfg.Stream, RequireToken: cfg.RequireToken, OIDC: cfg.OIDC,
 		Mounts: map[string]http.Handler{controller.ConnectPath: gw.Handler()},
 	}
 	if n.adv != nil {

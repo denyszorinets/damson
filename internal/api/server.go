@@ -45,6 +45,9 @@ type Config struct {
 	// RequireToken refuses job, run and execution requests without a valid
 	// Bearer token (ADR-0060). A token that is sent is checked either way.
 	RequireToken bool
+	// OIDC enables browser login and ends anonymous access (ADR-0063). Nil
+	// leaves login off.
+	OIDC *OIDC
 	// Mounts maps extra mux patterns (for example "/agent/v1/connect") to
 	// handlers owned by other components. They are wrapped by the same
 	// request logging as the API.
@@ -104,6 +107,13 @@ func routes(cfg Config) http.Handler {
 	}
 	newHuma(mux, d, env)
 	mux.Handle(hookPrefix, newHookHandler(d, env))
+	if d.oidc != nil {
+		a := authHandlers{d: d, limit: newRateLimiter(loginRate, loginBurst)}
+		mux.HandleFunc("GET /auth/login", a.login)
+		mux.HandleFunc("GET /auth/callback", a.callback)
+		mux.HandleFunc("POST /auth/logout", a.logout)
+	}
+	mux.HandleFunc("/auth/", notFound) // login is off, or the method is wrong: never the SPA
 	mux.HandleFunc("/api/", notFound)
 	mux.HandleFunc("/internal/", notFound) // served only on the internal listener (ADR-0040)
 	for pattern, h := range cfg.Mounts {

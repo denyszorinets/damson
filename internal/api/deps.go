@@ -86,7 +86,9 @@ type deps struct {
 	// requireToken: see Config.RequireToken.
 	requireToken bool
 	secrets      SecretBackend
-	slots        chan struct{} // semaphore of open SSE streams; nil means unlimited
+	// oidc is nil when login is off.
+	oidc  *OIDC
+	slots chan struct{} // semaphore of open SSE streams; nil means unlimited
 }
 
 // inTx runs fn in one store transaction and, if an orchestrator is wired,
@@ -122,7 +124,7 @@ func (d deps) acquireStream() (release func(), err error) {
 func newDeps(cfg Config) deps {
 	d := deps{
 		ds: cfg.Data, plugins: cfg.Plugins, now: cfg.Now,
-		stream: cfg.Stream.withDefaults(), tail: cfg.LogTail, notify: cfg.RunNotify, advance: cfg.Advance, targets: cfg.Targets, authRefs: cfg.AuthorizeSecretRefs, requireToken: cfg.RequireToken, secrets: cfg.Secrets,
+		stream: cfg.Stream.withDefaults(), tail: cfg.LogTail, notify: cfg.RunNotify, advance: cfg.Advance, targets: cfg.Targets, authRefs: cfg.AuthorizeSecretRefs, requireToken: cfg.RequireToken, secrets: cfg.Secrets, oidc: cfg.OIDC,
 	}
 	d.slots = make(chan struct{}, d.stream.MaxStreams)
 	if d.now == nil {

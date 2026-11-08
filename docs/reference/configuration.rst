@@ -200,9 +200,16 @@ written as a double underscore: ``agent.controller_url`` is
      - Require a Bearer token (the admin token or a service account token) on
        the job, run and execution routes. Off: a request without an
        ``Authorization`` header passes, as these routes were open before. A
-       token that is sent is checked either way. Interim until OIDC in M8
+       token that is sent is checked either way. Ignored when
+       ``auth.oidc.issuer`` is set: login is then always required
        (:doc:`/reference/service-accounts`). Environment variable
        ``DAMSON_AUTH__REQUIRE_TOKEN``.
+   * - ``auth.oidc.*``, ``auth.cookie_insecure``
+     - controller
+     - off
+     - Browser login with an OpenID Connect provider (issuer, client id and
+       secret, redirect URL, groups claim, admin rule). All keys and their
+       defaults are in :doc:`/reference/authentication`.
 
 .. _reference-config-kek:
 

@@ -98,6 +98,34 @@ type Auth struct {
 	// who can reach the controller, as before. A token that is sent is always
 	// checked, whatever this says.
 	RequireToken bool `koanf:"require_token"`
+	// CookieInsecure drops the Secure flag and the __Host- prefix of the session
+	// cookie so a login works over plain http. For local development only.
+	CookieInsecure bool `koanf:"cookie_insecure"`
+	// OIDC enables browser login (ARCHITECTURE 12.2, ADR-0063). With an issuer
+	// set, anonymous access to the job and run API ends.
+	OIDC OIDC `koanf:"oidc"`
+}
+
+// OIDC configures login with an OpenID Connect provider.
+type OIDC struct {
+	// Issuer is the provider's issuer URL; empty disables OIDC.
+	Issuer   string `koanf:"issuer"`
+	ClientID string `koanf:"client_id"`
+	// ClientSecret is a secret. ClientSecretFile is read instead when it is empty.
+	ClientSecret     string `koanf:"client_secret"`
+	ClientSecretFile string `koanf:"client_secret_file"`
+	// RedirectURL is the callback the provider sends the browser to: this
+	// controller's public URL plus /auth/callback.
+	RedirectURL string   `koanf:"redirect_url"`
+	Scopes      []string `koanf:"scopes"` // "openid" is always requested
+	// GroupsClaim names the id token claim that holds the user's groups.
+	GroupsClaim string `koanf:"groups_claim"`
+	// AdminRule is a CEL rule over claims and user that makes a user an
+	// instance admin, for example 'damson-admins' in claims.groups.
+	AdminRule string `koanf:"admin_rule"`
+	// PostLogoutRedirectURL is where the provider sends the browser after it
+	// ends its session; empty omits it.
+	PostLogoutRedirectURL string `koanf:"post_logout_redirect_url"`
 }
 
 // MaxAuditRetentionDays bounds audit.retention_days (100 years).
@@ -170,6 +198,7 @@ func (c Config) Redacted() Config {
 	c.Controller.ClusterSecretPrevious = redact(c.Controller.ClusterSecretPrevious)
 	c.Secrets.KEK = redact(c.Secrets.KEK)
 	c.Secrets.KEKPrevious = redact(c.Secrets.KEKPrevious)
+	c.Auth.OIDC.ClientSecret = redact(c.Auth.OIDC.ClientSecret)
 	return c
 }
 
@@ -198,6 +227,16 @@ func defaults() map[string]any {
 		"engine.finally_grace":               "2m",
 		"audit.retention_days":               0,
 		"auth.require_token":                 false,
+		"auth.cookie_insecure":               false,
+		"auth.oidc.issuer":                   "",
+		"auth.oidc.client_id":                "",
+		"auth.oidc.client_secret":            "",
+		"auth.oidc.client_secret_file":       "",
+		"auth.oidc.redirect_url":             "",
+		"auth.oidc.scopes":                   []string{"profile", "email", "groups"},
+		"auth.oidc.groups_claim":             "groups",
+		"auth.oidc.admin_rule":               "",
+		"auth.oidc.post_logout_redirect_url": "",
 		"agent.controller_url":               "",
 		"agent.token":                        "",
 		"agent.pool":                         "default",

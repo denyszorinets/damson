@@ -102,6 +102,9 @@ Answers
 Requiring tokens
 ----------------
 
+When OIDC login is configured (``auth.oidc.issuer``), anonymous access ends and
+``auth.require_token`` is ignored; see :doc:`authentication`.
+
 Until OIDC arrives in M8, the job, run and execution routes accept requests
 without a token. Set ``auth.require_token: true``
 (:doc:`/reference/configuration`) to refuse them. A token that is sent is

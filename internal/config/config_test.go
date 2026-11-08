@@ -243,9 +243,13 @@ func TestRedactedMasksSecrets(t *testing.T) {
 		Database:   Database{DSN: "postgres://u:hunter2@h/db"},
 		Agent:      Agent{Token: "tok-123"},
 		Controller: Controller{ClusterSecret: "cur", ClusterSecretPrevious: "prev"},
+		Auth:       Auth{OIDC: OIDC{ClientSecret: "oidc-secret"}},
 	}.Redacted()
 	if c.Controller.ClusterSecret != "***" || c.Controller.ClusterSecretPrevious != "***" {
 		t.Fatalf("cluster secrets not masked: %+v", c.Controller)
+	}
+	if c.Auth.OIDC.ClientSecret != "***" {
+		t.Fatalf("oidc client secret not masked: %+v", c.Auth.OIDC)
 	}
 	if c.Database.DSN != "***" || c.Agent.Token != "***" {
 		t.Fatalf("secrets not masked: %+v", c)
@@ -395,5 +399,61 @@ func TestValidateServing(t *testing.T) {
 	c.Controller.ClusterSecret = strings.Repeat("k", 32)
 	if err := c.ValidateServing(RoleController); err != nil {
 		t.Fatalf("with a secret: %v", err)
+	}
+}
+
+func TestValidateOIDC(t *testing.T) {
+	ok := map[string]string{
+		"AUTH__OIDC__ISSUER": "https://idp.example/realms/x", "AUTH__OIDC__CLIENT_ID": "damson", "AUTH__OIDC__CLIENT_SECRET": "s",
+		"AUTH__OIDC__REDIRECT_URL": "https://damson.example/auth/callback",
+	}
+	load := func(over map[string]string) error {
+		var env []string
+		m := map[string]string{}
+		for k, v := range ok {
+			m[k] = v
+		}
+		for k, v := range over {
+			m[k] = v
+		}
+		for k, v := range m {
+			env = append(env, "DAMSON_"+k+"="+v)
+		}
+		_, err := Load(RoleController, "", env)
+		return err
+	}
+	if err := load(nil); err != nil {
+		t.Fatalf("valid oidc config: %v", err)
+	}
+	tests := []struct {
+		name string
+		over map[string]string
+		want string
+	}{
+		{"no client id", map[string]string{"AUTH__OIDC__CLIENT_ID": ""}, "auth.oidc.client_id"},
+		{"no secret", map[string]string{"AUTH__OIDC__CLIENT_SECRET": ""}, "auth.oidc.client_secret"},
+		{"missing secret file", map[string]string{"AUTH__OIDC__CLIENT_SECRET": "", "AUTH__OIDC__CLIENT_SECRET_FILE": "/nonexistent"}, "client_secret_file"},
+		{"bad issuer", map[string]string{"AUTH__OIDC__ISSUER": "idp"}, "auth.oidc.issuer"},
+		{"redirect not the callback", map[string]string{"AUTH__OIDC__REDIRECT_URL": "https://damson.example/"}, "auth.oidc.redirect_url"},
+		{"plain http issuer", map[string]string{"AUTH__OIDC__ISSUER": "http://idp.example/realms/x"}, "auth.oidc.issuer"},
+		{"plain http redirect", map[string]string{"AUTH__OIDC__REDIRECT_URL": "http://damson.example/auth/callback"}, "auth.oidc.redirect_url"},
+		{"empty groups claim", map[string]string{"AUTH__OIDC__GROUPS_CLAIM": ""}, "auth.oidc.groups_claim"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := load(tt.over); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err = %v; want it to name %s", err, tt.want)
+			}
+		})
+	}
+	// Plain http is for development: cookie_insecure or insecure_dev allow it.
+	for _, key := range []string{"AUTH__COOKIE_INSECURE", "CONTROLLER__INSECURE_DEV"} {
+		if err := load(map[string]string{key: "true", "AUTH__OIDC__ISSUER": "http://localhost:8180/realms/x", "AUTH__OIDC__REDIRECT_URL": "http://localhost:8080/auth/callback"}); err != nil {
+			t.Fatalf("http with %s: %v", key, err)
+		}
+	}
+	// Without an issuer nothing else is checked.
+	if err := load(map[string]string{"AUTH__OIDC__ISSUER": "", "AUTH__OIDC__CLIENT_ID": ""}); err != nil {
+		t.Fatalf("oidc off: %v", err)
 	}
 }

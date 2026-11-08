@@ -17,16 +17,22 @@ import (
 // keeps a token from being accepted where another kind is expected.
 const ServiceTokenPrefix = "dms_"
 
-// Principal is who a request acts as, once its token was checked.
+// Principal is who a request acts as, once its credentials were checked.
 type Principal struct {
-	Actor string // admin-token:<hash prefix> or sa:<service account id>
+	Actor string // admin-token:<hash prefix>, sa:<service account id> or user:<sub>
 	// Token is set for a service account token.
 	Token *store.ServiceToken
+	// Session is set for a logged-in user; CSRF is the token its writes carry.
+	Session *store.Session
+	CSRF    string
+	// InstanceAdmin is true for the admin token and for a user the admin rule
+	// selected at login: they may do everything.
+	InstanceAdmin bool
 }
 
 type principalKey struct{}
 
-// PrincipalFrom returns the checked principal of a request, if it sent a token.
+// PrincipalFrom returns the checked principal of a request, if it was authenticated.
 func PrincipalFrom(ctx context.Context) (Principal, bool) {
 	p, ok := ctx.Value(principalKey{}).(Principal)
 	return p, ok
@@ -78,13 +84,18 @@ func covers(scope, project string) bool {
 	return scope == "" || project == scope || strings.HasPrefix(project, scope+"/")
 }
 
-// authorize is the middleware of the operations in routePolicies (ADR-0060).
+// openOps need no login even when OIDC is on: static data and health.
+var openOps = map[string]bool{"list-secret-types": true}
+
+// authorize is the global middleware of the API (ADR-0060, ADR-0063).
 //
-// A request without Authorization passes unless RequireToken is set (the
-// interim state until OIDC, M8). One with a token is always checked: the admin
-// token may do everything; a service token needs a role at least the route's
-// and a project scope that covers the target. An out-of-scope target answers
-// 404, like a missing one.
+// The operations in routePolicies are governed: an admin (the admin token or an
+// instance-admin user) may do everything; a service token needs a role at
+// least the route's and a project scope that covers the target (out of scope
+// answers 404, like a missing target); a user who is no instance admin is
+// refused until access rules exist. Without credentials a request passes only
+// when OIDC is off and RequireToken is not set. With OIDC on, every operation
+// that is neither open nor guarded by requireAdmin needs some principal.
 func authorize(api huma.API, d deps) func(ctx huma.Context, next func(huma.Context)) {
 	deny := func(ctx huma.Context, status int, msg string) {
 		if status == http.StatusUnauthorized {
@@ -95,70 +106,112 @@ func authorize(api huma.API, d deps) func(ctx huma.Context, next func(huma.Conte
 	return func(ctx huma.Context, next func(huma.Context)) {
 		op := ctx.Operation()
 		pol, governed := routePolicies[op.OperationID]
-		if !governed {
+		needsLogin := d.oidc != nil && !governed && len(op.Security) == 0 && !openOps[op.OperationID]
+		if !governed && !needsLogin && op.OperationID != meOperation {
 			next(ctx)
 			return
 		}
-		h := ctx.Header("Authorization")
-		tok := ""
-		if len(h) >= 7 && strings.EqualFold(h[:7], "Bearer ") {
-			tok = strings.TrimSpace(h[7:])
-			if tok == "" { // a client that means to send a token must not run anonymously
-				deny(ctx, http.StatusUnauthorized, "the token is empty")
-				return
-			}
-		} else if strings.HasPrefix(h, ServiceTokenPrefix) || strings.HasPrefix(h, tokens.AdminPrefix) {
-			deny(ctx, http.StatusUnauthorized, "send the token as: Authorization: Bearer <token>")
+		p, status, msg := d.authenticate(ctx)
+		if status != 0 {
+			deny(ctx, status, msg)
 			return
 		}
-		if tok == "" {
-			if d.requireToken {
-				deny(ctx, http.StatusUnauthorized, "a token is required")
-				return
-			}
+		if p.Actor == "" { // anonymous: allowed only where nothing demands a login
 			next(ctx)
 			return
 		}
-		if d.ds == nil {
-			deny(ctx, http.StatusServiceUnavailable, "a required dependency is not available")
-			return
-		}
+		rctx := huma.WithContext(ctx, context.WithValue(ctx.Context(), principalKey{}, p))
 		switch {
-		case strings.HasPrefix(tok, tokens.AdminPrefix):
-			actor, ok := d.adminActor(ctx.Context(), tok)
-			if !ok {
-				deny(ctx, http.StatusUnauthorized, "the token is not valid")
-				return
-			}
-			next(huma.WithContext(ctx, context.WithValue(ctx.Context(), principalKey{}, Principal{Actor: actor})))
-		case strings.HasPrefix(tok, ServiceTokenPrefix):
-			st, err := d.ds.FindServiceToken(ctx.Context(), tokens.Hash(tok), d.now())
-			if errors.Is(err, store.ErrNotFound) {
-				deny(ctx, http.StatusUnauthorized, "the token is not valid")
-				return
-			}
-			if err != nil {
-				deny(ctx, http.StatusServiceUnavailable, "a required dependency is not available")
-				return
-			}
-			if store.RoleRank(st.Role) < store.RoleRank(pol.role) {
+		case !governed || p.InstanceAdmin:
+			next(rctx)
+		case p.Token != nil:
+			if store.RoleRank(p.Token.Role) < store.RoleRank(pol.role) {
 				deny(ctx, http.StatusForbidden, "the token's role does not allow this")
 				return
 			}
-			if ok, err := d.inScope(ctx, st.Project, pol.on); err != nil {
+			if ok, err := d.inScope(ctx, p.Token.Project, pol.on); err != nil {
 				deny(ctx, http.StatusServiceUnavailable, "a required dependency is not available")
 				return
 			} else if !ok {
 				denyNotFound(api, ctx)
 				return
 			}
-			_ = d.ds.TouchServiceToken(ctx.Context(), st.ID, d.now()) // best effort
-			p := Principal{Actor: "sa:" + st.ServiceAccountID, Token: &st}
-			next(huma.WithContext(ctx, context.WithValue(ctx.Context(), principalKey{}, p)))
-		default:
-			deny(ctx, http.StatusUnauthorized, "the token is not valid")
+			_ = d.ds.TouchServiceToken(ctx.Context(), p.Token.ID, d.now()) // best effort
+			next(rctx)
+		default: // a user without the admin role: access rules arrive with the next slice
+			deny(ctx, http.StatusForbidden, "your account has no access to this")
 		}
 	}
+}
+
+const meOperation = "get-me"
+
+// authenticate checks the credentials of a request: a Bearer token (the admin
+// token or a service token), else with OIDC on the session cookie. A token that
+// is sent always wins over a cookie. A zero principal and status 0 mean
+// anonymous; otherwise status and msg are the refusal.
+func (d deps) authenticate(ctx huma.Context) (p Principal, status int, msg string) {
+	h := ctx.Header("Authorization")
+	tok := ""
+	if len(h) >= 7 && strings.EqualFold(h[:7], "Bearer ") {
+		tok = strings.TrimSpace(h[7:])
+		if tok == "" { // a client that means to send a token must not run anonymously
+			return p, http.StatusUnauthorized, "the token is empty"
+		}
+	} else if strings.HasPrefix(h, ServiceTokenPrefix) || strings.HasPrefix(h, tokens.AdminPrefix) {
+		return p, http.StatusUnauthorized, "send the token as: Authorization: Bearer <token>"
+	}
+	if tok == "" {
+		return d.authenticateCookie(ctx)
+	}
+	if d.ds == nil {
+		return p, http.StatusServiceUnavailable, "a required dependency is not available"
+	}
+	switch {
+	case strings.HasPrefix(tok, tokens.AdminPrefix):
+		actor, ok := d.adminActor(ctx.Context(), tok)
+		if !ok {
+			return p, http.StatusUnauthorized, "the token is not valid"
+		}
+		return Principal{Actor: actor, InstanceAdmin: true}, 0, ""
+	case strings.HasPrefix(tok, ServiceTokenPrefix):
+		st, err := d.ds.FindServiceToken(ctx.Context(), tokens.Hash(tok), d.now())
+		if errors.Is(err, store.ErrNotFound) {
+			return p, http.StatusUnauthorized, "the token is not valid"
+		}
+		if err != nil {
+			return p, http.StatusServiceUnavailable, "a required dependency is not available"
+		}
+		return Principal{Actor: "sa:" + st.ServiceAccountID, Token: &st}, 0, ""
+	}
+	return p, http.StatusUnauthorized, "the token is not valid"
+}
+
+// authenticateCookie is the no-token case: a session with OIDC on, otherwise
+// anonymous unless RequireToken is set.
+func (d deps) authenticateCookie(ctx huma.Context) (p Principal, status int, msg string) {
+	if d.oidc == nil {
+		if d.requireToken {
+			return p, http.StatusUnauthorized, "a token is required"
+		}
+		return p, 0, ""
+	}
+	if d.ds == nil {
+		return p, http.StatusServiceUnavailable, "a required dependency is not available"
+	}
+	s, tok, err := d.session(ctx.Context(), sessionRequest{
+		cookies: ctx.Header("Cookie"), method: ctx.Method(), host: ctx.Host(), origin: ctx.Header("Origin"),
+		fetchSite: ctx.Header("Sec-Fetch-Site"), csrf: ctx.Header(CSRFHeader),
+	})
+	switch {
+	case errors.Is(err, errNoSession):
+		return p, http.StatusUnauthorized, "login required"
+	case errors.Is(err, errCSRF):
+		return p, http.StatusForbidden, "the CSRF check failed"
+	case err != nil:
+		return p, http.StatusServiceUnavailable, "a required dependency is not available"
+	}
+	return Principal{Actor: "user:" + s.Sub, Session: &s, CSRF: csrfToken(tok), InstanceAdmin: s.InstanceAdmin}, 0, ""
 }
 
 // denyNotFound answers like the handlers do for a missing target, so a target
