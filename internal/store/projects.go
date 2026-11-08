@@ -79,6 +79,8 @@ type Project struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	AccessRules []AccessRule
+	// NodeScope is a CEL expression over a node; empty allows every node.
+	NodeScope string
 }
 
 // ProjectAuditDetails is the only content of project events.
@@ -129,4 +131,14 @@ type ProjectStore interface {
 	// message names the reason) while it has children, jobs, secrets in its
 	// scope or active tokens scoped to exactly its path.
 	DeleteProject(ctx context.Context, id string, now time.Time) error
+	// SetProjectNodeScope sets the node scope (empty clears it) as a CAS on the
+	// project version: ErrNotFound if absent, ErrStale if the version moved,
+	// ErrInvalid if it is longer than MaxNodeScopeBytes.
+	SetProjectNodeScope(ctx context.Context, id, scope string, expectedVersion int, now time.Time) (Project, error)
 }
+
+// MaxNodeScopeBytes bounds a node scope expression.
+const MaxNodeScopeBytes = 2048
+
+// ActionProjectNodeScopeUpdate is the audit action of SetProjectNodeScope.
+const ActionProjectNodeScopeUpdate = "project.node_scope.update"

@@ -472,3 +472,27 @@ func TestAuditHidesSecretEventsFromProjectAdmins(t *testing.T) {
 		assert.Contains(t, actions(viaAlice), "secret.create", "an instance admin user does")
 	})
 }
+
+func TestNodeScopeEndpoints(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		w := newAuthzWorld(t, st, 1)
+		put := func(user, path, body string) int { return w.as(user, "PUT", path, body) }
+		const p = "/api/v1/projects/team/node-scope"
+		assert.Equal(t, 403, put("bob", p, `{"node_scope":"true"}`), "a runner cannot")
+		assert.Equal(t, 404, put("erin", p, `{"node_scope":"true"}`))
+		assert.Equal(t, 200, put("gina", p, `{"node_scope":"'prod' in node.tags"}`))
+
+		var ns api.NodeScope
+		require.NoError(t, json.Unmarshal(w.mustAdmin("GET", p, "", 200), &ns))
+		assert.Equal(t, "'prod' in node.tags", ns.NodeScope)
+		assert.Equal(t, 403, w.as("bob", "GET", p, ""), "reading it needs admin too")
+
+		rec := w.admin("PUT", p, `{"node_scope":"claims.groups"}`)
+		assert.Equal(t, 422, rec.Code, "only node exists in a node scope")
+		assert.Contains(t, rec.Body.String(), "body.node_scope")
+		assert.Equal(t, 422, w.admin("PUT", p, `{"node_scope":"(("}`).Code)
+		assert.Equal(t, 409, w.admin("PUT", p, fmt.Sprintf(`{"node_scope":"true","if_version":%d}`, ns.Version-1)).Code)
+		assert.Equal(t, 200, w.admin("PUT", p, `{"node_scope":""}`).Code, "empty clears it")
+		assert.Equal(t, 404, w.admin("PUT", "/api/v1/projects/nope/node-scope", `{"node_scope":""}`).Code)
+	})
+}

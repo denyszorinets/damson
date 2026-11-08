@@ -204,6 +204,9 @@ change nothing until accepted.
    * - 0065
      - :doc:`0065-audit-actors-and-coverage`
      - Accepted
+   * - 0066
+     - :doc:`0066-project-node-scope`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -273,3 +276,4 @@ change nothing until accepted.
    0063-oidc-login-and-sessions
    0064-access-rules-and-authorization
    0065-audit-actors-and-coverage
+   0066-project-node-scope

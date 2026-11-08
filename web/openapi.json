@@ -1414,6 +1414,25 @@
         ],
         "type": "object"
       },
+      "NodeScope": {
+        "additionalProperties": false,
+        "properties": {
+          "node_scope": {
+            "description": "A CEL expression over node (id, name, address, tags, attributes, pool, os, transport) that must be true for the project to use a node. Empty allows every node. A project is also held to the scopes of its ancestors.",
+            "type": "string"
+          },
+          "version": {
+            "description": "Send as if_version on the next change.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "node_scope",
+          "version"
+        ],
+        "type": "object"
+      },
       "PatchNodeInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -1825,6 +1844,25 @@
         },
         "required": [
           "rules"
+        ],
+        "type": "object"
+      },
+      "PutNodeScopeInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "if_version": {
+            "description": "The version the caller read; 409 if it moved. Omitted: the version current when handled.",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "node_scope": {
+            "maxLength": 2048,
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_scope"
         ],
         "type": "object"
       },
@@ -5947,6 +5985,220 @@
           }
         ],
         "summary": "Replace a project's access rules",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/projects/{path}/node-scope": {
+      "get": {
+        "operationId": "get-project-node-scope",
+        "parameters": [
+          {
+            "description": "The project path, percent-encoded when it has several segments (infra%2Fbilling).",
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "The project path, percent-encoded when it has several segments (infra%2Fbilling).",
+              "maxLength": 600,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeScope"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Get a project's node scope",
+        "tags": [
+          "projects"
+        ]
+      },
+      "put": {
+        "operationId": "set-project-node-scope",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "maxLength": 600,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutNodeScopeInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeScope"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Set a project's node scope",
         "tags": [
           "projects"
         ]

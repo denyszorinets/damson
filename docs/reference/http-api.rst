@@ -125,6 +125,11 @@ Go test fails when ``web/openapi.json`` differs from the live document.
      - Read and set access rules; ``{"rules": [{"role","rule"}], "if_version"}``,
        response ``{"rules","version"}``. ``admin`` needed
        (:doc:`access-rules`).
+   * - ``GET``/``PUT /api/v1/projects/{path}/node-scope``
+     - Read and set the project node scope; ``{"node_scope", "if_version"}``,
+       response ``{"node_scope","version"}``. ``admin`` needed; ``409`` if
+       ``if_version`` is stale; ``422`` at ``body.node_scope`` if it does not
+       compile (:ref:`reference-project-node-scope`).
    * - ``POST /api/v1/jobs/{id}/versions``
      - ``{"spec", "expected_version"?}``. Appends an immutable version. It is a
        compare-and-swap on ``current_version``: a stale ``expected_version``

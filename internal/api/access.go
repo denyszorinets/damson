@@ -157,3 +157,61 @@ func registerAccess(api huma.API, d deps) {
 			return &struct{ Body AccessRules }{AccessRules{Rules: toAPIRules(a.Rules), Version: a.Version}}, nil
 		})
 }
+
+// NodeScope is a project's own node scope.
+type NodeScope struct {
+	NodeScope string `json:"node_scope" doc:"A CEL expression over node (id, name, address, tags, attributes, pool, os, transport) that must be true for the project to use a node. Empty allows every node. A project is also held to the scopes of its ancestors."`
+	Version   int    `json:"version" doc:"Send as if_version on the next change."`
+}
+
+type putNodeScopeInput struct {
+	Path string `path:"path" maxLength:"600"`
+	Body struct {
+		NodeScope string `json:"node_scope" required:"true" maxLength:"2048"`
+		IfVersion *int   `json:"if_version,omitempty" minimum:"1" doc:"The version the caller read; 409 if it moved. Omitted: the version current when handled."`
+	}
+}
+
+func registerNodeScope(api huma.API, d deps) {
+	op := func(id, method, summary string, errs ...int) huma.Operation {
+		return huma.Operation{
+			OperationID: id, Method: method, Path: "/projects/{path}/node-scope", Summary: summary, Tags: []string{"projects"}, Security: adminSecurity,
+			Errors: append([]int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusServiceUnavailable}, errs...),
+		}
+	}
+	huma.Register(api, op("get-project-node-scope", http.MethodGet, "Get a project's node scope"),
+		func(ctx context.Context, in *projectPathInput) (*struct{ Body NodeScope }, error) {
+			if err := d.ready(); err != nil {
+				return nil, apiError(ctx, err)
+			}
+			p, err := d.ds.GetProjectByPath(ctx, in.Path)
+			if err != nil {
+				return nil, apiError(ctx, err)
+			}
+			return &struct{ Body NodeScope }{NodeScope{NodeScope: p.NodeScope, Version: p.Version}}, nil
+		})
+	huma.Register(api, op("set-project-node-scope", http.MethodPut, "Set a project's node scope", http.StatusConflict, http.StatusUnprocessableEntity),
+		func(ctx context.Context, in *putNodeScopeInput) (*struct{ Body NodeScope }, error) {
+			if err := d.ready(); err != nil {
+				return nil, apiError(ctx, err)
+			}
+			if in.Body.NodeScope != "" {
+				if _, err := d.nodeScopeEnv.CompileRule(in.Body.NodeScope); err != nil {
+					return nil, apiError(ctx, invalid("the node scope is invalid", ProblemDetail{Message: err.Error(), Location: "body.node_scope"}))
+				}
+			}
+			cur, err := d.ds.GetProjectByPath(ctx, in.Path)
+			if err != nil {
+				return nil, apiError(ctx, err)
+			}
+			version := cur.Version
+			if in.Body.IfVersion != nil {
+				version = *in.Body.IfVersion
+			}
+			p, err := d.ds.SetProjectNodeScope(ctx, cur.ID, in.Body.NodeScope, version, d.now())
+			if err != nil {
+				return nil, apiError(ctx, err)
+			}
+			return &struct{ Body NodeScope }{NodeScope{NodeScope: p.NodeScope, Version: p.Version}}, nil
+		})
+}

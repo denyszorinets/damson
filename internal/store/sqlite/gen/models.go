@@ -198,6 +198,7 @@ type Project struct {
 	Version     int64
 	UpdatedAt   string
 	AccessRules string
+	NodeScope   string
 }
 
 type Run struct {

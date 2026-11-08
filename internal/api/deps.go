@@ -92,7 +92,9 @@ type deps struct {
 	// policy evaluates access rules; grants caches its answers for a minute.
 	policy *policy.Evaluator
 	grants *grantCache
-	slots  chan struct{} // semaphore of open SSE streams; nil means unlimited
+	// nodeScopeEnv compiles project node scopes on write.
+	nodeScopeEnv *expr.Env
+	slots        chan struct{} // semaphore of open SSE streams; nil means unlimited
 }
 
 // inTx runs fn in one store transaction and, if an orchestrator is wired,
@@ -132,6 +134,11 @@ func newDeps(cfg Config) deps {
 	}
 	d.slots = make(chan struct{}, d.stream.MaxStreams)
 	d.grants = newGrantCache()
+	if env, err := expr.NewNodeScopeEnv(expr.Limits{}); err != nil {
+		d.engErr = fmt.Errorf("building the node scope environment: %w", err)
+	} else {
+		d.nodeScopeEnv = env
+	}
 	if pol, err := policy.New(cfg.Logger); err != nil {
 		d.engErr = fmt.Errorf("building the access policy: %w", err)
 	} else {

@@ -1,11 +1,11 @@
 -- name: GetProjectByPath :one
-SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules FROM projects WHERE path = sqlc.arg(path);
+SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules, node_scope FROM projects WHERE path = sqlc.arg(path);
 
 -- name: GetProject :one
-SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules FROM projects WHERE id = sqlc.arg(id);
+SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules, node_scope FROM projects WHERE id = sqlc.arg(id);
 
 -- name: ListProjects :many
-SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules FROM projects ORDER BY path;
+SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules, node_scope FROM projects ORDER BY path;
 
 -- name: InsertProject :exec
 INSERT INTO projects (id, path, parent_id, description, version, created_at, updated_at)
@@ -33,17 +33,21 @@ SELECT count(*) FROM service_tokens WHERE project = sqlc.arg(path) AND revoked_a
 -- name: ListProjectSubtree :many
 -- The project and its descendants: '0' is the character after '/', so the range
 -- holds exactly the paths that start with "<path>/".
-SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules FROM projects
+SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules, node_scope FROM projects
 WHERE path = sqlc.arg(path) OR (path >= sqlc.arg(path_slash) AND path < sqlc.arg(path_next))
 ORDER BY path;
 
 -- name: ListProjectChain :many
 -- The project and its ancestors, root first: a path is an ancestor when the
 -- project's path starts with "<path>/". Project paths hold no LIKE wildcards.
-SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules FROM projects
+SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules, node_scope FROM projects
 WHERE path = sqlc.arg(path) OR sqlc.arg(path) LIKE path || '/%'
 ORDER BY path;
 
 -- name: SetProjectAccessRulesCAS :execrows
 UPDATE projects SET access_rules = sqlc.arg(access_rules), version = version + 1, updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id) AND version = sqlc.arg(expected_version);
+
+-- name: SetProjectNodeScopeCAS :execrows
+UPDATE projects SET node_scope = sqlc.arg(node_scope), version = version + 1, updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id) AND version = sqlc.arg(expected_version);

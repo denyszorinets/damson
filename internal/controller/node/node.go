@@ -100,17 +100,18 @@ type Config struct {
 
 // Node is a running controller.
 type Node struct {
-	gw   *controller.Gateway
-	adv  *advance.Advancer
-	logs *logs.Ingest
-	disp *dispatch.Dispatcher
-	lead *leader.Elector
-	only *leader.Elector // single-controller guard, nil unless SingleController
-	tail api.LogTail
-	prox *tailproxy.Tail
-	intl *internalapi.Server
-	intL net.Listener
-	srv  *api.Server
+	scope *inventory.ProjectScope // the project node scope, shared by targets and dispatch
+	gw    *controller.Gateway
+	adv   *advance.Advancer
+	logs  *logs.Ingest
+	disp  *dispatch.Dispatcher
+	lead  *leader.Elector
+	only  *leader.Elector // single-controller guard, nil unless SingleController
+	tail  api.LogTail
+	prox  *tailproxy.Tail
+	intl  *internalapi.Server
+	intL  net.Listener
+	srv   *api.Server
 	// sched and schedLead are the scheduler duty and its lease, nil on an unmigrated database.
 	sched     *scheduler.Scheduler
 	schedLead *leader.Elector
@@ -135,7 +136,11 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating agent gateway: %w", err)
 	}
-	n := &Node{gw: gw}
+	scope, err := inventory.NewProjectScope(cfg.Store, time.Now, cfg.Logger)
+	if err != nil {
+		return nil, fmt.Errorf("building the node scope: %w", err)
+	}
+	n := &Node{gw: gw, scope: scope}
 	if v, err := cfg.Store.MigrationVersion(ctx); err != nil {
 		return nil, fmt.Errorf("reading migration version: %w", err)
 	} else if v == 0 {
@@ -157,7 +162,7 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 		apiCfg.Advance, apiCfg.RunNotify = n.adv, n.adv.Hub()
 		apiCfg.LogTail = n.tail
 	}
-	apiCfg.Targets = &InventoryTargets{Store: cfg.Store, Scope: inventory.AllNodes{}}
+	apiCfg.Targets = &InventoryTargets{Store: cfg.Store, Scope: scope}
 	apiCfg.AuthorizeSecretRefs = n.secrets != nil
 	if n.secrets != nil { // a nil *Backend must not become a non-nil interface
 		apiCfg.Secrets = n.secrets
@@ -361,7 +366,7 @@ func (n *Node) stopGuard(ctx context.Context) error {
 // authorized against the run's project (the --dev-nodes file is seeded into
 // these stores, ADR-0044).
 func (n *Node) dispatchSources(cfg Config, log *slog.Logger) (dispatch.NodeSource, dispatch.SecretSource, func(context.Context, string) (string, error)) {
-	nodes := &InventoryNodes{Store: cfg.Store, Scope: inventory.AllNodes{}, Project: projectOf(cfg.Store), Log: log}
+	nodes := &InventoryNodes{Store: cfg.Store, Scope: n.scope, Project: projectOf(cfg.Store), Log: log}
 	if n.secrets == nil {
 		return nodes, nil, nil
 	}

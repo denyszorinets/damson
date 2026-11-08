@@ -326,3 +326,36 @@ func TestInventoryNodeGoneOrDisabledFails(t *testing.T) {
 		})
 	}
 }
+
+// A node outside the project's node scope fails the step for good as an unknown
+// node, which does not reveal that it exists. (Inheritance and fail-closed
+// evaluation are covered in internal/inventory.)
+func TestProjectNodeScopeHidesNodes(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		b := newSecretBackend(t, st)
+		putIn(t, b, "_inventory", "cred", map[string]string{"username": "u", "private_key": "k"})
+		putIn(t, b, "default", "token", map[string]string{"value": "v"})
+		addNode(t, st, "n1", true) // no tags: outside the scope below
+		ctx := store.WithAudit(context.Background(), store.AuditMeta{Actor: "test"})
+		def, err := st.GetProjectByPath(ctx, "default")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.SetProjectNodeScope(ctx, def.ID, `'prod' in node.tags`, def.Version, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		scope, err := inventory.NewProjectScope(st, time.Now, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := startClusterLog(t, st, nodeSpec, slog.New(slog.DiscardHandler), func(c *dispatch.Config) {
+			project := func(context.Context, string) (string, error) { return "default", nil }
+			c.Nodes = &node.InventoryNodes{Store: st, Scope: scope, Project: project}
+			c.Secrets, c.Project = node.NewSecretSource(b, slog.New(slog.DiscardHandler)), project
+		})
+		tree := c.waitRun(c.triggerInput("nodedemo", `{"node":"n1","token":"secret://default/token"}`), store.RunFailed)
+		if got := tree.Steps[0].Executions[0].Error; !strings.Contains(got, "unknown node") {
+			t.Fatalf("error = %q; want unknown node (existence must not be revealed)", got)
+		}
+	})
+}

@@ -28,7 +28,7 @@ func toProject(r gen.Project) (store.Project, error) {
 	}
 	return store.Project{
 		ID: r.ID, Path: r.Path, ParentID: r.ParentID.String, Description: r.Description, Version: int(r.Version),
-		CreatedAt: created, UpdatedAt: updated, AccessRules: rules,
+		CreatedAt: created, UpdatedAt: updated, AccessRules: rules, NodeScope: r.NodeScope,
 	}, nil
 }
 

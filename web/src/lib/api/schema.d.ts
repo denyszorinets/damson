@@ -464,6 +464,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{path}/node-scope": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a project's node scope */
+        get: operations["get-project-node-scope"];
+        /** Set a project's node scope */
+        put: operations["set-project-node-scope"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/runs": {
         parameters: {
             query?: never;
@@ -1224,6 +1242,15 @@ export interface components {
             /** Format: int64 */
             version: number;
         };
+        NodeScope: {
+            /** @description A CEL expression over node (id, name, address, tags, attributes, pool, os, transport) that must be true for the project to use a node. Empty allows every node. A project is also held to the scopes of its ancestors. */
+            node_scope: string;
+            /**
+             * Format: int64
+             * @description Send as if_version on the next change.
+             */
+            version: number;
+        };
         PatchNodeInputBody: {
             address?: string;
             attributes?: {
@@ -1362,6 +1389,14 @@ export interface components {
             if_version?: number;
             /** @description Replaces the whole list; empty removes every rule. */
             rules: components["schemas"]["AccessRule"][] | null;
+        };
+        PutNodeScopeInputBody: {
+            /**
+             * Format: int64
+             * @description The version the caller read; 409 if it moved. Omitted: the version current when handled.
+             */
+            if_version?: number;
+            node_scope: string;
         };
         PutSecretInputBody: {
             /** @description Field values. Never returned by any endpoint. */
@@ -3948,6 +3983,172 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccessRules"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "get-project-node-scope": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project path, percent-encoded when it has several segments (infra%2Fbilling). */
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeScope"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "set-project-node-scope": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutNodeScopeInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeScope"];
                 };
             };
             /** @description Unauthorized */
