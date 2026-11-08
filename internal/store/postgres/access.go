@@ -52,7 +52,7 @@ func (s *Store) SetProjectAccessRules(ctx context.Context, id string, rules []st
 			return fmt.Errorf("setting access rules: %w", err)
 		}
 		if n == 0 {
-			return fmt.Errorf("project %q version %d: %w", id, expectedVersion, store.ErrStale)
+			return store.StaleProject(id, expectedVersion, cur.Path, cur.ManagedBy)
 		}
 		ev, err := store.NewAccessEvent(ctx, store.ActionProjectAccessRulesUpdate, store.AuditTargetProject, id, cur.Path, rules, "", now)
 		if err != nil {
@@ -92,7 +92,7 @@ func (s *Store) SetProjectNodeScope(ctx context.Context, id string, scope string
 			return fmt.Errorf("setting node scope: %w", err)
 		}
 		if n == 0 {
-			return fmt.Errorf("project %q version %d: %w", id, expectedVersion, store.ErrStale)
+			return store.StaleProject(id, expectedVersion, cur.Path, cur.ManagedBy)
 		}
 		ev, err := store.NewEvent(ctx, store.ActionProjectNodeScopeUpdate, store.AuditTargetProject, id, cur.Path, struct {
 			Path string `json:"path"`

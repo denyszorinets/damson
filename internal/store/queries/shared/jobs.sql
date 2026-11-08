@@ -9,20 +9,20 @@ VALUES (sqlc.arg(id), sqlc.arg(job_id), sqlc.arg(version), sqlc.arg(spec), sqlc.
 
 -- name: SetJobVersionCAS :execrows
 UPDATE jobs SET current_version = sqlc.arg(new_version), updated_at = sqlc.arg(updated_at)
-WHERE id = sqlc.arg(id) AND current_version = sqlc.arg(expected_version);
+WHERE id = sqlc.arg(id) AND current_version = sqlc.arg(expected_version) AND managed_by = 'ui' AND archived_at IS NULL;
 
 -- name: GetJob :one
-SELECT id, project_id, name, managed_by, current_version, created_at, updated_at
+SELECT id, project_id, name, managed_by, current_version, created_at, updated_at, archived_at
 FROM jobs WHERE id = sqlc.arg(id);
 
 -- name: GetJobByName :one
-SELECT id, project_id, name, managed_by, current_version, created_at, updated_at
+SELECT id, project_id, name, managed_by, current_version, created_at, updated_at, archived_at
 FROM jobs WHERE project_id = sqlc.arg(project_id) AND name = sqlc.arg(name);
 
 -- name: ListJobsAfter :many
-SELECT id, project_id, name, managed_by, current_version, created_at, updated_at
+SELECT id, project_id, name, managed_by, current_version, created_at, updated_at, archived_at
 FROM jobs
-WHERE project_id = sqlc.arg(project_id) AND id > sqlc.arg(after_id)
+WHERE project_id = sqlc.arg(project_id) AND id > sqlc.arg(after_id) AND archived_at IS NULL
 ORDER BY id
 LIMIT sqlc.arg(row_limit);
 

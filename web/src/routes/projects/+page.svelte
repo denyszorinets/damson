@@ -42,6 +42,10 @@
 
 	// The project whose rules and node scope are being edited.
 	let editing = $state<string | null>(null);
+	// A project that apply manages is read-only here: its source changes it.
+	const editingManaged = $derived(
+		editing !== null && (byPath.get(editing)?.managed_by ?? 'ui') !== 'ui'
+	);
 	let rules = $state<AccessRule[]>([]);
 	let rulesVersion = $state(0);
 	let rulesErrors = $state<string[]>([]);
@@ -183,6 +187,10 @@
 				>
 					<span class="font-medium">{leaf(p.path)}</span>
 					<Badge variant="secondary" data-testid="role-{p.path}">{p.my_role ?? 'none'}</Badge>
+					{#if p.managed_by !== 'ui'}
+						<Badge variant="outline" data-testid="managed-{p.path}">managed by {p.managed_by}</Badge
+						>
+					{/if}
 					{#if p.description}
 						<span class="text-sm text-muted-foreground">{p.description}</span>
 					{/if}
@@ -192,14 +200,16 @@
 								size="sm"
 								variant="outline"
 								data-testid="edit-{p.path}"
-								onclick={() => edit(p.path)}>Rules and scope</Button
+								onclick={() => edit(p.path)}
+								>{p.managed_by === 'ui' ? 'Rules and scope' : 'View rules and scope'}</Button
 							>
 						{/if}
 						{#if canManage(p.path, byPath)}
 							<Button
 								size="sm"
 								variant="outline"
-								disabled={busy}
+								disabled={busy || p.managed_by !== 'ui'}
+								title={p.managed_by !== 'ui' ? 'managed by ' + p.managed_by : undefined}
 								data-testid="delete-{p.path}"
 								onclick={() => remove(p.path)}>Delete</Button
 							>
@@ -298,8 +308,11 @@
 						data-testid="add-rule"
 						onclick={() => rules.push({ role: 'viewer', rule: '' })}>Add rule</Button
 					>
-					<Button size="sm" disabled={busy} data-testid="save-rules" onclick={saveRules}
-						>Save rules</Button
+					<Button
+						size="sm"
+						disabled={busy || editingManaged}
+						data-testid="save-rules"
+						onclick={saveRules}>Save rules</Button
 					>
 				</div>
 				{#if rulesErrors.length}
@@ -323,8 +336,11 @@
 					data-testid="node-scope"
 					bind:value={nodeScope}
 				/>
-				<Button size="sm" disabled={busy} data-testid="save-node-scope" onclick={saveScope}
-					>Save node scope</Button
+				<Button
+					size="sm"
+					disabled={busy || editingManaged}
+					data-testid="save-node-scope"
+					onclick={saveScope}>Save node scope</Button
 				>
 				{#if nodeScopeError}
 					<Alert.Root variant="destructive" data-testid="node-scope-error">

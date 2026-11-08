@@ -16,6 +16,10 @@ type Job struct {
 	CurrentVersion int
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	// ArchivedAt is set when apply --prune removed the job from its source
+	// (ADR-0069). An archived job is hidden from lists and cannot run, but its
+	// runs stay.
+	ArchivedAt *time.Time
 }
 
 // JobVersion is an immutable job spec. Spec is returned byte for byte as
@@ -92,4 +96,18 @@ type JobAuditDetails struct {
 	Name     string `json:"name,omitempty"`
 	Version  int    `json:"version"`
 	Checksum string `json:"checksum"`
+	// Source is the managing source when apply wrote the event.
+	Source string `json:"source,omitempty"`
+}
+
+// RefusedJob returns the ManagedError that explains why the UI and API cannot
+// write a version of j, or nil when j is an ordinary live job.
+func RefusedJob(j Job) error {
+	switch {
+	case j.ArchivedAt != nil:
+		return &ManagedError{What: "job " + j.Name, By: "archived"}
+	case j.ManagedBy != "" && j.ManagedBy != "ui":
+		return &ManagedError{What: "job " + j.Name, By: j.ManagedBy}
+	}
+	return nil
 }

@@ -138,8 +138,8 @@ AuditEvent
 
 | Entity | Purpose |
 |---|---|
-| **Project** | A tree (`infra`, `infra/billing`, `infra/billing/reports`). It carries access rules, a node scope, and secrets. Children inherit from their ancestors. |
-| **Job** | A named job in a project, pointing to its current `JobVersion`. `managed_by` is one of `ui`, `files:<source>`, or `git:<source>` (future). |
+| **Project** | A tree (`infra`, `infra/billing`, `infra/billing/reports`). It carries access rules, a node scope, and secrets. Children inherit from their ancestors. `managed_by` is `ui` or `files:<source>` (§13); a managed project is read-only outside apply. |
+| **Job** | A named job in a project, pointing to its current `JobVersion`. `managed_by` is one of `ui`, `files:<source>`, or `git:<source>` (future). `archived_at` is set when apply prunes it (soft delete, §13). |
 | **JobVersion** | An immutable JSON spec with a checksum. Every run pins exactly one version. |
 | **Run** | One invocation of a job: trigger, resolved options, status, and a `concurrency_key`. |
 | **StepInstance** | One logical step in a run. Fan-out and `for_each` create one instance per node. It has a stable `path` (ADR-0037): the ids from the top of the job down joined by `/`, such as `deploy/inner/build`, `deploy/catch/rollback` or `per-node/for_each[web-01]/install/catch/rollback`; a top-level step's path is its id. |
@@ -1039,7 +1039,8 @@ Both sync routes need the admin token, accept at most 16 MiB and 5000 nodes, and
   scope path, or non-revoked service tokens scoped exactly to it (409).
 - `access_rules` are described in §12.3 (ADR-0064). `retention` is deferred to M9.
 - `node_scope` (`projects.node_scope`, ADR-0066) is a CEL expression over one variable, `node`, the plain node map selectors use (`id`, `name`, `address`, `tags`, `attributes`, `pool`, `os`, `transport`; never a credential, host key or port). Empty allows every node. The effective scope is the AND of the project's scope and all its ancestors'. A scope that does not compile or fails to evaluate for a node allows no node (fail closed; logged without node data). Maximum 2048 bytes, compile-checked on write (`422` at `body.node_scope`), cost-limited like other CEL. `inventory.ProjectScope` applies it at dispatch (a node outside the scope fails the step as `unknown node`) and when freezing run targets. The project chain is cached 10 s per controller, so a change applies everywhere within about 10 s. `GET`/`PUT /projects/{path}/node-scope` needs `admin` on the project; the write is a compare-and-swap on the project version and is audited as `project.node_scope.update` (details never hold the expression). The nodes inventory API stays instance-admin only and shows all nodes.
-- Details: ADR-0062, ADR-0066.
+- `managed_by` (ADR-0069) is `ui` or `files:<source>`. A project managed by a source is read-only: `PATCH`, `PUT` access rules, `PUT` node scope and `DELETE` answer `409` (§13).
+- Details: ADR-0062, ADR-0066, ADR-0069.
 
 ### 12.2 Authentication
 
@@ -1087,34 +1088,45 @@ Both sync routes need the admin token, accept at most 16 MiB and 5000 nodes, and
 - **Effective role** = the maximum role granted by any matching rule on the job, the project, or any ancestor. A rule that fails to evaluate or compile grants nothing; the others still apply. Instance admins (admin token, or a user the OIDC `admin_rule` selected) are `admin` everywhere. Service tokens hold their role where their project scope covers the target, never `admin`. A child rule does not climb to the parent; a job rule does not make the project visible in lists.
 - **No role on the target is `404`** (indistinguishable from missing); a role that is too low is `403`. Job, run and execution routes, project routes and access-rule routes are governed by role; strict routes (project and access rules) never run anonymously. List-projects returns only projects the caller holds a role on, with `my_role`. Secrets, nodes, pools, service accounts, schedules, webhooks, audit and log purge stay instance-admin only; per-project scoping of those is future work (ADR-0064).
 - Rules are compiled once per change; grants are cached per controller by session, project and job for 60s and cleared on a rule write on that controller (other controllers can lag up to 60s). The session itself is read from the database on every request.
-- Every mutation and trigger writes an **audit event**: actor, action, target, project path, details JSON, request id. `project_path` is the project scope of the target (empty when none) and is kept for per-subtree visibility in M8. The event is written in the **same transaction** as the change, and an audited write without an actor fails (`ErrInvalid`). Actors are `user:<sub>` (OIDC login), `sa:<service account id>`, `admin-token:<12 hex of the token hash>`, `cli:<os user>`, `system:<duty>` (`scheduler`, `retention`, `dispatch`, `dev-nodes`), `webhook:<webhook id>` and `anonymous` (job and run calls with login and `require_token` off). `actor_name` is a display snapshot taken when the event is written (a user's email); the store fills it from the context only when the event's actor is the context's actor, and it is never refreshed. Audited: secret writes (with the `openbao` backend the event is appended after the change succeeded, not in its transaction; ADR-0068), `rotate-kek`, admin-token create and revoke, log purges (`log.purge`, target type `execution`), project changes, node scope changes (`project.node_scope.update`; details `path` and `set`, never the expression; ADR-0066), access rule changes (`project.access_rules.update`, `job.access_rules.update`; details never hold the expressions; ADR-0064), schedule changes, webhook changes, service account and token changes (details never hold tokens, hashes or options; ADR-0058, ADR-0059, ADR-0060), `job.create` and `job.version.create` (target type `job`; written when the caller has an actor), `run.trigger` (target type `run`; details `job_id`, `job_version_id`, `trigger`, `schedule_id` or `webhook_id`, never options; written in the transaction that creates the run, for API, webhook and every scheduler fire, whose actor is `system:scheduler`), `run.cancel`, `auth.login` (target type `user`, target the `sub`) and `secret.read` (target type `execution`; details `attempt_id`, `run_id` and sorted `secret://` refs, never values; one event per dispatched attempt that carries secrets, written by the dispatcher as `system:dispatch` before `step.execute` is sent; if it cannot be written the execution is requeued and the secrets are not sent; it can over-report, never under-report). `GET /audit` is readable by instance admins (all events) and by project admins with `?project=<path>` (that project and its descendants; no role is `404`, a lower role `403`; instance-level events with an empty `project_path` are instance-admin only). ADR-0053, ADR-0065. With `audit.retention_days` set, the retention duty (§8.4) deletes older events and writes an `audit.prune` event per pass (ADR-0054); the default `0` keeps everything.
+- **Apply and export (ADR-0069).** `POST /apply` needs `editor` and `GET /export` needs `admin` (both strict, handler-checked). The handler checks every change: job create, update, archive, restore and adopt need `editor` on the job's project; project update, adopt and release need `admin`; project create needs `admin` on the parent (instance admin for a root); an unchanged project needs `editor`. The first failure is `404` or `403` before any plan detail is returned. A service token can therefore apply job files, never project changes. Export includes access rules, so it needs `admin` on the project.
+- Every mutation and trigger writes an **audit event**: actor, action, target, project path, details JSON, request id. `project_path` is the project scope of the target (empty when none) and is kept for per-subtree visibility in M8. The event is written in the **same transaction** as the change, and an audited write without an actor fails (`ErrInvalid`). Actors are `user:<sub>` (OIDC login), `sa:<service account id>`, `admin-token:<12 hex of the token hash>`, `cli:<os user>`, `system:<duty>` (`scheduler`, `retention`, `dispatch`, `dev-nodes`), `webhook:<webhook id>` and `anonymous` (job and run calls with login and `require_token` off). `actor_name` is a display snapshot taken when the event is written (a user's email); the store fills it from the context only when the event's actor is the context's actor, and it is never refreshed. Audited: secret writes (with the `openbao` backend the event is appended after the change succeeded, not in its transaction; ADR-0068), `rotate-kek`, admin-token create and revoke, log purges (`log.purge`, target type `execution`), project changes, node scope changes (`project.node_scope.update`; details `path` and `set`, never the expression; ADR-0066), access rule changes (`project.access_rules.update`, `job.access_rules.update`; details never hold the expressions; ADR-0064), schedule changes, webhook changes, service account and token changes (details never hold tokens, hashes or options; ADR-0058, ADR-0059, ADR-0060), `job.create` and `job.version.create` (target type `job`; written when the caller has an actor), `run.trigger` (target type `run`; details `job_id`, `job_version_id`, `trigger`, `schedule_id` or `webhook_id`, never options; written in the transaction that creates the run, for API, webhook and every scheduler fire, whose actor is `system:scheduler`), `run.cancel`, apply changes (`job.archive`, `job.restore`, `job.manage`, `project.manage` with details `{from, to}`; the other actions are reused and `job.version.create` details gain `source`; one `request_id` per apply, no summary event; ADR-0069), `auth.login` (target type `user`, target the `sub`) and `secret.read` (target type `execution`; details `attempt_id`, `run_id` and sorted `secret://` refs, never values; one event per dispatched attempt that carries secrets, written by the dispatcher as `system:dispatch` before `step.execute` is sent; if it cannot be written the execution is requeued and the secrets are not sent; it can over-report, never under-report). `GET /audit` is readable by instance admins (all events) and by project admins with `?project=<path>` (that project and its descendants; no role is `404`, a lower role `403`; instance-level events with an empty `project_path` are instance-admin only). ADR-0053, ADR-0065. With `audit.retention_days` set, the retention duty (§8.4) deletes older events and writes an `audit.prune` event per pass (ADR-0054); the default `0` keeps everything.
 
 ---
 
-## 13. Jobs as code (prepared for Git)
+## 13. Jobs as code
 
-**Folder layout:**
+Details: ADR-0069, `docs/reference/jobs-as-code.rst`.
+
+**Folder layout:** the folder path relative to `-f` is the project path.
 
 ```
 jobs/
   infra/
-    project.json                 # project metadata, access_rules, node_scope
+    project.json                 # apiVersion, kind: Project, description, access_rules, node_scope
     billing/
       project.json
-      deploy-report-tool.job.json
+      deploy-report-tool.job.json   # full job document
 ```
 
-**`damson apply -f ./jobs --source files:main [--prune] [--dry-run]`**
+- `project.json` is declarative (a missing field is empty), rejects unknown fields and has no `path`. `<name>.job.json` must have `metadata.project` equal to the folder and `metadata.name` equal to the file stem. JSON only (YAML stays open, ADR-0023). No files at the root.
+- A folder with `project.json` creates or updates the project, parents first. Parents are never created implicitly. A folder with jobs and no `project.json` needs an existing project.
 
-- The CLI bundles the tree and calls `POST /api/v1/apply`.
-- The server validates everything first (all-or-nothing), diffs by checksum, creates new JobVersions only for changed specs, and sets `managed_by = files:main`.
-- With `--prune`, it deletes jobs managed by that source that are no longer present.
+**`damson apply -f ./jobs --source files:main [--prune] [--dry-run] [--adopt]`** calls `POST /api/v1/apply` with `{source, prune, dry_run, adopt, files:[{path, content}]}`.
 
-**Other rules**
+- Source grammar `files:<name>` (`^[a-z0-9][a-z0-9._-]{0,62}$`); `ui` and `git:*` are refused over the API. Limits: body 16 MiB, 2000 files, 1 MiB per file.
+- Pipeline: Parse, Compute (a plan), Execute, in `internal/apply` (pure) and `store.ApplyStore`. Execute is one transaction in which every write is a compare-and-swap (jobs on `current_version`, `managed_by` and archived state; projects on `version` and `managed_by`). A lost CAS rolls everything back, and every conflict from a concurrent change (stale CAS, project or parent deleted meanwhile, a UI create-job taking the name) answers the same `409` (retry). Stateless parse issues come back first, in one `422` with locations `body.files[i].content.<field>` (`project.json`: at most 50 access rules of 1..2048 bytes, per file). Authorization comes before plan problems: a problem about a project is shown only to a caller with at least `editor` on it, otherwise `404`/`403`. `prune` with no files is `422` "empty bundle".
+- Jobs are compared by `engine.Checksum` (no new version when unchanged); projects by description, rules and scope. Actions: `create`, `update`, `unchanged`, `archive`, `restore`, `adopt`, `release`. A dry run stops before Execute and is not audited.
 
-- Jobs managed by a source are **read-only in the UI**, which offers "export" and shows the source.
-- `damson export --project infra` writes the same layout.
-- **Future Git sync:** a duty that fetches a configured repo and ref and feeds the *same* apply engine with `source = git:<name>`. No changes to the apply logic are needed.
+**Ownership**
+
+- Objects owned by `ui` need `adopt`. An object owned by another source is always an error; that source must prune it first.
+- With `prune`, the source's live jobs missing from the bundle are **archived** (soft delete: hidden from lists, cannot run, runs keep `job_id`, still blocks project delete; applying the same name again restores it) and its projects missing from the bundle are **released** to `ui`, never deleted. Prune is refused (`422`) when a job to archive still has enabled schedules or unrevoked webhooks; archive is also a CAS that re-checks this inside the transaction (a binding created since the plan makes the apply `409`). A schedule fire or webhook on an archived job records "the job is archived" as the fire error. Creating a job with an archived job's name is `409` "archived"; the name stays reserved for the owning source (another source taking it is open). Without `prune`, a removed file leaves the job managed.
+- Managed jobs reject new versions through the API (`409`); managed projects reject update, access rule, node scope and delete (`409`). The guards are in SQL (`AND managed_by = 'ui'`). Job access rules stay API-managed. Trigger, schedule create and webhook create or fire on an archived job are `409`; a trigger concurrent with an archive can still start a run (accepted).
+- The UI shows a "managed by" badge and an archived badge, and disables editing of managed projects.
+
+**Export.** `damson export --project infra -o DIR` calls `GET /api/v1/export?project=P` and writes the same layout for the subtree: a `project.json` per project and every live job, sorted and deterministic. Export then apply is a no-op. Archived jobs are not exported; job names that do not survive as file names (leading dot, control or path characters, over-long, case-only differences within a project) are `422`, listed. The CLI resolves a symlinked `-f` root, refuses a folder with no `project.json`/`*.job.json`, and writes export inside an `os.Root` after re-validating each path (project folder plus `project.json` or `*.job.json` only). Apply works with an editor service token; export needs the admin token or an admin user. UI-made objects need `--adopt` on the first apply.
+
+**Future Git sync:** a duty that fetches a configured repo and ref and feeds the *same* Compute and `ApplyPlan` with `source = git:<name>` and actor `system:git-sync`. No changes to the apply logic are needed.
 
 ---
 
@@ -1136,7 +1148,7 @@ All routes are under `/api/v1`, with the OpenAPI document at `/api/v1/openapi.js
 - `service-accounts` — `GET`/`POST /service-accounts`, `GET`/`DELETE /service-accounts/{id}` (deletes its tokens), `GET`/`POST /service-accounts/{id}/tokens`; `tokens` — `DELETE /tokens/{id}` (revoke, idempotent); admin token (ADR-0060)
 - `executions/{id}/logs` — `DELETE`, admin token (§12.2): purge one terminal execution's stored logs (§10); 200 `{chunks, objects, queued}`, 401, 404, 409 while not terminal
 - `audit` — `GET /audit`, instance admin or project admin (§12.4), cursor-paged (`cursor`, `limit`), filters `project`, `target_type` and `target`, newest first
-- `apply`
+- `apply` — `POST /apply` (`editor`, handler-checked per change) and `GET /export?project=P` (`admin`); both return `{files:[{path, content}]}`-shaped data (§13, ADR-0069)
 
 **Errors** use RFC 9457 problem+json. **Pagination** is cursor-based.
 

@@ -3,6 +3,7 @@
 	import { resolve } from '$app/paths';
 	import * as Alert from '$lib/components/ui/alert';
 	import { Skeleton } from '$lib/components/ui/skeleton';
+	import { Badge } from '$lib/components/ui/badge';
 	import GraphView from '$lib/graph/GraphView.svelte';
 	import type { Graph } from '$lib/graph/layout';
 	import { fetchJobGraph, problemMessage, type Job } from '$lib/jobs';
@@ -43,6 +44,12 @@
 		<a class="text-sm text-muted-foreground hover:text-foreground" href={resolve('/jobs')}>Jobs</a>
 		<h1 class="text-2xl font-semibold" data-testid="job-title">{job?.name ?? ''}</h1>
 		{#if job}<span class="text-sm text-muted-foreground">version {job.current_version}</span>{/if}
+		{#if job && job.managed_by !== 'ui'}
+			<Badge variant="secondary" data-testid="job-managed"
+				>managed by {job.managed_by}; change it there</Badge
+			>
+		{/if}
+		{#if job?.archived}<Badge variant="outline" data-testid="job-archived">archived</Badge>{/if}
 	</div>
 
 	{#if error}

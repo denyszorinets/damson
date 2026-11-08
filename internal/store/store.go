@@ -53,6 +53,7 @@ type Store interface {
 	SessionStore
 	AccessStore
 	JobStore
+	ApplyStore
 	RunStore
 	ExecutionStore
 	LogStore

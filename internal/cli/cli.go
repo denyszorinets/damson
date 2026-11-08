@@ -52,6 +52,8 @@ Commands:
   agent        run the agent role
   dev          run controller and agent in one process (SQLite)
   admin        manage agent pools and pool tokens
+  apply        apply a folder of job and project files to a controller
+  export       write the jobs and projects of a project as files
   plugin       scaffold, check and run plugins (new, validate, run)
   build        build a custom binary with extra plugin modules (--with)
   version      print the version
@@ -69,6 +71,10 @@ func dispatch(ctx context.Context, args []string, stdout, stderr io.Writer, envi
 		return runRole(ctx, args[0], args[1:], stderr, environ, plugins, modules)
 	case "admin":
 		return runAdmin(ctx, args[1:], stdout, stderr, environ)
+	case "apply":
+		return runApply(ctx, args[1:], stdout, stderr, environ)
+	case "export":
+		return runExport(ctx, args[1:], stdout, stderr, environ)
 	case "plugin":
 		return plugincli.Run(ctx, args[1:], plugincli.Env{Stdin: os.Stdin, Stdout: stdout, Stderr: stderr, Plugins: plugins})
 	case "build":

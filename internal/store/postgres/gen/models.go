@@ -94,6 +94,7 @@ type Job struct {
 	CurrentVersion int32
 	CreatedAt      pgtype.Timestamptz
 	UpdatedAt      pgtype.Timestamptz
+	ArchivedAt     pgtype.Timestamptz
 }
 
 type JobAccess struct {
@@ -207,6 +208,7 @@ type Project struct {
 	UpdatedAt   pgtype.Timestamptz
 	AccessRules string
 	NodeScope   string
+	ManagedBy   string
 }
 
 type Run struct {

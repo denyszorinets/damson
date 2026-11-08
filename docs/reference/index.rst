@@ -9,6 +9,7 @@ Reference
    cli
    http-api
    projects
+   jobs-as-code
    log-store
    secrets-openbao
    access-rules

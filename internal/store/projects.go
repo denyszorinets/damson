@@ -81,12 +81,16 @@ type Project struct {
 	AccessRules []AccessRule
 	// NodeScope is a CEL expression over a node; empty allows every node.
 	NodeScope string
+	// ManagedBy is "ui" or "files:<source>" (ADR-0069). A managed project is
+	// changed by its source only.
+	ManagedBy string
 }
 
 // ProjectAuditDetails is the only content of project events.
 type ProjectAuditDetails struct {
 	Path        string `json:"path"`
 	Description string `json:"description,omitempty"`
+	Source      string `json:"source,omitempty"`
 }
 
 // NewProjectEvent builds the audit event of a project write.
@@ -142,3 +146,29 @@ const MaxNodeScopeBytes = 2048
 
 // ActionProjectNodeScopeUpdate is the audit action of SetProjectNodeScope.
 const ActionProjectNodeScopeUpdate = "project.node_scope.update"
+
+// ManagedError says an object is managed by a source and refuses a change from
+// elsewhere (ADR-0069). It matches ErrConflict.
+type ManagedError struct {
+	What string // "project infra" or "job infra/deploy"
+	By   string // the managing source, or "archived"
+}
+
+func (e *ManagedError) Error() string {
+	if e.By == "archived" {
+		return fmt.Sprintf("%s is archived", e.What)
+	}
+	return fmt.Sprintf("%s is managed by %s; change it there", e.What, e.By)
+}
+
+// Unwrap makes the error match ErrConflict.
+func (e *ManagedError) Unwrap() error { return ErrConflict }
+
+// StaleProject is the error of a project CAS that changed no row: the project is
+// managed by a source (a ManagedError), or its version moved (ErrStale).
+func StaleProject(id string, version int, path, managedBy string) error {
+	if managedBy != "" && managedBy != "ui" {
+		return &ManagedError{What: "project " + path, By: managedBy}
+	}
+	return fmt.Errorf("project %q version %d: %w", id, version, ErrStale)
+}

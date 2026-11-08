@@ -96,6 +96,10 @@ func problemFor(err error) Problem {
 	if np, ok := nodeProblem(err); ok {
 		return np
 	}
+	var managed *store.ManagedError
+	if errors.As(err, &managed) {
+		return Problem{Type: typeConflict, Title: "Conflict", Status: http.StatusConflict, Detail: managed.Error()}
+	}
 	var inUse *store.ProjectInUseError
 	if errors.As(err, &inUse) {
 		return Problem{Type: typeConflict, Title: "Conflict", Status: http.StatusConflict, Detail: inUse.Error()}

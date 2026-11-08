@@ -19,6 +19,7 @@ func toJob(r gen.Job) store.Job {
 	return store.Job{
 		ID: r.ID, ProjectID: r.ProjectID, Name: r.Name, ManagedBy: r.ManagedBy,
 		CurrentVersion: int(r.CurrentVersion), CreatedAt: r.CreatedAt.Time.UTC(), UpdatedAt: r.UpdatedAt.Time.UTC(),
+		ArchivedAt: tsPtr(r.ArchivedAt),
 	}
 }
 
@@ -116,7 +117,11 @@ func (s *Store) CreateJobVersion(ctx context.Context, jobID string, spec json.Ra
 		return store.JobVersion{}, fmt.Errorf("advancing job %q version: %w", jobID, err)
 	}
 	if n == 0 {
-		if _, err := getJob(ctx, q, jobID); err != nil {
+		cur, err := getJob(ctx, q, jobID)
+		if err != nil {
+			return store.JobVersion{}, err
+		}
+		if err := store.RefusedJob(cur); err != nil {
 			return store.JobVersion{}, err
 		}
 		return store.JobVersion{}, fmt.Errorf("job %q not at version %d: %w", jobID, expectedCurrent, store.ErrStale)

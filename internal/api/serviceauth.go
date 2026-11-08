@@ -93,6 +93,8 @@ var routePolicies = map[string]routePolicy{
 	"set-project-access":     {store.RoleAdmin, subjProjectPath, true},
 	"get-project-node-scope": {store.RoleAdmin, subjProjectPath, true},
 	"set-project-node-scope": {store.RoleAdmin, subjProjectPath, true},
+	"apply":                  {store.RoleEditor, subjHandler, true},
+	"export":                 {store.RoleAdmin, subjHandler, true},
 	"get-job-access":         {store.RoleAdmin, subjJob, true},
 	"set-job-access":         {store.RoleAdmin, subjJob, true},
 }

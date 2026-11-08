@@ -258,6 +258,23 @@ descendants. Actions, actors and visibility are in :doc:`audit`. Design:
 :doc:`/architecture/decisions/0053-audit-events` and
 :doc:`/architecture/decisions/0065-audit-actors-and-coverage`.
 
+.. _reference-apply-api:
+
+Apply and export API
+~~~~~~~~~~~~~~~~~~~~
+
+``POST /api/v1/apply`` takes ``{source, prune, dry_run, adopt, files:[{path,
+content}]}`` and returns ``{source, dry_run, changes, summary}``; a change has
+``kind``, ``project``, ``name``, ``action``, ``from_version``, ``to_version``,
+``checksum`` and ``fields``. ``source`` is ``files:<name>``. The apply is one
+transaction; any concurrent change makes it ``409`` (retry). Parse problems are
+one ``422`` with locations ``body.files[i].content.<field>``; ``prune`` with no
+files is ``422``. It needs ``editor``, checked per change, and project problems
+are shown only to callers with ``editor`` on that project (else ``404`` or
+``403``). Export is ``422`` for job names that do not survive as file names. ``GET /api/v1/export?project=P`` returns ``{files:[{path,
+content}]}`` and needs ``admin`` on the project. Writing a managed job or
+project through the other routes is ``409``. See :doc:`jobs-as-code`.
+
 .. _reference-log-purge-api:
 
 Log purge
