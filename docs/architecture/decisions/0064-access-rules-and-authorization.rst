@@ -88,9 +88,11 @@ Consequences
 ------------
 
 - Deviation: the plan to default ``auth.require_token`` to true for the
-  controller role is not done here. It is deferred to the web UI slice
-  (:issue:`208`) because the UI cannot log in yet. With OIDC on, anonymous access
-  is already off.
+  controller role is not done. Without OIDC the web UI has no login, so
+  the job and run pages would stop working. Operators should configure OIDC
+  (which ends anonymous access) or set ``auth.require_token=true`` themselves
+  and use service tokens or the API. The startup warning for an open install
+  stays.
 - A changed rule on one controller can take up to 60 seconds to apply on
   another. Claims are frozen at login (ADR-0063), so a group removed at the IdP
   applies at the next login.

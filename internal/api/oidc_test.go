@@ -471,3 +471,22 @@ func TestOIDCNewLoginEndsThePreviousSession(t *testing.T) {
 		assert.Equal(t, http.StatusOK, f.me2(fresh).Code)
 	})
 }
+
+// With login off and tokens required, /me still answers (anonymous), so the
+// UI can show its token prompt instead of looking for a login page.
+func TestMeAnswersWhenTokensAreRequired(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		f := newSchedFixture(t, st)
+		f.cfg.RequireToken = true
+		h := api.NewServer(f.cfg).Handler()
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v1/me", nil))
+		require.Equal(t, 200, rec.Code, rec.Body.String())
+		var m api.Me
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+		assert.Equal(t, "anonymous", m.Kind)
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v1/jobs", nil))
+		assert.Equal(t, 401, rec.Code, "the job routes still need a token")
+	})
+}

@@ -102,6 +102,15 @@ that does not compile or is not boolean, or a bad role, gives ``422`` at
 ``body.rules[i].rule`` or ``body.rules[i].role``, without the expression. A job
 rule cannot grant ``admin``.
 
+Projects page
+-------------
+
+Users who administer a project can edit its rules in the web UI: **Rules and
+scope** on the ``/projects`` page opens an editor with a role select and a CEL
+rule per row (add, remove, Save). A ``422`` is shown next to the rule at that
+position. The UI hides controls by ``my_role`` only as a convenience; the
+server decides.
+
 Audit
 -----
 

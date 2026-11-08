@@ -58,6 +58,28 @@ A cookie-authenticated unsafe request needs ``X-CSRF-Token`` with the
 request with an ``Authorization`` header never uses the cookie; an invalid
 token there is ``401``.
 
+Browser
+-------
+
+The web UI calls ``GET /api/v1/me`` when it loads. With OIDC configured, a
+visitor without a session gets ``401`` there and the browser is sent to
+``/auth/login?return_to=<path and query>`` (a path on this site only), and
+back to that page after sign-in. Without OIDC, ``/me`` answers ``200`` as
+``anonymous`` or ``admin_token`` and nothing changes: the admin pages keep their
+admin token prompt, and the job and run pages work without a login. With
+``auth.require_token=true`` and no OIDC, the job and run pages fail, because
+the UI has no login then; use OIDC or service tokens through the API.
+
+The session cookie is HttpOnly, so scripts never read it. The generated API
+client adds ``X-CSRF-Token`` (from ``/me``) to every non-``GET`` request. A
+logged-in user's admin pages (nodes, secrets, service accounts, audit) use the
+cookie and send no ``Authorization`` header. A user who is not an instance admin
+sees no admin links; the server still answers ``403``. The user menu shows the
+email and **Log out**, which posts ``/auth/logout`` and then goes to the
+provider's ``end_session_url`` (or the home page). The **Projects** page manages
+the project tree, access rules and node scope
+(:doc:`/development/web-ui`).
+
 Who may do what
 ---------------
 

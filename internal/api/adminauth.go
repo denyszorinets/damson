@@ -33,7 +33,7 @@ func requireAdmin(api huma.API, d deps) func(ctx huma.Context, next func(huma.Co
 		}
 		h := ctx.Header("Authorization")
 		if h == "" && d.oidc != nil { // no token: an instance-admin session may do it
-			p, status, msg := d.authenticateCookie(ctx)
+			p, status, msg := d.authenticateCookie(ctx, false)
 			switch {
 			case status == http.StatusUnauthorized:
 				deny(ctx, "an admin token or a login is required")

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SESSION_TOKEN } from '$lib/session';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import * as Alert from '$lib/components/ui/alert';
@@ -126,7 +127,9 @@
 						creating = true;
 					}}>New node</Button
 				>
-				<Button variant="outline" onclick={forget}>Forget token</Button>
+				{#if token !== SESSION_TOKEN}
+					<Button variant="outline" onclick={forget}>Forget token</Button>
+				{/if}
 			</div>
 		{/if}
 	</div>

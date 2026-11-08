@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -60,6 +61,10 @@ type Issuer struct {
 	// NoIDToken makes the token endpoint omit the id token.
 	NoIDToken bool
 
+	// defaultSub is who logs in when the authorize request names nobody. A
+	// browser test sets it with /_login-as?sub=... before it clicks login.
+	defaultSub atomic.Value // string
+
 	mu    sync.Mutex
 	users map[string]User
 	codes map[string]grant
@@ -72,8 +77,14 @@ type grant struct {
 	redirect  string
 }
 
-// New starts a provider with the default users. Close stops it.
-func New() *Issuer {
+// New starts a provider with the default users on a random port. Close stops it.
+func New() *Issuer { return start("") }
+
+// NewAt is New on a fixed address such as "127.0.0.1:4191", for tests that
+// configure the issuer URL before the provider runs (the browser tests).
+func NewAt(addr string) *Issuer { return start(addr) }
+
+func start(addr string) *Issuer {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		panic(err)
@@ -87,14 +98,32 @@ func New() *Issuer {
 	mux.HandleFunc("/jwks", i.jwks)
 	mux.HandleFunc("/authorize", i.authorize)
 	mux.HandleFunc("/token", i.token)
-	mux.HandleFunc("/logout", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	i.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
+		if back := r.URL.Query().Get("post_logout_redirect_uri"); back != "" {
+			http.Redirect(w, r, back, http.StatusFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("/_login-as", i.loginAs)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if i.Down.Load() {
 			http.Error(w, "down", http.StatusServiceUnavailable)
 			return
 		}
 		mux.ServeHTTP(w, r)
-	}))
+	})
+	if addr == "" {
+		i.srv = httptest.NewServer(handler)
+		return i
+	}
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		panic(err)
+	}
+	i.srv = httptest.NewUnstartedServer(handler)
+	i.srv.Listener = ln
+	i.srv.Start()
 	return i
 }
 
@@ -134,6 +163,20 @@ func (i *Issuer) discovery(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+// loginAs makes sub the user of the next logins (test control endpoint).
+func (i *Issuer) loginAs(w http.ResponseWriter, r *http.Request) {
+	sub := r.URL.Query().Get("sub")
+	i.mu.Lock()
+	_, ok := i.users[sub]
+	i.mu.Unlock()
+	if !ok {
+		http.Error(w, "unknown user", http.StatusBadRequest)
+		return
+	}
+	i.defaultSub.Store(sub)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (i *Issuer) jwks(w http.ResponseWriter, _ *http.Request) {
 	pub := i.key.PublicKey
 	writeJSON(w, map[string]any{"keys": []map[string]string{{
@@ -151,6 +194,9 @@ func (i *Issuer) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hint := q.Get("login_hint")
+	if hint == "" {
+		hint, _ = i.defaultSub.Load().(string)
+	}
 	if hint == "" {
 		hint = Alice.Sub
 	}
