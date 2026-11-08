@@ -154,6 +154,15 @@ type Node struct {
 	UpdatedAt         pgtype.Timestamptz
 }
 
+type OidcLogin struct {
+	StateHash   string
+	BindingHash string
+	Nonce       string
+	Verifier    string
+	ReturnTo    string
+	ExpiresAt   pgtype.Timestamptz
+}
+
 type PluginManifest struct {
 	Name      string
 	Version   string
@@ -264,6 +273,19 @@ type ServiceToken struct {
 	RevokedAt        pgtype.Timestamptz
 	LastUsedAt       pgtype.Timestamptz
 	CreatedAt        pgtype.Timestamptz
+}
+
+type Session struct {
+	ID            string
+	TokenHash     string
+	Sub           string
+	Email         string
+	Name          string
+	Claims        string
+	InstanceAdmin bool
+	CreatedAt     pgtype.Timestamptz
+	LastSeenAt    pgtype.Timestamptz
+	ExpiresAt     pgtype.Timestamptz
 }
 
 type StepInstance struct {

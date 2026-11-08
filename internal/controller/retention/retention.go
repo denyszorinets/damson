@@ -43,9 +43,13 @@ type Config struct {
 	Leader    Leader // holder of the LeaderName lease
 	Holder    string // this controller's id
 	AuditDays int    // 0 keeps the audit trail forever
-	Interval  time.Duration
-	Now       func() time.Time
-	Logger    *slog.Logger
+	// Sessions, if set, has expired sessions and logins deleted on each pass.
+	// They were already unusable, so the delete needs no fencing.
+	Sessions    store.SessionStore
+	SessionIdle time.Duration
+	Interval    time.Duration
+	Now         func() time.Time
+	Logger      *slog.Logger
 	// CallTimeout bounds one batch transaction; keep it below the shutdown timeout.
 	CallTimeout time.Duration
 }
@@ -90,7 +94,7 @@ func (r *Retention) Start(ctx context.Context) error {
 	if r.cancel != nil {
 		return errors.New("retention: already started")
 	}
-	if r.cfg.AuditDays == 0 {
+	if r.cfg.AuditDays == 0 && r.cfg.Sessions == nil {
 		return nil
 	}
 	ctx, r.cancel = context.WithCancel(context.WithoutCancel(ctx))
@@ -144,11 +148,12 @@ type PrunedDetails struct {
 // older than the retention in batches. Each batch is one transaction fenced by
 // the lease term that also writes the batch's audit.prune event.
 func (r *Retention) Once(ctx context.Context) {
-	if r.cfg.AuditDays == 0 {
-		return
-	}
 	term, ok := r.cfg.Leader.Term()
 	if !ok {
+		return
+	}
+	r.purgeAuth(ctx)
+	if r.cfg.AuditDays == 0 {
 		return
 	}
 	now := r.cfg.Now()
@@ -184,5 +189,22 @@ func (r *Retention) Once(ctx context.Context) {
 	}
 	if total > 0 {
 		r.log.Info("pruned audit events", "deleted", total, "before", cutoff)
+	}
+}
+
+// purgeAuth deletes expired sessions and logins.
+func (r *Retention) purgeAuth(ctx context.Context) {
+	if r.cfg.Sessions == nil {
+		return
+	}
+	cctx, cancel := context.WithTimeout(ctx, r.cfg.CallTimeout)
+	defer cancel()
+	ns, nl, err := r.cfg.Sessions.PurgeExpiredAuth(cctx, r.cfg.Now(), r.cfg.SessionIdle)
+	if err != nil {
+		r.log.Warn("purging expired sessions", "error", err)
+		return
+	}
+	if ns+nl > 0 {
+		r.log.Info("purged expired sessions and logins", "sessions", ns, "logins", nl)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -214,5 +215,49 @@ func TestNewRejectsBadConfig(t *testing.T) {
 		if _, err := retention.New(cfg); err == nil {
 			t.Errorf("%s must fail", name)
 		}
+	}
+}
+
+// Expired sessions and logins are deleted on a pass, even with no audit
+// retention; a live session stays.
+func TestOncePurgesExpiredSessions(t *testing.T) {
+	st := open(t)
+	ctx := context.Background()
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	hash := func(c string) string { return strings.Repeat(c, 64) }
+	mk := func(id, h string, exp time.Time) {
+		t.Helper()
+		err := st.CreateSession(ctx, store.NewSession{
+			Session: store.Session{ID: id, Sub: "u", Claims: []byte(`{}`), ExpiresAt: exp}, TokenHash: h,
+		}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("old", hash("a"), now.Add(-time.Minute)) // already created "now": expiry is checked against the pass time
+	mk("live", hash("b"), now.Add(8*time.Hour))
+	r, err := retention.New(retention.Config{
+		Store: st, Leader: lead(t, st, "c1"), Holder: "c1", Now: func() time.Time { return now.Add(time.Second) },
+		Interval: time.Hour, Sessions: st, SessionIdle: 2 * time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Start(ctx); err != nil { // the loop runs a pass at start, with no audit retention set
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Stop(ctx) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := st.FindSession(ctx, hash("a"), now.Add(-time.Hour), 100*time.Hour); err != nil {
+			break // the expired session is gone
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := st.FindSession(ctx, hash("b"), now.Add(time.Second), 2*time.Hour); err != nil {
+		t.Errorf("live session purged: %v", err)
+	}
+	if ns, _, _ := st.PurgeExpiredAuth(ctx, now.Add(time.Second), 2*time.Hour); ns != 0 {
+		t.Errorf("%d expired sessions were left after a pass", ns)
 	}
 }

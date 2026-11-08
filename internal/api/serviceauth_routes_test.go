@@ -8,7 +8,8 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 )
 
-// publicOps are the operations that need no token even with auth.require_token.
+// publicOps are the operations that need no token even with auth.require_token
+// (with OIDC on all but list-secret-types need a login; see openOps).
 // Every operation must be governed by routePolicies, guarded by the admin
 // token, or listed here on purpose, so a new route cannot be left anonymous by
 // accident (ADR-0060).
@@ -19,6 +20,7 @@ var publicOps = map[string]string{
 	"list-plugins":      "plugin schemas drive the forms",
 	"get-plugin":        "plugin schemas drive the forms",
 	"list-secret-types": "static list of secret types",
+	"get-me":            "describes the request's own credentials; anonymous when login is off",
 }
 
 func TestEveryOperationHasAnAuthPolicy(t *testing.T) {

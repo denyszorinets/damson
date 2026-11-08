@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/subtle"
 	"errors"
 	"net/http"
@@ -31,6 +32,21 @@ func requireAdmin(api huma.API, d deps) func(ctx huma.Context, next func(huma.Co
 			return
 		}
 		h := ctx.Header("Authorization")
+		if h == "" && d.oidc != nil { // no token: an instance-admin session may do it
+			p, status, msg := d.authenticateCookie(ctx)
+			switch {
+			case status == http.StatusUnauthorized:
+				deny(ctx, "an admin token or a login is required")
+			case status != 0:
+				_ = huma.WriteErr(api, ctx, status, msg)
+			case !p.InstanceAdmin:
+				_ = huma.WriteErr(api, ctx, http.StatusForbidden, "this needs an instance admin")
+			default:
+				rctx := store.WithAudit(ctx.Context(), store.AuditMeta{Actor: p.Actor, RequestID: requestIDFromCtx(ctx.Context())})
+				next(huma.WithContext(ctx, context.WithValue(rctx, principalKey{}, p)))
+			}
+			return
+		}
 		tok := ""
 		if len(h) > 7 && strings.EqualFold(h[:7], "Bearer ") { // the scheme is case-insensitive (RFC 9110)
 			tok = strings.TrimSpace(h[7:])

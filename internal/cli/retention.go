@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/denyszorinets/damson/internal/api"
 	"github.com/denyszorinets/damson/internal/config"
 	"github.com/denyszorinets/damson/internal/controller/leader"
 	"github.com/denyszorinets/damson/internal/controller/retention"
@@ -12,17 +13,17 @@ import (
 )
 
 // startRetention starts the retention duty and its lease when a retention is
-// configured (ADR-0054) and returns the function that stops both. With
-// audit.retention_days = 0 it starts nothing.
+// configured (ADR-0054) or login is on (expired sessions are purged) and returns
+// the function that stops both. With neither it starts nothing.
 func startRetention(ctx context.Context, st store.Store, cfg config.Config, id string, log *slog.Logger) (func(), error) {
-	if cfg.Audit.RetentionDays == 0 {
+	if cfg.Audit.RetentionDays == 0 && !cfg.OIDCEnabled() {
 		return func() {}, nil
 	}
 	el, err := leader.New(leader.Config{Store: st, Name: retention.LeaderName, Holder: id, Logger: log})
 	if err != nil {
 		return nil, fmt.Errorf("preparing the retention lease: %w", err)
 	}
-	ret, err := retention.New(retention.Config{Store: st, Leader: el, Holder: id, AuditDays: cfg.Audit.RetentionDays, Logger: log})
+	ret, err := retention.New(retention.Config{Store: st, Leader: el, Holder: id, AuditDays: cfg.Audit.RetentionDays, Logger: log, Sessions: sessionStore(st, cfg), SessionIdle: api.SessionIdle})
 	if err != nil {
 		return nil, fmt.Errorf("preparing the retention duty: %w", err)
 	}
@@ -43,4 +44,12 @@ func startRetention(ctx context.Context, st store.Store, cfg config.Config, id s
 			log.Warn("releasing the retention lease", "error", err)
 		}
 	}, nil
+}
+
+// sessionStore is the store whose sessions the duty purges: only with login on.
+func sessionStore(st store.Store, cfg config.Config) store.SessionStore {
+	if cfg.OIDCEnabled() {
+		return st
+	}
+	return nil
 }

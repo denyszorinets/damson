@@ -32,6 +32,11 @@ Endpoints
    * - ``/api/...``
      - Any other path under ``/api/`` that no route claims returns ``404``
        problem+json (never the web UI).
+   * - ``/auth/login``, ``/auth/callback``, ``POST /auth/logout``
+     - OIDC login for the web UI, only when ``auth.oidc.issuer`` is set (see
+       :doc:`authentication`).
+   * - ``GET /api/v1/me``
+     - The calling principal and its CSRF token (see :doc:`authentication`).
    * - ``GET /agent/v1/connect``
      - Agent WebSocket gateway (see :ref:`reference-agent-gateway`).
    * - everything else
@@ -177,7 +182,7 @@ Lists (except plugins) take ``limit`` (1 to 200, default 50) and ``cursor`` (the
 page's ``next_cursor``, opaque, empty on the last page). An invalid ``limit`` is a
 ``422`` problem with an ``errors`` list; a malformed ``cursor`` is a ``400``.
 
-Except the secrets routes (:ref:`reference-secrets-api`) and the nodes routes (:ref:`reference-nodes-api`), all endpoints are **unauthenticated** for now: authentication and
+Except the secrets routes (:ref:`reference-secrets-api`) and the nodes routes (:ref:`reference-nodes-api`), all endpoints are **unauthenticated** unless OIDC login is configured (then every operation needs a principal, see :doc:`authentication`). Without it: authentication and
 authorization arrive in M8 (ARCHITECTURE section 12), so anyone who can reach
 the listener can create jobs and trigger runs. Pool and pool token
 administration stays in the ``damson admin`` CLI until then. No endpoint

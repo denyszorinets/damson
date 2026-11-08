@@ -195,6 +195,9 @@ change nothing until accepted.
    * - 0062
      - :doc:`0062-project-tree`
      - Accepted
+   * - 0063
+     - :doc:`0063-oidc-login-and-sessions`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -261,3 +264,4 @@ change nothing until accepted.
    0060-service-accounts-and-api-tokens
    0061-basic-theme-for-schema-forms
    0062-project-tree
+   0063-oidc-login-and-sessions

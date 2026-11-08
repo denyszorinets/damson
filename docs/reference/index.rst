@@ -11,6 +11,7 @@ Reference
    projects
    schedules
    webhooks
+   authentication
    service-accounts
    protocol
    agent
