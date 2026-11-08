@@ -112,6 +112,14 @@ reach a controller.
 The nodes API (list, get, create) stays instance-admin only and shows every
 node: node scope limits what jobs can use, not what the inventory shows.
 
+Managed projects
+----------------
+
+A ``Project`` has ``managed_by``: ``ui`` (default) or ``files:<source>`` when
+``damson apply`` owns it. A managed project cannot be updated, have its access
+rules or node scope changed, or be deleted through the API (``409``); change
+the files and apply. See :doc:`jobs-as-code`.
+
 Audit
 -----
 

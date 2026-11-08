@@ -19,6 +19,8 @@ Damson ships as one binary, ``damson``. The role is chosen by subcommand
      - Run a controller and an agent in one process with SQLite.
    * - ``damson admin``
      - Manage agent pools, pool tokens, the admin token and the secret encryption key (see :ref:`cli-admin`).
+   * - ``damson apply``, ``damson export``
+     - Apply a folder of project and job files, or export one (see :ref:`cli-apply`).
    * - ``damson plugin``
      - Scaffold, validate and run plugins linked into the binary (see :ref:`cli-plugin`).
    * - ``damson version``
@@ -278,6 +280,34 @@ violation stops the binary with an error.
    extras logs a warning; ``dev`` does not). Pin versions instead of
    ``latest``, review the module and its dependencies, and keep the Go
    checksum database on.
+
+.. _cli-apply:
+
+Apply and export
+----------------
+
+.. code-block:: shell
+
+   damson apply -f DIR --source files:NAME [--prune] [--dry-run] [--adopt] [--json]
+   damson export --project P -o DIR [--force] [--json]
+
+Both call the HTTP API. ``--server`` or ``DAMSON_SERVER`` names the controller
+(default ``http://127.0.0.1:8080``). The token comes only from ``DAMSON_TOKEN``
+or ``--token-file``; there is no token flag, so it never shows in ``ps``.
+``apply`` works with an editor service token (``dms_``); ``export`` needs the
+admin token or an admin user, because tokens are never admin. File layout, ownership and prune are in
+:doc:`jobs-as-code`.
+
+``apply`` prints ``+`` (create), ``~`` (update, adopt, restore, release), ``-``
+(archive) and ``=`` (unchanged) lines and a summary. Exit status: 0 on success
+(also a dry run with changes), 1 on API or validation errors (all issues are
+printed), 2 on usage errors. ``apply`` resolves a symlinked ``-f`` root and
+refuses a folder holding no ``project.json`` or ``*.job.json`` file. Objects
+exported from the UI need ``--adopt`` on the first apply. ``export`` writes each
+file atomically, refuses a non-empty directory without ``--force``, re-validates
+every path with the apply rules, requires a project folder plus ``project.json``
+or ``*.job.json`` (so ``.git/hooks``, scripts and root files are refused) and
+writes inside an ``os.Root`` so a symlink in the target cannot redirect a write.
 
 .. _cli-admin:
 

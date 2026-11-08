@@ -4,6 +4,7 @@
 	import * as Alert from '$lib/components/ui/alert';
 	import * as Table from '$lib/components/ui/table';
 	import { Skeleton } from '$lib/components/ui/skeleton';
+	import { Badge } from '$lib/components/ui/badge';
 	import { poll } from '$lib/polling';
 	import { fetchJobs, problemMessage, type Job } from '$lib/jobs';
 
@@ -62,6 +63,11 @@
 								class="font-medium underline-offset-4 hover:underline"
 								href={resolve('/jobs/[id]', { id: job.id })}>{job.name}</a
 							>
+							{#if job.managed_by !== 'ui'}
+								<Badge variant="secondary" class="ml-2" data-testid="managed-{job.name}"
+									>managed by {job.managed_by}</Badge
+								>
+							{/if}
 						</Table.Cell>
 						<Table.Cell>{job.project}</Table.Cell>
 						<Table.Cell>{job.current_version}</Table.Cell>

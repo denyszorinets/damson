@@ -94,6 +94,7 @@ type Job struct {
 	CurrentVersion int64
 	CreatedAt      string
 	UpdatedAt      string
+	ArchivedAt     sql.NullString
 }
 
 type JobAccess struct {
@@ -207,6 +208,7 @@ type Project struct {
 	UpdatedAt   string
 	AccessRules string
 	NodeScope   string
+	ManagedBy   string
 }
 
 type Run struct {

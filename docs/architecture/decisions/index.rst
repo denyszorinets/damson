@@ -213,6 +213,9 @@ change nothing until accepted.
    * - 0068
      - :doc:`0068-openbao-secret-backend`
      - Accepted
+   * - 0069
+     - :doc:`0069-jobs-as-code`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -285,3 +288,4 @@ change nothing until accepted.
    0066-project-node-scope
    0067-s3-log-store-and-deferred-deletes
    0068-openbao-secret-backend
+   0069-jobs-as-code

@@ -22,7 +22,7 @@ func toProject(r gen.Project) (store.Project, error) {
 	}
 	return store.Project{
 		ID: r.ID, Path: r.Path, ParentID: r.ParentID.String, Description: r.Description, Version: int(r.Version),
-		CreatedAt: r.CreatedAt.Time.UTC(), UpdatedAt: r.UpdatedAt.Time.UTC(), AccessRules: rules, NodeScope: r.NodeScope,
+		CreatedAt: r.CreatedAt.Time.UTC(), UpdatedAt: r.UpdatedAt.Time.UTC(), AccessRules: rules, NodeScope: r.NodeScope, ManagedBy: r.ManagedBy,
 	}, nil
 }
 
@@ -149,7 +149,7 @@ func (s *Store) UpdateProject(ctx context.Context, id, description string, expec
 			return fmt.Errorf("updating project: %w", err)
 		}
 		if n == 0 {
-			return fmt.Errorf("project %q version %d: %w", id, expectedVersion, store.ErrStale)
+			return store.StaleProject(id, expectedVersion, cur.Path, cur.ManagedBy)
 		}
 		ev, err := store.NewProjectEvent(ctx, store.ActionProjectUpdate, id, store.ProjectAuditDetails{Path: cur.Path, Description: description}, now)
 		if err != nil {
@@ -178,6 +178,9 @@ func (s *Store) DeleteProject(ctx context.Context, id string, now time.Time) err
 		if err != nil {
 			return fmt.Errorf("reading project: %w", err)
 		}
+		if cur.ManagedBy != "ui" {
+			return &store.ManagedError{What: "project " + cur.Path, By: cur.ManagedBy}
+		}
 		counts := []struct {
 			what string
 			n    func() (int64, error)
@@ -201,6 +204,10 @@ func (s *Store) DeleteProject(ctx context.Context, id string, now time.Time) err
 		} else if err != nil {
 			return fmt.Errorf("deleting project: %w", err)
 		} else if n == 0 {
+			// Gone, or adopted by a source since the check above.
+			if again, rerr := q.GetProject(ctx, id); rerr == nil && again.ManagedBy != "ui" {
+				return &store.ManagedError{What: "project " + again.Path, By: again.ManagedBy}
+			}
 			return fmt.Errorf("project %q: %w", id, store.ErrNotFound)
 		}
 		ev, err := store.NewProjectEvent(ctx, store.ActionProjectDelete, id, store.ProjectAuditDetails{Path: cur.Path}, now)

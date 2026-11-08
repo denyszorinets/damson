@@ -55,7 +55,7 @@ func (q *Queries) CountProjectTokens(ctx context.Context, path string) (int64, e
 }
 
 const deleteProject = `-- name: DeleteProject :execrows
-DELETE FROM projects WHERE id = ?1
+DELETE FROM projects WHERE id = ?1 AND managed_by = 'ui'
 `
 
 func (q *Queries) DeleteProject(ctx context.Context, id string) (int64, error) {
@@ -67,7 +67,7 @@ func (q *Queries) DeleteProject(ctx context.Context, id string) (int64, error) {
 }
 
 const getProject = `-- name: GetProject :one
-SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules, node_scope FROM projects WHERE id = ?1
+SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules, node_scope, managed_by FROM projects WHERE id = ?1
 `
 
 func (q *Queries) GetProject(ctx context.Context, id string) (Project, error) {
@@ -83,12 +83,13 @@ func (q *Queries) GetProject(ctx context.Context, id string) (Project, error) {
 		&i.UpdatedAt,
 		&i.AccessRules,
 		&i.NodeScope,
+		&i.ManagedBy,
 	)
 	return i, err
 }
 
 const getProjectByPath = `-- name: GetProjectByPath :one
-SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules, node_scope FROM projects WHERE path = ?1
+SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules, node_scope, managed_by FROM projects WHERE path = ?1
 `
 
 func (q *Queries) GetProjectByPath(ctx context.Context, path string) (Project, error) {
@@ -104,6 +105,7 @@ func (q *Queries) GetProjectByPath(ctx context.Context, path string) (Project, e
 		&i.UpdatedAt,
 		&i.AccessRules,
 		&i.NodeScope,
+		&i.ManagedBy,
 	)
 	return i, err
 }
@@ -133,7 +135,7 @@ func (q *Queries) InsertProject(ctx context.Context, arg InsertProjectParams) er
 }
 
 const listProjectChain = `-- name: ListProjectChain :many
-SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules, node_scope FROM projects
+SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules, node_scope, managed_by FROM projects
 WHERE path = ?1 OR ?1 LIKE path || '/%'
 ORDER BY path
 `
@@ -159,6 +161,7 @@ func (q *Queries) ListProjectChain(ctx context.Context, path string) ([]Project,
 			&i.UpdatedAt,
 			&i.AccessRules,
 			&i.NodeScope,
+			&i.ManagedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -174,7 +177,7 @@ func (q *Queries) ListProjectChain(ctx context.Context, path string) ([]Project,
 }
 
 const listProjectSubtree = `-- name: ListProjectSubtree :many
-SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules, node_scope FROM projects
+SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules, node_scope, managed_by FROM projects
 WHERE path = ?1 OR (path >= ?2 AND path < ?3)
 ORDER BY path
 `
@@ -206,6 +209,7 @@ func (q *Queries) ListProjectSubtree(ctx context.Context, arg ListProjectSubtree
 			&i.UpdatedAt,
 			&i.AccessRules,
 			&i.NodeScope,
+			&i.ManagedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -221,7 +225,7 @@ func (q *Queries) ListProjectSubtree(ctx context.Context, arg ListProjectSubtree
 }
 
 const listProjects = `-- name: ListProjects :many
-SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules, node_scope FROM projects ORDER BY path
+SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules, node_scope, managed_by FROM projects ORDER BY path
 `
 
 func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
@@ -243,6 +247,7 @@ func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
 			&i.UpdatedAt,
 			&i.AccessRules,
 			&i.NodeScope,
+			&i.ManagedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -259,7 +264,7 @@ func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
 
 const setProjectAccessRulesCAS = `-- name: SetProjectAccessRulesCAS :execrows
 UPDATE projects SET access_rules = ?1, version = version + 1, updated_at = ?2
-WHERE id = ?3 AND version = ?4
+WHERE id = ?3 AND version = ?4 AND managed_by = 'ui'
 `
 
 type SetProjectAccessRulesCASParams struct {
@@ -284,7 +289,7 @@ func (q *Queries) SetProjectAccessRulesCAS(ctx context.Context, arg SetProjectAc
 
 const setProjectNodeScopeCAS = `-- name: SetProjectNodeScopeCAS :execrows
 UPDATE projects SET node_scope = ?1, version = version + 1, updated_at = ?2
-WHERE id = ?3 AND version = ?4
+WHERE id = ?3 AND version = ?4 AND managed_by = 'ui'
 `
 
 type SetProjectNodeScopeCASParams struct {
@@ -309,7 +314,7 @@ func (q *Queries) SetProjectNodeScopeCAS(ctx context.Context, arg SetProjectNode
 
 const updateProjectCAS = `-- name: UpdateProjectCAS :execrows
 UPDATE projects SET description = ?1, version = version + 1, updated_at = ?2
-WHERE id = ?3 AND version = ?4
+WHERE id = ?3 AND version = ?4 AND managed_by = 'ui'
 `
 
 type UpdateProjectCASParams struct {

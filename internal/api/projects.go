@@ -18,6 +18,7 @@ type Project struct {
 	Path        string    `json:"path" doc:"The full path, such as infra/billing. It never changes."`
 	ParentPath  string    `json:"parent_path,omitempty" doc:"Empty for a root project."`
 	Description string    `json:"description,omitempty"`
+	ManagedBy   string    `json:"managed_by" doc:"ui, or files:<source> when apply manages the project; a managed project refuses edits here."`
 	Version     int       `json:"version" doc:"Send as if_version when updating."`
 	MyRole      string    `json:"my_role,omitempty" doc:"The caller's role here: viewer, runner, editor or admin; absent for none."`
 	CreatedAt   time.Time `json:"created_at"`
@@ -27,7 +28,7 @@ type Project struct {
 func toProject(p store.Project, role string) Project {
 	return Project{
 		ID: p.ID, Path: p.Path, ParentPath: store.ParentPath(p.Path), Description: p.Description,
-		Version: p.Version, MyRole: role, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		ManagedBy: p.ManagedBy, Version: p.Version, MyRole: role, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
 }
 

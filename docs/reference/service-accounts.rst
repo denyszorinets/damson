@@ -66,6 +66,10 @@ Roles and scope
    * - ``editor``
      - Everything ``runner`` can, plus create jobs and job versions.
 
+An ``editor`` token can also ``POST /apply`` job files and unchanged
+``project.json`` files for its scope (:doc:`jobs-as-code`); project changes
+need ``admin``.
+
 A service token is never an admin: secrets, nodes, audit, inventory sync,
 service accounts, webhooks, schedules and log purge need the admin token, and
 so do creating, updating and deleting projects and all access-rule routes

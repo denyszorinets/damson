@@ -49,6 +49,9 @@ func (d deps) loadSpec(ctx context.Context, jobID string, version *int) (store.J
 	if err != nil {
 		return store.Job{}, store.JobVersion{}, nil, err
 	}
+	if job.ArchivedAt != nil {
+		return store.Job{}, store.JobVersion{}, nil, &store.ManagedError{What: "job " + job.Name, By: "archived"}
+	}
 	number := job.CurrentVersion
 	if version != nil {
 		number = *version
@@ -124,9 +127,12 @@ func (s *Starter) CheckOptions(ctx context.Context, jobID string, options map[st
 // startError turns a refusal that is the caller's fault into a *StartError.
 func startError(err error) error {
 	var inv *invalidError
+	var managed *store.ManagedError
 	switch {
 	case errors.As(err, &inv):
 		return &StartError{Msg: inv.message()}
+	case errors.As(err, &managed):
+		return &StartError{Msg: "the job is archived"} // an archived job cannot run; a schedule must not stay due forever
 	case errors.Is(err, store.ErrNotFound):
 		return &StartError{Msg: "the job no longer exists"}
 	}

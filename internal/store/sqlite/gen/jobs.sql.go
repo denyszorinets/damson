@@ -10,7 +10,7 @@ import (
 )
 
 const getJob = `-- name: GetJob :one
-SELECT id, project_id, name, managed_by, current_version, created_at, updated_at
+SELECT id, project_id, name, managed_by, current_version, created_at, updated_at, archived_at
 FROM jobs WHERE id = ?1
 `
 
@@ -25,12 +25,13 @@ func (q *Queries) GetJob(ctx context.Context, id string) (Job, error) {
 		&i.CurrentVersion,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
 
 const getJobByName = `-- name: GetJobByName :one
-SELECT id, project_id, name, managed_by, current_version, created_at, updated_at
+SELECT id, project_id, name, managed_by, current_version, created_at, updated_at, archived_at
 FROM jobs WHERE project_id = ?1 AND name = ?2
 `
 
@@ -50,6 +51,7 @@ func (q *Queries) GetJobByName(ctx context.Context, arg GetJobByNameParams) (Job
 		&i.CurrentVersion,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
@@ -202,9 +204,9 @@ func (q *Queries) ListJobVersionsAfter(ctx context.Context, arg ListJobVersionsA
 }
 
 const listJobsAfter = `-- name: ListJobsAfter :many
-SELECT id, project_id, name, managed_by, current_version, created_at, updated_at
+SELECT id, project_id, name, managed_by, current_version, created_at, updated_at, archived_at
 FROM jobs
-WHERE project_id = ?1 AND id > ?2
+WHERE project_id = ?1 AND id > ?2 AND archived_at IS NULL
 ORDER BY id
 LIMIT ?3
 `
@@ -232,6 +234,7 @@ func (q *Queries) ListJobsAfter(ctx context.Context, arg ListJobsAfterParams) ([
 			&i.CurrentVersion,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ArchivedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -248,7 +251,7 @@ func (q *Queries) ListJobsAfter(ctx context.Context, arg ListJobsAfterParams) ([
 
 const setJobVersionCAS = `-- name: SetJobVersionCAS :execrows
 UPDATE jobs SET current_version = ?1, updated_at = ?2
-WHERE id = ?3 AND current_version = ?4
+WHERE id = ?3 AND current_version = ?4 AND managed_by = 'ui' AND archived_at IS NULL
 `
 
 type SetJobVersionCASParams struct {

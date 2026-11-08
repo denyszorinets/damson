@@ -53,7 +53,11 @@ Actions
      - ``attempt_id``, ``run_id``, ``refs`` (sorted ``secret://scope/name``)
    * - ``job.create``, ``job.version.create``
      - ``job``
-     - ``name``, ``version``, ``checksum``
+     - ``name``, ``version``, ``checksum``; ``source`` when written by apply
+   * - ``job.archive``, ``job.restore``, ``job.manage``, ``project.manage``
+     - ``job``, ``project``
+     - apply only; ``job.manage`` and ``project.manage`` have ``from`` and
+       ``to`` (the owner); see :doc:`jobs-as-code`
    * - ``run.trigger``
      - ``run``
      - ``job_id``, ``job_version_id``, ``trigger``, ``schedule_id`` or

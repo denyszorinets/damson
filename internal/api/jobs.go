@@ -20,8 +20,9 @@ type Job struct {
 	ID             string    `json:"id"`
 	Project        string    `json:"project" doc:"Project name."`
 	Name           string    `json:"name"`
-	ManagedBy      string    `json:"managed_by"`
+	ManagedBy      string    `json:"managed_by" doc:"ui, or files:<source> when apply manages the job; a managed job refuses new versions here."`
 	CurrentVersion int       `json:"current_version"`
+	Archived       bool      `json:"archived,omitempty" doc:"Set when apply --prune removed the job; it cannot run."`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
@@ -69,7 +70,7 @@ func projectNames(ctx context.Context, ds DataStore) (map[string]string, error) 
 func toJob(j store.Job, projects map[string]string) Job {
 	return Job{
 		ID: j.ID, Project: projects[j.ProjectID], Name: j.Name, ManagedBy: j.ManagedBy,
-		CurrentVersion: j.CurrentVersion, CreatedAt: j.CreatedAt, UpdatedAt: j.UpdatedAt,
+		CurrentVersion: j.CurrentVersion, Archived: j.ArchivedAt != nil, CreatedAt: j.CreatedAt, UpdatedAt: j.UpdatedAt,
 	}
 }
 
@@ -252,6 +253,12 @@ func createJob(ctx context.Context, d deps, in *createJobInput) (*jobDetailOutpu
 		return nil, apiError(ctx, err)
 	}
 	job, ver, err := d.ds.CreateJob(ctx, store.NewJob{ProjectID: proj.ID, Name: name, Spec: in.Body.Spec, Checksum: sum}, d.now())
+	if errors.Is(err, store.ErrConflict) {
+		// The name may belong to an archived job, which no list shows.
+		if old, gerr := d.ds.GetJobByName(ctx, proj.ID, name); gerr == nil && old.ArchivedAt != nil {
+			err = &store.ManagedError{What: "job " + name, By: "archived"}
+		}
+	}
 	if err != nil {
 		return nil, apiError(ctx, err)
 	}

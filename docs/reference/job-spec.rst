@@ -276,6 +276,12 @@ Expressions run under limits (``expr.Limits``): a CEL cost budget (default
 length (4 KiB). Exceeding one fails the expression with a clear error; the
 resolved input of a step is capped at 1 MiB.
 
+Jobs in files
+-------------
+
+A job document can be kept in a repository as ``<name>.job.json`` and applied
+with ``damson apply``; see :doc:`jobs-as-code`.
+
 Checksum
 --------
 

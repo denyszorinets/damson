@@ -38,6 +38,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply job and project files
+         * @description Makes the projects and jobs of a source equal to the files (ADR-0069). All files are validated first and every problem is reported; the writes run in one transaction. Jobs are matched by (project, name) and compared by checksum, so unchanged jobs get no new version. Objects nobody manages need adopt. With prune, the source's jobs missing from the bundle are archived and its projects released.
+         */
+        post: operations["apply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/audit": {
         parameters: {
             query?: never;
@@ -94,6 +114,26 @@ export interface paths {
          * @description For a leak the masker missed (ADR-0047). Removes every stored log chunk of the execution and writes a log.purge audit event. 409 while the execution can still write logs; cancel it first. Repeating it is allowed.
          */
         delete: operations["purge-execution-logs"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export projects and jobs as files
+         * @description Returns the same layout apply takes, for a project and the projects below it: a project.json each, and every live job. Applying the result changes nothing once the objects it holds are managed by the source: objects nobody manages need adopt on the first apply.
+         */
+        get: operations["export"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -839,6 +879,48 @@ export interface components {
             telemetry?: components["schemas"]["Telemetry"];
             version: string;
         };
+        ApplyChange: {
+            /** @enum {string} */
+            action: "create" | "update" | "unchanged" | "archive" | "restore" | "adopt" | "release";
+            checksum?: string;
+            /** @description What changed: description, access_rules, node_scope or spec. */
+            fields?: string[] | null;
+            /** Format: int64 */
+            from_version?: number;
+            /** @enum {string} */
+            kind: "project" | "job";
+            /** @description The job name; empty for a project. */
+            name?: string;
+            project: string;
+            /** Format: int64 */
+            to_version?: number;
+        };
+        ApplyFile: {
+            /** @description The JSON document of the file. */
+            content: unknown;
+            /** @description Slash-separated path under the root, such as infra/billing/project.json or infra/billing/deploy.job.json. */
+            path: string;
+        };
+        ApplyInputBody: {
+            /** @description Take over projects and jobs nobody manages. */
+            adopt?: boolean;
+            /** @description Plan and validate, write nothing. */
+            dry_run?: boolean;
+            files: components["schemas"]["ApplyFile"][] | null;
+            /** @description Archive the source's jobs missing from the bundle and release its projects missing from it. */
+            prune?: boolean;
+            /** @description The managing source, files:<name>. ui and git:* are refused here. */
+            source: string;
+        };
+        ApplyResult: {
+            changes: components["schemas"]["ApplyChange"][] | null;
+            dry_run: boolean;
+            source: string;
+            /** @description Changes counted by action. */
+            summary: {
+                [key: string]: number;
+            };
+        };
         AuditEvent: {
             /** @description secret.create, secret.update, secret.delete, secret.kek_rotate, log.purge, admin_token.create, admin_token.revoke, audit.prune, schedule.create, schedule.update, schedule.delete, webhook.create, webhook.revoke, project.create, project.update, project.delete, project.access_rules.update, job.access_rules.update, service_account.create, service_account.delete, service_token.create, service_token.revoke, job.create, job.version.create, run.trigger, run.cancel, auth.login or secret.read. */
             action: string;
@@ -1047,6 +1129,9 @@ export interface components {
             state: "queued" | "dispatched" | "running" | "succeeded" | "failed" | "canceled" | "timed_out" | "lost";
             step_path: string;
         };
+        ExportBundle: {
+            files: components["schemas"]["ApplyFile"][] | null;
+        };
         FieldSpec: {
             multiline: boolean;
             name: string;
@@ -1092,11 +1177,14 @@ export interface components {
             when?: string;
         };
         Job: {
+            /** @description Set when apply --prune removed the job; it cannot run. */
+            archived?: boolean;
             /** Format: date-time */
             created_at: string;
             /** Format: int64 */
             current_version: number;
             id: string;
+            /** @description ui, or files:<source> when apply manages the job; a managed job refuses new versions here. */
             managed_by: string;
             name: string;
             /** @description Project name. */
@@ -1355,6 +1443,8 @@ export interface components {
             created_at: string;
             description?: string;
             id: string;
+            /** @description ui, or files:<source> when apply manages the project; a managed project refuses edits here. */
+            managed_by: string;
             /** @description The caller's role here: viewer, runner, editor or admin; absent for none. */
             my_role?: string;
             /** @description Empty for a root project. */
@@ -1845,6 +1935,93 @@ export interface operations {
             };
         };
     };
+    apply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "list-audit-events": {
         parameters: {
             query?: {
@@ -2092,6 +2269,83 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    export: {
+        parameters: {
+            query: {
+                /** @description The project to export, with every project below it. */
+                project: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportBundle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

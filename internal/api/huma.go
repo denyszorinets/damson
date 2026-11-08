@@ -49,6 +49,7 @@ type DataStore interface {
 	CreateJobVersion(ctx context.Context, jobID string, spec json.RawMessage, checksum string,
 		expectedCurrent int, now time.Time) (store.JobVersion, error)
 	GetJob(ctx context.Context, id string) (store.Job, error)
+	GetJobByName(ctx context.Context, projectID, name string) (store.Job, error)
 	ListJobs(ctx context.Context, projectID, cursor string, limit int) (store.JobPage, error)
 	GetJobVersion(ctx context.Context, id string) (store.JobVersion, error)
 	GetJobVersionByNumber(ctx context.Context, jobID string, version int) (store.JobVersion, error)
@@ -63,6 +64,7 @@ type DataStore interface {
 	GetExecution(ctx context.Context, id string) (store.Execution, error)
 	ListLogChunks(ctx context.Context, executionID string, fromSeq, toSeq int64, limit int) ([]store.LogChunk, error)
 	GetLogData(ctx context.Context, key string) ([]byte, error)
+	store.ApplyStore
 	GetSetting(ctx context.Context, key string) (store.Setting, error)
 	GetRunStamp(ctx context.Context, runID string) (store.RunStamp, error)
 	GetLogStamp(ctx context.Context, executionID string) (store.LogStamp, error)
@@ -152,6 +154,7 @@ func newHuma(mux *http.ServeMux, d deps, env *expr.Env) huma.API {
 	registerServiceAccounts(api, d)
 	registerProjects(api, d)
 	registerAccess(api, d)
+	registerApply(api, d)
 	registerNodeScope(api, d)
 	registerMe(api, d)
 	registerInventorySync(api, d)
