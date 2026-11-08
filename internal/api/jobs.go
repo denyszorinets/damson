@@ -234,6 +234,11 @@ func createJob(ctx context.Context, d deps, in *createJobInput) (*jobDetailOutpu
 		return nil, apiError(ctx, invalid("name must equal spec.metadata.name",
 			ProblemDetail{Message: "differs from spec.metadata.name", Location: "name"}))
 	}
+	if p, ok := PrincipalFrom(ctx); ok && p.Session != nil { // a user needs editor in the project; tokens were checked by authorize
+		if err := d.require(ctx, c.job.Metadata.Project, "", store.RoleEditor); err != nil {
+			return nil, apiError(ctx, err)
+		}
+	}
 	proj, err := d.ds.GetProjectByPath(ctx, c.job.Metadata.Project)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, apiError(ctx, invalid("unknown project",

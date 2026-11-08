@@ -30,7 +30,7 @@ func testProjects(t *testing.T, s store.Store) {
 	if _, err := s.GetProjectByPath(ctx, "nope"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("missing project: %v; want ErrNotFound", err)
 	}
-	if got, err := s.GetProject(ctx, p.ID); err != nil || got != p {
+	if got, err := s.GetProject(ctx, p.ID); err != nil || got.ID != p.ID || got.Path != p.Path || got.Version != p.Version {
 		t.Fatalf("GetProject = %+v, %v", got, err)
 	}
 	if list, err := s.ListProjects(ctx); err != nil || len(list) != 1 {

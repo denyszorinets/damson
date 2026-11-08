@@ -67,7 +67,10 @@ Roles and scope
      - Everything ``runner`` can, plus create jobs and job versions.
 
 A service token is never an admin: secrets, nodes, audit, inventory sync,
-service accounts, webhooks, schedules and log purge need the admin token.
+service accounts, webhooks, schedules and log purge need the admin token, and
+so do creating, updating and deleting projects and all access-rule routes
+(they need ``admin``). A token with a role too low for a route gets ``403``;
+one whose scope does not cover the target gets ``404``. See :doc:`access-rules`.
 
 A scoped token covers its project and the projects below it. Creating a job and
 listing runs without a ``job`` filter need a token with an empty ``project``,

@@ -68,7 +68,7 @@ func (q *Queries) DeleteProject(ctx context.Context, id string) (int64, error) {
 }
 
 const getProject = `-- name: GetProject :one
-SELECT id, path, created_at, parent_id, description, version, updated_at FROM projects WHERE id = $1
+SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules FROM projects WHERE id = $1
 `
 
 func (q *Queries) GetProject(ctx context.Context, id string) (Project, error) {
@@ -82,12 +82,13 @@ func (q *Queries) GetProject(ctx context.Context, id string) (Project, error) {
 		&i.Description,
 		&i.Version,
 		&i.UpdatedAt,
+		&i.AccessRules,
 	)
 	return i, err
 }
 
 const getProjectByPath = `-- name: GetProjectByPath :one
-SELECT id, path, created_at, parent_id, description, version, updated_at FROM projects WHERE path = $1
+SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules FROM projects WHERE path = $1
 `
 
 func (q *Queries) GetProjectByPath(ctx context.Context, path string) (Project, error) {
@@ -101,6 +102,7 @@ func (q *Queries) GetProjectByPath(ctx context.Context, path string) (Project, e
 		&i.Description,
 		&i.Version,
 		&i.UpdatedAt,
+		&i.AccessRules,
 	)
 	return i, err
 }
@@ -129,8 +131,45 @@ func (q *Queries) InsertProject(ctx context.Context, arg InsertProjectParams) er
 	return err
 }
 
+const listProjectChain = `-- name: ListProjectChain :many
+SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules FROM projects
+WHERE path = $1 OR $1 LIKE path || '/%'
+ORDER BY path
+`
+
+// The project and its ancestors, root first: a path is an ancestor when the
+// project's path starts with "<path>/". Project paths hold no LIKE wildcards.
+func (q *Queries) ListProjectChain(ctx context.Context, path string) ([]Project, error) {
+	rows, err := q.db.Query(ctx, listProjectChain, path)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Project
+	for rows.Next() {
+		var i Project
+		if err := rows.Scan(
+			&i.ID,
+			&i.Path,
+			&i.CreatedAt,
+			&i.ParentID,
+			&i.Description,
+			&i.Version,
+			&i.UpdatedAt,
+			&i.AccessRules,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProjectSubtree = `-- name: ListProjectSubtree :many
-SELECT id, path, created_at, parent_id, description, version, updated_at FROM projects
+SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules FROM projects
 WHERE path = $1 OR (path >= $2 AND path < $3)
 ORDER BY path
 `
@@ -160,6 +199,7 @@ func (q *Queries) ListProjectSubtree(ctx context.Context, arg ListProjectSubtree
 			&i.Description,
 			&i.Version,
 			&i.UpdatedAt,
+			&i.AccessRules,
 		); err != nil {
 			return nil, err
 		}
@@ -172,7 +212,7 @@ func (q *Queries) ListProjectSubtree(ctx context.Context, arg ListProjectSubtree
 }
 
 const listProjects = `-- name: ListProjects :many
-SELECT id, path, created_at, parent_id, description, version, updated_at FROM projects ORDER BY path
+SELECT id, path, created_at, parent_id, description, version, updated_at, access_rules FROM projects ORDER BY path
 `
 
 func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
@@ -192,6 +232,7 @@ func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
 			&i.Description,
 			&i.Version,
 			&i.UpdatedAt,
+			&i.AccessRules,
 		); err != nil {
 			return nil, err
 		}
@@ -201,6 +242,31 @@ func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const setProjectAccessRulesCAS = `-- name: SetProjectAccessRulesCAS :execrows
+UPDATE projects SET access_rules = $1, version = version + 1, updated_at = $2
+WHERE id = $3 AND version = $4
+`
+
+type SetProjectAccessRulesCASParams struct {
+	AccessRules     string
+	UpdatedAt       pgtype.Timestamptz
+	ID              string
+	ExpectedVersion int32
+}
+
+func (q *Queries) SetProjectAccessRulesCAS(ctx context.Context, arg SetProjectAccessRulesCASParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setProjectAccessRulesCAS,
+		arg.AccessRules,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.ExpectedVersion,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateProjectCAS = `-- name: UpdateProjectCAS :execrows

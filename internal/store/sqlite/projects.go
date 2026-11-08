@@ -22,9 +22,13 @@ func toProject(r gen.Project) (store.Project, error) {
 	if err != nil {
 		return store.Project{}, err
 	}
+	rules, err := store.DecodeAccessRules([]byte(r.AccessRules))
+	if err != nil {
+		return store.Project{}, err
+	}
 	return store.Project{
 		ID: r.ID, Path: r.Path, ParentID: r.ParentID.String, Description: r.Description, Version: int(r.Version),
-		CreatedAt: created, UpdatedAt: updated,
+		CreatedAt: created, UpdatedAt: updated, AccessRules: rules,
 	}, nil
 }
 

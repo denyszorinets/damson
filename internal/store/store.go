@@ -51,6 +51,7 @@ type Store interface {
 	LeaderStore
 	ProjectStore
 	SessionStore
+	AccessStore
 	JobStore
 	RunStore
 	ExecutionStore

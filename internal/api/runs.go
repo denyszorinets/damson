@@ -200,7 +200,18 @@ func registerRuns(api huma.API, d deps) {
 		if err != nil {
 			return nil, err
 		}
-		page, err := d.ds.QueryRuns(ctx, store.RunFilter{JobID: in.Job, Status: store.RunStatus(in.Status)}, cursor, in.Limit)
+		if in.Job != "" { // a job that does not exist answers like one the caller cannot see
+			if _, err := d.ds.GetJob(ctx, in.Job); err != nil {
+				return nil, apiError(ctx, err)
+			}
+		}
+		filter := store.RunFilter{JobID: in.Job, Status: store.RunStatus(in.Status)}
+		var page store.RunPage
+		if p, _ := PrincipalFrom(ctx); in.Job == "" && p.Session != nil && !p.InstanceAdmin {
+			page, err = d.visibleRuns(ctx, p, filter, cursor, in.Limit)
+		} else {
+			page, err = d.ds.QueryRuns(ctx, filter, cursor, in.Limit)
+		}
 		if err != nil {
 			return nil, apiError(ctx, err)
 		}

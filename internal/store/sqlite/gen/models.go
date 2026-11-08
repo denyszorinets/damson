@@ -95,6 +95,13 @@ type Job struct {
 	UpdatedAt      string
 }
 
+type JobAccess struct {
+	JobID     string
+	Rules     string
+	Version   int64
+	UpdatedAt string
+}
+
 type JobVersion struct {
 	ID        string
 	JobID     string
@@ -189,6 +196,7 @@ type Project struct {
 	Description string
 	Version     int64
 	UpdatedAt   string
+	AccessRules string
 }
 
 type Run struct {

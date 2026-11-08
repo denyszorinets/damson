@@ -9,6 +9,7 @@ Reference
    cli
    http-api
    projects
+   access-rules
    schedules
    webhooks
    authentication

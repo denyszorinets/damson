@@ -38,44 +38,60 @@ func PrincipalFrom(ctx context.Context) (Principal, bool) {
 	return p, ok
 }
 
-// subject says what a route addresses, so the token's project scope can be
-// checked against the project of the target.
+// subject says what a route addresses, so the principal's role can be checked
+// against the target's project (and job).
 type subject int
 
 const (
-	subjNone     subject = iota // no project: the token must cover every project
-	subjJob                     // path {id} is a job id
-	subjRun                     // path {id} is a run id
-	subjExec                    // path {id} is an execution id
-	subjProject                 // query "project" (default "default")
-	subjListRuns                // query "job" if set, else every project
+	subjNone        subject = iota // no project: a token must cover every project
+	subjJob                        // path {id} is a job id
+	subjRun                        // path {id} is a run id
+	subjExec                       // path {id} is an execution id
+	subjProject                    // query "project" (default "default")
+	subjListRuns                   // query "job" if set, else every project
+	subjProjectPath                // path {path} is a project path
+	subjHandler                    // the handler checks: the body names the target
 )
 
+// routePolicy says what a route needs. strict routes never run anonymously, even
+// when login is off and require_token is not set.
 type routePolicy struct {
-	role string
-	on   subject
+	role   string
+	on     subject
+	strict bool
 }
 
-// routePolicies are the operations a service token may use, by operation id.
-// Every other operation is unaffected (the admin routes keep requiring the
-// admin token; the rest stay as they were).
+// routePolicies are the operations the role model governs, by operation id.
+// Every other operation is guarded by requireAdmin (instance admin), is open on
+// purpose (publicOps in the tests) or needs only a login. A test fails when an
+// operation is in none of these.
 var routePolicies = map[string]routePolicy{
-	"validate-job":          {store.RoleViewer, subjNone},
-	"create-job":            {store.RoleEditor, subjNone},
-	"list-jobs":             {store.RoleViewer, subjProject},
-	"get-job":               {store.RoleViewer, subjJob},
-	"create-job-version":    {store.RoleEditor, subjJob},
-	"list-job-versions":     {store.RoleViewer, subjJob},
-	"get-job-version":       {store.RoleViewer, subjJob},
-	"get-job-version-graph": {store.RoleViewer, subjJob},
-	"trigger-run":           {store.RoleRunner, subjJob},
-	"list-runs":             {store.RoleViewer, subjListRuns},
-	"get-run":               {store.RoleViewer, subjRun},
-	"get-run-graph":         {store.RoleViewer, subjRun},
-	"stream-run-events":     {store.RoleViewer, subjRun},
-	"cancel-run":            {store.RoleRunner, subjRun},
-	"get-execution":         {store.RoleViewer, subjExec},
-	"stream-execution-logs": {store.RoleViewer, subjExec},
+	"validate-job":          {store.RoleViewer, subjNone, false},
+	"create-job":            {store.RoleEditor, subjNone, false},
+	"list-jobs":             {store.RoleViewer, subjProject, false},
+	"get-job":               {store.RoleViewer, subjJob, false},
+	"create-job-version":    {store.RoleEditor, subjJob, false},
+	"list-job-versions":     {store.RoleViewer, subjJob, false},
+	"get-job-version":       {store.RoleViewer, subjJob, false},
+	"get-job-version-graph": {store.RoleViewer, subjJob, false},
+	"trigger-run":           {store.RoleRunner, subjJob, false},
+	"list-runs":             {store.RoleViewer, subjListRuns, false},
+	"get-run":               {store.RoleViewer, subjRun, false},
+	"get-run-graph":         {store.RoleViewer, subjRun, false},
+	"stream-run-events":     {store.RoleViewer, subjRun, false},
+	"cancel-run":            {store.RoleRunner, subjRun, false},
+	"get-execution":         {store.RoleViewer, subjExec, false},
+	"stream-execution-logs": {store.RoleViewer, subjExec, false},
+
+	"list-projects":      {store.RoleViewer, subjHandler, true},
+	"create-project":     {store.RoleAdmin, subjHandler, true},
+	"get-project":        {store.RoleViewer, subjProjectPath, true},
+	"update-project":     {store.RoleAdmin, subjProjectPath, true},
+	"delete-project":     {store.RoleAdmin, subjProjectPath, true},
+	"get-project-access": {store.RoleAdmin, subjProjectPath, true},
+	"set-project-access": {store.RoleAdmin, subjProjectPath, true},
+	"get-job-access":     {store.RoleAdmin, subjJob, true},
+	"set-job-access":     {store.RoleAdmin, subjJob, true},
 }
 
 // covers reports whether a token scoped to scope may act in project: "" covers
@@ -87,15 +103,16 @@ func covers(scope, project string) bool {
 // openOps need no login even when OIDC is on: static data and health.
 var openOps = map[string]bool{"list-secret-types": true}
 
-// authorize is the global middleware of the API (ADR-0060, ADR-0063).
+// authorize is the global middleware of the API (ADR-0060, ADR-0063, ADR-0064).
 //
-// The operations in routePolicies are governed: an admin (the admin token or an
-// instance-admin user) may do everything; a service token needs a role at
-// least the route's and a project scope that covers the target (out of scope
-// answers 404, like a missing target); a user who is no instance admin is
-// refused until access rules exist. Without credentials a request passes only
-// when OIDC is off and RequireToken is not set. With OIDC on, every operation
-// that is neither open nor guarded by requireAdmin needs some principal.
+// For the operations in routePolicies: an instance admin (the admin token or a
+// user the admin rule selected) may do everything. A service token needs a role
+// at least the route's and a project scope that covers the target (out of scope
+// answers 404, like a missing target). A user needs the role from the access
+// rules: none at all answers 404, too low answers 403. Without credentials a
+// request passes only for non-strict routes when OIDC is off and RequireToken
+// is not set. With OIDC on, every operation that is neither open nor guarded by
+// requireAdmin needs some principal.
 func authorize(api huma.API, d deps) func(ctx huma.Context, next func(huma.Context)) {
 	deny := func(ctx huma.Context, status int, msg string) {
 		if status == http.StatusUnauthorized {
@@ -116,32 +133,67 @@ func authorize(api huma.API, d deps) func(ctx huma.Context, next func(huma.Conte
 			deny(ctx, status, msg)
 			return
 		}
-		if p.Actor == "" { // anonymous: allowed only where nothing demands a login
+		if p.Actor == "" { // anonymous
+			if pol.strict {
+				deny(ctx, http.StatusUnauthorized, "a login or a token is required")
+				return
+			}
 			next(ctx)
 			return
 		}
-		rctx := huma.WithContext(ctx, context.WithValue(ctx.Context(), principalKey{}, p))
-		switch {
-		case !governed || p.InstanceAdmin:
-			next(rctx)
-		case p.Token != nil:
-			if store.RoleRank(p.Token.Role) < store.RoleRank(pol.role) {
-				deny(ctx, http.StatusForbidden, "the token's role does not allow this")
-				return
+		rctx := store.WithAudit(ctx.Context(), store.AuditMeta{Actor: p.Actor, RequestID: requestIDFromCtx(ctx.Context())})
+		rctx = context.WithValue(rctx, principalKey{}, p)
+		hctx := huma.WithContext(ctx, rctx)
+		status, msg = 0, ""
+		if governed && !p.InstanceAdmin && pol.on != subjHandler {
+			status, msg = d.checkRole(ctx, p, pol)
+		}
+		switch status {
+		case 0:
+			if p.Token != nil {
+				_ = d.ds.TouchServiceToken(ctx.Context(), p.Token.ID, d.now()) // best effort
 			}
-			if ok, err := d.inScope(ctx, p.Token.Project, pol.on); err != nil {
-				deny(ctx, http.StatusServiceUnavailable, "a required dependency is not available")
-				return
-			} else if !ok {
-				denyNotFound(api, ctx)
-				return
-			}
-			_ = d.ds.TouchServiceToken(ctx.Context(), p.Token.ID, d.now()) // best effort
-			next(rctx)
-		default: // a user without the admin role: access rules arrive with the next slice
-			deny(ctx, http.StatusForbidden, "your account has no access to this")
+			next(hctx)
+		case http.StatusNotFound:
+			denyNotFound(api, ctx)
+		default:
+			deny(ctx, status, msg)
 		}
 	}
+}
+
+// checkRole decides a governed route for a principal that is not an instance
+// admin. 0 means allowed.
+func (d deps) checkRole(ctx huma.Context, p Principal, pol routePolicy) (int, string) {
+	t, err := d.target(ctx, pol.on)
+	if err != nil {
+		return http.StatusServiceUnavailable, "a required dependency is not available"
+	}
+	if p.Token != nil {
+		if store.RoleRank(p.Token.Role) < store.RoleRank(pol.role) {
+			return http.StatusForbidden, "the token's role does not allow this"
+		}
+		if !t.inTokenScope(p.Token.Project) {
+			return http.StatusNotFound, ""
+		}
+		return 0, ""
+	}
+	switch t.kind {
+	case tgtNone, tgtAll, tgtMissing: // the handler checks, filters or answers 404
+		return 0, ""
+	case tgtNoParent:
+		return http.StatusNotFound, ""
+	}
+	role, err := d.roleOn(ctx.Context(), p, t.project, t.jobID)
+	switch {
+	case err != nil:
+		return http.StatusServiceUnavailable, "a required dependency is not available"
+	case role == "":
+		return http.StatusNotFound, ""
+	case store.RoleRank(role) < store.RoleRank(pol.role):
+		return http.StatusForbidden, "your role does not allow this"
+	}
+	return 0, ""
 }
 
 const meOperation = "get-me"
@@ -232,89 +284,4 @@ func (d deps) adminActor(ctx context.Context, tok string) (string, bool) {
 		return "", false
 	}
 	return "admin-token:" + s.Value[:min(12, len(s.Value))], true
-}
-
-// inScope reports whether a token scoped to scope may act on what the request
-// addresses. A target that does not exist is in scope: the handler answers 404.
-func (d deps) inScope(ctx huma.Context, scope string, on subject) (bool, error) {
-	if scope == "" {
-		return true, nil
-	}
-	var project string
-	var err error
-	switch on {
-	case subjNone:
-		return false, nil // only an unrestricted token
-	case subjProject:
-		project = ctx.Query("project")
-		if project == "" {
-			project = store.DefaultProjectPath
-		}
-	case subjListRuns:
-		job := ctx.Query("job")
-		if job == "" {
-			return false, nil
-		}
-		project, err = d.projectOfJob(ctx.Context(), job)
-	case subjJob:
-		project, err = d.projectOfJob(ctx.Context(), ctx.Param("id"))
-	case subjRun:
-		project, err = d.projectOfRun(ctx.Context(), ctx.Param("id"))
-	case subjExec:
-		var ex store.Execution
-		if ex, err = d.ds.GetExecution(ctx.Context(), ctx.Param("id")); err == nil {
-			if project, err = d.projectOfRun(ctx.Context(), ex.RunID); errors.Is(err, store.ErrNotFound) {
-				err = errNoParent
-			}
-		}
-	}
-	if errors.Is(err, errNoParent) {
-		return false, nil
-	}
-	if errors.Is(err, store.ErrNotFound) {
-		return true, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return covers(scope, project), nil
-}
-
-// errNoParent marks a target whose job or project row is missing: the scope
-// cannot be decided, so the request is refused.
-var errNoParent = errors.New("the target's project is unknown")
-
-func (d deps) projectOfRun(ctx context.Context, runID string) (string, error) {
-	run, err := d.ds.GetRun(ctx, runID)
-	if err != nil {
-		return "", err // the run itself is missing: the handler answers 404
-	}
-	return d.projectOfJobRow(ctx, run.JobID)
-}
-
-func (d deps) projectOfJob(ctx context.Context, jobID string) (string, error) {
-	if _, err := d.ds.GetJob(ctx, jobID); err != nil {
-		return "", err // the job itself is missing: the handler answers 404
-	}
-	return d.projectOfJobRow(ctx, jobID)
-}
-
-// projectOfJobRow is the project name of a job that a found run or execution
-// points at; a missing job or project is errNoParent.
-func (d deps) projectOfJobRow(ctx context.Context, jobID string) (string, error) {
-	job, err := d.ds.GetJob(ctx, jobID)
-	if errors.Is(err, store.ErrNotFound) {
-		return "", errNoParent
-	}
-	if err != nil {
-		return "", err
-	}
-	p, err := d.ds.GetProject(ctx, job.ProjectID)
-	if errors.Is(err, store.ErrNotFound) {
-		return "", errNoParent
-	}
-	if err != nil {
-		return "", err
-	}
-	return p.Path, nil
 }

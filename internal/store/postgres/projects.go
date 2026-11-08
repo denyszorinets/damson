@@ -15,19 +15,27 @@ import (
 
 var _ store.ProjectStore = (*Store)(nil)
 
-func toProject(r gen.Project) store.Project {
+func toProject(r gen.Project) (store.Project, error) {
+	rules, err := store.DecodeAccessRules([]byte(r.AccessRules))
+	if err != nil {
+		return store.Project{}, err
+	}
 	return store.Project{
 		ID: r.ID, Path: r.Path, ParentID: r.ParentID.String, Description: r.Description, Version: int(r.Version),
-		CreatedAt: r.CreatedAt.Time.UTC(), UpdatedAt: r.UpdatedAt.Time.UTC(),
-	}
+		CreatedAt: r.CreatedAt.Time.UTC(), UpdatedAt: r.UpdatedAt.Time.UTC(), AccessRules: rules,
+	}, nil
 }
 
-func toProjects(rows []gen.Project) []store.Project {
+func toProjects(rows []gen.Project) ([]store.Project, error) {
 	out := make([]store.Project, len(rows))
 	for i, r := range rows {
-		out[i] = toProject(r)
+		p, err := toProject(r)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = p
 	}
-	return out
+	return out, nil
 }
 
 // GetProjectByPath implements store.ProjectStore.
@@ -39,7 +47,7 @@ func (s *Store) GetProjectByPath(ctx context.Context, path string) (store.Projec
 	if err != nil {
 		return store.Project{}, fmt.Errorf("getting project %q: %w", path, err)
 	}
-	return toProject(row), nil
+	return toProject(row)
 }
 
 // GetProject implements store.ProjectStore.
@@ -51,7 +59,7 @@ func (s *Store) GetProject(ctx context.Context, id string) (store.Project, error
 	if err != nil {
 		return store.Project{}, fmt.Errorf("getting project %q: %w", id, err)
 	}
-	return toProject(row), nil
+	return toProject(row)
 }
 
 // ListProjects implements store.ProjectStore.
@@ -60,7 +68,7 @@ func (s *Store) ListProjects(ctx context.Context) ([]store.Project, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listing projects: %w", err)
 	}
-	return toProjects(rows), nil
+	return toProjects(rows)
 }
 
 // ListProjectSubtree implements store.ProjectStore.
@@ -69,7 +77,7 @@ func (s *Store) ListProjectSubtree(ctx context.Context, path string) ([]store.Pr
 	if err != nil {
 		return nil, fmt.Errorf("listing project subtree: %w", err)
 	}
-	return toProjects(rows), nil
+	return toProjects(rows)
 }
 
 // CreateProject implements store.ProjectStore.
@@ -145,7 +153,9 @@ func (s *Store) UpdateProject(ctx context.Context, id, description string, expec
 			return err
 		}
 		cur.Description, cur.Version, cur.UpdatedAt = description, int32(expectedVersion)+1, ts(now)
-		out = toProject(cur)
+		if out, err = toProject(cur); err != nil {
+			return err
+		}
 		return tx.AppendAuditEvent(ctx, ev)
 	})
 	return out, err

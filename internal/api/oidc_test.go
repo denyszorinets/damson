@@ -17,8 +17,10 @@ import (
 	"github.com/denyszorinets/damson/internal/api"
 	"github.com/denyszorinets/damson/internal/auth/oidc"
 	"github.com/denyszorinets/damson/internal/auth/oidctest"
+	"github.com/denyszorinets/damson/internal/pluginreg"
 	"github.com/denyszorinets/damson/internal/store"
 	"github.com/denyszorinets/damson/internal/store/tokens"
+	"github.com/denyszorinets/damson/pkg/pluginsdk"
 )
 
 const (
@@ -58,9 +60,11 @@ func newOIDCFixture(t *testing.T, st store.Store, controllers int) *oidcFixture 
 	_, err = st.CreateSetting(t.Context(), tokens.AdminSettingKey, hash)
 	require.NoError(t, err)
 	f.admin = admin
+	reg, err := pluginreg.New([]pluginsdk.Manifest{apiManifest("ssh", "1.0.0")}, nil)
+	require.NoError(t, err)
 	for i := 0; i < controllers; i++ {
 		f.hs = append(f.hs, api.NewServer(api.Config{
-			Addr: "127.0.0.1:0", Store: st, Data: st, UI: ui(), OIDC: o, Now: f.clock, Logger: log,
+			Addr: "127.0.0.1:0", Store: st, Data: st, UI: ui(), OIDC: o, Now: f.clock, Logger: log, Plugins: reg,
 		}).Handler())
 	}
 	return f
@@ -391,9 +395,10 @@ func TestOIDCEndsAnonymousAccess(t *testing.T) {
 		assert.Equal(t, http.StatusOK, f.do(0, http.MethodGet, "/healthz", "").Code)
 		assert.Equal(t, http.StatusOK, f.do(0, http.MethodGet, "/api/v1/secret-types", "").Code)
 
-		// A user who is no instance admin has no access yet (rules: next slice).
-		assert.Equal(t, http.StatusForbidden, f.do(0, http.MethodGet, "/api/v1/jobs", "", withCookies(cookieHeader(bob))).Code)
-		assert.Equal(t, http.StatusForbidden, f.do(0, http.MethodGet, "/api/v1/projects", "", withCookies(cookieHeader(bob))).Code)
+		// A user with no rule granting a role sees nothing.
+		assert.Equal(t, http.StatusNotFound, f.do(0, http.MethodGet, "/api/v1/jobs", "", withCookies(cookieHeader(bob))).Code, "no role in the project")
+		assert.Equal(t, http.StatusOK, f.do(0, http.MethodGet, "/api/v1/projects", "", withCookies(cookieHeader(bob))).Code, "the list shows only what the caller can see")
+		assert.Equal(t, http.StatusForbidden, f.do(0, http.MethodGet, "/api/v1/audit", "", withCookies(cookieHeader(bob))).Code)
 		assert.Equal(t, http.StatusOK, f.do(0, http.MethodGet, "/api/v1/agents", "", withCookies(cookieHeader(bob))).Code, "any login may read the inventory metadata")
 		// An instance admin may do everything.
 		for _, p := range []string{"/api/v1/jobs", "/api/v1/projects", "/api/v1/audit"} {

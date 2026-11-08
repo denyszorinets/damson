@@ -78,6 +78,7 @@ type Project struct {
 	Version     int
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	AccessRules []AccessRule
 }
 
 // ProjectAuditDetails is the only content of project events.
