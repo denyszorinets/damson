@@ -30,8 +30,8 @@ Prerequisites
 
 - A PostgreSQL database reachable from the controller hosts. SQLite is not for
   this setup: it is for ``damson dev`` and single-controller installs.
-- TLS in front of the controller for agents: a TLS-terminating proxy, or TLS on
-  the controller itself. Agents connect with ``wss://``. Behind a proxy that
+- TLS in front of the controller for agents: a TLS-terminating proxy
+  (the controller has no TLS settings of its own). Agents connect with ``wss://``. Behind a proxy that
   sets ``X-Forwarded-Proto``, set ``trust_forwarded_proto = true`` in
   ``controller.toml``.
 - ``systemd`` on every host.
