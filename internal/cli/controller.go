@@ -88,8 +88,12 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mod
 	if err != nil {
 		return err
 	}
+	ob, err := openBaoConfig(cfg)
+	if err != nil {
+		return err
+	}
 	n, err := node.Start(ctx, node.Config{
-		LogBlobs:         blobs,
+		LogBlobs: blobs, OpenBao: ob,
 		SingleController: cfg.Database.Driver == config.DriverSQLite,
 		ClusterSecret:    secret, ClusterSecretPrevious: previous, InternalListen: cfg.Controller.InternalListen,
 		Store: st, ControllerID: id, InternalURL: cfg.Controller.InternalURL, Plugins: plugins, DevFile: devNodes, KEK: cfg.Secrets.KEK, KEKPrevious: cfg.Secrets.KEKPrevious, FinallyGrace: cfg.FinallyGraceDuration(),

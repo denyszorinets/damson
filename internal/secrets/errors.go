@@ -14,3 +14,14 @@ var (
 	// ErrDisabled means no KEK is configured, so secrets are unavailable.
 	ErrDisabled = errors.New("secrets are disabled: no KEK configured")
 )
+
+// Errors of an external secret backend (ADR-0068).
+var (
+	// ErrReadOnly means the backend is configured read-only: secrets are
+	// managed in the external secret store.
+	ErrReadOnly = errors.New("secrets are read-only: manage them in the external secret store")
+	// ErrUnavailable means a secret exists but cannot be used: the backend
+	// rejected the controller's credentials or holds a malformed value. A
+	// retry will not help.
+	ErrUnavailable = errors.New("secret unavailable")
+)

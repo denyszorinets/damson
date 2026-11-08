@@ -145,3 +145,15 @@ func genKEK(t *testing.T) string {
 	}
 	return base64.StdEncoding.EncodeToString(b)
 }
+
+// rotate-kek belongs to the db backend: with openbao selected it refuses
+// instead of failing on a missing key.
+func TestAdminRotateKEKRefusesWithOpenBao(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, be adminBackend) {
+		env := append(adminEnv(t, be, true), "DAMSON_SECRETS__BACKEND=openbao", "DAMSON_SECRETS__OPENBAO__ADDRESS=https://bao.example.com:8200", "DAMSON_SECRETS__OPENBAO__AUTH__METHOD=token", "DAMSON_OPENBAO_TOKEN=s.x")
+		code, _, errOut := admin(t, env, "rotate-kek")
+		if code == exitOK || !strings.Contains(errOut, "db backend") {
+			t.Fatalf("exit %d, %q; want a refusal naming the db backend", code, errOut)
+		}
+	})
+}

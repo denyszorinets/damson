@@ -16,8 +16,11 @@ const (
 // Secrets configures the db secret backend. The KEK itself comes from the
 // environment or a file, never from a config value.
 type Secrets struct {
-	KEKFile         string `koanf:"kek_file"`
-	KEKPreviousFile string `koanf:"kek_previous_file"`
+	// Backend is db (default) or openbao (ADR-0068).
+	Backend         string  `koanf:"backend"`
+	OpenBao         OpenBao `koanf:"openbao"`
+	KEKFile         string  `koanf:"kek_file"`
+	KEKPreviousFile string  `koanf:"kek_previous_file"`
 
 	// KEK and KEKPrevious are the resolved base64 keys; Load fills them.
 	KEK, KEKPrevious string `koanf:"-"`

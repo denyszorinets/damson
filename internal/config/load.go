@@ -52,6 +52,7 @@ func Load(role Role, path string, environ []string) (Config, error) {
 	if err := cfg.loadKEKs(environ); err != nil {
 		return Config{}, fmt.Errorf("invalid configuration: %w", err)
 	}
+	cfg.loadOpenBao(environ)
 	if err := cfg.Validate(role); err != nil {
 		return Config{}, err
 	}

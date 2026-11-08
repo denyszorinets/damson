@@ -209,8 +209,11 @@ Secrets routes need ``Authorization: Bearer <admin token>``, the token made by
 /api/v1/secret-types``. A missing or wrong token (including a pool token) is a
 ``401`` problem with ``WWW-Authenticate: Bearer realm="damson-admin"``, checked
 before the body is parsed. The OpenAPI document declares the security scheme
-``bearerAuth``. With no KEK configured every secrets route answers ``503`` after
-authentication. Values are write-only: no response contains one.
+``bearerAuth``. With no KEK configured (``db`` backend) every secrets route answers ``503`` after
+authentication. With the ``openbao`` backend (:doc:`secrets-openbao`) ``PUT``
+and ``DELETE`` answer ``409`` when ``secrets.openbao.read_only`` is set, and any
+route answers ``503`` while OpenBao is unreachable or rejects the controller's
+credentials. Values are write-only: no response contains one.
 
 .. list-table::
    :header-rows: 1
@@ -230,15 +233,16 @@ authentication. Values are write-only: no response contains one.
        ``200`` on a new version; the body is the metadata. Errors: ``401``;
        ``409`` (version conflict, already exists with ``if_version`` ``0``, or
        a type change); ``413`` (a field over 64 KiB or the total over 256 KiB);
-       ``422`` (bad scope, name or type; a missing, unknown or invalid field,
+       ``409`` (read-only OpenBao backend); ``422`` (bad scope, name or type; a missing, unknown or invalid field,
        with messages naming fields, never values); ``503``.
    * - ``DELETE /api/v1/secrets/{scope}/{name}``
      - ``204``, or ``404`` if unknown.
    * - ``GET /api/v1/secret-types`` (public)
      - ``items`` of ``{name, fields: [{name, required, multiline}]}``.
 
-``PUT`` and ``DELETE`` write an audit event in the same transaction (see
-:ref:`reference-audit-api`).
+``PUT`` and ``DELETE`` write an audit event in the same transaction with the
+``db`` backend; with ``openbao`` the event is written after the change
+succeeded (see :ref:`reference-audit-api`).
 
 .. _reference-audit-api:
 

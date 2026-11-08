@@ -19,8 +19,10 @@ credentials live under ``secret://_inventory/``. Secret types include
 Values are resolved only when a step is dispatched, sent to the agent with the
 step, masked in all logs and outputs (except the non-secret ``endpoint``, ``region``
 and ``path_style`` of an S3 connection secret), and dropped when the step ends. By
-default they are stored in the database with envelope encryption; OpenBao is
-the optional alternative (:doc:`/architecture/security`).
+default they are stored in the database with envelope encryption; OpenBao (KV v2)
+is the optional alternative, with Damson reading and optionally writing
+secrets there (:doc:`/reference/secrets-openbao`,
+:doc:`/architecture/security`). Authorization by project is the same for both.
 
 In the web UI, the ``/secrets`` page lists secret metadata (ref, type, field
 names, version; never values) and lets an admin create, version and delete
