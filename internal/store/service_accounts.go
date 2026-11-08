@@ -7,12 +7,13 @@ import (
 	"time"
 )
 
-// Roles of a service token, lowest first (ARCHITECTURE 12.4). A service token
-// never holds the admin role: admin operations need the admin token until M8.
+// Roles, lowest first (ARCHITECTURE 12.4). A service token never holds the
+// admin role (see NewServiceToken.Validate).
 const (
 	RoleViewer = "viewer"
 	RoleRunner = "runner"
 	RoleEditor = "editor"
+	RoleAdmin  = "admin"
 )
 
 // RoleRank orders roles; an unknown role ranks 0 and satisfies nothing.
@@ -24,6 +25,8 @@ func RoleRank(role string) int {
 		return 2
 	case RoleEditor:
 		return 3
+	case RoleAdmin:
+		return 4
 	}
 	return 0
 }
@@ -82,7 +85,7 @@ func (n NewServiceToken) Validate() error {
 		return fmt.Errorf("a service token needs an id, an account and a name: %w", ErrInvalid)
 	case len(n.TokenHash) != 64:
 		return fmt.Errorf("a service token needs the SHA-256 hex of its secret: %w", ErrInvalid)
-	case RoleRank(n.Role) == 0:
+	case RoleRank(n.Role) == 0 || n.Role == RoleAdmin:
 		return fmt.Errorf("service token role %q must be %s, %s or %s: %w", n.Role, RoleViewer, RoleRunner, RoleEditor, ErrInvalid)
 	}
 	return nil

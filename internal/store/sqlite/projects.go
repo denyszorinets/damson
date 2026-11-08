@@ -22,9 +22,13 @@ func toProject(r gen.Project) (store.Project, error) {
 	if err != nil {
 		return store.Project{}, err
 	}
+	rules, err := store.DecodeAccessRules([]byte(r.AccessRules))
+	if err != nil {
+		return store.Project{}, err
+	}
 	return store.Project{
 		ID: r.ID, Path: r.Path, ParentID: r.ParentID.String, Description: r.Description, Version: int(r.Version),
-		CreatedAt: created, UpdatedAt: updated,
+		CreatedAt: created, UpdatedAt: updated, AccessRules: rules,
 	}, nil
 }
 
@@ -42,6 +46,9 @@ func toProjects(rows []gen.Project) ([]store.Project, error) {
 
 // GetProjectByPath implements store.ProjectStore.
 func (s *Store) GetProjectByPath(ctx context.Context, path string) (store.Project, error) {
+	if store.ValidateProjectPath(path) != nil { // never a project; also keeps NUL bytes away from the database
+		return store.Project{}, fmt.Errorf("project %q: %w", "invalid", store.ErrNotFound)
+	}
 	row, err := s.q.GetProjectByPath(ctx, path)
 	if errors.Is(err, sql.ErrNoRows) {
 		return store.Project{}, fmt.Errorf("project %q: %w", path, store.ErrNotFound)

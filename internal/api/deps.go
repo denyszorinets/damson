@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"time"
 
+	"github.com/denyszorinets/damson/internal/auth/policy"
 	"github.com/denyszorinets/damson/internal/engine"
 	"github.com/denyszorinets/damson/internal/expr"
 	"github.com/denyszorinets/damson/internal/store"
@@ -87,8 +88,11 @@ type deps struct {
 	requireToken bool
 	secrets      SecretBackend
 	// oidc is nil when login is off.
-	oidc  *OIDC
-	slots chan struct{} // semaphore of open SSE streams; nil means unlimited
+	oidc *OIDC
+	// policy evaluates access rules; grants caches its answers for a minute.
+	policy *policy.Evaluator
+	grants *grantCache
+	slots  chan struct{} // semaphore of open SSE streams; nil means unlimited
 }
 
 // inTx runs fn in one store transaction and, if an orchestrator is wired,
@@ -127,6 +131,12 @@ func newDeps(cfg Config) deps {
 		stream: cfg.Stream.withDefaults(), tail: cfg.LogTail, notify: cfg.RunNotify, advance: cfg.Advance, targets: cfg.Targets, authRefs: cfg.AuthorizeSecretRefs, requireToken: cfg.RequireToken, secrets: cfg.Secrets, oidc: cfg.OIDC,
 	}
 	d.slots = make(chan struct{}, d.stream.MaxStreams)
+	d.grants = newGrantCache()
+	if pol, err := policy.New(cfg.Logger); err != nil {
+		d.engErr = fmt.Errorf("building the access policy: %w", err)
+	} else {
+		d.policy = pol
+	}
 	if d.now == nil {
 		d.now = time.Now
 	}

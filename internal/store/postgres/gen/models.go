@@ -95,6 +95,13 @@ type Job struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type JobAccess struct {
+	JobID     string
+	Rules     string
+	Version   int32
+	UpdatedAt pgtype.Timestamptz
+}
+
 type JobVersion struct {
 	ID        string
 	JobID     string
@@ -189,6 +196,7 @@ type Project struct {
 	Description string
 	Version     int32
 	UpdatedAt   pgtype.Timestamptz
+	AccessRules string
 }
 
 type Run struct {

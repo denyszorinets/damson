@@ -6,8 +6,13 @@ Projects
 Projects form a tree. A project is identified by its ``path``, for example
 ``infra/billing``. Design: :doc:`/architecture/decisions/0062-project-tree`.
 
-Project routes need ``Authorization: Bearer <admin token>`` until the
-authorization slice.
+Project routes are authorized by role (:doc:`access-rules`): list and get need
+``viewer`` (a list returns only projects you hold a role on), create needs
+``admin`` on the parent (instance admin for a root project), update and delete
+need ``admin``. No role at all is ``404``; too low a role is ``403``. The admin
+token and instance-admin sessions are ``admin`` everywhere. A ``Project`` has
+``my_role``, the caller's effective role. The examples below use the admin
+token.
 
 Paths
 -----
@@ -61,4 +66,4 @@ Audit
 
 ``project.create``, ``project.update`` and ``project.delete`` (target type
 ``project``) record the path as ``project_path`` and details ``path`` and
-``description``.
+``description``. Access rule writes are described in :doc:`access-rules`.

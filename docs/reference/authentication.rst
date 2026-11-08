@@ -63,10 +63,11 @@ Who may do what
 
 - Admin routes accept the admin token or an instance-admin session (audit
   actor ``user:<sub>``). Instance admin is the ``admin_rule`` verdict at login.
-- A logged-in user who is not an instance admin gets ``403`` on admin routes
-  and on job and run routes until access rules arrive (#205). Any login may
-  read agents, pools and plugins.
-- Service tokens are unchanged. The ``dma_`` admin token stays as the local
+- A logged-in user who is not an instance admin gets ``403`` on admin routes.
+  Job, run, execution, project and access-rule routes are decided by the role
+  that access rules give the user (:doc:`access-rules`); no role is ``404``, too
+  low a role is ``403``. Any login may read agents, pools and plugins.
+- Service tokens keep their role and project scope (:doc:`service-accounts`). The ``dma_`` admin token stays as the local
   recovery token; create it with ``damson admin admin-token create`` (it is not
   printed at start).
 

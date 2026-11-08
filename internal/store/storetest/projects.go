@@ -27,10 +27,18 @@ func testProjects(t *testing.T, s store.Store) {
 	if err != nil || p.ID != store.DefaultProjectID || p.ParentID != "" || p.Version != 1 {
 		t.Fatalf("default project = %+v, %v", p, err)
 	}
+	for _, junk := range []string{"", "a\x00b", "Upper", "a//b", "_inventory"} {
+		if _, err := s.GetProjectByPath(ctx, junk); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("GetProjectByPath(%q): %v; want ErrNotFound", junk, err)
+		}
+		if chain, err := s.ListProjectChain(ctx, junk); err != nil || len(chain) != 0 {
+			t.Fatalf("ListProjectChain(%q) = %v, %v; want empty", junk, chain, err)
+		}
+	}
 	if _, err := s.GetProjectByPath(ctx, "nope"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("missing project: %v; want ErrNotFound", err)
 	}
-	if got, err := s.GetProject(ctx, p.ID); err != nil || got != p {
+	if got, err := s.GetProject(ctx, p.ID); err != nil || got.ID != p.ID || got.Path != p.Path || got.Version != p.Version {
 		t.Fatalf("GetProject = %+v, %v", got, err)
 	}
 	if list, err := s.ListProjects(ctx); err != nil || len(list) != 1 {

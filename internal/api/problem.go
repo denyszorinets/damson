@@ -107,6 +107,8 @@ func problemFor(err error) Problem {
 		return Problem{Type: typeConflict, Title: "Conflict", Status: http.StatusConflict, Detail: "the resource already exists"}
 	case errors.Is(err, store.ErrStale):
 		return Problem{Type: typeStale, Title: "Stale Resource", Status: http.StatusConflict, Detail: "the resource changed since it was read; reload and retry"}
+	case errors.Is(err, errForbidden):
+		return Problem{Type: typeForbidden, Title: "Forbidden", Status: http.StatusForbidden, Detail: "your role does not allow this"}
 	case errors.Is(err, errRunFinished):
 		return Problem{Type: typeConflict, Title: "Conflict", Status: http.StatusConflict, Detail: "the run has already finished"}
 	case errors.Is(err, store.ErrInvalid):

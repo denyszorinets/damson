@@ -119,6 +119,12 @@ Go test fails when ``web/openapi.json`` differs from the live document.
        paged by id.
    * - ``GET /api/v1/jobs/{id}``
      - The job and its current version including ``spec``.
+   * - ``GET /api/v1/projects``, ``POST /api/v1/projects``, ``GET``/``PATCH``/``DELETE /api/v1/projects/{path}``
+     - Project tree, authorized by role (:doc:`projects`).
+   * - ``GET``/``PUT /api/v1/projects/{path}/access-rules``, ``GET``/``PUT /api/v1/jobs/{id}/access-rules``
+     - Read and set access rules; ``{"rules": [{"role","rule"}], "if_version"}``,
+       response ``{"rules","version"}``. ``admin`` needed
+       (:doc:`access-rules`).
    * - ``POST /api/v1/jobs/{id}/versions``
      - ``{"spec", "expected_version"?}``. Appends an immutable version. It is a
        compare-and-swap on ``current_version``: a stale ``expected_version``
@@ -240,7 +246,7 @@ token. It returns ``items`` (newest first; ``id``, ``at``, ``actor``,
 ``request_id``) and ``next_cursor``; ``limit`` is 1 to 200, default 50.
 Events never contain secret values. Currently recorded: ``secret.create``,
 ``secret.update``, ``secret.delete``, ``secret.kek_rotate``, ``project.create``, ``project.update`` and ``project.delete`` (target type ``project``; see :doc:`projects`), ``schedule.create``, ``schedule.update``, ``schedule.delete`` (target type ``schedule``; see :doc:`schedules`), ``webhook.create`` and ``webhook.revoke`` (target type ``webhook``; see :doc:`webhooks`), ``service_account.create`` and ``service_account.delete`` (target type ``service_account``), ``service_token.create`` and ``service_token.revoke`` (target type ``service_token``; see :doc:`service-accounts`), ``log.purge``, ``admin_token.create`` and
-``admin_token.revoke`` and ``audit.prune`` (retention). Actors are
+``project.access_rules.update`` (target type ``project``) and ``job.access_rules.update`` (target type ``job``; see :doc:`access-rules`), ``admin_token.revoke`` and ``audit.prune`` (retention). Actors are
 ``admin-token:<12 hex of the token hash>``, ``system:dev-nodes``, ``system:retention`` and
 ``cli:<os user>``. Design: :doc:`/architecture/decisions/0053-audit-events`.
 
