@@ -250,11 +250,23 @@ func cancelRun(ctx context.Context, d deps, id string) (*cancelRunOutput, error)
 	if err := d.ready(); err != nil {
 		return nil, apiError(ctx, err)
 	}
+	// The project is read before the transaction: reading through the pool
+	// inside one can wait for the connection the transaction holds.
+	project := ""
+	if cur, err := d.ds.GetRun(ctx, id); err == nil {
+		if project, err = d.projectOfJobRow(ctx, cur.JobID); err != nil {
+			return nil, apiError(ctx, err)
+		}
+	} else if !errors.Is(err, store.ErrNotFound) { // a missing run is the cancel's own 404
+		return nil, apiError(ctx, err)
+	}
 	var run store.Run
 	err := d.inTx(ctx, func(tx store.Tx) (string, error) {
 		var err error
-		run, err = tx.RequestCancel(ctx, id, d.now())
-		return id, err
+		if run, err = tx.RequestCancel(ctx, id, d.now()); err != nil {
+			return id, err
+		}
+		return id, d.auditRunCancel(ctx, tx, project, run)
 	})
 	if errors.Is(err, store.ErrStale) {
 		// Either the request was already recorded or the run finished. The

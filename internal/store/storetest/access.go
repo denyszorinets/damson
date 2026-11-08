@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -174,5 +175,94 @@ func testAccessRaces(t *testing.T, s store.Store) {
 	wg.Wait()
 	if jobWins.Load() != 1 || projWins.Load() != 1 {
 		t.Errorf("job winners %d, project winners %d; want one each", jobWins.Load(), projWins.Load())
+	}
+}
+
+func testAuditSubtreeAndNames(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	at := func(id, project string) store.AuditEvent {
+		return store.AuditEvent{ID: id, At: t0, Actor: "user:u1", ActorName: "u1@example.org", Action: "project.create", TargetType: "project", Target: id, ProjectPath: project, Details: []byte(`{}`)}
+	}
+	for _, e := range []store.AuditEvent{at("e1", "infra"), at("e2", "infra/web"), at("e3", "infra/web/eu"), at("e4", "infrastructure"), at("e5", "infra-2"), at("e6", "")} {
+		if err := s.AppendAuditEvent(ctx, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids := func(f store.AuditFilter) string {
+		evs, err := s.ListAuditEvents(ctx, f, 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, e := range evs {
+			out = append(out, e.ID)
+		}
+		sort.Strings(out)
+		return strings.Join(out, ",")
+	}
+	if got := ids(store.AuditFilter{Project: "infra"}); got != "e1,e2,e3" {
+		t.Errorf("subtree(infra) = %s; infrastructure and infra-2 are siblings", got)
+	}
+	if got := ids(store.AuditFilter{Project: "infra/web"}); got != "e2,e3" {
+		t.Errorf("subtree(infra/web) = %s", got)
+	}
+	if got := ids(store.AuditFilter{Project: "nope"}); got != "" {
+		t.Errorf("subtree(nope) = %s", got)
+	}
+	if got := ids(store.AuditFilter{}); got != "e1,e2,e3,e4,e5,e6" {
+		t.Errorf("no project = %s; want every event", got)
+	}
+	evs, _ := s.ListAuditEvents(ctx, store.AuditFilter{Project: "infra/web/eu"}, 5)
+	if len(evs) != 1 || evs[0].ActorName != "u1@example.org" {
+		t.Errorf("actor name = %+v", evs)
+	}
+
+	// The context's display name is stored for events of its actor.
+	actx := store.WithAudit(ctx, store.AuditMeta{Actor: "user:u2", ActorName: "u2@example.org"})
+	if err := s.AppendAuditEvent(actx, store.AuditEvent{ID: "e7", At: t0, Actor: "user:u2", Action: "x", TargetType: "x", Target: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AppendAuditEvent(actx, store.AuditEvent{ID: "e8", At: t0, Actor: "system:other", Action: "x", TargetType: "x", Target: "e8"}); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]string{"e7": "u2@example.org", "e8": ""} {
+		got, _ := s.ListAuditEvents(ctx, store.AuditFilter{Target: map[string]string{"e7": "x", "e8": "e8"}[id]}, 5)
+		if len(got) != 1 || got[0].ActorName != want {
+			t.Errorf("event %s actor name = %+v; want %q", id, got, want)
+		}
+	}
+}
+
+func testJobAudit(t *testing.T, s store.Store) {
+	migrated(t, s)
+	actx := store.WithAudit(context.Background(), store.AuditMeta{Actor: "user:u1", ActorName: "u1@example.org"})
+	nj := store.NewJob{ProjectID: store.DefaultProjectID, Name: "audited", Spec: []byte(specJSON), Checksum: "c1"}
+	job, _, err := s.CreateJob(actx, nj, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateJobVersion(actx, job.ID, []byte(specJSON), "c2", 1, t0); err != nil {
+		t.Fatal(err)
+	}
+	// A stale version change writes no event.
+	if _, err := s.CreateJobVersion(actx, job.ID, []byte(specJSON), "c3", 1, t0); !errors.Is(err, store.ErrStale) {
+		t.Fatal(err)
+	}
+	// Without an actor nothing is audited (imports, tests).
+	if _, _, err := s.CreateJob(context.Background(), store.NewJob{ProjectID: store.DefaultProjectID, Name: "quiet", Spec: []byte(specJSON), Checksum: "c"}, t0); err != nil {
+		t.Fatal(err)
+	}
+	evs, err := s.ListAuditEvents(context.Background(), store.AuditFilter{TargetType: store.AuditTargetJob}, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 2 {
+		t.Fatalf("events = %+v; want job.create and job.version.create", evs)
+	}
+	for _, e := range evs {
+		if e.Target != job.ID || e.ProjectPath != "default" || e.Actor != "user:u1" || e.ActorName != "u1@example.org" {
+			t.Errorf("event = %+v", e)
+		}
 	}
 }

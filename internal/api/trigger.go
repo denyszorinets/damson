@@ -40,15 +40,22 @@ func triggerRun(ctx context.Context, d deps, in *triggerRunInput) (*runDetailOut
 		return nil, apiError(ctx, invalid("unsupported concurrency policy",
 			ProblemDetail{Message: fmt.Sprintf("%q is not supported yet; only %q is", p, policyQueue), Location: "body.concurrency_policy"}))
 	}
-	nr, number, err := d.prepareRun(ctx, in.ID, body.Version, body.Options, triggerFor(ctx))
+	trig := triggerFor(ctx)
+	nr, number, err := d.prepareRun(ctx, in.ID, body.Version, body.Options, trig)
+	if err != nil {
+		return nil, apiError(ctx, err)
+	}
+	project, err := d.projectOfJobRow(ctx, in.ID)
 	if err != nil {
 		return nil, apiError(ctx, err)
 	}
 	var tree store.RunTree
 	err = d.inTx(ctx, func(tx store.Tx) (string, error) {
 		var err error
-		tree, err = tx.CreateRun(ctx, nr, d.now())
-		return tree.ID, err
+		if tree, err = tx.CreateRun(ctx, nr, d.now()); err != nil {
+			return "", err
+		}
+		return tree.ID, d.auditRunTrigger(ctx, tx, project, nr, tree.ID, trig)
 	})
 	if err != nil {
 		return nil, apiError(ctx, err)

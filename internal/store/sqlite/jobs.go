@@ -76,6 +76,20 @@ func (s *Store) CreateJob(ctx context.Context, nj store.NewJob, now time.Time) (
 	}); err != nil {
 		return store.Job{}, store.JobVersion{}, fmt.Errorf("creating version 1 of job %q: %w", nj.Name, err)
 	}
+	if meta, aerr := store.AuditFrom(ctx); aerr == nil { // audited when the caller has an actor
+		proj, err := q.GetProject(ctx, nj.ProjectID)
+		if err != nil {
+			return store.Job{}, store.JobVersion{}, fmt.Errorf("reading project of job: %w", err)
+		}
+		ev, err := store.NewEventAs(meta, store.ActionJobCreate, store.AuditTargetJob, jobID, proj.Path,
+			store.JobAuditDetails{Name: nj.Name, Version: 1, Checksum: nj.Checksum}, now)
+		if err == nil {
+			err = insertAudit(ctx, q, ev)
+		}
+		if err != nil {
+			return store.Job{}, store.JobVersion{}, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return store.Job{}, store.JobVersion{}, fmt.Errorf("committing job create: %w", err)
 	}
@@ -118,6 +132,24 @@ func (s *Store) CreateJobVersion(ctx context.Context, jobID string, spec json.Ra
 		ID: verID, JobID: jobID, Version: int64(next), Spec: string(spec), Checksum: checksum, CreatedAt: fmtTime(now),
 	}); err != nil {
 		return store.JobVersion{}, fmt.Errorf("creating version %d of job %q: %w", next, jobID, err)
+	}
+	if meta, aerr := store.AuditFrom(ctx); aerr == nil {
+		job, err := getJob(ctx, q, jobID)
+		if err != nil {
+			return store.JobVersion{}, err
+		}
+		proj, err := q.GetProject(ctx, job.ProjectID)
+		if err != nil {
+			return store.JobVersion{}, fmt.Errorf("reading project of job: %w", err)
+		}
+		ev, err := store.NewEventAs(meta, store.ActionJobVersionCreate, store.AuditTargetJob, jobID, proj.Path,
+			store.JobAuditDetails{Name: job.Name, Version: next, Checksum: checksum}, now)
+		if err == nil {
+			err = insertAudit(ctx, q, ev)
+		}
+		if err != nil {
+			return store.JobVersion{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return store.JobVersion{}, fmt.Errorf("committing job version create: %w", err)

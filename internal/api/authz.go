@@ -285,3 +285,19 @@ func (d deps) visibleRuns(ctx context.Context, p Principal, f store.RunFilter, c
 	out.NextCursor = cursor // the scan position: the runs before it were all looked at
 	return out, nil
 }
+
+// auditRunCancel appends the run.cancel event in the transaction that records
+// the request.
+func (d deps) auditRunCancel(ctx context.Context, tx store.Tx, project string, run store.Run) error {
+	meta, err := store.AuditFrom(ctx)
+	if err != nil {
+		meta = store.AuditMeta{Actor: "anonymous"}
+	}
+	ev, err := store.NewEventAs(meta, store.ActionRunCancel, store.AuditTargetRun, run.ID, project, struct {
+		JobID string `json:"job_id"`
+	}{run.JobID}, d.now())
+	if err != nil {
+		return err
+	}
+	return tx.AppendAuditEvent(ctx, ev)
+}

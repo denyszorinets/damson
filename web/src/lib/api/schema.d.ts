@@ -47,7 +47,7 @@ export interface paths {
         };
         /**
          * List audit events
-         * @description Secret writes today (ADR-0053). Metadata only, newest first.
+         * @description Metadata only, newest first (ADR-0053). An instance admin sees everything; with project, an admin of that project sees its events and those of its descendants.
          */
         get: operations["list-audit-events"];
         put?: never;
@@ -822,10 +822,12 @@ export interface components {
             version: string;
         };
         AuditEvent: {
-            /** @description secret.create, secret.update, secret.delete, secret.kek_rotate, log.purge, admin_token.create, admin_token.revoke, audit.prune, schedule.create, schedule.update, schedule.delete, webhook.create, webhook.revoke, project.create, project.update, project.delete, project.access_rules.update, job.access_rules.update, service_account.create, service_account.delete, service_token.create or service_token.revoke. */
+            /** @description secret.create, secret.update, secret.delete, secret.kek_rotate, log.purge, admin_token.create, admin_token.revoke, audit.prune, schedule.create, schedule.update, schedule.delete, webhook.create, webhook.revoke, project.create, project.update, project.delete, project.access_rules.update, job.access_rules.update, service_account.create, service_account.delete, service_token.create, service_token.revoke, job.create, job.version.create, run.trigger, run.cancel, auth.login or secret.read. */
             action: string;
-            /** @description admin-token:<hash prefix>, cli:<user> or system:<duty> until accounts arrive (ADR-0053). */
+            /** @description user:<sub>, sa:<service account id>, admin-token:<hash prefix>, cli:<os user>, system:<duty>, webhook:<id> or anonymous. */
             actor: string;
+            /** @description A display snapshot of the actor, such as a user's email at that time. */
+            actor_name?: string;
             /** Format: date-time */
             at: string;
             /** @description A JSON object; never a secret value. */
@@ -835,7 +837,7 @@ export interface components {
             request_id?: string;
             /** @description <scope>/<name> for a secret, the execution id for log.purge. */
             target: string;
-            /** @description secret, execution, schedule, webhook or instance. */
+            /** @description secret, execution, schedule, webhook, project, job, run, user, service_account, service_token or instance. */
             target_type: string;
         };
         BatchInputBody: {
@@ -1806,6 +1808,8 @@ export interface operations {
     "list-audit-events": {
         parameters: {
             query?: {
+                /** @description Only events of this project and its descendants. Required for a caller who is not an instance admin, who must be admin of the project. */
+                project?: string;
                 /** @description Only this target type. */
                 target_type?: string;
                 /** @description Only this target. */
@@ -1841,6 +1845,24 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

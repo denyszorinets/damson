@@ -83,6 +83,7 @@ var routePolicies = map[string]routePolicy{
 	"get-execution":         {store.RoleViewer, subjExec, false},
 	"stream-execution-logs": {store.RoleViewer, subjExec, false},
 
+	"list-audit-events":  {store.RoleAdmin, subjHandler, true},
 	"list-projects":      {store.RoleViewer, subjHandler, true},
 	"create-project":     {store.RoleAdmin, subjHandler, true},
 	"get-project":        {store.RoleViewer, subjProjectPath, true},
@@ -138,10 +139,14 @@ func authorize(api huma.API, d deps) func(ctx huma.Context, next func(huma.Conte
 				deny(ctx, http.StatusUnauthorized, "a login or a token is required")
 				return
 			}
-			next(ctx)
+			next(huma.WithContext(ctx, store.WithAudit(ctx.Context(), store.AuditMeta{Actor: "anonymous", RequestID: requestIDFromCtx(ctx.Context())})))
 			return
 		}
-		rctx := store.WithAudit(ctx.Context(), store.AuditMeta{Actor: p.Actor, RequestID: requestIDFromCtx(ctx.Context())})
+		meta := store.AuditMeta{Actor: p.Actor, RequestID: requestIDFromCtx(ctx.Context())}
+		if p.Session != nil {
+			meta.ActorName = p.Session.Email
+		}
+		rctx := store.WithAudit(ctx.Context(), meta)
 		rctx = context.WithValue(rctx, principalKey{}, p)
 		hctx := huma.WithContext(ctx, rctx)
 		status, msg = 0, ""

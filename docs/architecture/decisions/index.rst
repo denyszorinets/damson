@@ -201,6 +201,9 @@ change nothing until accepted.
    * - 0064
      - :doc:`0064-access-rules-and-authorization`
      - Accepted
+   * - 0065
+     - :doc:`0065-audit-actors-and-coverage`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -269,3 +272,4 @@ change nothing until accepted.
    0062-project-tree
    0063-oidc-login-and-sessions
    0064-access-rules-and-authorization
+   0065-audit-actors-and-coverage

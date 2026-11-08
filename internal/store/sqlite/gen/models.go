@@ -48,6 +48,7 @@ type AuditEvent struct {
 	ProjectPath string
 	Details     string
 	RequestID   string
+	ActorName   string
 }
 
 type ControllerInstance struct {

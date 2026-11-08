@@ -39,6 +39,8 @@ type Session struct {
 type NewSession struct {
 	Session
 	TokenHash string
+	// Audit, if set, is written in the same transaction (the auth.login event).
+	Audit *AuditEvent
 }
 
 // Validate checks the fields the store depends on.

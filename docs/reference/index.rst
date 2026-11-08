@@ -12,6 +12,7 @@ Reference
    access-rules
    schedules
    webhooks
+   audit
    authentication
    service-accounts
    protocol

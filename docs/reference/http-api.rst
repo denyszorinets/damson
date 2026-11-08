@@ -240,15 +240,14 @@ authentication. Values are write-only: no response contains one.
 Audit API
 ~~~~~~~~~
 
-``GET /api/v1/audit?target_type=&target=&cursor=&limit=`` needs the admin
-token. It returns ``items`` (newest first; ``id``, ``at``, ``actor``,
-``action``, ``target_type``, ``target``, ``project_path``, ``details``,
-``request_id``) and ``next_cursor``; ``limit`` is 1 to 200, default 50.
-Events never contain secret values. Currently recorded: ``secret.create``,
-``secret.update``, ``secret.delete``, ``secret.kek_rotate``, ``project.create``, ``project.update`` and ``project.delete`` (target type ``project``; see :doc:`projects`), ``schedule.create``, ``schedule.update``, ``schedule.delete`` (target type ``schedule``; see :doc:`schedules`), ``webhook.create`` and ``webhook.revoke`` (target type ``webhook``; see :doc:`webhooks`), ``service_account.create`` and ``service_account.delete`` (target type ``service_account``), ``service_token.create`` and ``service_token.revoke`` (target type ``service_token``; see :doc:`service-accounts`), ``log.purge``, ``admin_token.create`` and
-``project.access_rules.update`` (target type ``project``) and ``job.access_rules.update`` (target type ``job``; see :doc:`access-rules`), ``admin_token.revoke`` and ``audit.prune`` (retention). Actors are
-``admin-token:<12 hex of the token hash>``, ``system:dev-nodes``, ``system:retention`` and
-``cli:<os user>``. Design: :doc:`/architecture/decisions/0053-audit-events`.
+``GET /api/v1/audit?project=&target_type=&target=&cursor=&limit=`` returns
+``items`` (newest first; ``id``, ``at``, ``actor``, ``actor_name``, ``action``,
+``target_type``, ``target``, ``project_path``, ``details``, ``request_id``) and
+``next_cursor``; ``limit`` is 1 to 200, default 50. Instance admins see all
+events; a project admin passes ``project`` and sees that project and its
+descendants. Actions, actors and visibility are in :doc:`audit`. Design:
+:doc:`/architecture/decisions/0053-audit-events` and
+:doc:`/architecture/decisions/0065-audit-actors-and-coverage`.
 
 .. _reference-log-purge-api:
 

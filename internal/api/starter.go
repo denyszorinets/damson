@@ -78,7 +78,11 @@ type Starter struct{ d deps }
 func NewStarter(cfg Config) *Starter { return &Starter{d: newDeps(cfg)} }
 
 // Prepared is a run ready to insert.
-type Prepared struct{ nr store.NewRun }
+type Prepared struct {
+	nr      store.NewRun
+	project string // path of the job's project, for the audit event
+	trig    Trigger
+}
 
 // StartError is a refusal that is the job's or the trigger's fault, such as
 // options that do not match the spec. Its text names fields, never values.
@@ -97,7 +101,11 @@ func (s *Starter) Prepare(ctx context.Context, jobID string, options map[string]
 	if err != nil {
 		return Prepared{}, startError(err)
 	}
-	return Prepared{nr: nr}, nil
+	project, err := s.d.projectOfJobRow(ctx, jobID)
+	if err != nil {
+		return Prepared{}, startError(err)
+	}
+	return Prepared{nr: nr, project: project, trig: trig}, nil
 }
 
 // CheckOptions reports whether options are acceptable for the job now, with
@@ -132,6 +140,9 @@ func (s *Starter) Create(ctx context.Context, tx store.Tx, p Prepared) (string, 
 	if err != nil {
 		return "", err
 	}
+	if err := s.d.auditRunTrigger(ctx, tx, p.project, p.nr, tree.ID, p.trig); err != nil {
+		return "", err
+	}
 	if s.d.advance != nil {
 		if err := s.d.advance.Enqueue(ctx, tx, tree.ID); err != nil {
 			return "", err
@@ -150,4 +161,44 @@ func (e *invalidError) message() string {
 		parts = append(parts, f.Location+": "+f.Message)
 	}
 	return e.detail + " (" + strings.Join(parts, "; ") + ")"
+}
+
+// runTriggerDetails is the content of a run.trigger event: ids and the trigger
+// kind, never the options.
+type runTriggerDetails struct {
+	JobID        string `json:"job_id"`
+	JobVersionID string `json:"job_version_id"`
+	Trigger      string `json:"trigger"`
+	ScheduleID   string `json:"schedule_id,omitempty"`
+	WebhookID    string `json:"webhook_id,omitempty"`
+}
+
+// triggerActor is who a run is attributed to when the context names nobody:
+// the duty or webhook behind it.
+func triggerActor(t Trigger) string {
+	switch {
+	case t.Type == TriggerSchedule:
+		return "system:scheduler"
+	case t.Type == TriggerWebhook:
+		return "webhook:" + t.WebhookID
+	case t.Actor != "":
+		return t.Actor
+	}
+	return "anonymous"
+}
+
+// auditRunTrigger appends the run.trigger event in the transaction that
+// creates the run.
+func (d deps) auditRunTrigger(ctx context.Context, tx store.Tx, project string, nr store.NewRun, runID string, trig Trigger) error {
+	meta, err := store.AuditFrom(ctx)
+	if err != nil {
+		meta = store.AuditMeta{Actor: triggerActor(trig)}
+	}
+	ev, err := store.NewEventAs(meta, store.ActionRunTrigger, store.AuditTargetRun, runID, project, runTriggerDetails{
+		JobID: nr.JobID, JobVersionID: nr.JobVersionID, Trigger: trig.Type, ScheduleID: trig.ScheduleID, WebhookID: trig.WebhookID,
+	}, d.now())
+	if err != nil {
+		return err
+	}
+	return tx.AppendAuditEvent(ctx, ev)
 }
