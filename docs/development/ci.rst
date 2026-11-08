@@ -51,6 +51,14 @@ Jobs
    * - ``docs``
      - ``make docs-check`` (strict Sphinx build and linkcheck, uv project in
        ``docs/``).
+   * - ``helm``
+     - ``make helm-check``: ``helm lint --strict`` and ``helm template`` of the
+       chart in ``deploy/helm/damson`` with every values file in its ``ci/``
+       directory, plus the checks in ``deploy/helm/check.sh`` (no credential in the
+       ConfigMap, agent and controller ServiceAccounts differ, negative cases)
+       and ``TestHelmRenderedConfig``, which loads each rendered ``config.toml``
+       with ``config.Load`` (see :doc:`/reference/helm`). Installs the pinned helm release. Not a
+       required status check yet.
 
 Required status checks
 ----------------------

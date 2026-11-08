@@ -1,0 +1,15 @@
+database: {existingSecret: damson-db}
+secrets:
+  clusterSecret: {existingSecret: damson-cluster}
+  backend: openbao
+  openbao:
+    address: https://bao.example.com:8200
+    auth: {method: token, existingSecret: bao-token}
+trustForwardedProto: false
+ingress:
+  enabled: true
+  hosts: [{host: damson.example.com, paths: [{path: /}]}]
+networkPolicy: {enabled: false}
+agents:
+  pools:
+    - {name: empty, replicas: 0, tokenSecret: pool-empty}

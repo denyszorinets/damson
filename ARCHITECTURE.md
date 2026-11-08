@@ -1236,10 +1236,11 @@ An activity-diagram view (UML-like) of a job's structure. It appears in three pl
   - `damson-agent-build` adds `buildah`, `helm`, and `git`, for build pools.
   
   Agents detect the available binaries at startup and advertise them as capabilities (`bin:<name>`); **an agent offers a plugin only when every capability in its manifest `Requires` is present** and logs the plugins it withholds. `deploy/docker/Dockerfile` builds the images (targets `damson`, `damson-agent`, `damson-agent-build`; `docs/reference/images.rst`), and the "Images" workflow builds them in CI without pushing. Custom plugin sets are built with `damson build --with …` on top of either image.
-- **Kubernetes:** a Helm chart.
-  - Controller Deployment (replicas ≥ 2, PodDisruptionBudget, readiness on database plus the migrations check).
-  - Agent Deployment(s) per pool (HPA-friendly; `terminationGracePeriodSeconds` covers the drain timeout).
-  - Secrets for the KEK, the pool tokens, and the cluster secret.
+- **Kubernetes:** the Helm chart in `deploy/helm/damson` (`docs/reference/helm.rst`; `make helm-check` and the CI job `helm` lint and render it).
+  - Controller Deployment (replicas ≥ 2, anti-affinity, PodDisruptionBudget, readiness on `/readyz` = database plus the migrations check, a startup probe that allows ten minutes for migrations). Each controller advertises its pod IP as the internal URL, so IPv6-only clusters are not supported. The rolling update (`maxSurge 1`, `maxUnavailable 0`) is zero-downtime only if migrations are tolerated by the old controllers (expand/contract); back up the database first.
+  - Agent Deployment per pool (optional HPA and PDB), each pool with the agents' own ServiceAccount (no token, no cloud identity), separate from the controller's. Running steps are cancelled on pod termination, rollouts, node drains and HPA scale-down: the agent has no SIGTERM drain yet (only the controller-sent `agent.drain`), so `terminationGracePeriodSeconds` does not extend step lifetime.
+  - Controller config is generated from typed values (`values.schema.json` rejects unknown keys); `controller.config` is deep-merged over it. Secrets (DSN, cluster secret, KEK, pool tokens, OIDC, S3, OpenBao) are referenced by name only; the chart never stores a credential. Changing a Secret needs `kubectl rollout restart`.
+  - NetworkPolicy on by default (internal port reachable only from controller pods; API port open unless `networkPolicy.apiFrom` is set) and an optional Ingress.
 - **VMs:** systemd units for `damson controller` and `damson agent`. The binary has no runtime dependencies (the Ansible plugin needs ansible on that agent host).
 - **Mixed:** VM agents connect to the k8s ingress `wss://`. k8s agents connect to a VM controller. Both are fine.
 - **Postgres connections:** the pool sets `idle_in_transaction_session_timeout` to 30s (overridable in the DSN), so a controller host that dies mid-transaction cannot hold row locks until TCP keepalive notices. No transaction waits on anything but the database. Servers should also set `tcp_keepalives_*`.

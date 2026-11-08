@@ -22,6 +22,7 @@ Reference
    agent
    plugin-ssh
    images
+   helm
    plugin-ansible
    plugin-buildah
    plugin-helm

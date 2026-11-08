@@ -1,0 +1,11 @@
+apiVersion: v2
+name: damson
+description: "Damson job orchestrator: a controller Deployment (two or more replicas on PostgreSQL) and agent pools."
+type: application
+version: 0.1.0
+appVersion: "dev"
+kubeVersion: ">=1.27.0-0"
+home: https://github.com/denyszorinets/damson
+sources:
+  - https://github.com/denyszorinets/damson
+keywords: [orchestration, jobs, rundeck]

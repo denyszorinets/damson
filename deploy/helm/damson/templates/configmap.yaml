@@ -1,0 +1,67 @@
+{{- /*
+The controller configuration. It is built as a dict and rendered with toToml, so
+values keep their types and quoting. Credentials never appear here: they reach
+the pod as environment variables or mounted Secret files.
+*/ -}}
+{{- $v := .Values -}}
+{{- $cfg := dict
+  "log" (dict "level" $v.logLevel)
+  "database" (dict "driver" "postgres")
+  "controller" (dict
+    "listen" ":8080"
+    "internal_listen" (printf ":%d" (int $v.controller.internalPort))
+    "trust_forwarded_proto" (and $v.ingress.enabled (or $v.trustForwardedProto (not (empty $v.ingress.tls)))))
+  "audit" (dict "retention_days" (int $v.audit.retentionDays))
+  "auth" (dict "require_token" $v.auth.requireToken)
+  "logs" (dict "store" $v.logs.store)
+  "secrets" (dict "backend" $v.secrets.backend)
+-}}
+{{- if $v.oidc.issuer -}}
+{{- $_ := set $cfg.auth "oidc" (dict
+  "issuer" $v.oidc.issuer
+  "client_id" (required "oidc.clientId is required with oidc.issuer" $v.oidc.clientId)
+  "redirect_url" (required "oidc.redirectUrl is required with oidc.issuer" $v.oidc.redirectUrl)
+  "scopes" $v.oidc.scopes
+  "groups_claim" $v.oidc.groupsClaim) -}}
+{{- if $v.oidc.adminRule -}}{{- $_ := set $cfg.auth.oidc "admin_rule" $v.oidc.adminRule -}}{{- end -}}
+{{- end -}}
+{{- if or (eq $v.logs.store "s3") $v.logs.s3.bucket -}}
+{{- $s3 := dict
+  "region" $v.logs.s3.region
+  "bucket" (required "logs.s3.bucket is required with logs.store s3" $v.logs.s3.bucket)
+  "prefix" $v.logs.s3.prefix
+  "path_style" $v.logs.s3.pathStyle
+  "allow_plain_http" $v.logs.s3.allowPlainHttp
+  "sse" $v.logs.s3.sse -}}
+{{- if $v.logs.s3.endpoint -}}{{- $_ := set $s3 "endpoint" $v.logs.s3.endpoint -}}{{- end -}}
+{{- $_ := set $cfg.logs "s3" $s3 -}}
+{{- end -}}
+{{- if eq $v.secrets.backend "openbao" -}}
+{{- $ob := $v.secrets.openbao -}}
+{{- $auth := dict "method" $ob.auth.method -}}
+{{- if eq $ob.auth.method "kubernetes" -}}{{- $_ := set $auth "role" $ob.auth.role -}}{{- end -}}
+{{- if $ob.auth.mount -}}{{- $_ := set $auth "mount" $ob.auth.mount -}}{{- end -}}
+{{- if eq $ob.auth.method "approle" -}}{{- $_ := set $auth "role_id_file" "/etc/damson/openbao-auth/role-id" -}}{{- end -}}
+{{- if eq $ob.auth.method "token" -}}{{- $_ := set $auth "token_file" "/etc/damson/openbao-auth/token" -}}{{- end -}}
+{{- $o := dict
+  "address" (required "secrets.openbao.address is required with the openbao backend" $ob.address)
+  "namespace" $ob.namespace
+  "mount" $ob.mount
+  "prefix" $ob.prefix
+  "read_only" $ob.readOnly
+  "allow_plain_http" $ob.allowPlainHttp
+  "cache_ttl" $ob.cacheTtl
+  "auth" $auth -}}
+{{- if $ob.caSecret -}}{{- $_ := set $o "tls_ca_file" (printf "/etc/damson/openbao/%s" $ob.caKey) -}}{{- end -}}
+{{- $_ := set $cfg.secrets "openbao" $o -}}
+{{- end -}}
+{{- $cfg = mergeOverwrite $cfg (deepCopy $v.controller.config) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "damson.fullname" . }}-controller
+  labels:
+    {{- include "damson.labels" . | nindent 4 }}
+data:
+  config.toml: |
+    {{- toToml $cfg | nindent 4 }}

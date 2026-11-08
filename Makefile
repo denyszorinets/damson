@@ -9,7 +9,7 @@ GOPKGS   := $(shell go list ./... | grep -v /web/node_modules/)
 GOTESTFLAGS ?=
 SPHINX   := cd $(DOCS_DIR) && uv run --frozen
 
-.PHONY: chaos test-integration plugin-contract build test test-pg gen vet fmt-check lint check docs docs-serve docs-check web web-check
+.PHONY: helm-check chaos test-integration plugin-contract build test test-pg gen vet fmt-check lint check docs docs-serve docs-check web web-check
 
 build: ## Build the damson binary into bin/damson
 	go build -ldflags "$(LDFLAGS)" -o bin/damson ./cmd/damson
@@ -75,6 +75,10 @@ web: ## Build the SvelteKit SPA into web/build (embedded by the binary)
 
 web-check: ## Web lint (prettier + eslint), typecheck (svelte-check) and unit tests (vitest)
 	cd web && npm run lint && npm run check && npm run test:unit
+
+helm-check: ## Lint and render the Helm chart (deploy/helm) with every ci/ values file; needs helm on PATH
+	@command -v helm >/dev/null 2>&1 || { echo "helm-check: helm is not installed"; exit 1; }
+	sh deploy/helm/check.sh
 
 docs: ## Build the documentation site into docs/_build/html
 	$(SPHINX) sphinx-build -b html . _build/html
