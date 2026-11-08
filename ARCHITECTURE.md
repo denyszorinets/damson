@@ -1135,7 +1135,7 @@ All routes are under `/api/v1`, with the OpenAPI document at `/api/v1/openapi.js
 
 - **SvelteKit SPA** with `adapter-static`, built into `web/build` and embedded via `go:embed`. Served by every controller at `/`.
 - **Pages:**
-  - project tree
+  - project tree (`/projects`): create and delete projects, the caller's role per project, access rules and node scope editor (ADR-0064, ADR-0066)
   - job list and detail
   - job editor: CodeMirror JSON, validated live against the job spec schema and plugin schemas from `/api/v1/plugins`
   - run dialog: an `@sjsf/form` generated from `spec.options`; the job page also holds the Triggers section (schedules and webhooks, admin token)
@@ -1147,6 +1147,7 @@ All routes are under `/api/v1`, with the OpenAPI document at `/api/v1/openapi.js
   - service accounts and tokens (`/service-accounts`, admin token)
   - access rules
   - audit
+- **Login.** The root layout calls `GET /api/v1/me`. With OIDC configured a visitor without a session gets 401 and is sent to `/auth/login?return_to=<path+query>`, then back. Without OIDC `/me` is 200 (`anonymous` or `admin_token`) and nothing changes. The generated client adds `X-CSRF-Token` (from `/me`) to non-GET requests; the session cookie is HttpOnly. A user's admin pages use the cookie; a non-admin sees no admin links (the server still enforces). Logout posts `/auth/logout`, then goes to the provider's `end_session_url`. `auth.require_token` is not defaulted to true: without OIDC the UI has no login (ADR-0064).
 - **Plugin UIs are generated from schemas.** No plugin ships custom frontend code in v1. A visual step-form editor (per-plugin `@sjsf/form` from the input schema) is a v1.1 nicety; the JSON editor is the v1 baseline.
 - The API client is generated (`openapi-typescript`). Hand-written fetch code is not allowed.
 - `@sjsf/form` has a single maintainer, so wrap it behind one internal `SchemaForm.svelte` component. That way it can be swapped out.

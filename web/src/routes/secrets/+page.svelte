@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SESSION_TOKEN } from '$lib/session';
 	import { onMount } from 'svelte';
 	import * as Alert from '$lib/components/ui/alert';
 	import * as Table from '$lib/components/ui/table';
@@ -184,7 +185,10 @@
 			<div class="flex gap-2">
 				<Button data-testid="new-secret" onclick={openCreate} disabled={formOpen}>New secret</Button
 				>
-				<Button variant="outline" data-testid="forget-token" onclick={forget}>Forget token</Button>
+				{#if token !== SESSION_TOKEN}
+					<Button variant="outline" data-testid="forget-token" onclick={forget}>Forget token</Button
+					>
+				{/if}
 			</div>
 		{/if}
 	</div>

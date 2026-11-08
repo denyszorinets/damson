@@ -13,7 +13,7 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"test:e2e": "playwright test",
+		"test:e2e": "playwright test && playwright test -c playwright.oidc.config.ts",
 		"lint": "prettier --check . && eslint .",
 		"gen:api": "openapi-typescript openapi.json -o src/lib/api/schema.d.ts",
 		"format": "prettier --write .",

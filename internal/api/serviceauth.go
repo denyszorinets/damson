@@ -131,7 +131,7 @@ func authorize(api huma.API, d deps) func(ctx huma.Context, next func(huma.Conte
 			next(ctx)
 			return
 		}
-		p, status, msg := d.authenticate(ctx)
+		p, status, msg := d.authenticate(ctx, op.OperationID == meOperation)
 		if status != 0 {
 			deny(ctx, status, msg)
 			return
@@ -209,7 +209,7 @@ const meOperation = "get-me"
 // token or a service token), else with OIDC on the session cookie. A token that
 // is sent always wins over a cookie. A zero principal and status 0 mean
 // anonymous; otherwise status and msg are the refusal.
-func (d deps) authenticate(ctx huma.Context) (p Principal, status int, msg string) {
+func (d deps) authenticate(ctx huma.Context, anonymousOK bool) (p Principal, status int, msg string) {
 	h := ctx.Header("Authorization")
 	tok := ""
 	if len(h) >= 7 && strings.EqualFold(h[:7], "Bearer ") {
@@ -221,7 +221,7 @@ func (d deps) authenticate(ctx huma.Context) (p Principal, status int, msg strin
 		return p, http.StatusUnauthorized, "send the token as: Authorization: Bearer <token>"
 	}
 	if tok == "" {
-		return d.authenticateCookie(ctx)
+		return d.authenticateCookie(ctx, anonymousOK)
 	}
 	if d.ds == nil {
 		return p, http.StatusServiceUnavailable, "a required dependency is not available"
@@ -247,10 +247,11 @@ func (d deps) authenticate(ctx huma.Context) (p Principal, status int, msg strin
 }
 
 // authenticateCookie is the no-token case: a session with OIDC on, otherwise
-// anonymous unless RequireToken is set.
-func (d deps) authenticateCookie(ctx huma.Context) (p Principal, status int, msg string) {
+// anonymous unless RequireToken is set. anonymousOK (the /me route) stays
+// anonymous either way, so the UI can tell it must ask for a token.
+func (d deps) authenticateCookie(ctx huma.Context, anonymousOK bool) (p Principal, status int, msg string) {
 	if d.oidc == nil {
-		if d.requireToken {
+		if d.requireToken && !anonymousOK {
 			return p, http.StatusUnauthorized, "a token is required"
 		}
 		return p, 0, ""

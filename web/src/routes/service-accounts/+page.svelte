@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SESSION_TOKEN } from '$lib/session';
 	import { onMount } from 'svelte';
 	import * as Alert from '$lib/components/ui/alert';
 	import * as Table from '$lib/components/ui/table';
@@ -96,7 +97,9 @@
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold">Service accounts</h1>
 		{#if token}
-			<Button variant="outline" data-testid="forget-token" onclick={forget}>Forget token</Button>
+			{#if token !== SESSION_TOKEN}
+				<Button variant="outline" data-testid="forget-token" onclick={forget}>Forget token</Button>
+			{/if}
 		{/if}
 	</div>
 

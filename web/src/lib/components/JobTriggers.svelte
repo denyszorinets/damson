@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SESSION_TOKEN } from '$lib/session';
 	// Schedules and webhooks of a job. Both are admin operations until M8, so the
 	// section asks for the admin token (kept in this tab only).
 	import { onMount } from 'svelte';
@@ -120,7 +121,9 @@
 	<div class="flex items-center justify-between">
 		<h2 class="text-lg font-medium">Triggers</h2>
 		{#if token}
-			<Button variant="outline" data-testid="forget-token" onclick={forget}>Forget token</Button>
+			{#if token !== SESSION_TOKEN}
+				<Button variant="outline" data-testid="forget-token" onclick={forget}>Forget token</Button>
+			{/if}
 		{/if}
 	</div>
 

@@ -99,6 +99,9 @@ Pages
    The run view: the run's graph with live status, and a table of step
    instances below it (see :ref:`web-ui-run-view`).
 
+``/projects``
+   The project tree (see :ref:`web-ui-login`).
+
 ``/secrets``
    Secret metadata and management (see :ref:`web-ui-secrets`).
 
@@ -362,3 +365,59 @@ End-to-end tests
 temporary directory and starts ``damson dev`` (controller plus one agent in one
 process, SQLite in a temporary directory) on ``127.0.0.1:4174``. The tests in
 ``web/e2e`` run against that real API, so they need the Go toolchain.
+
+.. _web-ui-login:
+
+Login, sessions and projects
+----------------------------
+
+**Login flow.** The root layout load calls ``GET /api/v1/me``. With OIDC
+configured, a visitor without a session gets ``401`` and the browser goes to
+``/auth/login?return_to=<path and query>`` (a path on the site only), then back
+to where it was headed. Without OIDC, ``/me`` answers ``200`` as
+``anonymous`` or ``admin_token`` and the admin pages keep their admin token
+prompt.
+
+**Session and CSRF.** The session cookie is HttpOnly; JavaScript never reads it.
+The generated client (openapi-fetch) adds ``X-CSRF-Token`` (from
+``/me.csrf_token``) to non-``GET`` requests. For a logged-in user,
+``lib/admin.ts`` ``loadToken()`` returns the sentinel ``'session'``; ``headers()``
+omits ``Authorization`` for it and for an empty token (an empty bearer is a
+``401``). A user who is not an instance admin sees no admin links in the nav; the
+server still enforces (``403``). The user menu shows the email and **Log out**,
+which posts ``/auth/logout`` with the CSRF header and then navigates to the
+provider's ``end_session_url`` (or home).
+
+**Projects page.** ``/projects`` shows the tree indented by depth, with each
+project's ``my_role`` badge. The create form takes a parent (chosen from the
+projects the caller administers, or top level for an instance admin), a name and
+a description. **Delete** shows when the caller is admin on the parent (instance
+admin for a root project). **Rules and scope** opens, for projects the caller
+administers, an editor for access rules (role select and CEL rule text, add and
+remove, Save; a server ``422`` is shown at the rule position, for example
+``body.rules[0].rule``) and the node scope (one CEL line, Save; a ``422`` is
+shown). Both share the project version: after one saves, the other refetches its
+version. Controls are hidden by ``my_role`` only as a convenience; the server
+decides.
+
+OIDC end-to-end tests
+~~~~~~~~~~~~~~~~~~~~~
+
+``web/playwright.oidc.config.ts`` runs ``web/e2e-oidc/auth.test.ts`` against
+``damson dev`` with OIDC (app on ``127.0.0.1:4175``) and a fake provider,
+``internal/auth/oidctest/cmd/fakeidp`` (``127.0.0.1:4191``). The provider
+approves every login at once as the user last set by
+``POST /_login-as?sub=<sub>``: ``alice`` (instance admin through the
+``admin_rule`` ``damson-admins`` in ``claims.groups``), ``bob`` (runner through a
+team rule), ``carol`` (viewer), ``dave`` and ``erin`` (no rule). Run it with
+``npx playwright test -c playwright.oidc.config.ts`` in ``web/``;
+``npm run test:e2e`` runs the existing suite and this one.
+
+Scenarios: redirect to login and back; an admin builds ``team``, ``team/web`` and
+``ops``, writes rules (an invalid rule is refused with its position) and a node
+scope; a runner sees only their projects (``ops`` is ``404`` by API, ``403`` on
+writes, ``403`` without CSRF); a viewer is read-only; a user with no rule sees
+nothing; logout ends the session.
+
+``cmd/fakeidp`` is a separate ``main`` package, not part of the ``damson``
+binary. It must never be deployed.
