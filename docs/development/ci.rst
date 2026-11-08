@@ -59,6 +59,17 @@ Jobs
        and ``TestHelmRenderedConfig``, which loads each rendered ``config.toml``
        with ``config.Load`` (see :doc:`/reference/helm`). Installs the pinned helm release. Not a
        required status check yet.
+   * - ``systemd``
+     - ``make systemd-check``: ``systemd-analyze verify`` of the units in
+       ``deploy/systemd``, a check that the core hardening lines are present
+       and that the example environment files hold only placeholders (see
+       :doc:`/reference/systemd`).
+   * - Bundle workflow
+     - ``.github/workflows/bundle.yml``: builds the offline bundle with
+       ``make bundle`` and verifies its checksums and contents. Runs on pull
+       requests touching ``deploy/bundle`` or ``deploy/systemd`` and on manual
+       dispatch (``with_images`` adds the container images); see
+       :doc:`/reference/offline-bundle`.
 
 Required status checks
 ----------------------

@@ -1241,11 +1241,11 @@ An activity-diagram view (UML-like) of a job's structure. It appears in three pl
   - Agent Deployment per pool (optional HPA and PDB), each pool with the agents' own ServiceAccount (no token, no cloud identity), separate from the controller's. Running steps are cancelled on pod termination, rollouts, node drains and HPA scale-down: the agent has no SIGTERM drain yet (only the controller-sent `agent.drain`), so `terminationGracePeriodSeconds` does not extend step lifetime.
   - Controller config is generated from typed values (`values.schema.json` rejects unknown keys); `controller.config` is deep-merged over it. Secrets (DSN, cluster secret, KEK, pool tokens, OIDC, S3, OpenBao) are referenced by name only; the chart never stores a credential. Changing a Secret needs `kubectl rollout restart`.
   - NetworkPolicy on by default (internal port reachable only from controller pods; API port open unless `networkPolicy.apiFrom` is set) and an optional Ingress.
-- **VMs:** systemd units for `damson controller` and `damson agent`. The binary has no runtime dependencies (the Ansible plugin needs ansible on that agent host).
+- **VMs:** hardened systemd units for `damson controller` and `damson agent` in `deploy/systemd` (credentials only in `EnvironmentFile`s of mode 0600, `systemd-sysusers` service user; guide: `docs/reference/systemd.rst`). The binary has no runtime dependencies (the Ansible plugin needs ansible on that agent host).
 - **Mixed:** VM agents connect to the k8s ingress `wss://`. k8s agents connect to a VM controller. Both are fine.
 - **Postgres connections:** the pool sets `idle_in_transaction_session_timeout` to 30s (overridable in the DSN), so a controller host that dies mid-transaction cannot hold row locks until TCP keepalive notices. No transaction waits on anything but the database. Servers should also set `tcp_keepalives_*`.
 - **Migrations:** `damson migrate up` runs explicitly, or controllers run it at start behind a database advisory lock (Postgres) with `--auto-migrate`.
-- **Air-gapped:** no runtime internet access. Offline bundle: images + Helm chart + binaries + checksums.
+- **Air-gapped:** no runtime internet access. Offline bundle (`make bundle`, `deploy/bundle`): static binaries, Helm chart, systemd units, optional container images (`WITH_IMAGES=1`) and `SHA256SUMS`; see `docs/reference/offline-bundle.rst`.
 - **Dev:** `damson dev` runs a controller and an agent in one process with SQLite, the fs log store, and the db secret backend. Docker Compose provides Postgres, an S3-compatible server, and sshd and FTP test targets.
 
 ---

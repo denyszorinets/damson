@@ -1,0 +1,15 @@
+Damson offline bundle
+
+  1. Verify:    sha256sum -c ../<archive>.sha256   (before unpacking)
+                ./verify.sh                        (after unpacking)
+  2. Binaries:  bin/damson-linux-amd64, bin/damson-linux-arm64 (static, no
+                runtime dependencies). Install one as /usr/local/bin/damson.
+  3. VMs:       systemd/ holds the units, the sysusers file and example
+                configuration. See the "Install on VMs" guide in the docs.
+  4. Kubernetes: chart/damson-*.tgz is the Helm chart:
+                  helm install damson chart/damson-*.tgz -f values.yaml
+                If the bundle has images/, load them into your registry:
+                  ./load-images.sh registry.example.com/damson
+                and set image.repository / agents.image.repository.
+
+No file in this bundle talks to the internet when it runs.
