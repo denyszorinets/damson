@@ -68,7 +68,9 @@ func TestCompleteRetriedAcrossReconnect(t *testing.T) {
 		return protocol.StepCompleteAck{Acknowledged: true, Stale: !first}, nil
 	}
 	startAgent(t, ctl, []pluginsdk.Plugin{succeed()})
-	ctl.mustExecute(stepReq("a1"))
+	// The handler above closes the connection when the step completes, which can
+	// beat the execute reply; the agent holds the result either way.
+	_, _ = ctl.execute(stepReq("a1"))
 
 	hellos := ctl.waitHellos(2)
 	if got := hellos[1].Executions; len(got) != 1 || got[0].AttemptID != "a1" || got[0].State != protocol.ExecFinished {
