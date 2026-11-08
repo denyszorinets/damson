@@ -1,0 +1,12 @@
+# /etc/damson/controller.toml: no credentials here, they come from controller.env.
+[log]
+level = "info"
+
+[database]
+driver = "postgres"
+
+[controller]
+listen = ":8080"
+internal_listen = ":8081"
+# Behind a TLS-terminating proxy that sets X-Forwarded-Proto:
+# trust_forwarded_proto = true

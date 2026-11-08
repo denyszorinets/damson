@@ -1,0 +1,54 @@
+[Unit]
+Description=Damson agent
+Documentation=https://github.com/denyszorinets/damson
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=damson
+Group=damson
+# The environment file holds the pool token (DAMSON_AGENT__TOKEN).
+EnvironmentFile=/etc/damson/agent.env
+Environment=DAMSON_CONFIG=/etc/damson/agent.toml
+ExecStart=/usr/local/bin/damson agent
+Restart=on-failure
+RestartSec=5s
+# On stop the agent cancels running steps, giving them 5 seconds.
+TimeoutStopSec=30s
+StateDirectory=damson-agent
+StateDirectoryMode=0750
+WorkingDirectory=/var/lib/damson-agent
+LimitNOFILE=65536
+
+# Hardening. An agent runs job code (ssh, ansible, git, helm), so it keeps the
+# ability to start processes and to reach the network; it gets no capabilities, no
+# privilege escalation and a read-only system. Loosen what a job needs with a
+# drop-in (systemctl edit damson-agent), for example ReadWritePaths= or
+# SystemCallFilter=.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+UMask=0077
+Environment=HOME=/var/lib/damson-agent
+# The log spool survives restarts in the state directory.
+Environment=DAMSON_AGENT__SPOOL_DIR=/var/lib/damson-agent
+
+[Install]
+WantedBy=multi-user.target

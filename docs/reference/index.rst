@@ -23,6 +23,8 @@ Reference
    plugin-ssh
    images
    helm
+   systemd
+   offline-bundle
    plugin-ansible
    plugin-buildah
    plugin-helm

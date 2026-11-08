@@ -1,0 +1,2 @@
+# The service user of the controller and the agent (systemd-sysusers).
+u damson - "Damson job orchestrator" /var/lib/damson /usr/sbin/nologin
