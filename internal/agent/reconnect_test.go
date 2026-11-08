@@ -120,7 +120,9 @@ func TestReconciliationDiscardsFinishedResult(t *testing.T) {
 		return resp
 	}
 	startAgent(t, ctl, []pluginsdk.Plugin{succeed()})
-	ctl.mustExecute(stepReq("a1"))
+	// The step can finish and the handler above close the connection before the
+	// execute reply is written, so a lost reply is not a failure here.
+	_, _ = ctl.execute(stepReq("a1"))
 	ctl.waitHellos(2)
 	time.Sleep(150 * time.Millisecond)
 	if n := len(ctl.completeList()); n != 1 {
