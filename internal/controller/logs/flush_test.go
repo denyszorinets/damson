@@ -178,14 +178,14 @@ func TestAck_NotSentWhenCommitFails(t *testing.T) {
 			f.mustSend(1, 0, "a", "b")
 			bad := failingStore{Store: f.st}
 			tc.fail(&bad)
-			f.in.cfg.Store = bad
+			f.useStore(bad)
 			require.Error(t, f.in.Flush(context.Background(), f.exec.ID))
 			assert.Empty(t, f.acks.all())
 			assert.Empty(t, f.chunks())
 			assert.EqualValues(t, 1, f.in.Stats().FlushErrors)
 
 			// lines are kept and written once the store recovers
-			f.in.cfg.Store = f.st
+			f.useStore(f.st)
 			f.flush()
 			assert.Equal(t, [][2]int64{{1, 2}}, f.ranges())
 			assert.EqualValues(t, 2, f.acks.last(f.exec.AttemptID))
@@ -198,7 +198,7 @@ func TestFlush_PartialFailureAcksOnlyCommittedRun(t *testing.T) {
 	f.mustSend(1, 0, "a", "b")
 	f.mustSend(3, 4, "e") // declared gap 3-4 makes a second chunk
 	flaky := &flakyInsert{Store: f.st, failFrom: 5}
-	f.in.cfg.Store = flaky
+	f.useStore(flaky)
 	require.Error(t, f.in.Flush(context.Background(), f.exec.ID))
 	assert.Equal(t, [][2]int64{{1, 2}}, f.ranges())
 	assert.EqualValues(t, 4, f.acks.last(f.exec.AttemptID), "ack stops before the uncommitted run (the declared gap 3-4 counts as contiguous)")
@@ -241,9 +241,9 @@ func TestFinish_FlushesAndReleases(t *testing.T) {
 func TestFinish_KeepsStateWhenFlushFails(t *testing.T) {
 	f := newFx(t, openSQLite(t))
 	f.mustSend(1, 0, "a")
-	f.in.cfg.Store = failingStore{Store: f.st, putErr: errors.New("down")}
+	f.useStore(failingStore{Store: f.st, putErr: errors.New("down")})
 	require.Error(t, f.in.Finish(context.Background(), f.exec.ID))
-	f.in.cfg.Store = f.st
+	f.useStore(f.st)
 	require.NoError(t, f.in.Finish(context.Background(), f.exec.ID))
 	assert.Equal(t, [][2]int64{{1, 1}}, f.ranges())
 }

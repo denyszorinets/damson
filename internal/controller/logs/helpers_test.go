@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/denyszorinets/damson/internal/logblob"
 	"github.com/denyszorinets/damson/internal/protocol"
 	"github.com/denyszorinets/damson/internal/store"
 	"github.com/denyszorinets/damson/pkg/pluginsdk"
@@ -140,7 +141,7 @@ func newFx(t *testing.T, st store.Store, opts ...func(*Config)) *fx {
 	f := &fx{t: t, st: st, clock: newFakeClock(), acks: &ackLog{}, logs: &syncBuf{}}
 	f.exec = seedExecution(t, st)
 	cfg := Config{
-		Store: st, Acks: f.acks.send, Clock: f.clock.Clock(),
+		Store: st, Acks: f.acks.send, Clock: f.clock.Clock(), Blobs: logblob.DBOnly(st),
 		Logger: slog.New(slog.NewJSONHandler(f.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	}
 	for _, o := range opts {
@@ -266,4 +267,10 @@ func seqs(lines []Line) []int64 {
 		out[i] = l.Seq
 	}
 	return out
+}
+
+// useStore swaps the store the ingest writes to, objects included.
+func (f *fx) useStore(s Store) {
+	f.in.cfg.Store = s
+	f.in.cfg.Blobs = logblob.DBOnly(s)
 }

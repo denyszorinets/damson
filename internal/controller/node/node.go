@@ -21,12 +21,14 @@ import (
 	"github.com/denyszorinets/damson/internal/controller/internalauth"
 	"github.com/denyszorinets/damson/internal/controller/leader"
 	"github.com/denyszorinets/damson/internal/controller/logs"
+	"github.com/denyszorinets/damson/internal/controller/logsweep"
 	"github.com/denyszorinets/damson/internal/controller/scheduler"
 	"github.com/denyszorinets/damson/internal/controller/tailproxy"
 	"github.com/denyszorinets/damson/internal/devnodes"
 	"github.com/denyszorinets/damson/internal/engine"
 	"github.com/denyszorinets/damson/internal/expr"
 	"github.com/denyszorinets/damson/internal/inventory"
+	"github.com/denyszorinets/damson/internal/logblob"
 	"github.com/denyszorinets/damson/internal/pluginreg"
 	"github.com/denyszorinets/damson/internal/protocol"
 	secretsdb "github.com/denyszorinets/damson/internal/secrets/db"
@@ -52,6 +54,8 @@ type Config struct {
 	ControllerID string
 	InternalURL  string
 	Plugins      *pluginreg.Registry
+	// LogBlobs are the log object backends; nil means the database only.
+	LogBlobs *logblob.Set
 	// FinallyGrace is how long finally blocks may run after a cancel or the
 	// job timeout; zero selects the engine default. All controllers of a
 	// cluster must use the same value.
@@ -104,6 +108,8 @@ type Node struct {
 	gw    *controller.Gateway
 	adv   *advance.Advancer
 	logs  *logs.Ingest
+	sweep *logsweep.Sweeper
+	blobs *logblob.Set
 	disp  *dispatch.Dispatcher
 	lead  *leader.Elector
 	only  *leader.Elector // single-controller guard, nil unless SingleController
@@ -158,6 +164,9 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 		Stream: cfg.Stream, RequireToken: cfg.RequireToken, OIDC: cfg.OIDC,
 		Mounts: map[string]http.Handler{controller.ConnectPath: gw.Handler()},
 	}
+	if n.blobs != nil { // a nil *Set must not become a non-nil interface
+		apiCfg.LogBlobs = n.blobs
+	}
 	if n.adv != nil {
 		apiCfg.Advance, apiCfg.RunNotify = n.adv, n.adv.Hub()
 		apiCfg.LogTail = n.tail
@@ -201,7 +210,13 @@ func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("creating run advancer: %w", err)
 	}
 	gw := n.gw
-	if n.logs, err = logs.New(logs.Config{Store: cfg.Store, Logger: log, Acks: func(ctx context.Context, agentID string, ack protocol.LogAck) error {
+	if n.blobs = cfg.LogBlobs; n.blobs == nil {
+		n.blobs = logblob.DBOnly(cfg.Store)
+	}
+	if n.sweep, err = logsweep.New(logsweep.Config{Store: cfg.Store, Backends: n.blobs.External(), Logger: log}); err != nil {
+		return fmt.Errorf("creating log sweeper: %w", err)
+	}
+	if n.logs, err = logs.New(logs.Config{Store: cfg.Store, Logger: log, Blobs: n.blobs, Acks: func(ctx context.Context, agentID string, ack protocol.LogAck) error {
 		peer, ok := gw.Peer(agentID)
 		if !ok {
 			return errors.New("agent not connected")
@@ -239,7 +254,7 @@ func (n *Node) startOrchestration(ctx context.Context, cfg Config) error {
 	for _, step := range []struct {
 		name  string
 		start func(context.Context) error
-	}{{"run.advance", n.adv.Start}, {"log ingest", n.logs.Start}, {"leader elector", n.lead.Start}, {"dispatcher", n.disp.Start}, {"internal listener", n.startInternal}, {"agent gateway", gw.Start}} {
+	}{{"run.advance", n.adv.Start}, {"log ingest", n.logs.Start}, {"log sweeper", n.sweep.Start}, {"leader elector", n.lead.Start}, {"dispatcher", n.disp.Start}, {"internal listener", n.startInternal}, {"agent gateway", gw.Start}} {
 		if err := step.start(ctx); err != nil {
 			return errors.Join(fmt.Errorf("starting %s: %w", step.name, err), n.stopOrchestration(context.WithoutCancel(ctx)))
 		}
@@ -271,7 +286,7 @@ func (n *Node) stopOrchestration(ctx context.Context) error {
 	if n.disp == nil { // unmigrated, or construction failed part-way
 		return errors.Join(n.gw.Stop(ctx), n.stopGuard(ctx))
 	}
-	return errors.Join(n.stopInternal(ctx), n.disp.Stop(ctx), n.lead.Stop(ctx), n.gw.Stop(ctx), n.logs.Stop(ctx), n.adv.Stop(ctx), n.stopGuard(ctx))
+	return errors.Join(n.stopInternal(ctx), n.disp.Stop(ctx), n.lead.Stop(ctx), n.gw.Stop(ctx), n.logs.Stop(ctx), n.sweep.Stop(ctx), n.adv.Stop(ctx), n.stopGuard(ctx))
 }
 
 // setupTail chooses the live log tail of the API: this controller's own buffer,

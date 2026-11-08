@@ -1377,9 +1377,14 @@ export interface components {
             chunks: number;
             /**
              * Format: int64
-             * @description Stored log objects removed.
+             * @description Log objects removed from the database.
              */
             objects: number;
+            /**
+             * Format: int64
+             * @description Object prefixes queued for deletion from an external log store (s3); removed within about a minute.
+             */
+            queued: number;
         };
         PutAccessBody: {
             /**

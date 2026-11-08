@@ -11,6 +11,47 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countExternalLogChunks = `-- name: CountExternalLogChunks :one
+SELECT count(*) FROM log_chunks WHERE execution_id = $1 AND backend <> 'db'
+`
+
+func (q *Queries) CountExternalLogChunks(ctx context.Context, executionID string) (int64, error) {
+	row := q.db.QueryRow(ctx, countExternalLogChunks, executionID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countLogObjectDeletes = `-- name: CountLogObjectDeletes :one
+SELECT count(*) FROM log_object_deletes
+`
+
+func (q *Queries) CountLogObjectDeletes(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countLogObjectDeletes)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const deferLogObjectDeleteCAS = `-- name: DeferLogObjectDeleteCAS :execrows
+UPDATE log_object_deletes SET not_before = $1, tries = tries + 1
+WHERE id = $2 AND not_before = $3
+`
+
+type DeferLogObjectDeleteCASParams struct {
+	Next pgtype.Timestamptz
+	ID   string
+	Seen pgtype.Timestamptz
+}
+
+func (q *Queries) DeferLogObjectDeleteCAS(ctx context.Context, arg DeferLogObjectDeleteCASParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deferLogObjectDeleteCAS, arg.Next, arg.ID, arg.Seen)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteLogChunksOfExecution = `-- name: DeleteLogChunksOfExecution :execrows
 DELETE FROM log_chunks WHERE execution_id = $1
 `
@@ -35,6 +76,23 @@ type DeleteLogDataPrefixParams struct {
 // substr is used instead of LIKE: SQLite LIKE is case-insensitive.
 func (q *Queries) DeleteLogDataPrefix(ctx context.Context, arg DeleteLogDataPrefixParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteLogDataPrefix, arg.PrefixLen, arg.Prefix)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteLogObjectDeleteCAS = `-- name: DeleteLogObjectDeleteCAS :execrows
+DELETE FROM log_object_deletes WHERE id = $1 AND not_before = $2
+`
+
+type DeleteLogObjectDeleteCASParams struct {
+	ID   string
+	Seen pgtype.Timestamptz
+}
+
+func (q *Queries) DeleteLogObjectDeleteCAS(ctx context.Context, arg DeleteLogObjectDeleteCASParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteLogObjectDeleteCAS, arg.ID, arg.Seen)
 	if err != nil {
 		return 0, err
 	}
@@ -88,6 +146,70 @@ func (q *Queries) InsertLogChunk(ctx context.Context, arg InsertLogChunkParams) 
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const insertLogObjectDelete = `-- name: InsertLogObjectDelete :exec
+INSERT INTO log_object_deletes (id, prefix, not_before, created_at)
+VALUES ($1, $2, $3, $4)
+`
+
+type InsertLogObjectDeleteParams struct {
+	ID        string
+	Prefix    string
+	NotBefore pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
+}
+
+func (q *Queries) InsertLogObjectDelete(ctx context.Context, arg InsertLogObjectDeleteParams) error {
+	_, err := q.db.Exec(ctx, insertLogObjectDelete,
+		arg.ID,
+		arg.Prefix,
+		arg.NotBefore,
+		arg.CreatedAt,
+	)
+	return err
+}
+
+const listDueLogObjectDeletes = `-- name: ListDueLogObjectDeletes :many
+SELECT id, prefix, not_before, tries FROM log_object_deletes
+WHERE not_before <= $1 ORDER BY not_before, id LIMIT $2
+`
+
+type ListDueLogObjectDeletesParams struct {
+	Now      pgtype.Timestamptz
+	RowLimit int32
+}
+
+type ListDueLogObjectDeletesRow struct {
+	ID        string
+	Prefix    string
+	NotBefore pgtype.Timestamptz
+	Tries     int32
+}
+
+func (q *Queries) ListDueLogObjectDeletes(ctx context.Context, arg ListDueLogObjectDeletesParams) ([]ListDueLogObjectDeletesRow, error) {
+	rows, err := q.db.Query(ctx, listDueLogObjectDeletes, arg.Now, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDueLogObjectDeletesRow
+	for rows.Next() {
+		var i ListDueLogObjectDeletesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Prefix,
+			&i.NotBefore,
+			&i.Tries,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listLogChunks = `-- name: ListLogChunks :many

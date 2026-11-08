@@ -204,7 +204,7 @@ func TestFencing_CachedAttemptIsOnlyTrustedForTTL(t *testing.T) {
 func TestFencing_StoreLookupErrorIsReported(t *testing.T) {
 	f := newFx(t, openSQLite(t))
 	boom := errors.New("db down")
-	f.in.cfg.Store = failingStore{Store: f.st, getErr: boom}
+	f.useStore(failingStore{Store: f.st, getErr: boom})
 	err := f.send(1, 0, "a")
 	require.ErrorIs(t, err, boom)
 	assert.Zero(t, f.in.Stats().StaleBatches, "a transient error is not a fencing verdict")
@@ -244,7 +244,7 @@ func TestLogsNeverContainLineText(t *testing.T) {
 	f.mustSend(1, 0, secretish)
 	require.NoError(t, f.sendAs("unknown", 1, 0, secretish))
 	f.flush()
-	f.in.cfg.Store = failingStore{Store: f.st, putErr: errors.New("disk full")}
+	f.useStore(failingStore{Store: f.st, putErr: errors.New("disk full")})
 	f.mustSend(2, 0, secretish)
 	require.Error(t, f.in.Flush(context.Background(), f.exec.ID))
 	require.NoError(t, f.in.Finish(context.Background(), "nope"))

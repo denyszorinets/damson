@@ -372,7 +372,7 @@ func (l *logStream) sendChunk(ctx context.Context, c store.LogChunk) bool {
 		}
 		// The manifest row is committed after the object, so a missing or
 		// unreadable object is a loss, not a race.
-		loggerFromCtx(ctx).Warn("log stream: chunk unreadable", "execution_id", l.execID, "seq_from", c.SeqFrom, "error", err)
+		loggerFromCtx(ctx).Warn("log stream: chunk unreadable", "execution_id", l.execID, "seq_from", c.SeqFrom, "backend", c.Backend, "error", err)
 		return l.gap(max(l.next, c.SeqFrom), c.SeqTo)
 	}
 	for i, ln := range lines {
@@ -398,7 +398,13 @@ type storedLine struct {
 }
 
 func (l *logStream) readChunk(ctx context.Context, c store.LogChunk) ([]LogLine, error) {
-	data, err := l.d.ds.GetLogData(ctx, c.ObjectKey)
+	var data []byte
+	var err error
+	if l.d.logs != nil {
+		data, err = l.d.logs.Get(ctx, c.Backend, c.ObjectKey)
+	} else {
+		data, err = l.d.ds.GetLogData(ctx, c.ObjectKey)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("reading chunk object: %w", err)
 	}

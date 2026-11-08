@@ -118,7 +118,7 @@ func TestRegister_AfterRefusalLaterBatchesAreDropped(t *testing.T) {
 	f.in.Register(ctl, "agent-1")
 
 	f.in.cache.forget(f.exec.AttemptID)
-	f.in.cfg.Store = failingStore{Store: f.st, getErr: errors.New("db timeout")}
+	f.useStore(failingStore{Store: f.st, getErr: errors.New("db timeout")})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
@@ -139,7 +139,7 @@ func TestRegister_AfterRefusalLaterBatchesAreDropped(t *testing.T) {
 		AttemptID: f.exec.AttemptID, SeqFrom: 1, Entries: entries(numbered(1, 10)...),
 	}))
 	waitFor(t, "refusal", func() bool { return f.in.Stats().BatchesRefused == 1 })
-	f.in.cfg.Store = f.st
+	f.useStore(f.st)
 	_ = agent.Notify(ctx, protocol.MethodLogAppend, protocol.LogAppend{
 		AttemptID: f.exec.AttemptID, SeqFrom: 11, Entries: entries(numbered(11, 10)...),
 	}) // may fail if the close already won; either way nothing may be ingested

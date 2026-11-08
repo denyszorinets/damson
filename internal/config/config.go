@@ -35,6 +35,7 @@ type Config struct {
 	Auth       Auth       `koanf:"auth"`
 	Agent      Agent      `koanf:"agent"`
 	Secrets    Secrets    `koanf:"secrets"`
+	Logs       Logs       `koanf:"logs"`
 }
 
 // Log configures the slog JSON logger.
@@ -199,6 +200,8 @@ func (c Config) Redacted() Config {
 	c.Secrets.KEK = redact(c.Secrets.KEK)
 	c.Secrets.KEKPrevious = redact(c.Secrets.KEKPrevious)
 	c.Auth.OIDC.ClientSecret = redact(c.Auth.OIDC.ClientSecret)
+	c.Logs.S3.SecretAccessKey = redact(c.Logs.S3.SecretAccessKey)
+	c.Logs.S3.SessionToken = redact(c.Logs.S3.SessionToken)
 	return c
 }
 
@@ -237,6 +240,20 @@ func defaults() map[string]any {
 		"auth.oidc.groups_claim":             "groups",
 		"auth.oidc.admin_rule":               "",
 		"auth.oidc.post_logout_redirect_url": "",
+		"logs.store":                         LogStoreDB,
+		"logs.s3.endpoint":                   "",
+		"logs.s3.region":                     "",
+		"logs.s3.bucket":                     "",
+		"logs.s3.prefix":                     "",
+		"logs.s3.path_style":                 false,
+		"logs.s3.allow_plain_http":           false,
+		"logs.s3.tls_ca_file":                "",
+		"logs.s3.access_key_id":              "",
+		"logs.s3.secret_access_key":          "",
+		"logs.s3.secret_access_key_file":     "",
+		"logs.s3.session_token":              "",
+		"logs.s3.sse":                        "",
+		"logs.s3.sse_kms_key_id":             "",
 		"agent.controller_url":               "",
 		"agent.token":                        "",
 		"agent.pool":                         "default",

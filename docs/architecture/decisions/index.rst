@@ -207,6 +207,9 @@ change nothing until accepted.
    * - 0066
      - :doc:`0066-project-node-scope`
      - Accepted
+   * - 0067
+     - :doc:`0067-s3-log-store-and-deferred-deletes`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -277,3 +280,4 @@ change nothing until accepted.
    0064-access-rules-and-authorization
    0065-audit-actors-and-coverage
    0066-project-node-scope
+   0067-s3-log-store-and-deferred-deletes

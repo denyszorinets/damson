@@ -18,6 +18,7 @@ import (
 	"github.com/denyszorinets/damson/internal/controller/logs"
 	"github.com/denyszorinets/damson/internal/engine"
 	"github.com/denyszorinets/damson/internal/expr"
+	"github.com/denyszorinets/damson/internal/logblob"
 	"github.com/denyszorinets/damson/internal/pluginreg"
 	"github.com/denyszorinets/damson/internal/protocol"
 	"github.com/denyszorinets/damson/internal/store"
@@ -135,7 +136,7 @@ func startClusterWith(t *testing.T, st store.Store, spec string, log *slog.Logge
 	if err != nil {
 		t.Fatal(err)
 	}
-	ing, err := logs.New(logs.Config{Store: st, Logger: log, FlushInterval: time.Hour, CheckInterval: 20 * time.Millisecond,
+	ing, err := logs.New(logs.Config{Store: st, Blobs: logblob.DBOnly(st), Logger: log, FlushInterval: time.Hour, CheckInterval: 20 * time.Millisecond,
 		Acks: func(ctx context.Context, id string, ack protocol.LogAck) error {
 			p, ok := gw.Peer(id)
 			if !ok {

@@ -3,7 +3,8 @@ ADR-0053: Audit events: table, interim actors, secret writes
 
 :Status: Accepted
 :Date: 2026-11-06
-:Amended by: :doc:`0065-audit-actors-and-coverage` (actors, coverage, read access)
+:Amended by: :doc:`0065-audit-actors-and-coverage` (actors, coverage, read access),
+    :doc:`0067-s3-log-store-and-deferred-deletes` (external objects, ``queued``)
 
 Issue :issue:`141`. Refines ARCHITECTURE section 12.4 ("every mutation and
 trigger writes an audit event"). Related: :doc:`0042-db-secret-backend-keyring`.
