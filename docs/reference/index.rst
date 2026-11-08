@@ -10,6 +10,7 @@ Reference
    http-api
    projects
    log-store
+   secrets-openbao
    access-rules
    schedules
    webhooks

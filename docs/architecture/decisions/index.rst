@@ -210,6 +210,9 @@ change nothing until accepted.
    * - 0067
      - :doc:`0067-s3-log-store-and-deferred-deletes`
      - Accepted
+   * - 0068
+     - :doc:`0068-openbao-secret-backend`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -281,3 +284,4 @@ change nothing until accepted.
    0065-audit-actors-and-coverage
    0066-project-node-scope
    0067-s3-log-store-and-deferred-deletes
+   0068-openbao-secret-backend

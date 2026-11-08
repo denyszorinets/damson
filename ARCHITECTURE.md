@@ -51,7 +51,7 @@ Damson is an open-source job orchestrator in the spirit of Rundeck and a modern,
 | Background work | **River** (Postgres driver, SQLite driver) | Run orchestration, maintenance jobs |
 | Expressions | **CEL** (`github.com/google/cel-go`) | Conditions, selectors, interpolation, authz, webhook mapping |
 | JSON Schema | `github.com/invopop/jsonschema` (generate) + `github.com/santhosh-tekuri/jsonschema/v6` (validate) | Plugin inputs and outputs, job options |
-| Secrets | DB backend (AES-256-GCM envelope) / **OpenBao** (`github.com/openbao/openbao/api`) | |
+| Secrets | DB backend (AES-256-GCM envelope) / **OpenBao** (KV v2 over `net/http`, ADR-0068) | |
 | Log storage | `fs` / `db` / `s3` backends (`minio-go` S3 client, shared with the `transfer` plugin; S3-compatible endpoints) | |
 | SSH / SFTP | `golang.org/x/crypto/ssh`, `github.com/pkg/sftp` | SCP implemented over an SSH session |
 | WinRM | `github.com/masterzen/winrm` | HTTPS, Basic/NTLM in v1 |
@@ -895,14 +895,19 @@ Action = CreateStepInstance | ScheduleExecution | SettleStep | SkipStep | Comple
 
 ### 9.2 Backends
 
+The node uses a small `secretBackend` interface that the `db` and `openbao` backends both satisfy (`internal/controller/node/secrets.go`):
+
 ```go
-type SecretStore interface {
-    Get(ctx context.Context, ref Ref) (Secret, error)
-    Put(ctx context.Context, ref Ref, s Secret) error   // may return ErrReadOnly
-    Delete(ctx context.Context, ref Ref) error
-    List(ctx context.Context, projectPath string) ([]Metadata, error) // never values
+type secretBackend interface {
+    Put(ctx, scope, name, typ string, fields map[string]string, ifVersion *int64) (store.SecretMeta, bool, error) // may return ErrReadOnly
+    Get(ctx, scope, name string) (map[string]string, error)
+    Meta(ctx, scope, name string) (store.SecretMeta, error)
+    List(ctx, scope, afterScope, afterName string, limit int) ([]store.SecretMeta, error) // never values
+    Delete(ctx, scope, name string) error
 }
 ```
+
+Authorization (`secrets.Authorize`, the `_inventory` rule) is independent of the backend and runs in the dispatcher before any `Get`.
 
 - **`db` (default).** AES-256-GCM envelope encryption (ADR-0042).
   - Each secret version gets a random 32-byte DEK. `data` is AES-256-GCM over the JSON `{field: value}` with a random 12-byte nonce; `wrapped_dek` is a 12-byte wrap nonce followed by AES-256-GCM(KEK, DEK).
@@ -913,11 +918,16 @@ type SecretStore interface {
   - The last 10 versions are kept. Listing never reads encrypted columns.
   - `damson admin rotate-kek` (env `DAMSON_KEK` = new key, `DAMSON_KEK_PREVIOUS` = old key) checks the canary, then pages through `secret_versions` whose `kek_id` is not the active one (keyset on `secret_id, version`, batches of 100) and re-wraps each DEK under the new key with `UPDATE … WHERE secret_id=? AND version=? AND kek_id=old`; the data ciphertext is untouched. It is resumable and a second run is a no-op. Rows under a key that is neither active nor previous count as failed (non-zero exit) and the canary is then not moved; otherwise the canary is re-wrapped last (CAS on its version). Output has counts and the active `kek_id` only.
   - Losing the KEK means losing the secrets. The docs must say so loudly.
-- **`openbao`** (Vault-API compatible). KV v2.
-  - Ref mapping: `<mount>/data/<prefix>/<project-path>/<name>`.
-  - Controller auth: token, AppRole, or Kubernetes auth.
-  - Optional `read_only: true`, so secrets are managed in OpenBao only.
-  - No caching by default. Optional TTL cache: 30s, in memory, per controller.
+- **`openbao`** (Vault-API compatible, ADR-0068). KV v2 through a small `net/http` client (`internal/secrets/openbao`), not the official SDK.
+  - Ref mapping: `<mount>/data|metadata/<prefix>/<scope>/<name>`; defaults mount `secret`, prefix `damson`. The type and field names are kept in `custom_metadata` (`damson_type`, `damson_field_<name>`); a secret without `damson_type` lists as `generic` and is adopted by the next `Put` of any type; a metadata-only entry is not a secret. `mount`, `prefix` (not empty) and `auth.mount` are validated (1 to 8 segments).
+  - Writes use KV `cas` and are never retried automatically; reads retry twice on network errors, 429 and 5xx. `Delete` removes all versions. Values must be strings that satisfy the field and size grammar, else the secret is unavailable (permanent); so is an oversized (over 2 MiB) or malformed answer.
+  - Controller auth: `token` (file or `DAMSON_OPENBAO_TOKEN`), `approle` (`DAMSON_OPENBAO_SECRET_ID` or file), or `kubernetes`. The token is renewed at 2/3 of its lease, with a re-login when renewal fails. A 403 first triggers `auth/token/lookup-self` with the failed token; only if that answers 403/401 does the client log in again (one login for all concurrent callers) and retry once. A valid token makes the 403 a permanent policy denial (`ErrUnavailable`); a transient re-login failure is returned as such. Logins do not hold the state mutex across HTTP.
+  - Start: a definite rejection (400/401/403/404 on login, unreadable credential file, TLS verification failure) refuses to start; an outage starts degraded with an ERROR log and a retrying login (1 s to 30 s). Dispatch requeues and the API answers 503 meanwhile.
+  - https is required unless `allow_plain_http`; redirects are refused; verification cannot be disabled.
+  - There is no KEK or canary: setting a KEK is a config error, `rotate-kek` refuses, `damson dev` always uses `db`. db secrets are not copied.
+  - Optional `read_only: true`, so secrets are managed in OpenBao only (writes answer 409).
+  - No caching by default. Optional `cache_ttl` (max 30s, dispatch path only, in memory, per controller, evicted after every write attempt through this controller, with one global generation counter invalidating reads in flight; other writers can be stale up to the TTL).
+  - Audit: `secret.create|update|delete` are written after the change succeeds, not in the same transaction (amends ADR-0053); if the append fails an ERROR is logged and the error is returned, and a data write whose metadata write failed is still audited; `secret.read` per dispatched attempt is unchanged.
 - Configure a backend globally in v1. Per-project backends come later; the interface already allows it.
 
 ### 9.3 Delivery
@@ -926,6 +936,7 @@ type SecretStore interface {
 - The bundle is sent inside `step.execute` over TLS.
 - It is never persisted by the controller (only refs are stored) and never written to disk by the agent, except as short-lived 0600 credential files that Ansible requires, on tmpfs when available.
 - The agent drops the bundle when the execution ends.
+- A secret from the cache of the `openbao` backend is still only in the dispatch path and the controller's memory (ADR-0068); it is never persisted and the bundle is wiped after send as before.
 - `--dev-nodes` seeds its secrets into the secret store at startup (ADR-0044); there is no separate dev path for refs.
 
 ### 9.4 Masking
@@ -1076,7 +1087,7 @@ Both sync routes need the admin token, accept at most 16 MiB and 5000 nodes, and
 - **Effective role** = the maximum role granted by any matching rule on the job, the project, or any ancestor. A rule that fails to evaluate or compile grants nothing; the others still apply. Instance admins (admin token, or a user the OIDC `admin_rule` selected) are `admin` everywhere. Service tokens hold their role where their project scope covers the target, never `admin`. A child rule does not climb to the parent; a job rule does not make the project visible in lists.
 - **No role on the target is `404`** (indistinguishable from missing); a role that is too low is `403`. Job, run and execution routes, project routes and access-rule routes are governed by role; strict routes (project and access rules) never run anonymously. List-projects returns only projects the caller holds a role on, with `my_role`. Secrets, nodes, pools, service accounts, schedules, webhooks, audit and log purge stay instance-admin only; per-project scoping of those is future work (ADR-0064).
 - Rules are compiled once per change; grants are cached per controller by session, project and job for 60s and cleared on a rule write on that controller (other controllers can lag up to 60s). The session itself is read from the database on every request.
-- Every mutation and trigger writes an **audit event**: actor, action, target, project path, details JSON, request id. `project_path` is the project scope of the target (empty when none) and is kept for per-subtree visibility in M8. The event is written in the **same transaction** as the change, and an audited write without an actor fails (`ErrInvalid`). Actors are `user:<sub>` (OIDC login), `sa:<service account id>`, `admin-token:<12 hex of the token hash>`, `cli:<os user>`, `system:<duty>` (`scheduler`, `retention`, `dispatch`, `dev-nodes`), `webhook:<webhook id>` and `anonymous` (job and run calls with login and `require_token` off). `actor_name` is a display snapshot taken when the event is written (a user's email); the store fills it from the context only when the event's actor is the context's actor, and it is never refreshed. Audited: secret writes, `rotate-kek`, admin-token create and revoke, log purges (`log.purge`, target type `execution`), project changes, node scope changes (`project.node_scope.update`; details `path` and `set`, never the expression; ADR-0066), access rule changes (`project.access_rules.update`, `job.access_rules.update`; details never hold the expressions; ADR-0064), schedule changes, webhook changes, service account and token changes (details never hold tokens, hashes or options; ADR-0058, ADR-0059, ADR-0060), `job.create` and `job.version.create` (target type `job`; written when the caller has an actor), `run.trigger` (target type `run`; details `job_id`, `job_version_id`, `trigger`, `schedule_id` or `webhook_id`, never options; written in the transaction that creates the run, for API, webhook and every scheduler fire, whose actor is `system:scheduler`), `run.cancel`, `auth.login` (target type `user`, target the `sub`) and `secret.read` (target type `execution`; details `attempt_id`, `run_id` and sorted `secret://` refs, never values; one event per dispatched attempt that carries secrets, written by the dispatcher as `system:dispatch` before `step.execute` is sent; if it cannot be written the execution is requeued and the secrets are not sent; it can over-report, never under-report). `GET /audit` is readable by instance admins (all events) and by project admins with `?project=<path>` (that project and its descendants; no role is `404`, a lower role `403`; instance-level events with an empty `project_path` are instance-admin only). ADR-0053, ADR-0065. With `audit.retention_days` set, the retention duty (§8.4) deletes older events and writes an `audit.prune` event per pass (ADR-0054); the default `0` keeps everything.
+- Every mutation and trigger writes an **audit event**: actor, action, target, project path, details JSON, request id. `project_path` is the project scope of the target (empty when none) and is kept for per-subtree visibility in M8. The event is written in the **same transaction** as the change, and an audited write without an actor fails (`ErrInvalid`). Actors are `user:<sub>` (OIDC login), `sa:<service account id>`, `admin-token:<12 hex of the token hash>`, `cli:<os user>`, `system:<duty>` (`scheduler`, `retention`, `dispatch`, `dev-nodes`), `webhook:<webhook id>` and `anonymous` (job and run calls with login and `require_token` off). `actor_name` is a display snapshot taken when the event is written (a user's email); the store fills it from the context only when the event's actor is the context's actor, and it is never refreshed. Audited: secret writes (with the `openbao` backend the event is appended after the change succeeded, not in its transaction; ADR-0068), `rotate-kek`, admin-token create and revoke, log purges (`log.purge`, target type `execution`), project changes, node scope changes (`project.node_scope.update`; details `path` and `set`, never the expression; ADR-0066), access rule changes (`project.access_rules.update`, `job.access_rules.update`; details never hold the expressions; ADR-0064), schedule changes, webhook changes, service account and token changes (details never hold tokens, hashes or options; ADR-0058, ADR-0059, ADR-0060), `job.create` and `job.version.create` (target type `job`; written when the caller has an actor), `run.trigger` (target type `run`; details `job_id`, `job_version_id`, `trigger`, `schedule_id` or `webhook_id`, never options; written in the transaction that creates the run, for API, webhook and every scheduler fire, whose actor is `system:scheduler`), `run.cancel`, `auth.login` (target type `user`, target the `sub`) and `secret.read` (target type `execution`; details `attempt_id`, `run_id` and sorted `secret://` refs, never values; one event per dispatched attempt that carries secrets, written by the dispatcher as `system:dispatch` before `step.execute` is sent; if it cannot be written the execution is requeued and the secrets are not sent; it can over-report, never under-report). `GET /audit` is readable by instance admins (all events) and by project admins with `?project=<path>` (that project and its descendants; no role is `404`, a lower role `403`; instance-level events with an empty `project_path` are instance-admin only). ADR-0053, ADR-0065. With `audit.retention_days` set, the retention duty (§8.4) deletes older events and writes an `audit.prune` event per pass (ADR-0054); the default `0` keeps everything.
 
 ---
 
@@ -1239,7 +1250,7 @@ An activity-diagram view (UML-like) of a job's structure. It appears in three pl
 ## 18. Security summary
 
 - TLS everywhere: `wss://` for agents, HTTPS for the UI and API. Internal controller endpoints (ADR-0040) are on a separate listener and use HMAC-SHA256 with a cluster secret (timestamp window 30s, bound to caller and target controller, read-only). They use plain HTTP, so log lines between controllers are unencrypted and the network between controllers must be private.
-- Secrets are encrypted at rest (db backend) or kept in OpenBao. They are delivered just-in-time, never persisted on agents, and masked by the agent in logs, progress, errors and outputs before they leave it; the controller never holds values after dispatch (ADR-0047).
+- Secrets are encrypted at rest (db backend) or kept in OpenBao (ADR-0068: https and a verified certificate by default, redirects refused, credentials from files or environment only, never TOML). They are delivered just-in-time, never persisted on agents, and masked by the agent in logs, progress, errors and outputs before they leave it; the controller never holds values after dispatch (ADR-0047).
 - SSH host keys are strict by default.
 - All tokens (pool, service account, webhook, session) are random and stored hashed. OIDC login uses PKCE, a nonce, a one-use state and a pre-login binding cookie (`__Host-` prefix, HttpOnly, Secure, SameSite=Lax); cookie-authenticated writes need a CSRF header (ADR-0063, `reference/authentication`). For the interim admin token (§12.2) only the hash is stored, never the token.
 - CEL evaluation has cost limits, and no I/O functions are exposed.

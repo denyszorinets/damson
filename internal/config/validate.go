@@ -42,6 +42,7 @@ func (c Config) Validate(role Role) error {
 		}
 		c.validateOIDC(add)
 		c.validateLogs(add)
+		c.validateSecretsBackend(role, add)
 	}
 	if role == RoleAgent {
 		c.validateAgent(add)

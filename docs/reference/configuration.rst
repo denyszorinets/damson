@@ -99,6 +99,78 @@ written as a double underscore: ``agent.controller_url`` is
      - none
      - File holding the previous (old) KEK, used while running ``damson admin rotate-kek``. Alternatively set
        ``DAMSON_KEK_PREVIOUS``; not both.
+   * - ``secrets.backend``
+     - controller
+     - ``db``
+     - ``db`` or ``openbao``. See :doc:`secrets-openbao`. ``openbao`` takes no KEK.
+   * - ``secrets.openbao.address``
+     - controller
+     - none
+     - Required with ``openbao``. ``https://host:port``, scheme and host only, no userinfo.
+   * - ``secrets.openbao.namespace``
+     - controller
+     - empty
+     - Sent as ``X-Vault-Namespace``.
+   * - ``secrets.openbao.mount``
+     - controller
+     - ``secret``
+     - KV v2 mount path (1 to 8 segments of ``[A-Za-z0-9][A-Za-z0-9._-]*``).
+   * - ``secrets.openbao.prefix``
+     - controller
+     - ``damson``
+     - Path under the mount (same grammar as ``mount``); must not be empty.
+   * - ``secrets.openbao.read_only``
+     - controller
+     - ``false``
+     - Writes answer ``409``; secrets are managed in OpenBao.
+   * - ``secrets.openbao.tls_ca_file``
+     - controller
+     - empty
+     - Extra root certificates (PEM). Verification cannot be disabled.
+   * - ``secrets.openbao.allow_plain_http``
+     - controller
+     - ``false``
+     - An ``http`` address is refused without it. With ``HTTP_PROXY`` set the token goes to the proxy in clear text; prefer https.
+   * - ``secrets.openbao.request_timeout``
+     - controller
+     - ``10s``
+     - Per request; up to ``1m``.
+   * - ``secrets.openbao.cache_ttl``
+     - controller
+     - ``0s``
+     - Dispatch-path cache; ``0`` is off, maximum ``30s``.
+   * - ``secrets.openbao.auth.method``
+     - controller
+     - none
+     - ``token``, ``approle`` or ``kubernetes``. Settings of another method are an error.
+   * - ``secrets.openbao.auth.token_file``
+     - controller
+     - none
+     - Method ``token``: file holding the token, re-read on re-login. Alternatively env ``DAMSON_OPENBAO_TOKEN``; not both.
+   * - ``secrets.openbao.auth.role_id``
+     - controller
+     - none
+     - Method ``approle``: role id (redacted). Exactly one of ``role_id`` and ``role_id_file``.
+   * - ``secrets.openbao.auth.role_id_file``
+     - controller
+     - none
+     - Method ``approle``: file holding the role id.
+   * - ``secrets.openbao.auth.secret_id_file``
+     - controller
+     - none
+     - Method ``approle``: file holding the secret id. Alternatively env ``DAMSON_OPENBAO_SECRET_ID``; exactly one.
+   * - ``secrets.openbao.auth.role``
+     - controller
+     - none
+     - Method ``kubernetes``: role name (required).
+   * - ``secrets.openbao.auth.mount``
+     - controller
+     - ``approle`` or ``kubernetes``
+     - Mount path of the auth method (same grammar as ``mount``).
+   * - ``secrets.openbao.auth.service_account_token_file``
+     - controller
+     - ``/var/run/secrets/kubernetes.io/serviceaccount/token``
+     - Method ``kubernetes``: re-read at every login.
    * - ``audit.retention_days``
      - controller, dev
      - ``0``
@@ -312,6 +384,11 @@ in the redacted config. Only a short ``kek_id`` is ever logged.
 
    Losing the KEK loses every secret in the ``db`` backend; there is no
    recovery. Back it up separately from the database.
+
+``DAMSON_OPENBAO_TOKEN`` and ``DAMSON_OPENBAO_SECRET_ID`` (the ``openbao``
+backend, :doc:`secrets-openbao`) are likewise environment-only, never TOML keys,
+and masked in the redacted config. The KEK settings do not apply to the
+``openbao`` backend; setting one with ``secrets.backend = openbao`` is an error.
 
 Without a KEK and without stored secrets, secrets are disabled (a WARN at
 start) and steps that use ``secret://`` refs fail. A controller without a KEK

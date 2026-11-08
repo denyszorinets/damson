@@ -31,7 +31,7 @@ import (
 	"github.com/denyszorinets/damson/internal/logblob"
 	"github.com/denyszorinets/damson/internal/pluginreg"
 	"github.com/denyszorinets/damson/internal/protocol"
-	secretsdb "github.com/denyszorinets/damson/internal/secrets/db"
+	"github.com/denyszorinets/damson/internal/secrets/openbao"
 	"github.com/denyszorinets/damson/internal/store"
 )
 
@@ -54,6 +54,8 @@ type Config struct {
 	ControllerID string
 	InternalURL  string
 	Plugins      *pluginreg.Registry
+	// OpenBao, if set, selects the openbao secret backend; KEK settings are then ignored.
+	OpenBao *openbao.Config
 	// LogBlobs are the log object backends; nil means the database only.
 	LogBlobs *logblob.Set
 	// FinallyGrace is how long finally blocks may run after a cancel or the
@@ -122,7 +124,9 @@ type Node struct {
 	sched     *scheduler.Scheduler
 	schedLead *leader.Elector
 	// secrets is the db secret backend, nil while secrets are disabled.
-	secrets *secretsdb.Backend
+	secrets secretBackend
+	// secretsStop stops the backend, nil for the db backend.
+	secretsStop func(context.Context) error
 }
 
 // Start builds the components on the store and starts the run machinery. On
@@ -157,7 +161,7 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	} else if err := n.startSecrets(ctx, cfg); err != nil {
 		return nil, err
 	} else if err := n.startOrchestration(ctx, cfg); err != nil {
-		return nil, errors.Join(err, n.stopGuard(context.WithoutCancel(ctx)))
+		return nil, errors.Join(err, n.stopGuard(context.WithoutCancel(ctx)), n.stopSecrets(context.WithoutCancel(ctx)))
 	}
 	apiCfg := api.Config{
 		Addr: cfg.Addr, Store: cfg.Store, Data: cfg.Store, Plugins: cfg.Plugins, UI: cfg.UI, Logger: cfg.Logger,
@@ -178,7 +182,7 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	}
 	n.srv = api.NewServer(apiCfg)
 	if err := n.startScheduler(ctx, cfg, apiCfg); err != nil {
-		return nil, errors.Join(err, n.stopOrchestration(context.WithoutCancel(ctx)))
+		return nil, errors.Join(err, n.stopOrchestration(context.WithoutCancel(ctx)), n.stopSecrets(context.WithoutCancel(ctx)))
 	}
 	return n, nil
 }
@@ -279,7 +283,7 @@ func (n *Node) Advancer() *advance.Advancer { return n.adv }
 // flushed, then the run.advance workers drain. Stopping a component that never
 // started is a no-op.
 func (n *Node) Stop(ctx context.Context) error {
-	return errors.Join(n.srv.Stop(ctx), n.stopScheduler(ctx), n.stopOrchestration(ctx))
+	return errors.Join(n.srv.Stop(ctx), n.stopScheduler(ctx), n.stopOrchestration(ctx), n.stopSecrets(ctx))
 }
 
 func (n *Node) stopOrchestration(ctx context.Context) error {
@@ -386,4 +390,12 @@ func (n *Node) dispatchSources(cfg Config, log *slog.Logger) (dispatch.NodeSourc
 		return nodes, nil, nil
 	}
 	return nodes, &secretSource{b: n.secrets, log: log}, projectOf(cfg.Store)
+}
+
+// stopSecrets stops the secret backend's own goroutines, if it has any.
+func (n *Node) stopSecrets(ctx context.Context) error {
+	if n.secretsStop == nil {
+		return nil
+	}
+	return n.secretsStop(ctx)
 }

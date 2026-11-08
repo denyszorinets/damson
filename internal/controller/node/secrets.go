@@ -14,12 +14,54 @@ import (
 	"github.com/denyszorinets/damson/internal/devnodes"
 	"github.com/denyszorinets/damson/internal/secrets"
 	secretsdb "github.com/denyszorinets/damson/internal/secrets/db"
+	"github.com/denyszorinets/damson/internal/secrets/openbao"
 	"github.com/denyszorinets/damson/internal/store"
 )
+
+// secretBackend is what the node needs from a secret backend: the db backend
+// and the openbao backend both provide it.
+type secretBackend interface {
+	Put(ctx context.Context, scope, name, typ string, fields map[string]string, ifVersion *int64) (store.SecretMeta, bool, error)
+	Get(ctx context.Context, scope, name string) (map[string]string, error)
+	Meta(ctx context.Context, scope, name string) (store.SecretMeta, error)
+	List(ctx context.Context, scope, afterScope, afterName string, limit int) ([]store.SecretMeta, error)
+	Delete(ctx context.Context, scope, name string) error
+}
+
+// dispatchGetter is implemented by a backend that has a cache for the dispatch
+// path.
+type dispatchGetter interface {
+	GetForDispatch(ctx context.Context, scope, name string) (map[string]string, error)
+}
+
+// startOpenBao builds the openbao backend and logs in. The db KEK rules do not
+// apply: a canary left by an earlier db setup only draws a warning.
+func (n *Node) startOpenBao(ctx context.Context, cfg Config) error {
+	log := cfg.Logger
+	c := *cfg.OpenBao
+	c.Logger = log
+	cl, err := openbao.New(c)
+	if err != nil {
+		return fmt.Errorf("configuring the openbao secret backend: %w", err)
+	}
+	b := openbao.NewBackend(cl, cfg.Store, time.Now)
+	if err := b.Start(ctx); err != nil {
+		return fmt.Errorf("starting the openbao secret backend: %w", err)
+	}
+	if _, err := cfg.Store.GetSetting(ctx, secretsdb.CanaryKey); err == nil {
+		log.Warn("the database holds secrets from the db backend; they are not served while secrets.backend is openbao")
+	}
+	n.secrets, n.secretsStop = b, b.Stop
+	log.Info("secrets enabled", "backend", "openbao", "mount", c.Mount, "prefix", c.Prefix, "read_only", c.ReadOnly)
+	return nil
+}
 
 // startSecrets applies the KEK startup rules and builds the db backend. It
 // fails the start when the configured key does not match the database.
 func (n *Node) startSecrets(ctx context.Context, cfg Config) error {
+	if cfg.OpenBao != nil {
+		return n.startOpenBao(ctx, cfg)
+	}
 	var ring *secrets.Keyring
 	if cfg.KEK != "" {
 		var err error
@@ -49,12 +91,12 @@ func (n *Node) startSecrets(ctx context.Context, cfg Config) error {
 // can fix are mapped to the permanent dispatch errors; the controller logs the
 // ref and key id, never a value.
 type secretSource struct {
-	b   *secretsdb.Backend
+	b   secretBackend
 	log *slog.Logger
 }
 
 // NewSecretSource adapts a db backend to the dispatcher.
-func NewSecretSource(b *secretsdb.Backend, log *slog.Logger) dispatch.SecretSource {
+func NewSecretSource(b secretBackend, log *slog.Logger) dispatch.SecretSource {
 	return &secretSource{b: b, log: log}
 }
 
@@ -64,12 +106,20 @@ func (s *secretSource) Secret(ctx context.Context, _, ref string) (map[string]st
 		s.log.Error("secret ref is malformed", "ref", ref)
 		return nil, dispatch.ErrSecretUnavailable
 	}
-	fields, err := s.b.Get(ctx, r.Scope, r.Name)
+	var fields map[string]string
+	if g, ok := s.b.(dispatchGetter); ok {
+		fields, err = g.GetForDispatch(ctx, r.Scope, r.Name)
+	} else {
+		fields, err = s.b.Get(ctx, r.Scope, r.Name)
+	}
 	switch {
 	case err == nil:
 		return fields, nil
 	case errors.Is(err, secrets.ErrNotFound):
 		return nil, dispatch.ErrUnknownSecret
+	case errors.Is(err, secrets.ErrUnavailable):
+		s.log.Error("secret is unavailable", "ref", r.Base(), "error", err.Error())
+		return nil, dispatch.ErrSecretUnavailable
 	case errors.Is(err, secrets.ErrUnknownKEK), errors.Is(err, secrets.ErrDecrypt):
 		s.log.Error("secret cannot be decrypted", "ref", r.Base(), "error", err.Error())
 		return nil, dispatch.ErrSecretUnavailable
@@ -103,11 +153,14 @@ func (n *Node) seedDevFile(ctx context.Context, cfg Config) error {
 	if f == nil {
 		return nil
 	}
+	if f.HasSecrets() && cfg.OpenBao != nil && cfg.OpenBao.ReadOnly {
+		return errors.New("--dev-nodes defines secrets but secrets.openbao.read_only is set")
+	}
 	if f.HasSecrets() && n.secrets == nil {
 		return errors.New("--dev-nodes defines secrets but secrets are disabled: set DAMSON_KEK (damson dev makes a key itself)")
 	}
 	var w devnodes.SecretWriter
-	if n.secrets != nil { // a nil *Backend must not become a non-nil interface
+	if n.secrets != nil {
 		w = n.secrets
 	}
 	rep, err := devnodes.Seed(ctx, cfg.Store, w, f, time.Now())

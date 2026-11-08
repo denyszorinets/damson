@@ -19,6 +19,9 @@ import (
 // (DAMSON_KEK_PREVIOUS or secrets.kek_previous_file). It prints counts and
 // kek_ids only, never a key or value.
 func rotateKEK(ctx context.Context, st store.Store, c adminCmd, now time.Time) error {
+	if c.secrets.Backend == config.SecretsOpenBao {
+		return errors.New("rotate-kek applies to the db backend; the openbao backend has no key managed by Damson")
+	}
 	if c.secrets.KEK == "" {
 		return fmt.Errorf("no key configured: set %s to the new key and %s to the old one", config.EnvKEK, config.EnvKEKPrevious)
 	}
