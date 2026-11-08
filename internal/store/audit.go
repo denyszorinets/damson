@@ -39,6 +39,9 @@ type AuditEvent struct {
 	ProjectPath string
 	Details     json.RawMessage
 	RequestID   string
+	// ActorName is a display snapshot of the actor (a user's email). The store
+	// fills it from the context when empty.
+	ActorName string
 }
 
 // AuditFilter selects events, newest first. BeforeAt/BeforeID is the keyset
@@ -46,8 +49,13 @@ type AuditEvent struct {
 type AuditFilter struct {
 	TargetType string
 	Target     string
-	BeforeAt   time.Time
-	BeforeID   string
+	// Project selects the events of that project and its descendants.
+	Project string
+	// HideSecrets leaves out the secret.* events (names, field names and refs),
+	// which only instance admins may read.
+	HideSecrets bool
+	BeforeAt    time.Time
+	BeforeID    string
 }
 
 // AuditStore reads the audit trail and appends standalone events. Events about
@@ -63,6 +71,7 @@ type AuditStore interface {
 // context, and a store write that is audited fails without it.
 type AuditMeta struct {
 	Actor     string
+	ActorName string // display snapshot, such as the email of a user
 	RequestID string
 }
 
@@ -219,4 +228,67 @@ func NewAdminTokenEvent(ctx context.Context, action string, now time.Time) (Audi
 		ID: id, At: NormalizeTime(now), Actor: meta.Actor, Action: action, TargetType: AuditTargetInstance,
 		Target: "admin_token", Details: json.RawMessage(`{}`), RequestID: meta.RequestID,
 	}, nil
+}
+
+// Audit actions of jobs, runs and logins.
+const (
+	ActionJobCreate        = "job.create"
+	ActionJobVersionCreate = "job.version.create"
+	ActionRunTrigger       = "run.trigger"
+	ActionRunCancel        = "run.cancel"
+	ActionAuthLogin        = "auth.login"
+	ActionSecretRead       = "secret.read"
+
+	AuditTargetRun  = "run"
+	AuditTargetUser = "user"
+)
+
+// EventDetails is what the generic builders encode: a small struct of ids,
+// counts and names, never request content.
+func marshalDetails(d any) (json.RawMessage, error) {
+	b, err := json.Marshal(d)
+	if err != nil {
+		return nil, fmt.Errorf("encoding audit details: %w", err)
+	}
+	return b, nil
+}
+
+// NewEvent builds an event for the actor in ctx. d is encoded as the details.
+func NewEvent(ctx context.Context, action, targetType, target, project string, d any, now time.Time) (AuditEvent, error) {
+	meta, err := AuditFrom(ctx)
+	if err != nil {
+		return AuditEvent{}, err
+	}
+	return NewEventAs(meta, action, targetType, target, project, d, now)
+}
+
+// NewEventAs is NewEvent for an actor that is not in a context, such as a
+// background duty.
+func NewEventAs(meta AuditMeta, action, targetType, target, project string, d any, now time.Time) (AuditEvent, error) {
+	if meta.Actor == "" {
+		return AuditEvent{}, fmt.Errorf("an audit event needs an actor: %w", ErrInvalid)
+	}
+	id, err := NewID()
+	if err != nil {
+		return AuditEvent{}, err
+	}
+	details, err := marshalDetails(d)
+	if err != nil {
+		return AuditEvent{}, err
+	}
+	return AuditEvent{
+		ID: id, At: NormalizeTime(now), Actor: meta.Actor, ActorName: meta.ActorName, Action: action, TargetType: targetType,
+		Target: target, ProjectPath: project, Details: details, RequestID: meta.RequestID,
+	}, nil
+}
+
+// EventActorName is the display name to store with ev: its own, else the one in ctx.
+func EventActorName(ctx context.Context, ev AuditEvent) string {
+	if ev.ActorName != "" {
+		return ev.ActorName
+	}
+	if m, _ := ctx.Value(auditKey{}).(AuditMeta); m.Actor == ev.Actor {
+		return m.ActorName
+	}
+	return ""
 }

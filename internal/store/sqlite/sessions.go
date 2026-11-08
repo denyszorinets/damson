@@ -72,17 +72,23 @@ func (s *Store) CreateSession(ctx context.Context, n store.NewSession, now time.
 	if err := n.Validate(); err != nil {
 		return err
 	}
-	err := s.q.InsertSession(ctx, gen.InsertSessionParams{
-		ID: n.ID, TokenHash: n.TokenHash, Sub: n.Sub, Email: n.Email, Name: n.Name, Claims: string(n.Claims),
-		InstanceAdmin: boolInt(n.InstanceAdmin), CreatedAt: fmtTime(now), ExpiresAt: fmtTime(n.ExpiresAt),
+	err := s.WithTx(ctx, func(tx store.Tx) error {
+		err := tx.(*txn).q.InsertSession(ctx, gen.InsertSessionParams{
+			ID: n.ID, TokenHash: n.TokenHash, Sub: n.Sub, Email: n.Email, Name: n.Name, Claims: string(n.Claims),
+			InstanceAdmin: boolInt(n.InstanceAdmin), CreatedAt: fmtTime(now), ExpiresAt: fmtTime(n.ExpiresAt),
+		})
+		if isUnique(err) {
+			return fmt.Errorf("session: %w", store.ErrConflict)
+		}
+		if err != nil {
+			return fmt.Errorf("creating session: %w", err)
+		}
+		if n.Audit != nil {
+			return tx.AppendAuditEvent(ctx, *n.Audit)
+		}
+		return nil
 	})
-	if isUnique(err) {
-		return fmt.Errorf("session: %w", store.ErrConflict)
-	}
-	if err != nil {
-		return fmt.Errorf("creating session: %w", err)
-	}
-	return nil
+	return err
 }
 
 // FindSession implements store.SessionStore.

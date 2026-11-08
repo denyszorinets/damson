@@ -347,3 +347,128 @@ func TestListRunsOfAMissingJobIsNotFound(t *testing.T) {
 		assert.Equal(t, 404, w.as("bob", "GET", "/api/v1/jobs?project=%00%00", ""), "junk is not a project")
 	})
 }
+
+type auditList struct {
+	Items []api.AuditEvent `json:"items"`
+}
+
+func (w *authzWorld) audit(user, query string) (int, []api.AuditEvent) {
+	w.t.Helper()
+	var rec *httptest.ResponseRecorder
+	if user == "" {
+		rec = w.admin("GET", "/api/v1/audit?"+query, "")
+	} else {
+		rec = w.do(0, "GET", "/api/v1/audit?"+query, "", withCookies(cookieHeader(w.sess[user])))
+	}
+	var l auditList
+	_ = json.Unmarshal(rec.Body.Bytes(), &l)
+	return rec.Code, l.Items
+}
+
+func actions(evs []api.AuditEvent) map[string]int {
+	out := map[string]int{}
+	for _, e := range evs {
+		out[e.Action]++
+	}
+	return out
+}
+
+func TestAuditRecordsActorsAndCoverage(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		w := newAuthzWorld(t, st, 1)
+		spec := wrapSpec(strings.Replace(specDoc("audited", "", "ssh", `{"host":"h"}`), `"project":"default"`, `"project":"team/web"`, 1))
+		var created jobDetailBody
+		rec := w.do(0, "POST", "/api/v1/jobs", spec, withCookies(cookieHeader(w.sess["dave"])), withHeader(api.CSRFHeader, w.csrf["dave"]))
+		require.Equal(t, 201, rec.Code, rec.Body.String())
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+		var run api.RunDetail
+		rec = w.do(0, "POST", "/api/v1/jobs/"+created.Job.ID+"/runs", `{"options":{}}`, withCookies(cookieHeader(w.sess["bob"])), withHeader(api.CSRFHeader, w.csrf["bob"]))
+		require.Equal(t, 201, rec.Code, rec.Body.String())
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &run))
+		require.Equal(t, 200, w.as("bob", "POST", "/api/v1/runs/"+run.ID+"/cancel", ""))
+
+		code, evs := w.audit("", "")
+		require.Equal(t, 200, code)
+		byAction := map[string]api.AuditEvent{}
+		for _, e := range evs {
+			if e.Target == created.Job.ID || e.Target == run.ID {
+				byAction[e.Action] = e
+			}
+		}
+		for action, wantActor := range map[string]string{
+			"job.create": "user:dave-sub", "run.trigger": "user:bob-sub", "run.cancel": "user:bob-sub",
+		} {
+			e, ok := byAction[action]
+			require.True(t, ok, "no %s event in %v", action, actions(evs))
+			assert.Equal(t, wantActor, e.Actor, action)
+			assert.Equal(t, "team/web", e.ProjectPath, action)
+			assert.NotEmpty(t, e.RequestID, action)
+		}
+		assert.Equal(t, "dave@example.org", byAction["job.create"].ActorName)
+		assert.NotContains(t, string(byAction["run.trigger"].Details), "options")
+
+		// Logins are recorded with the user's email.
+		var logins []api.AuditEvent
+		for _, e := range evs {
+			if e.Action == "auth.login" {
+				logins = append(logins, e)
+			}
+		}
+		require.GreaterOrEqual(t, len(logins), 7)
+		for _, e := range logins {
+			assert.True(t, strings.HasPrefix(e.Actor, "user:") && e.ActorName != "" && e.TargetType == "user", "%+v", e)
+		}
+	})
+}
+
+func TestAuditVisibilityFollowsTheProjectTree(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		w := newAuthzWorld(t, st, 1)
+		// gina administers team; events under ops are not hers.
+		code, evs := w.audit("gina", "project=team")
+		require.Equal(t, 200, code)
+		require.NotEmpty(t, evs)
+		for _, e := range evs {
+			assert.True(t, e.ProjectPath == "team" || strings.HasPrefix(e.ProjectPath, "team/"), "leaked %+v", e)
+		}
+		code, evs = w.audit("gina", "project=team%2Fweb")
+		assert.Equal(t, 200, code)
+		for _, e := range evs {
+			assert.True(t, e.ProjectPath == "team/web" || strings.HasPrefix(e.ProjectPath, "team/web/"), "leaked %+v", e)
+		}
+		code, _ = w.audit("gina", "project=ops")
+		assert.Equal(t, 404, code, "no role in ops")
+		code, _ = w.audit("gina", "")
+		assert.Equal(t, 403, code, "the whole trail is for instance admins")
+		code, _ = w.audit("bob", "project=team")
+		assert.Equal(t, 403, code, "a runner is not an admin")
+		code, _ = w.audit("erin", "project=team")
+		assert.Equal(t, 404, code)
+		code, _ = w.audit("gina", "project=%00")
+		assert.Equal(t, 404, code)
+		code, evs = w.audit("alice", "project=ops")
+		assert.Equal(t, 200, code)
+		assert.NotEmpty(t, evs)
+		code, _ = w.audit("", "")
+		assert.Equal(t, 200, code, "the admin token reads everything")
+	})
+}
+
+// Secret names and refs are not for project admins.
+func TestAuditHidesSecretEventsFromProjectAdmins(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		w := newAuthzWorld(t, st, 1)
+		require.NoError(t, st.AppendAuditEvent(t.Context(), store.AuditEvent{
+			ID: "sec-1", At: w.clock(), Actor: "admin-token:x", Action: store.ActionSecretCreate, TargetType: store.AuditTargetSecret,
+			Target: "team/db", ProjectPath: "team", Details: []byte(`{"fields":["password"]}`),
+		}))
+		_, all := w.audit("", "project=team")
+		assert.Contains(t, actions(all), "secret.create", "the admin token sees it")
+		code, mine := w.audit("gina", "project=team")
+		require.Equal(t, 200, code)
+		assert.NotContains(t, actions(mine), "secret.create", "a project admin does not")
+		assert.NotEmpty(t, mine)
+		_, viaAlice := w.audit("alice", "project=team")
+		assert.Contains(t, actions(viaAlice), "secret.create", "an instance admin user does")
+	})
+}

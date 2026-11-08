@@ -140,5 +140,6 @@ Audit
 
 Creating and revoking a webhook write the audit events ``webhook.create`` and
 ``webhook.revoke`` (target type ``webhook``; details ``job_id``, ``name``,
-``has_mapping``; never the token, its hash or the options). Calls are not
-audited; the run records its trigger. See :ref:`reference-audit-api`.
+``has_mapping``; never the token, its hash or the options). A call that starts a
+run writes ``run.trigger`` (actor ``webhook:<webhook id>``; details include
+``webhook_id``; never the options). See :ref:`reference-audit-api`.

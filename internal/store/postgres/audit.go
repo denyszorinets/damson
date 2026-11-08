@@ -25,7 +25,7 @@ func insertAudit(ctx context.Context, q *gen.Queries, ev store.AuditEvent) error
 	}
 	if err := q.InsertAuditEvent(ctx, gen.InsertAuditEventParams{
 		ID: ev.ID, At: ts(ev.At), Actor: ev.Actor, Action: ev.Action, TargetType: ev.TargetType, Target: ev.Target,
-		ProjectPath: ev.ProjectPath, Details: details, RequestID: ev.RequestID,
+		ProjectPath: ev.ProjectPath, Details: details, RequestID: ev.RequestID, ActorName: store.EventActorName(ctx, ev),
 	}); err != nil {
 		return fmt.Errorf("writing audit event: %w", err)
 	}
@@ -49,7 +49,7 @@ func (s *Store) ListAuditEvents(ctx context.Context, f store.AuditFilter, limit 
 		before = farFuture
 	}
 	rows, err := s.q.ListAuditEvents(ctx, gen.ListAuditEventsParams{
-		TargetType: f.TargetType, Target: f.Target, BeforeAt: ts(before), BeforeID: f.BeforeID, RowLimit: int32(store.ClampLimit(limit)),
+		HideSecrets: hideFlag(f.HideSecrets), Project: f.Project, ProjectSlash: f.Project + "/", ProjectNext: f.Project + "0", TargetType: f.TargetType, Target: f.Target, BeforeAt: ts(before), BeforeID: f.BeforeID, RowLimit: int32(store.ClampLimit(limit)),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("listing audit events: %w", err)
@@ -58,7 +58,7 @@ func (s *Store) ListAuditEvents(ctx context.Context, f store.AuditFilter, limit 
 	for i, r := range rows {
 		out[i] = store.AuditEvent{
 			ID: r.ID, At: r.At.Time.UTC(), Actor: r.Actor, Action: r.Action, TargetType: r.TargetType, Target: r.Target,
-			ProjectPath: r.ProjectPath, Details: json.RawMessage(r.Details), RequestID: r.RequestID,
+			ProjectPath: r.ProjectPath, Details: json.RawMessage(r.Details), RequestID: r.RequestID, ActorName: r.ActorName,
 		}
 	}
 	return out, nil
@@ -85,4 +85,12 @@ func (t *txn) PruneAuditEvents(ctx context.Context, before time.Time, limit int,
 		return 0, err
 	}
 	return n, nil
+}
+
+// hideFlag is the query's text switch: non-empty hides secret.* events.
+func hideFlag(hide bool) string {
+	if hide {
+		return "1"
+	}
+	return ""
 }

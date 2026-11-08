@@ -105,6 +105,14 @@ func (d *Dispatcher) send(ctx context.Context, a controller.AgentView, ex store.
 		d.requeue(ctx, a, ex, d.cfg.Now().Add(d.cfg.IncapableRetry), log)
 		return true
 	}
+	if len(req.Secrets) > 0 {
+		if err := d.auditSecretRead(ctx, ex, req.Secrets); err != nil {
+			// Not recorded, not sent: the secrets stay on the controller.
+			log.Warn("execution cannot be sent: the secret read was not recorded", "error", err)
+			d.requeue(ctx, a, ex, d.cfg.Now().Add(d.cfg.IncapableRetry), log)
+			return true
+		}
+	}
 	cctx, cancel := context.WithTimeout(ctx, d.cfg.CallTimeout)
 	defer cancel()
 	var res protocol.StepExecuteResult

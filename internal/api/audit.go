@@ -17,9 +17,10 @@ import (
 type AuditEvent struct {
 	ID          string          `json:"id"`
 	At          time.Time       `json:"at"`
-	Actor       string          `json:"actor" doc:"admin-token:<hash prefix>, cli:<user> or system:<duty> until accounts arrive (ADR-0053)."`
-	Action      string          `json:"action" doc:"secret.create, secret.update, secret.delete, secret.kek_rotate, log.purge, admin_token.create, admin_token.revoke, audit.prune, schedule.create, schedule.update, schedule.delete, webhook.create, webhook.revoke, project.create, project.update, project.delete, project.access_rules.update, job.access_rules.update, service_account.create, service_account.delete, service_token.create or service_token.revoke."`
-	TargetType  string          `json:"target_type" doc:"secret, execution, schedule, webhook or instance."`
+	Actor       string          `json:"actor" doc:"user:<sub>, sa:<service account id>, admin-token:<hash prefix>, cli:<os user>, system:<duty>, webhook:<id> or anonymous."`
+	ActorName   string          `json:"actor_name,omitempty" doc:"A display snapshot of the actor, such as a user's email at that time."`
+	Action      string          `json:"action" doc:"secret.create, secret.update, secret.delete, secret.kek_rotate, log.purge, admin_token.create, admin_token.revoke, audit.prune, schedule.create, schedule.update, schedule.delete, webhook.create, webhook.revoke, project.create, project.update, project.delete, project.access_rules.update, job.access_rules.update, service_account.create, service_account.delete, service_token.create, service_token.revoke, job.create, job.version.create, run.trigger, run.cancel, auth.login or secret.read."`
+	TargetType  string          `json:"target_type" doc:"secret, execution, schedule, webhook, project, job, run, user, service_account, service_token or instance."`
 	Target      string          `json:"target" doc:"<scope>/<name> for a secret, the execution id for log.purge."`
 	ProjectPath string          `json:"project_path,omitempty"`
 	Details     json.RawMessage `json:"details" doc:"A JSON object; never a secret value."`
@@ -27,6 +28,7 @@ type AuditEvent struct {
 }
 
 type listAuditInput struct {
+	Project    string `query:"project" maxLength:"600" doc:"Only events of this project and its descendants. Required for a caller who is not an instance admin, who must be admin of the project."`
 	TargetType string `query:"target_type" maxLength:"32" doc:"Only this target type."`
 	Target     string `query:"target" maxLength:"800" doc:"Only this target."`
 	Cursor     string `query:"cursor" doc:"Opaque cursor from a previous page's next_cursor."`
@@ -66,11 +68,15 @@ func registerAudit(api huma.API, d deps) {
 	huma.Register(api, huma.Operation{
 		OperationID: "list-audit-events", Method: http.MethodGet, Path: "/audit",
 		Summary: "List audit events", Tags: []string{"audit"}, Security: adminSecurity,
-		Middlewares: huma.Middlewares{requireAdmin(api, d)},
-		Description: "Secret writes today (ADR-0053). Metadata only, newest first.",
-		Errors:      []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusServiceUnavailable},
+		Description: "Metadata only, newest first (ADR-0053). An instance admin sees everything; with project, an admin of that project sees its events and those of its descendants.",
+		Errors:      []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusServiceUnavailable},
 	}, func(ctx context.Context, in *listAuditInput) (*listAuditOutput, error) {
-		f := store.AuditFilter{TargetType: in.TargetType, Target: in.Target}
+		if err := d.requireToReadAudit(ctx, in.Project); err != nil {
+			return nil, apiError(ctx, err)
+		}
+		p, _ := PrincipalFrom(ctx)
+		// Secret names, fields and refs (including node credentials) are for instance admins.
+		f := store.AuditFilter{TargetType: in.TargetType, Target: in.Target, Project: in.Project, HideSecrets: !p.InstanceAdmin}
 		cur, err := decodeCursor(ctx, in.Cursor)
 		if err != nil {
 			return nil, err
@@ -101,9 +107,29 @@ func registerAudit(api huma.API, d deps) {
 			}
 			out.Body.Items = append(out.Body.Items, AuditEvent{
 				ID: e.ID, At: e.At, Actor: e.Actor, Action: e.Action, TargetType: e.TargetType, Target: e.Target,
-				ProjectPath: e.ProjectPath, Details: details, RequestID: e.RequestID,
+				ProjectPath: e.ProjectPath, Details: details, RequestID: e.RequestID, ActorName: e.ActorName,
 			})
 		}
 		return out, nil
 	})
+}
+
+// requireToReadAudit lets an instance admin read every event, and an admin of a
+// project the events of that project and its descendants. Anyone else gets 403
+// without a project, and 404 for a project they hold no role on.
+func (d deps) requireToReadAudit(ctx context.Context, project string) error {
+	p, ok := PrincipalFrom(ctx)
+	if !ok {
+		return errForbidden
+	}
+	if p.InstanceAdmin {
+		return nil
+	}
+	if project == "" {
+		return errForbidden
+	}
+	if store.ValidateProjectPath(project) != nil {
+		return store.ErrNotFound
+	}
+	return d.require(ctx, project, "", store.RoleAdmin)
 }

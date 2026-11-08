@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -61,6 +62,70 @@ func TestDBSecretDeliveredAndMasked(t *testing.T) {
 		n := tree.Steps[0]
 		if strings.Contains(string(n.Input), secretMarker) || strings.Contains(n.Error, secretMarker) || strings.Contains(n.Executions[0].Error, secretMarker) {
 			t.Fatal("a secret value was stored")
+		}
+
+		// One secret.read event covers the attempt: refs and ids, no value.
+		evs, err := st.ListAuditEvents(context.Background(), store.AuditFilter{TargetType: store.AuditTargetExecution, Target: n.Executions[0].ID}, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var reads []store.AuditEvent
+		for _, e := range evs {
+			if e.Action == store.ActionSecretRead {
+				reads = append(reads, e)
+			}
+		}
+		if len(reads) != 1 || reads[0].Actor != dispatch.Actor {
+			t.Fatalf("secret.read events = %+v", reads)
+		}
+		d := string(reads[0].Details)
+		for _, want := range []string{n.Executions[0].AttemptID, id, "secret://dev/token"} {
+			if !strings.Contains(d, want) {
+				t.Errorf("details %s lack %q", d, want)
+			}
+		}
+		if strings.Contains(d, secretMarker) || strings.Contains(d, "value") {
+			t.Errorf("details leak a value or field name: %s", d)
+		}
+	})
+}
+
+// failingAudit is a store whose audit writes fail.
+type failingAudit struct{ store.Store }
+
+func (failingAudit) AppendAuditEvent(context.Context, store.AuditEvent) error {
+	return errors.New("audit store is down")
+}
+
+// When the secret.read event cannot be written, the secrets are not sent.
+func TestSecretNotSentWhenTheReadCannotBeRecorded(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		b := newSecretBackend(t, st)
+		putSecret(t, b, "token", map[string]string{"value": secretMarker})
+		putSecret(t, b, "cred", map[string]string{"username": "damson", "private_key": secretMarker + "-KEY"})
+		logs := &lockedBuf{}
+		log := slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		c := startClusterLog(t, st, nodeSpec, log, func(c *dispatch.Config) {
+			c.Nodes, c.Secrets = &fakeSources{}, node.NewSecretSource(b, log)
+			c.Store = failingAudit{st}
+			c.IncapableRetry = 50 * time.Millisecond
+		})
+		id := c.triggerInput("nodedemo", `{"node":"n1","token":"secret://dev/token"}`)
+		time.Sleep(1500 * time.Millisecond)
+		tree, err := st.GetRunTree(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tree.Status.Terminal() {
+			t.Fatalf("run %s finished although its secret read could not be recorded: %+v", tree.Status, tree.Steps)
+		}
+		if ex := tree.Steps[0].Executions; len(ex) > 0 {
+			if chunks, _ := st.ListLogChunks(context.Background(), ex[0].ID, 0, 1<<30, 100); len(chunks) > 0 {
+				t.Fatalf("the step ran: %d log chunks", len(chunks))
+			}
+		}
+		if strings.Contains(logs.String(), secretMarker) {
+			t.Fatal("a secret value reached the controller log")
 		}
 	})
 }

@@ -139,7 +139,12 @@ func (h *hookHandler) start(w http.ResponseWriter, r *http.Request, hook store.W
 			opts[k] = v
 		}
 	}
-	nr, _, err := h.d.prepareRun(ctx, hook.JobID, nil, opts, Trigger{Type: TriggerWebhook, WebhookID: hook.ID})
+	trig := Trigger{Type: TriggerWebhook, WebhookID: hook.ID}
+	nr, _, err := h.d.prepareRun(ctx, hook.JobID, nil, opts, trig)
+	if err != nil {
+		return "", err
+	}
+	project, err := h.d.projectOfJobRow(ctx, hook.JobID)
 	if err != nil {
 		return "", err
 	}
@@ -150,6 +155,9 @@ func (h *hookHandler) start(w http.ResponseWriter, r *http.Request, hook store.W
 			return "", err
 		}
 		runID = tree.ID
+		if err := h.d.auditRunTrigger(ctx, tx, project, nr, runID, trig); err != nil {
+			return "", err
+		}
 		return runID, tx.TouchWebhook(ctx, hook.ID, h.d.now())
 	})
 	return runID, err

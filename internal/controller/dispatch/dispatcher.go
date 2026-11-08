@@ -31,6 +31,7 @@ type Store interface {
 	store.ExecutionStore
 	store.TxRunner
 	store.LeaderStore
+	store.AuditStore
 	GetStepInstance(ctx context.Context, id string) (store.StepInstance, error)
 }
 

@@ -10,9 +10,9 @@ import (
 )
 
 const insertAuditEvent = `-- name: InsertAuditEvent :exec
-INSERT INTO audit_events (id, at, actor, action, target_type, target, project_path, details, request_id)
+INSERT INTO audit_events (id, at, actor, action, target_type, target, project_path, details, request_id, actor_name)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6,
-        ?7, ?8, ?9)
+        ?7, ?8, ?9, ?10)
 `
 
 type InsertAuditEventParams struct {
@@ -25,6 +25,7 @@ type InsertAuditEventParams struct {
 	ProjectPath string
 	Details     string
 	RequestID   string
+	ActorName   string
 }
 
 func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventParams) error {
@@ -38,32 +39,45 @@ func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventPara
 		arg.ProjectPath,
 		arg.Details,
 		arg.RequestID,
+		arg.ActorName,
 	)
 	return err
 }
 
 const listAuditEvents = `-- name: ListAuditEvents :many
-SELECT id, at, actor, action, target_type, target, project_path, details, request_id
+SELECT id, at, actor, action, target_type, target, project_path, details, request_id, actor_name
 FROM audit_events
-WHERE (CAST(?1 AS TEXT) = '' OR target_type = ?1)
-  AND (CAST(?2 AS TEXT) = '' OR target = ?2)
-  AND (at < ?3 OR (at = ?3 AND id < ?4))
+WHERE (CAST(?1 AS TEXT) = '' OR project_path = ?1
+       OR (project_path >= ?2 AND project_path < ?3))
+  AND (CAST(?4 AS TEXT) = '' OR action NOT LIKE 'secret.%')
+  AND (CAST(?5 AS TEXT) = '' OR target_type = ?5)
+  AND (CAST(?6 AS TEXT) = '' OR target = ?6)
+  AND (at < ?7 OR (at = ?7 AND id < ?8))
 ORDER BY at DESC, id DESC
-LIMIT ?5
+LIMIT ?9
 `
 
 type ListAuditEventsParams struct {
-	TargetType string
-	Target     string
-	BeforeAt   string
-	BeforeID   string
-	RowLimit   int64
+	Project      string
+	ProjectSlash string
+	ProjectNext  string
+	HideSecrets  string
+	TargetType   string
+	Target       string
+	BeforeAt     string
+	BeforeID     string
+	RowLimit     int64
 }
 
 // Newest first. The keyset is (at, id) of the last row of the previous page;
-// before_id = ” with a far-future before_at starts at the top.
+// before_id = ” with a far-future before_at starts at the top. A project selects
+// the events of that project and its descendants ("<project>/" up to "<project>0").
 func (q *Queries) ListAuditEvents(ctx context.Context, arg ListAuditEventsParams) ([]AuditEvent, error) {
 	rows, err := q.db.QueryContext(ctx, listAuditEvents,
+		arg.Project,
+		arg.ProjectSlash,
+		arg.ProjectNext,
+		arg.HideSecrets,
 		arg.TargetType,
 		arg.Target,
 		arg.BeforeAt,
@@ -87,6 +101,7 @@ func (q *Queries) ListAuditEvents(ctx context.Context, arg ListAuditEventsParams
 			&i.ProjectPath,
 			&i.Details,
 			&i.RequestID,
+			&i.ActorName,
 		); err != nil {
 			return nil, err
 		}

@@ -42,7 +42,7 @@ func requireAdmin(api huma.API, d deps) func(ctx huma.Context, next func(huma.Co
 			case !p.InstanceAdmin:
 				_ = huma.WriteErr(api, ctx, http.StatusForbidden, "this needs an instance admin")
 			default:
-				rctx := store.WithAudit(ctx.Context(), store.AuditMeta{Actor: p.Actor, RequestID: requestIDFromCtx(ctx.Context())})
+				rctx := store.WithAudit(ctx.Context(), store.AuditMeta{Actor: p.Actor, ActorName: p.Session.Email, RequestID: requestIDFromCtx(ctx.Context())})
 				next(huma.WithContext(ctx, context.WithValue(rctx, principalKey{}, p)))
 			}
 			return

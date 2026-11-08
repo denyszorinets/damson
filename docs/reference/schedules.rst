@@ -127,5 +127,7 @@ Audit
 Creating, changing and deleting a schedule write the audit events
 ``schedule.create``, ``schedule.update`` and ``schedule.delete`` (target type
 ``schedule``; details ``job_id``, ``name``, ``cron``, ``timezone``, ``enabled``,
-``misfire``, ``version``; never the options). Fires are not audited; the run
-records its trigger. See :ref:`reference-audit-api`.
+``misfire``, ``version``; never the options). Every fire writes one ``run.trigger``
+event (actor ``system:scheduler``; details ``job_id``, ``job_version_id``,
+``trigger``, ``schedule_id``; never the options) in the transaction that creates
+the run. See :ref:`reference-audit-api`.

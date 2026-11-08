@@ -35,7 +35,9 @@ func TestEveryOperationHasAnAuthPolicy(t *testing.T) {
 			known[op.OperationID] = true
 			_, governed := routePolicies[op.OperationID]
 			_, public := publicOps[op.OperationID]
-			if !governed && !public && len(op.Security) == 0 {
+			// Security alone only documents the scheme: such an operation must
+			// also be governed or carry the requireAdmin middleware.
+			if !governed && !public && len(op.Middlewares) == 0 {
 				unguarded = append(unguarded, op.OperationID)
 			}
 		}

@@ -86,3 +86,10 @@ func ValidateSpec(spec json.RawMessage, checksum string) error {
 	}
 	return checkJSON("job spec", spec)
 }
+
+// JobAuditDetails is the content of job events: the name, version and checksum.
+type JobAuditDetails struct {
+	Name     string `json:"name,omitempty"`
+	Version  int    `json:"version"`
+	Checksum string `json:"checksum"`
+}

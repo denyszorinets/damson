@@ -145,12 +145,21 @@ func (h authHandlers) createSession(r *http.Request, id oidc.Identity) (string, 
 		return "", err
 	}
 	now := h.d.now()
+	admin := h.d.oidc.isInstanceAdmin(id)
+	ev, err := store.NewEventAs(
+		store.AuditMeta{Actor: "user:" + id.Sub, ActorName: id.Email, RequestID: requestIDFromCtx(r.Context())},
+		store.ActionAuthLogin, store.AuditTargetUser, id.Sub, "", struct {
+			InstanceAdmin bool `json:"instance_admin"`
+		}{admin}, now)
+	if err != nil {
+		return "", err
+	}
 	err = h.d.ds.CreateSession(r.Context(), store.NewSession{
 		Session: store.Session{
 			ID: sid, Sub: id.Sub, Email: id.Email, Name: id.Name, Claims: claims,
-			InstanceAdmin: h.d.oidc.isInstanceAdmin(id), ExpiresAt: now.Add(sessionLifetime),
+			InstanceAdmin: admin, ExpiresAt: now.Add(sessionLifetime),
 		},
-		TokenHash: tokens.Hash(token),
+		TokenHash: tokens.Hash(token), Audit: &ev,
 	}, now)
 	return token, err
 }
