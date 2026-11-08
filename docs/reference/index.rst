@@ -8,6 +8,7 @@ Reference
    job-spec
    cli
    http-api
+   projects
    schedules
    webhooks
    service-accounts

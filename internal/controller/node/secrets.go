@@ -77,8 +77,7 @@ func (s *secretSource) Secret(ctx context.Context, _, ref string) (map[string]st
 	return nil, err
 }
 
-// projectOf resolves the project path of a run: run, job, project. Projects
-// are flat names until nested projects exist.
+// projectOf resolves the project path of a run: run, job, project.
 func projectOf(st store.Store) func(ctx context.Context, runID string) (string, error) {
 	return func(ctx context.Context, runID string) (string, error) {
 		run, err := st.GetRun(ctx, runID)
@@ -89,16 +88,11 @@ func projectOf(st store.Store) func(ctx context.Context, runID string) (string, 
 		if err != nil {
 			return "", err
 		}
-		projects, err := st.ListProjects(ctx)
+		p, err := st.GetProject(ctx, job.ProjectID)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("project of job %q: %w", job.ID, err)
 		}
-		for _, p := range projects {
-			if p.ID == job.ProjectID {
-				return p.Name, nil
-			}
-		}
-		return "", fmt.Errorf("project %q of job %q: %w", job.ProjectID, job.ID, store.ErrNotFound)
+		return p.Path, nil
 	}
 }
 

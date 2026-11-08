@@ -61,8 +61,8 @@ func (f *fakeStore) ListRunTargets(context.Context, string) ([]store.RunTarget, 
 	return f.targets, f.targetErr
 }
 
-func (f *fakeStore) ListProjects(context.Context) ([]store.Project, error) {
-	return []store.Project{{ID: "p1", Name: "default"}}, nil
+func (f *fakeStore) GetProject(context.Context, string) (store.Project, error) {
+	return store.Project{ID: "p1", Path: "default"}, nil
 }
 
 func (f *fakeStore) WithTx(ctx context.Context, fn func(store.Tx) error) error {

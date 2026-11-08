@@ -61,7 +61,7 @@ func projectNames(ctx context.Context, ds DataStore) (map[string]string, error) 
 	}
 	m := make(map[string]string, len(ps))
 	for _, p := range ps {
-		m[p.ID] = p.Name
+		m[p.ID] = p.Path
 	}
 	return m, nil
 }
@@ -234,7 +234,7 @@ func createJob(ctx context.Context, d deps, in *createJobInput) (*jobDetailOutpu
 		return nil, apiError(ctx, invalid("name must equal spec.metadata.name",
 			ProblemDetail{Message: "differs from spec.metadata.name", Location: "name"}))
 	}
-	proj, err := d.ds.GetProjectByName(ctx, c.job.Metadata.Project)
+	proj, err := d.ds.GetProjectByPath(ctx, c.job.Metadata.Project)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, apiError(ctx, invalid("unknown project",
 			ProblemDetail{Message: "no such project", Location: "spec.metadata.project"}))
@@ -251,7 +251,7 @@ func createJob(ctx context.Context, d deps, in *createJobInput) (*jobDetailOutpu
 		return nil, apiError(ctx, err)
 	}
 	return &jobDetailOutput{Body: JobDetail{
-		Job:      toJob(job, map[string]string{proj.ID: proj.Name}),
+		Job:      toJob(job, map[string]string{proj.ID: proj.Path}),
 		Version:  toJobVersion(ver, true),
 		Warnings: c.warnings,
 	}}, nil
@@ -284,7 +284,7 @@ func listJobs(ctx context.Context, d deps, in *listJobsInput) (*listJobsOutput, 
 	if err != nil {
 		return nil, err
 	}
-	proj, err := d.ds.GetProjectByName(ctx, in.Project)
+	proj, err := d.ds.GetProjectByPath(ctx, in.Project)
 	if err != nil {
 		return nil, apiError(ctx, err)
 	}
@@ -292,7 +292,7 @@ func listJobs(ctx context.Context, d deps, in *listJobsInput) (*listJobsOutput, 
 	if err != nil {
 		return nil, apiError(ctx, err)
 	}
-	names := map[string]string{proj.ID: proj.Name}
+	names := map[string]string{proj.ID: proj.Path}
 	out := &listJobsOutput{}
 	out.Body.Items = make([]Job, 0, len(page.Jobs))
 	for _, j := range page.Jobs {

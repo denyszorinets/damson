@@ -1013,11 +1013,20 @@ Both sync routes need the admin token, accept at most 16 MiB and 5000 nodes, and
 
 ### 12.1 Projects
 
-- A tree stored with a materialized `path`. Each project has:
-  - `access_rules`
-  - `node_scope`: a CEL selector over nodes; it inherits by AND with ancestors
-  - `retention`
-  - its secrets
+- A tree. Each project has a `path` (unique, immutable), a nullable `parent_id`
+  (NULL for roots), a `description` and a `version` used for compare-and-swap.
+  `default` is a root project.
+- The path grammar is the secret scope grammar (ADR-0042): 1 to 8 segments,
+  each matching `^[a-z0-9][a-z0-9-]{0,62}$`. `_inventory` cannot be a project.
+- A subtree is `path = p OR (path >= p||'/' AND path < p||'0')`, so `infra` does
+  not contain `infrastructure`.
+- Paths are never moved or renamed in M8: literal `secret://` refs, secret
+  scope paths, service token scopes and audit `project_path` are keyed by path.
+- A project is deleted only when it has no child projects, jobs, secrets in its
+  scope path, or non-revoked service tokens scoped exactly to it (409).
+- Later slices add `access_rules` and `node_scope` (a CEL selector over nodes,
+  inherited by AND with ancestors). `retention` is deferred to M9.
+- Details: ADR-0062.
 
 ### 12.2 Authentication
 
@@ -1100,7 +1109,7 @@ jobs/
 
 All routes are under `/api/v1`, with the OpenAPI document at `/api/v1/openapi.json`.
 
-- `projects` — CRUD, tree, access rules
+- `projects` — `GET`/`POST /projects`, `GET`/`PATCH`/`DELETE /projects/{path}` (`{path}` is one percent-encoded segment, `infra%2Fbilling`); admin token until the authorization slice (ADR-0062); access rules come later
 - `jobs` — CRUD, versions, `versions/{v}/graph`, validate (dry-run validation of a spec; also returns its graph), runs
 - `runs` — list, get (with step tree), `graph` (graph plus current step states, `{graph, steps[]}`), cancel, rerun (same version and options), SSE `/runs/{id}/events`
 - `executions` — get, logs (SSE)

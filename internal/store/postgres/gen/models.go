@@ -173,9 +173,13 @@ type PoolToken struct {
 }
 
 type Project struct {
-	ID        string
-	Name      string
-	CreatedAt pgtype.Timestamptz
+	ID          string
+	Path        string
+	CreatedAt   pgtype.Timestamptz
+	ParentID    pgtype.Text
+	Description string
+	Version     int32
+	UpdatedAt   pgtype.Timestamptz
 }
 
 type Run struct {

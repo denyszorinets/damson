@@ -96,6 +96,10 @@ func problemFor(err error) Problem {
 	if np, ok := nodeProblem(err); ok {
 		return np
 	}
+	var inUse *store.ProjectInUseError
+	if errors.As(err, &inUse) {
+		return Problem{Type: typeConflict, Title: "Conflict", Status: http.StatusConflict, Detail: inUse.Error()}
+	}
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return Problem{Type: typeNotFound, Title: "Not Found", Status: http.StatusNotFound, Detail: "the requested resource does not exist"}

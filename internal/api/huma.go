@@ -36,14 +36,13 @@ type DataStore interface {
 	store.ScheduleStore
 	store.WebhookStore
 	store.ServiceAccountStore
+	store.ProjectStore
 	PurgeExecutionLogs(ctx context.Context, executionID string, now time.Time) (store.LogPurge, error)
 
 	ListAgents(ctx context.Context, cursor string, limit int) (store.AgentPage, error)
 	GetAgent(ctx context.Context, id string) (store.Agent, error)
 	ListPools(ctx context.Context) ([]store.Pool, error)
 
-	GetProjectByName(ctx context.Context, name string) (store.Project, error)
-	ListProjects(ctx context.Context) ([]store.Project, error)
 	CreateJob(ctx context.Context, nj store.NewJob, now time.Time) (store.Job, store.JobVersion, error)
 	CreateJobVersion(ctx context.Context, jobID string, spec json.RawMessage, checksum string,
 		expectedCurrent int, now time.Time) (store.JobVersion, error)
@@ -149,6 +148,7 @@ func newHuma(mux *http.ServeMux, d deps, env *expr.Env) huma.API {
 	registerSchedules(api, d)
 	registerWebhooks(api, d, env)
 	registerServiceAccounts(api, d)
+	registerProjects(api, d)
 	registerInventorySync(api, d)
 	return api
 }

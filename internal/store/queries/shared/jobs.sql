@@ -1,9 +1,3 @@
--- name: GetProjectByName :one
-SELECT id, name, created_at FROM projects WHERE name = sqlc.arg(name);
-
--- name: ListProjects :many
-SELECT id, name, created_at FROM projects ORDER BY name;
-
 -- name: InsertJob :execrows
 INSERT INTO jobs (id, project_id, name, managed_by, current_version, created_at, updated_at)
 VALUES (sqlc.arg(id), sqlc.arg(project_id), sqlc.arg(name), sqlc.arg(managed_by),

@@ -15,10 +15,6 @@ import (
 
 var _ store.JobStore = (*Store)(nil)
 
-func toProject(r gen.Project) store.Project {
-	return store.Project{ID: r.ID, Name: r.Name, CreatedAt: r.CreatedAt.Time.UTC()}
-}
-
 func toJob(r gen.Job) store.Job {
 	return store.Job{
 		ID: r.ID, ProjectID: r.ProjectID, Name: r.Name, ManagedBy: r.ManagedBy,
@@ -31,31 +27,6 @@ func toJobVersion(r gen.JobVersion) store.JobVersion {
 		ID: r.ID, JobID: r.JobID, Version: int(r.Version), Spec: json.RawMessage(r.Spec),
 		Checksum: r.Checksum, CreatedAt: r.CreatedAt.Time.UTC(),
 	}
-}
-
-// GetProjectByName implements store.JobStore.
-func (s *Store) GetProjectByName(ctx context.Context, name string) (store.Project, error) {
-	row, err := s.q.GetProjectByName(ctx, name)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return store.Project{}, fmt.Errorf("project %q: %w", name, store.ErrNotFound)
-	}
-	if err != nil {
-		return store.Project{}, fmt.Errorf("getting project %q: %w", name, err)
-	}
-	return toProject(row), nil
-}
-
-// ListProjects implements store.JobStore.
-func (s *Store) ListProjects(ctx context.Context) ([]store.Project, error) {
-	rows, err := s.q.ListProjects(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing projects: %w", err)
-	}
-	out := make([]store.Project, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, toProject(r))
-	}
-	return out, nil
 }
 
 // CreateJob implements store.JobStore.

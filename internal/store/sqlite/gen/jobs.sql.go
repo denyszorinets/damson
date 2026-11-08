@@ -96,17 +96,6 @@ func (q *Queries) GetJobVersionByNumber(ctx context.Context, arg GetJobVersionBy
 	return i, err
 }
 
-const getProjectByName = `-- name: GetProjectByName :one
-SELECT id, name, created_at FROM projects WHERE name = ?1
-`
-
-func (q *Queries) GetProjectByName(ctx context.Context, name string) (Project, error) {
-	row := q.db.QueryRowContext(ctx, getProjectByName, name)
-	var i Project
-	err := row.Scan(&i.ID, &i.Name, &i.CreatedAt)
-	return i, err
-}
-
 const insertJob = `-- name: InsertJob :execrows
 INSERT INTO jobs (id, project_id, name, managed_by, current_version, created_at, updated_at)
 VALUES (?1, ?2, ?3, ?4,
@@ -244,33 +233,6 @@ func (q *Queries) ListJobsAfter(ctx context.Context, arg ListJobsAfterParams) ([
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listProjects = `-- name: ListProjects :many
-SELECT id, name, created_at FROM projects ORDER BY name
-`
-
-func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
-	rows, err := q.db.QueryContext(ctx, listProjects)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Project
-	for rows.Next() {
-		var i Project
-		if err := rows.Scan(&i.ID, &i.Name, &i.CreatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
