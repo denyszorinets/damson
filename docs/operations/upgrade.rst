@@ -62,13 +62,16 @@ support is refused and exits with status 1.
 Upgrading agents
 ----------------
 
-Agents have no drain on SIGTERM. Stopping or restarting one cancels its running
-steps after a 5 second grace, whether the cause is an upgrade, a node drain or
-an autoscaler scale-down. Upgrade a pool when its steps are idle, or accept the
-cancellations; a cancelled step is retried only if the job's retry policy says
-so. The agent understands the controller message ``agent.drain`` (stop taking new
-work), but no controller sends it today. Upgrade pool by pool and keep the other pools
-serving.
+On SIGTERM an agent drains: it reports zero free slots, refuses new steps, and
+waits up to ``agent.drain_grace`` (default ``20s``) for running steps to
+finish. Steps still running after that are cancelled, with a further 5 seconds
+to close the connection. This holds for an upgrade, a node drain and an
+autoscaler scale-down alike. Keep ``agent.drain_grace`` plus 5 seconds below the
+stop timeout of the platform (``TimeoutStopSec`` in systemd,
+``terminationGracePeriodSeconds`` in Kubernetes), and raise both together if
+your steps run longer. A cancelled step is retried only if the job's retry
+policy says so. The controller never sends ``agent.drain`` itself. Upgrade pool
+by pool and keep the other pools serving.
 
 Rollback
 --------

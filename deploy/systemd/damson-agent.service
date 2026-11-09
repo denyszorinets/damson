@@ -14,7 +14,7 @@ Environment=DAMSON_CONFIG=/etc/damson/agent.toml
 ExecStart=/usr/local/bin/damson agent
 Restart=on-failure
 RestartSec=5s
-# On stop the agent cancels running steps, giving them 5 seconds.
+# On stop the agent drains for agent.drain_grace (20s), then cancels running steps (5 s more).
 TimeoutStopSec=30s
 StateDirectory=damson-agent
 StateDirectoryMode=0750

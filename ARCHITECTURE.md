@@ -696,7 +696,7 @@ Deploys charts to Kubernetes. It runs on the agent (`TargetMode = None`).
 | A→C | `step.progress` | notification | Optional progress percentage and message |
 | A→C | `step.complete` | request | `attempt_id`, status, outputs, error, timings. **Retried until acknowledged**, including across reconnects. |
 | C→A | `step.cancel` | request | `attempt_id`, grace period |
-| C→A | `agent.drain` | notification | Stop accepting new work (controller or agent shutdown) |
+| C→A | `agent.drain` | notification | Stop accepting new work (controller or agent shutdown). On SIGTERM the agent drains itself locally for `agent.drain_grace` without a message |
 | C→A | `agent.reconnect` | notification | The controller is shutting down; reconnect via the LB after jitter |
 | A→C | `node.hostkey_observed` | notification | TOFU host key report |
 

@@ -88,9 +88,10 @@ These are described in the design but not implemented today. Plan around them.
 - **No metrics and no traces.** There is no ``/metrics`` endpoint and no
   OpenTelemetry. ARCHITECTURE section 17 describes both. Monitor with
   ``/readyz``, logs and the API (:doc:`monitoring`).
-- **No agent drain on SIGTERM.** When an agent stops, running steps are
-  cancelled and get 5 seconds. Rollouts, node drains and autoscaler scale-down
-  cancel work (:doc:`upgrade`).
+- **Agent drain is bounded.** On SIGTERM an agent stops taking work and waits
+  up to ``agent.drain_grace`` (default 20 s) for running steps, then cancels
+  them. Steps that run longer are cancelled on rollouts, node drains and
+  autoscaler scale-down (:doc:`upgrade`).
 - **PostgreSQL is the only HA database.** SQLite supports exactly one
   controller.
 - **Rolling upgrades are zero-downtime only if migrations are compatible with

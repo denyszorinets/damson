@@ -187,8 +187,10 @@ Runs and dispatch
        failed for more than 60 seconds.
      - Check the agent. The job's retry policy decides what happens next.
    * - Steps cancelled on agent restarts
-     - No SIGTERM drain.
-     - Schedule agent restarts when idle (:doc:`upgrade`).
+     - The steps outlived ``agent.drain_grace`` (default 20 s) when the agent
+       stopped.
+     - Raise ``agent.drain_grace`` and the stop timeout together, or restart
+       agents when idle (:doc:`upgrade`).
    * - Log gaps; WARN ``log stream: chunk unreadable``
      - A chunk is listed but cannot be read: the S3 object is missing, the
        backend was removed from the configuration, or the bucket/prefix changed.

@@ -25,7 +25,8 @@ type Agent struct {
 	fatal   error
 
 	connected atomic.Bool
-	draining  atomic.Bool
+	draining  atomic.Bool // the controller asked; reset by every hello
+	stopping  atomic.Bool // set by Drain; survives reconnects
 }
 
 // New validates cfg. Nothing runs until Start.
@@ -41,7 +42,7 @@ func New(cfg Config) (*Agent, error) {
 		cfg: cfg, connURL: u, done: make(chan struct{}),
 		log: cfg.Logger.With("agent_id", cfg.AgentID),
 	}
-	if a.exec, err = newExecutor(&a.cfg, a.log, a.draining.Load); err != nil {
+	if a.exec, err = newExecutor(&a.cfg, a.log, a.isDraining); err != nil {
 		return nil, err
 	}
 	return a, nil
@@ -108,7 +109,28 @@ func (a *Agent) Err() error {
 func (a *Agent) Connected() bool { return a.connected.Load() }
 
 // Draining reports whether the controller asked the agent to stop taking work.
-func (a *Agent) Draining() bool { return a.draining.Load() }
+func (a *Agent) Draining() bool { return a.isDraining() }
+
+func (a *Agent) isDraining() bool { return a.draining.Load() || a.stopping.Load() }
+
+// Drain stops taking new work and waits until the running steps have finished
+// or ctx expires. It does not stop the agent: call Stop afterwards, which
+// cancels whatever is still running. Heartbeats report zero free slots from
+// the first call on, also after a reconnect.
+func (a *Agent) Drain(ctx context.Context) {
+	a.stopping.Store(true)
+	t := time.NewTicker(100 * time.Millisecond)
+	defer t.Stop()
+	for n := len(a.exec.Running()); n > 0; n = len(a.exec.Running()) {
+		a.log.Info("draining: waiting for running steps", "running", n)
+		select {
+		case <-ctx.Done():
+			a.log.Warn("drain grace over; canceling running steps", "running", len(a.exec.Running()))
+			return
+		case <-t.C:
+		}
+	}
+}
 
 func (a *Agent) run(ctx context.Context) {
 	defer close(a.done)

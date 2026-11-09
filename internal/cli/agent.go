@@ -148,7 +148,8 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger, plugins 
 	if err != nil {
 		return err
 	}
-	if err := a.Start(ctx); err != nil {
+	// The signal context must not cancel the agent: shutdown drains first.
+	if err := a.Start(context.WithoutCancel(ctx)); err != nil {
 		return err
 	}
 	var fatal error
@@ -157,6 +158,11 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger, plugins 
 		log.Info("stopping")
 	case <-a.Done():
 		fatal = a.Err()
+	}
+	if fatal == nil && ctx.Err() != nil {
+		dctx, dcancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.DrainGraceDuration())
+		a.Drain(dctx)
+		dcancel()
 	}
 	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), agentStopTimeout)
 	defer cancel()

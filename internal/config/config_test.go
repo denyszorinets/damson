@@ -116,6 +116,20 @@ func TestLoad(t *testing.T) {
 			wantErr: []string{"agent.spool_max_bytes"},
 		},
 		{
+			name: "agent bad drain grace is rejected", role: RoleAgent,
+			env:     append([]string{"DAMSON_AGENT__DRAIN_GRACE=soon"}, agentEnv...),
+			wantErr: []string{"agent.drain_grace"},
+		},
+		{
+			name: "agent drain grace defaults to 20s", role: RoleAgent,
+			env: agentEnv,
+			check: func(t *testing.T, c Config) {
+				if got := c.DrainGraceDuration(); got != 20*time.Second {
+					t.Fatalf("drain grace = %s", got)
+				}
+			},
+		},
+		{
 			name: "agent from env with int coercion", role: RoleAgent,
 			env: append([]string{"DAMSON_AGENT__SLOTS=8"}, agentEnv...),
 			check: func(t *testing.T, c Config) {

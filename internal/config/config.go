@@ -146,12 +146,24 @@ func (c Config) FinallyGraceDuration() time.Duration {
 	return d
 }
 
+// MaxDrainGrace bounds agent.drain_grace.
+const MaxDrainGrace = 24 * time.Hour
+
+// DrainGraceDuration returns agent.drain_grace; Validate guarantees it parses.
+func (c Config) DrainGraceDuration() time.Duration {
+	d, _ := time.ParseDuration(c.Agent.DrainGrace)
+	return d
+}
+
 // Agent configures the agent role.
 type Agent struct {
 	ControllerURL string `koanf:"controller_url"` // ws:// or wss:// URL
 	Token         string `koanf:"token"`          // pool token; secret
 	Pool          string `koanf:"pool"`
 	Slots         int    `koanf:"slots"` // concurrent executions; 0 means CPU count x 4
+	// DrainGrace is how long a stopping agent lets running steps finish before
+	// it cancels them (SIGTERM). "0s" cancels at once.
+	DrainGrace string `koanf:"drain_grace"`
 	// SpoolDir holds the bounded log spool file; empty means the system temp dir.
 	SpoolDir string `koanf:"spool_dir"`
 	// SpoolMaxBytes bounds the log spool; 0 means 256 MiB.
@@ -279,6 +291,7 @@ func defaults() map[string]any {
 		"agent.token":                                     "",
 		"agent.pool":                                      "default",
 		"agent.slots":                                     0,
+		"agent.drain_grace":                               "20s",
 		"agent.spool_dir":                                 "",
 		"agent.spool_max_bytes":                           0,
 		"agent.allow_insecure_host_keys":                  false,
