@@ -58,6 +58,7 @@ type Store interface {
 	ExecutionStore
 	LogStore
 	LogDeleteStore
+	MetricsStore
 	StampStore
 	SecretStore
 	AuditStore

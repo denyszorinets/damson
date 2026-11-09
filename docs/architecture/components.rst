@@ -110,7 +110,7 @@ Package responsibilities
    * - ``internal/api``
      - Huma handlers; the single error → problem+json mapping.
    * - ``internal/telemetry``
-     - OpenTelemetry traces and metrics, ``slog`` setup.
+     - ``slog`` setup; planned home of OpenTelemetry traces (metrics: ADR-0070).
    * - ``pkg/pluginsdk``, ``plugintest``
      - Public plugin SDK and its test harness and contract suite.
    * - ``plugins/*``, ``plugins/all``

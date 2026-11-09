@@ -64,7 +64,7 @@ Damson is an open-source job orchestrator in the spirit of Rundeck and a modern,
 | Cron | `github.com/robfig/cron/v3` parser | Scheduling loop is ours |
 | Config | `github.com/knadh/koanf` | File + env + flags |
 | Auth | `github.com/coreos/go-oidc/v3`, `golang.org/x/oauth2` | Server-side sessions |
-| Observability | OpenTelemetry (traces + metrics), `log/slog` | Prometheus endpoint via the OTel exporter |
+| Observability | OpenTelemetry (traces + metrics), `log/slog` | Prometheus `/metrics` via `prometheus/client_golang` (ADR-0070); OTel traces planned |
 | Frontend | **SvelteKit** (SPA, `adapter-static`), Svelte 5, TypeScript, Tailwind v4 | Embedded in the binary via `embed` |
 | UI kit | **shadcn-svelte** (MIT) | Components vendored into the repo |
 | Schema forms | **`@sjsf/form`** + basic theme (`@sjsf/basic-theme`) + ajv8 validator (`@sjsf/ajv8-validator`) (MIT) | Plugin step forms and run-option dialogs; the basic theme avoids a large shadcn form component set |
@@ -1255,11 +1255,11 @@ An activity-diagram view (UML-like) of a job's structure. It appears in three pl
 
 - **OTel traces:** Run (root span), then StepInstance, then Execution.
   - The trace context is passed in `step.execute`, so agent spans for plugin work join the trace.
-- **Metrics:** `damson_runs_total{status}`, `damson_step_duration_seconds{plugin,status}`, `damson_queue_depth{pool}`, `damson_agents_connected{pool}`, `damson_agent_slots_free{pool}`, `damson_log_bytes_total`, `damson_ws_messages_total{method}`, `damson_leases_lost_total`.
-- **Endpoints:** `/healthz` (process), `/readyz` (DB and log store reachable, migrations current), `/metrics`.
+- **Metrics:** implemented (ADR-0070, database-derived gauges): `damson_runs{status}`, `damson_queue_depth{pool}`, `damson_executions_active{pool,state}`, `damson_agents_connected{pool}`, `damson_agent_slots{pool}` (agents owned by a controller, not disconnected, seen within 2 minutes), `damson_log_object_deletes_pending`, `damson_log_store_up` (external log backends only), `damson_metrics_database_up`. Planned: `damson_runs_total{status}` (counter), `damson_step_duration_seconds{plugin,status}`, `damson_agent_slots_free{pool}`, `damson_log_bytes_total`, `damson_ws_messages_total{method}`, `damson_leases_lost_total`.
+- **Endpoints:** `/healthz` (process), `/readyz` (database reachable, migrations applied; the log store is deliberately not part of it, a log store outage is degraded and shows as `damson_log_store_up == 0`, ADR-0070), `/metrics` (read-only metrics token `dmm_`, Prometheus text format).
 - **Logs:** `slog` JSON with `run_id`, `execution_id`, `attempt_id`, `agent_id`, `request_id`.
 
-**Status.** Implemented: `slog` JSON logs with those attributes (plus `role` and `controller_id`), `/healthz`, and `/readyz` (database ping plus migrations applied; it does not check the log store). Planned, not implemented: OTel traces, all metrics, `/metrics`, and the log store check in `/readyz`. Operators monitor with `/readyz`, logs and the agent and audit APIs (`docs/operations/monitoring.rst`).
+**Status.** Implemented: `slog` JSON logs with those attributes (plus `role` and `controller_id`), `/healthz`, `/readyz` (database ping, migrations applied), and `/metrics` with the gauges above, authenticated with a dedicated metrics token (`damson admin metrics-token`, stored as a hash in `instance_settings`), built on `prometheus/client_golang` instead of the OTel exporter (ADR-0070). Planned, not implemented: OTel traces and the metrics marked planned. Operators monitor with `/metrics`, `/readyz`, logs and the agent and audit APIs (`docs/operations/monitoring.rst`).
 
 ---
 

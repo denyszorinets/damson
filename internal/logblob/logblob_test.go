@@ -61,3 +61,28 @@ func TestSet(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+type probedBlob struct {
+	logblob.Blob
+	err error
+}
+
+func (p probedBlob) Probe(context.Context) error { return p.err }
+
+func TestSetProbeReportsAnUnreachableExternalBackend(t *testing.T) {
+	db := logblob.DB{}
+	ok, err := logblob.NewSet(logblob.BackendDB, map[string]logblob.Blob{logblob.BackendDB: db, "s3": probedBlob{Blob: db}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ok.Probe(context.Background()); err != nil {
+		t.Fatalf("healthy backends: %v", err)
+	}
+	bad, _ := logblob.NewSet(logblob.BackendDB, map[string]logblob.Blob{logblob.BackendDB: db, "s3": probedBlob{Blob: db, err: errors.New("unreachable")}})
+	if err := bad.Probe(context.Background()); err == nil {
+		t.Fatal("an unreachable s3 backend passed the probe")
+	}
+	if err := logblob.DBOnly(nil).Probe(context.Background()); err != nil {
+		t.Fatalf("db only: %v", err)
+	}
+}

@@ -90,6 +90,9 @@ Actions
    * - ``admin_token.create``, ``admin_token.revoke``
      - ``instance``
      - none
+   * - ``metrics_token.create``, ``metrics_token.revoke``
+     - ``instance``
+     - none (target ``metrics_token``)
    * - ``audit.prune``
      - ``instance``
      - retention batch (:doc:`configuration`)

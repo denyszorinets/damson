@@ -216,6 +216,9 @@ change nothing until accepted.
    * - 0069
      - :doc:`0069-jobs-as-code`
      - Accepted
+   * - 0070
+     - :doc:`0070-prometheus-metrics-endpoint`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -289,3 +292,4 @@ change nothing until accepted.
    0067-s3-log-store-and-deferred-deletes
    0068-openbao-secret-backend
    0069-jobs-as-code
+   0070-prometheus-metrics-endpoint

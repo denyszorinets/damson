@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/denyszorinets/damson/internal/expr"
+	"github.com/denyszorinets/damson/internal/store"
 )
 
 // LogReader reads a log chunk object from the named backend (logblob.Set).
@@ -35,6 +36,11 @@ type Config struct {
 	// LogBlobs reads stored log chunks from the backend each chunk names. Nil
 	// reads them from Data (the db backend only).
 	LogBlobs LogReader
+	// LogProbe checks the external log backends; /metrics reports the result as
+	// damson_log_store_up. Nil reports nothing.
+	LogProbe func(context.Context) error
+	// Metrics serves /metrics (metrics token required). Nil leaves it off.
+	Metrics store.MetricsStore
 	// RunNotify wakes run event streams early. Nil means polling only.
 	RunNotify RunNotifier
 	// Advance enqueues run.advance in the same transaction as a trigger or a
@@ -108,6 +114,9 @@ func routes(cfg Config) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthz)
 	mux.HandleFunc("/readyz", readyz(cfg.Store))
+	if cfg.Metrics != nil {
+		mux.Handle("/metrics", newMetricsHandler(cfg.Metrics, cfg.Data, cfg.LogProbe, cfg.Logger))
+	}
 	d := newDeps(cfg)
 	env, err := expr.NewRequestEnv(expr.Limits{})
 	if err != nil { // a constant environment: only a broken CEL library fails here

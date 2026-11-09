@@ -175,6 +175,10 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 		apiCfg.Advance, apiCfg.RunNotify = n.adv, n.adv.Hub()
 		apiCfg.LogTail = n.tail
 	}
+	apiCfg.Metrics = cfg.Store
+	if n.blobs != nil {
+		apiCfg.LogProbe = n.blobs.Probe
+	}
 	apiCfg.Targets = &InventoryTargets{Store: cfg.Store, Scope: scope}
 	apiCfg.AuthorizeSecretRefs = n.secrets != nil
 	if n.secrets != nil { // a nil *Backend must not become a non-nil interface

@@ -28,6 +28,9 @@ Resources and actions:
   admin-token create                       create the admin bootstrap token (printed once);
                                            replaces any existing one
   admin-token revoke                       revoke the admin bootstrap token
+  metrics-token create                     create the read-only token that scrapes /metrics
+                                           (printed once); replaces any existing one
+  metrics-token revoke                     revoke the metrics token
   kek generate                             print a new secret encryption key (no database)
   rotate-kek                               re-wrap every secret under DAMSON_KEK (the new key), which
                                            must come with DAMSON_KEK_PREVIOUS (the old one); resumable
@@ -66,6 +69,9 @@ var adminActions = map[string]adminAction{
 
 	"admin-token create": {run: adminTokenCreate},
 	"admin-token revoke": {run: adminTokenRevoke},
+
+	"metrics-token create": {run: metricsTokenCreate},
+	"metrics-token revoke": {run: metricsTokenRevoke},
 
 	"rotate-kek": {run: rotateKEK},
 }

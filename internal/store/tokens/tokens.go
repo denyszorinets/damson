@@ -17,7 +17,13 @@ import (
 const (
 	Prefix      = "dmp_"
 	AdminPrefix = "dma_"
+	// MetricsPrefix marks the read-only token that scrapes /metrics.
+	MetricsPrefix = "dmm_"
 )
+
+// MetricsSettingKey is the instance_settings key of the metrics token's hash;
+// an empty value means it was revoked.
+const MetricsSettingKey = "auth.metrics_token_hash"
 
 // AdminSettingKey is the instance_settings key that holds the SHA-256 of the
 // admin token; an empty value means the token was revoked.

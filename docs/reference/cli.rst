@@ -18,7 +18,7 @@ Damson ships as one binary, ``damson``. The role is chosen by subcommand
    * - ``damson dev``
      - Run a controller and an agent in one process with SQLite.
    * - ``damson admin``
-     - Manage agent pools, pool tokens, the admin token and the secret encryption key (see :ref:`cli-admin`).
+     - Manage agent pools, pool tokens, the admin token, the metrics token and the secret encryption key (see :ref:`cli-admin`).
    * - ``damson apply``, ``damson export``
      - Apply a folder of project and job files, or export one (see :ref:`cli-apply`).
    * - ``damson plugin``
@@ -342,6 +342,10 @@ error saying so.
    * - ``damson admin admin-token revoke``
      - Remove the admin token; the secrets API then refuses every request.
        An error if there is none.
+   * - ``damson admin metrics-token create [--json]``
+     - Create the read-only token (``dmm_``) that scrapes ``/metrics``. Replaces any earlier one.
+   * - ``damson admin metrics-token revoke``
+     - Remove the metrics token; ``/metrics`` then answers 401.
    * - ``damson admin kek generate``
      - Print a new key encryption key for the db secret backend.
    * - ``damson admin rotate-kek [--json]``
@@ -364,6 +368,15 @@ it and the old token stops working immediately; that is how you rotate it. It
 is one shared token until OIDC arrives in M8, which keeps it as the recovery
 token. Create and revoke each write an ``admin_token.create`` or
 ``admin_token.revoke`` audit event (no token or hash in it).
+
+``metrics-token create`` makes a token of the form ``dmm_`` plus base64url of
+32 random bytes and prints it once on stdout (``--json`` gives ``{"token":
+...}``). Only its SHA-256 is stored (``instance_settings`` key
+``auth.metrics_token_hash``). Creating again replaces it. The token
+authorizes ``/metrics`` only; the admin token and service tokens do not
+(:doc:`/operations/monitoring`). ``metrics-token revoke`` fails if there is no
+token. Both are audited as ``metrics_token.create`` and
+``metrics_token.revoke`` (no token or hash in them).
 
 ``kek generate`` prints a new 32-byte base64 key on stdout and the ``kek_id``
 plus a warning on stderr. It needs no database or config. Keep the key safe:

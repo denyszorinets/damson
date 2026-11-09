@@ -26,7 +26,14 @@ Endpoints
    * - ``GET /readyz``
      - Readiness. ``200 {"status":"ready"}`` when the database answers
        ``Ping`` and at least one migration is applied; otherwise ``503``
-       problem+json. The cause is logged, never returned.
+       problem+json. The cause is logged, never returned. It does not probe the
+       log store (see ``damson_log_store_up`` on ``/metrics``).
+   * - ``GET /metrics``
+     - Prometheus text format. Requires the metrics token (``Authorization:
+       Bearer dmm_...``, see ``damson admin metrics-token create``); 401
+       problem+json with ``WWW-Authenticate: Bearer realm="damson-metrics"``
+       otherwise. No other token is accepted. Not in the OpenAPI spec (see
+       :doc:`/operations/monitoring`).
    * - ``/api/v1/...``
      - The typed API (see :ref:`reference-api-v1`).
    * - ``/api/...``
@@ -47,10 +54,9 @@ problem+json with an ``Allow`` header.
 
 .. note::
 
-   The log store check and a "migrations current" comparison against the
-   binary's latest migration (ARCHITECTURE section 17) are not implemented
-   yet: readiness currently means the database is reachable and migrated at
-   least once.
+   A "migrations current" comparison against the binary's latest migration is
+   not implemented: readiness means the database is reachable and migrated at
+   least once. The log store is not part of readiness (ADR-0070).
 
 .. _reference-api-v1:
 
