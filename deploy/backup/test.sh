@@ -2,7 +2,7 @@
 # Round-trip test of damson-backup.sh and damson-restore.sh. SQLite needs the
 # sqlite3 CLI. PostgreSQL runs only with PGTEST_ADMIN_URL set to a superuser URL
 # of a scratch server (postgres://user:pw@host:5432/postgres) and needs pg_dump,
-# pg_restore and psql (client version >= server version).
+# pg_restore and psql, of the same major version as the server.
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 tmp="$(mktemp -d)"

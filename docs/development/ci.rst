@@ -50,7 +50,7 @@ Jobs
      - ``make bundle-check`` (``deploy/bundle/test.sh``: checksum and
        signature checks of ``verify.sh``, needs ``ssh-keygen``) and
        ``make backup-check`` (``deploy/backup/test.sh``: backup and restore
-       round trip with ``sqlite3`` and a ``postgres:16`` service).
+       round trip with ``sqlite3`` and a ``postgres:18`` service).
    * - ``plugin-contract``
      - ``make plugin-contract``.
    * - ``docs``
