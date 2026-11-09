@@ -121,3 +121,21 @@ func TestMissingProgramAndCancellation(t *testing.T) {
 		t.Fatalf("timeout: %v", err)
 	}
 }
+
+// A context that ended before the command could start is a cancellation (or a
+// timeout), never a failure to start. Canceling in the gap between two steps
+// of a plugin hit this and made cancel_blocking of the contract flaky.
+func TestContextEndedBeforeStartIsNotAStartFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := proc.Run(ctx, spec("true"), &plugintest.FakeEmitter{})
+	if se := pluginsdk.AsStepError(err); se == nil || se.Kind != pluginsdk.KindCancelled {
+		t.Fatalf("cancelled before start: %v", err)
+	}
+	tctx, tcancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer tcancel()
+	_, err = proc.Run(tctx, spec("true"), &plugintest.FakeEmitter{})
+	if se := pluginsdk.AsStepError(err); se == nil || se.Kind != pluginsdk.KindTimeout {
+		t.Fatalf("deadline passed before start: %v", err)
+	}
+}
