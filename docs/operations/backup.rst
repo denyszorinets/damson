@@ -104,7 +104,7 @@ They do not back up a KEK that lives only in the environment (``DAMSON_KEK``),
 the S3 bucket, or the agents. Limits: the dumps are logical, so the RPO is the
 age of the backup (use WAL archiving for less); the scripts do not rotate or
 ship backups; use the ``pg_dump`` and ``pg_restore`` of the same major version as the server (a newer client fails against an older server).
-CI runs them against SQLite and PostgreSQL 16 (``make backup-check``).
+CI runs them against SQLite and PostgreSQL 18 (``make backup-check``).
 
 A schedule is yours to set up. This is an example, not shipped with Damson:
 
