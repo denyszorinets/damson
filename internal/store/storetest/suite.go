@@ -41,6 +41,7 @@ func Run(t *testing.T, f Factory) {
 		{"ControllerInstances", testControllerInstances},
 		{"LeaderLease", testLeaderLease},
 		{"MetricsSnapshot", testMetricsSnapshot},
+		{"BatchNodeLookups", testBatchNodeLookups},
 		{"PruneRuns", testPruneRuns},
 		{"PruneRunsOrderAndLimit", testPruneRunsOrderAndLimit},
 		{"MetricsSnapshotWork", testMetricsSnapshotWork},

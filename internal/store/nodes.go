@@ -61,6 +61,11 @@ type NodeStore interface {
 	GetNode(ctx context.Context, name string) (Node, error)
 	// GetNodeByID returns ErrNotFound if absent.
 	GetNodeByID(ctx context.Context, id string) (Node, error)
+	// GetNodesByIDs returns the nodes that exist, keyed by id, in chunks of
+	// MaxBatch; an id with no node is absent from the map.
+	GetNodesByIDs(ctx context.Context, ids []string) (map[string]Node, error)
+	// GetNodesByNames is GetNodesByIDs for exact names (case matters), keyed by name.
+	GetNodesByNames(ctx context.Context, names []string) (map[string]Node, error)
 	// FindNodeByName is GetNode ignoring case, as the unique index does.
 	FindNodeByName(ctx context.Context, name string) (Node, error)
 	// ListNodes pages by name.

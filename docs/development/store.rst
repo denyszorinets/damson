@@ -239,6 +239,11 @@ The interface is ``NodeStore`` (``internal/store/nodes.go``), part of
    existing name only in case, or if ``(source, external_id)`` exists.
 ``GetNode``
    One node; ``ErrNotFound``.
+``GetNodesByIDs``, ``GetNodesByNames``
+   Batch reads for dispatch (#187). They return a map of the nodes that exist,
+   keyed by id or by exact name (case matters); a missing key is simply absent.
+   Input is split into chunks of ``store.MaxBatch`` (500) and Postgres binds
+   ``= ANY($1::text[])`` while SQLite uses ``sqlc.slice``.
 ``FindNodeByName``
    ``GetNode`` ignoring case, as the unique index does; ``ErrNotFound``.
 ``ListNodes``
@@ -362,6 +367,9 @@ Reads:
 * ``ListRunTargetsPage`` pages by keyset on ``position``.
 * ``RunTargetNodeID`` returns the frozen id of a name, or ``ErrNotFound`` if
   the name is not in the snapshot. The match is case-sensitive.
+* ``RunTargetNodeIDs`` is the batch form: it maps each name found in the
+  snapshot to its node id, in chunks of ``store.MaxBatch``; names outside the
+  snapshot are absent.
 * ``NodeStore.GetNodeByID`` returns an inventory node by id
   (``ErrNotFound`` if absent).
 

@@ -68,6 +68,11 @@ func (s *InventoryNodes) Node(ctx context.Context, runID, name string) (pluginsd
 	if err != nil {
 		return pluginsdk.NodeInfo{}, err
 	}
+	return dispatchInfo(name, n)
+}
+
+// dispatchInfo is what a step is dispatched with for an admitted node.
+func dispatchInfo(name string, n store.Node) (pluginsdk.NodeInfo, error) {
 	// The controller never dispatches the insecure policy (the agent's opt-in
 	// stays as a second gate). A tofu node is held to the key it was pinned
 	// with, else to the first key observed; with neither, the agent accepts
@@ -145,4 +150,105 @@ func (s *InventoryNodes) ObserveHostKey(ctx context.Context, runID, attemptID, a
 			"recorded", inventory.Fingerprint(cur.HostKeyObserved), "seen", inventory.Fingerprint(key))
 	}
 	return nil
+}
+
+// admitted is the outcome of admitting one name of a batch.
+type admitted struct {
+	node store.Node
+	err  error
+}
+
+// admitAll is admit for many names with a constant number of queries per chunk
+// of store.MaxBatch: the project is resolved once, the frozen targets are read
+// once, and the nodes are fetched by id (frozen targets) or by name. The
+// outcome of each name is the one admit gives it.
+func (s *InventoryNodes) admitAll(ctx context.Context, runID string, names []string) ([]admitted, error) {
+	frozen, err := s.Store.RunTargetNodeIDs(ctx, runID, names)
+	if err != nil {
+		return nil, err
+	}
+	var ids, byName []string
+	for _, name := range names {
+		if id, ok := frozen[name]; ok {
+			ids = append(ids, id)
+		} else {
+			byName = append(byName, name)
+		}
+	}
+	nodesByID, err := s.Store.GetNodesByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	nodesByName, err := s.Store.GetNodesByNames(ctx, byName)
+	if err != nil {
+		return nil, err
+	}
+	project, err := s.Project(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("resolving the project of run %q: %w", runID, err)
+	}
+	out := make([]admitted, len(names))
+	for i, name := range names {
+		var n store.Node
+		var found bool
+		if id, ok := frozen[name]; ok {
+			n, found = nodesByID[id]
+		} else {
+			n, found = nodesByName[name]
+		}
+		if !found {
+			out[i].err = dispatch.ErrUnknownNode
+			continue
+		}
+		ok, err := s.Scope.Allows(ctx, project, n)
+		if err != nil {
+			return nil, err
+		}
+		switch {
+		case !ok:
+			out[i].err = dispatch.ErrUnknownNode
+		case !n.Enabled:
+			out[i].err = dispatch.ErrNodeDisabled
+		default:
+			out[i].node = n
+		}
+	}
+	return out, nil
+}
+
+// Nodes implements dispatch.BatchNodeSource.
+func (s *InventoryNodes) Nodes(ctx context.Context, runID string, names []string) ([]dispatch.NodeResult, error) {
+	adm, err := s.admitAll(ctx, runID, names)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]dispatch.NodeResult, len(names))
+	for i, a := range adm {
+		if a.err != nil {
+			out[i].Err = a.err
+			continue
+		}
+		out[i].Info, out[i].Err = dispatchInfo(names[i], a.node)
+	}
+	return out, nil
+}
+
+// NodePools implements dispatch.BatchPoolSource.
+func (s *InventoryNodes) NodePools(ctx context.Context, runID string, names []string) ([]dispatch.PoolResult, error) {
+	adm, err := s.admitAll(ctx, runID, names)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]dispatch.PoolResult, len(names))
+	for i, a := range adm {
+		switch {
+		case a.err != nil:
+			out[i].Err = a.err
+		case a.node.HostKeyPolicy == inventory.PolicyInsecure:
+			out[i].Err = dispatch.ErrHostKeyPolicy
+		default:
+			out[i].Pool = a.node.Pool
+		}
+	}
+	return out, nil
 }

@@ -55,6 +55,28 @@ func (p *tagSources) Node(ctx context.Context, run, name string) (pluginsdk.Node
 	return n, err
 }
 
+// batchTagSources answers lists through the batch interface, with the same
+// answers tagSources gives one by one, and fails the test if a step of several
+// names falls back to one-by-one lookups.
+type batchTagSources struct {
+	tagSources
+	batches, singles int
+}
+
+func (b *batchTagSources) Node(ctx context.Context, run, name string) (pluginsdk.NodeInfo, error) {
+	b.singles++
+	return b.tagSources.Node(ctx, run, name)
+}
+
+func (b *batchTagSources) Nodes(ctx context.Context, run string, names []string) ([]dispatch.NodeResult, error) {
+	b.batches++
+	out := make([]dispatch.NodeResult, len(names))
+	for i, name := range names {
+		out[i].Info, out[i].Err = b.tagSources.Node(ctx, run, name)
+	}
+	return out, nil
+}
+
 // An inventory step receives every listed node, with its tags and credential;
 // any node that cannot be used fails the whole step, and the list is checked
 // before anything is sent.
@@ -81,11 +103,15 @@ func TestInventoryModeDeliversTheListedNodes(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			forEachBackend(t, func(t *testing.T, st store.Store) {
+				src := &batchTagSources{}
 				c := startClusterPlugins(t, st, nodeSpec, []pluginsdk.Plugin{listPlugin{}}, func(cfg *dispatch.Config) {
-					src := &tagSources{}
 					cfg.Nodes, cfg.Secrets = src, src
 				})
 				tree := c.waitRun(c.triggerInput("hostlist", tc.input), tc.want)
+				if src.singles > 0 && !strings.Contains(tc.input, `["n1","n1"]`) && src.batches > 0 {
+					// a step with several distinct names never mixes the two paths
+					t.Errorf("%d one-by-one lookups next to %d batch lookups", src.singles, src.batches)
+				}
 				ex := tree.Steps[0].Executions[0]
 				if tc.want == store.RunSucceeded {
 					waitLog(t, st, ex.ID, tc.log)
