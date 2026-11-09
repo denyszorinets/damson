@@ -45,9 +45,9 @@ fail() { rm -rf "$dir"; echo "damson-backup: $*" >&2; exit 1; }
 case "$driver" in
 	postgres)
 		command -v pg_dump >/dev/null 2>&1 || fail "pg_dump is not installed"
-		# The connection string goes through the environment, never the command line
-		# (ps would show a password).
-		PGDATABASE="$dsn" pg_dump --format=custom --file="$dir/database.dump" || fail "pg_dump failed"
+		# The connection string is a command line argument, so ps shows it: keep the
+		# password out of it and give it to libpq with PGPASSWORD or ~/.pgpass.
+		pg_dump --format=custom --file="$dir/database.dump" --dbname="$dsn" || fail "pg_dump failed"
 		db=database.dump
 		;;
 	sqlite)

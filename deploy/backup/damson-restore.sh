@@ -26,10 +26,10 @@ case "$driver" in
 		command -v pg_restore >/dev/null 2>&1 && command -v psql >/dev/null 2>&1 || { echo "damson-restore: pg_restore and psql are required" >&2; exit 1; }
 		[ -f "$dir/database.dump" ] || { echo "damson-restore: $dir/database.dump is missing (a SQLite backup?)" >&2; exit 1; }
 		# The dump becomes SQL and runs in ONE transaction: it applies completely or
-		# not at all. The connection string goes through PGDATABASE, never the
-		# command line (ps would show a password).
+		# not at all. The connection string is a command line argument (ps shows it):
+		# keep the password out of it and use PGPASSWORD or ~/.pgpass.
 		pg_restore --no-owner --no-privileges -f - "$dir/database.dump" \
-			| PGDATABASE="$dsn" psql --quiet --single-transaction -v ON_ERROR_STOP=1 -o /dev/null
+			| psql --dbname="$dsn" --quiet --single-transaction -v ON_ERROR_STOP=1 -o /dev/null
 		;;
 	sqlite)
 		[ -f "$dir/database.sqlite" ] || { echo "damson-restore: $dir/database.sqlite is missing (a Postgres backup?)" >&2; exit 1; }

@@ -84,8 +84,9 @@ release. They read the controller's own variables, ``DAMSON_DATABASE__DRIVER``
 ``damson-backup.sh [-o OUT] [-f PATH]...`` writes a folder
 ``OUT/damson-backup-<UTC time>/`` with:
 
-- ``database.dump`` (``pg_dump`` custom format; the DSN is passed through
-  ``PGDATABASE`` so it never shows in ``ps``) or ``database.sqlite``
+- ``database.dump`` (``pg_dump`` custom format; the DSN is a command line
+  argument that ``ps`` shows, so keep the password out of it and give it to
+  libpq with ``PGPASSWORD`` or ``~/.pgpass``) or ``database.sqlite``
   (``sqlite3 .backup``, consistent while a controller runs);
 - ``files.tar.gz`` with each ``-f`` path (configuration, key files), stored
   relative to ``/``. It holds credentials in clear text: it is mode 0600, so

@@ -34,20 +34,20 @@ fi
 
 # --- PostgreSQL
 if [ -n "${PGTEST_ADMIN_URL:-}" ]; then
-	adm() { PGDATABASE="$PGTEST_ADMIN_URL" psql --quiet -v ON_ERROR_STOP=1 -t -A "$@"; }
+	adm() { psql --dbname="$PGTEST_ADMIN_URL" --quiet -v ON_ERROR_STOP=1 -t -A "$@"; }
 	adm -c "DROP DATABASE IF EXISTS bk_src" -c "DROP DATABASE IF EXISTS bk_dst" -c "CREATE DATABASE bk_src" -c "CREATE DATABASE bk_dst"
 	base="${PGTEST_ADMIN_URL%/*}"
-	PGDATABASE="$base/bk_src" psql --quiet -v ON_ERROR_STOP=1 -c "CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('hello-pg');"
+	psql --dbname="$base/bk_src" --quiet -v ON_ERROR_STOP=1 -c "CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('hello-pg');"
 	export DAMSON_DATABASE__DRIVER=postgres DAMSON_DATABASE__DSN="$base/bk_src"
 	"$here/damson-backup.sh" -o "$tmp/pgout" >/dev/null
 	b="$(ls -d "$tmp"/pgout/damson-backup-*)"
 	[ -f "$b/database.dump" ] || fail "postgres: no dump in $b"
 	DAMSON_DATABASE__DSN="$base/bk_dst" "$here/damson-restore.sh" "$b" >/dev/null
-	got="$(PGDATABASE="$base/bk_dst" psql --quiet -t -A -c 'SELECT v FROM t')"
+	got="$(psql --dbname="$base/bk_dst" --quiet -t -A -c 'SELECT v FROM t')"
 	[ "$got" = hello-pg ] || fail "postgres: restored data is '$got'"
 	# A failing restore changes nothing (single transaction): the table exists already.
 	if DAMSON_DATABASE__DSN="$base/bk_dst" "$here/damson-restore.sh" "$b" >/dev/null 2>&1; then fail "postgres: restoring into a non-empty database succeeded"; fi
-	got="$(PGDATABASE="$base/bk_dst" psql --quiet -t -A -c 'SELECT count(*) FROM t')"
+	got="$(psql --dbname="$base/bk_dst" --quiet -t -A -c 'SELECT count(*) FROM t')"
 	[ "$got" = 1 ] || fail "postgres: the failed restore changed the data ($got rows)"
 	adm -c "DROP DATABASE bk_src" -c "DROP DATABASE bk_dst"
 	echo "backup test: postgres ok"
