@@ -46,6 +46,9 @@ func (c Config) Validate(role Role) error {
 		if d := c.Audit.RetentionDays; d < 0 || d > MaxAuditRetentionDays {
 			add("audit.retention_days", "must be 0 (keep forever) or at most %d days; got %d", MaxAuditRetentionDays, d)
 		}
+		if d := c.Runs.RetentionDays; d < 0 || d > MaxAuditRetentionDays {
+			add("runs.retention_days", "must be 0 (keep forever) or at most %d days; got %d", MaxAuditRetentionDays, d)
+		}
 		c.validateOIDC(add)
 		c.validateLogs(add)
 		c.validateSecretsBackend(role, add)

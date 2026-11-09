@@ -197,6 +197,15 @@ written as a double underscore: ``agent.controller_url`` is
        ``audit.prune`` event per batch (at most 36500). Environment variable
        ``DAMSON_AUDIT__RETENTION_DAYS``. See
        :doc:`/architecture/decisions/0054-audit-retention`.
+   * - ``runs.retention_days``
+     - controller, dev
+     - ``0``
+     - Days to keep finished runs; ``0`` keeps them forever. A positive value
+       (at most 36500; negative is rejected) lets the leader of the retention
+       duty delete succeeded, failed and canceled runs finished more than this
+       many days ago, with their executions and logs. Deletion is permanent.
+       Environment variable ``DAMSON_RUNS__RETENTION_DAYS``. See
+       :doc:`/architecture/decisions/0074-run-retention`.
    * - ``engine.finally_grace``
      - controller, dev
      - ``2m``

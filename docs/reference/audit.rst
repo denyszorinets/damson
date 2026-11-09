@@ -96,6 +96,11 @@ Actions
    * - ``audit.prune``
      - ``instance``
      - retention batch (:doc:`configuration`)
+   * - ``run.prune``
+     - ``instance`` (target ``runs``)
+     - counts ``runs``, ``executions``, ``log_chunks``, ``log_objects``,
+       ``queued_log_deletes`` and ``before``; actor ``system:retention``; no
+       run content (:doc:`configuration`)
 
 ``job.create`` and ``job.version.create`` are written when the caller has an
 actor; imports and tests without one write none. ``run.trigger`` is written for

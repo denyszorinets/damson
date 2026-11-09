@@ -111,6 +111,7 @@ These are described in the design but not implemented today. Plan around them.
 - **Native TLS is basic.** No client-certificate authentication, OCSP or
   ACME; certificates come from files (:doc:`install`). The internal listener
   between controllers is plain HTTP.
-- **Log retention is manual.** Only audit events have a retention setting
-  (``audit.retention_days``); runs and logs are kept until purged
+- **Run retention is off by default and global.** ``runs.retention_days``
+  deletes finished runs and their logs after N days; the default ``0`` keeps
+  everything. There is no per-job or per-project policy and no archive
   (:doc:`backup`).

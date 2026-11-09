@@ -64,9 +64,11 @@ Database
 - The database includes River's job tables (``river_*``). Restore the whole
   database, not a subset of tables.
 - With ``logs.store = db`` the log chunks make the database grow with the log
-  volume, and the backups with it. There is no run or log retention setting
-  yet; only ``audit.retention_days`` prunes audit events. Plan the size, or
-  move logs to S3.
+  volume, and the backups with it. Set ``runs.retention_days`` to bound it: finished
+  runs, and with ``db`` their log chunks, are deleted after N days
+  (default ``0``, keep forever). Deletion is permanent and there is no archive,
+  so back up first if you need the history. ``audit.retention_days`` prunes audit
+  events separately. Plan the size, or move logs to S3.
 
 Helper scripts
 --------------

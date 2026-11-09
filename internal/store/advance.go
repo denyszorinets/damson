@@ -57,6 +57,15 @@ type Tx interface {
 	// fails with ErrInvalid before deleting. It returns the number deleted. It
 	// is the only way to remove audit rows (ADR-0054).
 	PruneAuditEvents(ctx context.Context, before time.Time, limit int, now time.Time) (int64, error)
+	// PruneRuns deletes up to limit finished runs (succeeded, failed or
+	// canceled) whose finished_at is before the cutoff and that have no
+	// queued, dispatched or running execution, oldest first, with their steps,
+	// executions and log chunks. Log objects in external backends are queued
+	// for the log sweeper (ADR-0067). If it deleted any run it appends one
+	// run.prune event (NewRunPruneEvent) in this transaction. The actor comes
+	// from ctx (WithAudit); without one it fails with ErrInvalid before
+	// deleting. Fence it with CheckLeader.
+	PruneRuns(ctx context.Context, before time.Time, limit int, now time.Time) (RunPrune, error)
 	// FireSchedule records that the scheduler handled a due schedule: it moves
 	// next_fire_at from f.Expected to f.Next and sets the last-fire fields in
 	// one CAS, and returns ErrStale if the schedule is gone, disabled or its

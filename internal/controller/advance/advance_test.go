@@ -91,6 +91,10 @@ func (t *fakeTx) PruneAuditEvents(context.Context, time.Time, int, time.Time) (i
 	return 0, nil
 }
 
+func (t *fakeTx) PruneRuns(context.Context, time.Time, int, time.Time) (store.RunPrune, error) {
+	return store.RunPrune{}, nil
+}
+
 func (t *fakeTx) TouchWebhook(context.Context, string, time.Time) error { return nil }
 
 func (t *fakeTx) FireSchedule(context.Context, store.ScheduleFire) error { return nil }

@@ -16,14 +16,14 @@ import (
 // configured (ADR-0054) or login is on (expired sessions are purged) and returns
 // the function that stops both. With neither it starts nothing.
 func startRetention(ctx context.Context, st store.Store, cfg config.Config, id string, log *slog.Logger) (func(), error) {
-	if cfg.Audit.RetentionDays == 0 && !cfg.OIDCEnabled() {
+	if cfg.Audit.RetentionDays == 0 && cfg.Runs.RetentionDays == 0 && !cfg.OIDCEnabled() {
 		return func() {}, nil
 	}
 	el, err := leader.New(leader.Config{Store: st, Name: retention.LeaderName, Holder: id, Logger: log})
 	if err != nil {
 		return nil, fmt.Errorf("preparing the retention lease: %w", err)
 	}
-	ret, err := retention.New(retention.Config{Store: st, Leader: el, Holder: id, AuditDays: cfg.Audit.RetentionDays, Logger: log, Sessions: sessionStore(st, cfg), SessionIdle: api.SessionIdle})
+	ret, err := retention.New(retention.Config{Store: st, Leader: el, Holder: id, AuditDays: cfg.Audit.RetentionDays, RunDays: cfg.Runs.RetentionDays, Logger: log, Sessions: sessionStore(st, cfg), SessionIdle: api.SessionIdle})
 	if err != nil {
 		return nil, fmt.Errorf("preparing the retention duty: %w", err)
 	}

@@ -15,6 +15,7 @@ const (
 	ActionSecretKEKRotate    = "secret.kek_rotate"
 	ActionLogPurge           = "log.purge"
 	ActionAuditPrune         = "audit.prune"
+	ActionRunPrune           = "run.prune"
 	ActionAdminTokenCreate   = "admin_token.create"
 	ActionAdminTokenRevoke   = "admin_token.revoke"
 	ActionMetricsTokenCreate = "metrics_token.create"
