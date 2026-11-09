@@ -3,9 +3,11 @@ package cli
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/denyszorinets/damson/internal/tlsreload"
 	"log/slog"
 	"os"
 	"strings"
@@ -92,7 +94,12 @@ func runController(ctx context.Context, cfg config.Config, log *slog.Logger, mod
 	if err != nil {
 		return err
 	}
+	tlsCfg, err := controllerTLS(cfg, log)
+	if err != nil {
+		return err
+	}
 	n, err := node.Start(ctx, node.Config{
+		TLS:      tlsCfg,
 		LogBlobs: blobs, OpenBao: ob,
 		SingleController: cfg.Database.Driver == config.DriverSQLite,
 		ClusterSecret:    secret, ClusterSecretPrevious: previous, InternalListen: cfg.Controller.InternalListen,
@@ -192,4 +199,18 @@ func newPluginRegistry(log *slog.Logger) (*pluginreg.Registry, error) {
 		return nil, fmt.Errorf("building plugin registry: %w", err)
 	}
 	return reg, nil
+}
+
+// controllerTLS builds the listener's TLS configuration from the configured
+// certificate and key files, or returns nil to serve plain HTTP.
+func controllerTLS(cfg config.Config, log *slog.Logger) (*tls.Config, error) {
+	c := cfg.Controller
+	if c.TLSCertFile == "" {
+		return nil, nil
+	}
+	r, err := tlsreload.New(c.TLSCertFile, c.TLSKeyFile, log)
+	if err != nil {
+		return nil, err
+	}
+	return r.Config(), nil
 }

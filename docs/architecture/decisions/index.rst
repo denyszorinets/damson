@@ -293,3 +293,4 @@ change nothing until accepted.
    0068-openbao-secret-backend
    0069-jobs-as-code
    0070-prometheus-metrics-endpoint
+   0071-controller-native-tls

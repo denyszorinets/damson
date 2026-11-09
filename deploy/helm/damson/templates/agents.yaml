@@ -69,6 +69,8 @@ spec:
             {{- if $root.Values.agents.caSecret }}
             - name: DAMSON_AGENT__TLS_CA_FILE
               value: /etc/damson/ca/{{ $root.Values.agents.caKey }}
+            - name: DAMSON_AGENT__CONTROLLER_CA_FILE
+              value: /etc/damson/ca/{{ $root.Values.agents.caKey }}
             {{- end }}
             {{- include "damson.secretEnv" (dict "name" "DAMSON_AGENT__TOKEN" "secret" (required (printf "agents.pools[%s].tokenSecret is required: a Secret holding the pool token" $pool.name) $pool.tokenSecret) "key" ($pool.tokenKey | default "token")) | nindent 12 }}
             {{- with $pool.env }}

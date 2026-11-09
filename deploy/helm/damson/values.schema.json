@@ -292,6 +292,15 @@
           "type": "integer",
           "minimum": 0
         },
+        "tls": {
+          "type": "object",
+          "properties": {
+            "secretName": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
         "podAnnotations": {
           "type": "object"
         },

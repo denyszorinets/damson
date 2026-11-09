@@ -172,7 +172,8 @@ version and field names, never values. Read it with ``GET /api/v1/audit``
 Other controls
 --------------
 
-- TLS everywhere; plain ``ws://`` only with ``--insecure-dev``.
+- TLS everywhere; plain ``ws://`` only with ``--insecure-dev``. The controller
+  serves TLS itself (ADR-0071) or behind a terminating proxy.
 - SSH host keys are ``strict`` by default; ``tofu`` stores the first observed
   key per node (fenced by ``attempt_id``, ADR-0046); ``insecure`` is refused by
   the controller (the agent's ``allow_insecure_host_keys`` is a second gate).

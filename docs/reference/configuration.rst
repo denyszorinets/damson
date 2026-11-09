@@ -49,6 +49,24 @@ written as a double underscore: ``agent.controller_url`` is
        in clear text. Without it the gateway refuses connections that are
        TLS (or, with ``controller.trust_forwarded_proto``, marked
        ``X-Forwarded-Proto: https`` by a proxy).
+   * - ``controller.tls_cert_file``
+     - controller
+     - empty
+     - PEM certificate file, leaf first, then the chain. Set together with
+       ``controller.tls_key_file`` (otherwise startup fails with "must be set
+       together"). The listener then serves HTTPS and WSS, TLS 1.2 or newer,
+       ALPN ``h2`` and ``http/1.1`` (the agent WebSocket uses HTTP/1.1). The
+       ``dev`` role refuses these keys ("is not supported by the dev role (its
+       agent connects over ws://)"). Environment variable ``DAMSON_CONTROLLER__TLS_CERT_FILE``
+       (:doc:`/operations/install`).
+   * - ``controller.tls_key_file``
+     - controller
+     - empty
+     - PEM private key for the certificate. A secret: mode 0640. The pair is
+       re-checked at most every 10 seconds by modification time and size and
+       reloaded without restart; a broken replacement is ignored and the
+       previous one keeps serving. Environment variable
+       ``DAMSON_CONTROLLER__TLS_KEY_FILE``.
    * - ``controller.trust_forwarded_proto``
      - controller, dev
      - ``false``
@@ -272,6 +290,15 @@ written as a double underscore: ``agent.controller_url`` is
        roots, for ``ftps`` and ``https`` S3 endpoints of the ``transfer`` plugin
        and for ``winrm`` over https. Read at start (a change needs a restart); a
        bad file fails startup. Certificate verification cannot be turned off.
+   * - ``agent.controller_ca_file``
+     - agent
+     - empty
+     - PEM file of extra CA certificates trusted, in addition to the system
+       roots, for the ``wss://`` connection to the controller (a private CA or a
+       self-signed controller certificate). Environment variable
+       ``DAMSON_AGENT__CONTROLLER_CA_FILE``. Read at start only (a change needs
+       a restart). Certificate verification cannot be
+       turned off. Distinct from ``agent.tls_ca_file``.
    * - ``logs.store``
      - controller, dev
      - ``db``

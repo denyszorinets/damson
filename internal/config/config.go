@@ -72,6 +72,11 @@ type Controller struct {
 	// TrustForwardedProto honors X-Forwarded-Proto: https from a TLS-terminating
 	// proxy when deciding whether an agent connection is secure.
 	TrustForwardedProto bool `koanf:"trust_forwarded_proto"`
+	// TLSCertFile and TLSKeyFile make the controller serve HTTPS and WSS itself
+	// (PEM; the certificate file holds the chain). Both or neither. The files
+	// are re-read when they change. The key file is a secret.
+	TLSCertFile string `koanf:"tls_cert_file"`
+	TLSKeyFile  string `koanf:"tls_key_file"`
 }
 
 // Engine configures the orchestration engine (controller and dev roles). Every
@@ -175,6 +180,10 @@ type Agent struct {
 	// trusts for ftps, in addition to the system roots. Empty means system
 	// roots only. Certificate verification cannot be turned off.
 	TLSCAFile string `koanf:"tls_ca_file"`
+	// ControllerCAFile is a PEM file of extra CA certificates the agent trusts
+	// when it connects to the controller over wss://, in addition to the
+	// system roots (a private CA). Verification cannot be turned off.
+	ControllerCAFile string `koanf:"controller_ca_file"`
 	// AllowInsecureWinRM lets the winrm plugin use transport "http" and
 	// insecure_skip_verify. Off by default; a private CA belongs in TLSCAFile.
 	AllowInsecureWinRM bool `koanf:"allow_insecure_winrm"`
@@ -242,6 +251,8 @@ func defaults() map[string]any {
 		"secrets.kek_file":                                "",
 		"secrets.kek_previous_file":                       "",
 		"controller.trust_forwarded_proto":                false,
+		"controller.tls_cert_file":                        "",
+		"controller.tls_key_file":                         "",
 		"engine.finally_grace":                            "2m",
 		"audit.retention_days":                            0,
 		"auth.require_token":                              false,
@@ -296,6 +307,7 @@ func defaults() map[string]any {
 		"agent.spool_max_bytes":                           0,
 		"agent.allow_insecure_host_keys":                  false,
 		"agent.tls_ca_file":                               "",
+		"agent.controller_ca_file":                        "",
 		"agent.allow_insecure_winrm":                      false,
 		"agent.allow_plain_ftp":                           false,
 		"agent.allow_insecure_git":                        false,

@@ -88,18 +88,18 @@ spec:
             {{- end }}
           # /readyz pings the database for up to 3 s; the probe waits longer.
           readinessProbe:
-            httpGet: {path: /readyz, port: http}
+            httpGet: {path: /readyz, port: http{{ if .Values.controller.tls.secretName }}, scheme: HTTPS{{ end }}}
             periodSeconds: 5
             timeoutSeconds: 5
             failureThreshold: 3
           livenessProbe:
-            httpGet: {path: /healthz, port: http}
+            httpGet: {path: /healthz, port: http{{ if .Values.controller.tls.secretName }}, scheme: HTTPS{{ end }}}
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
           # Migrations run before the listener opens, so give them time.
           startupProbe:
-            httpGet: {path: /healthz, port: http}
+            httpGet: {path: /healthz, port: http{{ if .Values.controller.tls.secretName }}, scheme: HTTPS{{ end }}}
             periodSeconds: 2
             timeoutSeconds: 5
             failureThreshold: {{ .Values.controller.startupFailureThreshold }}
@@ -110,6 +110,9 @@ spec:
           volumeMounts:
             - {name: config, mountPath: /etc/damson, readOnly: true}
             - {name: tmp, mountPath: /tmp}
+            {{- if .Values.controller.tls.secretName }}
+            - {name: tls, mountPath: /etc/damson/tls, readOnly: true}
+            {{- end }}
             {{- if and (eq .Values.secrets.backend "openbao") .Values.secrets.openbao.caSecret }}
             - {name: openbao-ca, mountPath: /etc/damson/openbao, readOnly: true}
             {{- end }}
@@ -122,6 +125,11 @@ spec:
             name: {{ $fullname }}-controller
         - name: tmp
           emptyDir: {}
+        {{- if .Values.controller.tls.secretName }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.controller.tls.secretName }}
+        {{- end }}
         {{- if and (eq .Values.secrets.backend "openbao") .Values.secrets.openbao.caSecret }}
         - name: openbao-ca
           secret:

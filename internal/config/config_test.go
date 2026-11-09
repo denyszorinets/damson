@@ -61,6 +61,25 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
+			name: "tls cert without key is rejected", role: RoleController,
+			env:     []string{"DAMSON_CONTROLLER__TLS_CERT_FILE=/etc/damson/tls.crt"},
+			wantErr: []string{"controller.tls_cert_file"},
+		},
+		{
+			name: "tls is refused for the dev role", role: RoleDev,
+			env:     []string{"DAMSON_CONTROLLER__TLS_CERT_FILE=/c", "DAMSON_CONTROLLER__TLS_KEY_FILE=/k"},
+			wantErr: []string{"controller.tls_cert_file"},
+		},
+		{
+			name: "tls cert and key together", role: RoleController,
+			env: []string{"DAMSON_CONTROLLER__TLS_CERT_FILE=/etc/damson/tls.crt", "DAMSON_CONTROLLER__TLS_KEY_FILE=/etc/damson/tls.key"},
+			check: func(t *testing.T, c Config) {
+				if c.Controller.TLSCertFile != "/etc/damson/tls.crt" || c.Controller.TLSKeyFile != "/etc/damson/tls.key" {
+					t.Fatalf("tls files not applied: %+v", c.Controller)
+				}
+			},
+		},
+		{
 			name: "env overrides file", role: RoleController,
 			file: "[controller]\nlisten = \"127.0.0.1:9000\"\n",
 			env:  []string{"DAMSON_CONTROLLER__LISTEN=:7000", "DAMSON_LOG__LEVEL=debug", "UNRELATED=1"},

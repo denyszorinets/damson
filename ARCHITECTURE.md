@@ -675,7 +675,7 @@ Deploys charts to Kubernetes. It runs on the agent (`TargetMode = None`).
 
 ### 7.1 Transport
 
-- `wss://<controller>/agent/v1/connect`. Plain `ws://` is only allowed with `--insecure-dev`.
+- `wss://<controller>/agent/v1/connect` (TLS on the controller or at a proxy, ADR-0071). Plain `ws://` is only allowed with `--insecure-dev`.
 - **Authentication** is in the upgrade request header `Authorization: Bearer <pool token>` plus `X-Damson-Agent-Id: <instance id>`.
   - Pool tokens are created by admins per pool, stored hashed (SHA-256), and revocable.
   - The instance id is the pod name or hostname plus a boot nonce.
@@ -1265,7 +1265,7 @@ An activity-diagram view (UML-like) of a job's structure. It appears in three pl
 
 ## 18. Security summary
 
-- TLS everywhere: `wss://` for agents, HTTPS for the UI and API. Internal controller endpoints (ADR-0040) are on a separate listener and use HMAC-SHA256 with a cluster secret (timestamp window 30s, bound to caller and target controller, read-only). They use plain HTTP, so log lines between controllers are unencrypted and the network between controllers must be private.
+- TLS everywhere: `wss://` for agents, HTTPS for the UI and API, served by the controller itself (`controller.tls_cert_file` and `tls_key_file`, TLS 1.2+, ALPN `h2` and `http/1.1` (the agent WebSocket upgrade uses HTTP/1.1), reloaded from the files, ADR-0071) or by a terminating proxy. Agents trust extra CAs through `agent.controller_ca_file`. Internal controller endpoints (ADR-0040) are on a separate listener and use HMAC-SHA256 with a cluster secret (timestamp window 30s, bound to caller and target controller, read-only). They use plain HTTP, so log lines between controllers are unencrypted and the network between controllers must be private.
 - Secrets are encrypted at rest (db backend) or kept in OpenBao (ADR-0068: https and a verified certificate by default, redirects refused, credentials from files or environment only, never TOML). They are delivered just-in-time, never persisted on agents, and masked by the agent in logs, progress, errors and outputs before they leave it; the controller never holds values after dispatch (ADR-0047).
 - SSH host keys are strict by default.
 - All tokens (pool, service account, webhook, session) are random and stored hashed. OIDC login uses PKCE, a nonce, a one-use state and a pre-login binding cookie (`__Host-` prefix, HttpOnly, Secure, SameSite=Lax); cookie-authenticated writes need a CSRF header (ADR-0063, `reference/authentication`). For the interim admin token (§12.2) only the hash is stored, never the token.
