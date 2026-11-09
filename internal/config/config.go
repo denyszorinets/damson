@@ -32,6 +32,7 @@ type Config struct {
 	Controller Controller `koanf:"controller"`
 	Engine     Engine     `koanf:"engine"`
 	Audit      Audit      `koanf:"audit"`
+	Runs       Runs       `koanf:"runs"`
 	Auth       Auth       `koanf:"auth"`
 	Agent      Agent      `koanf:"agent"`
 	Secrets    Secrets    `koanf:"secrets"`
@@ -93,6 +94,15 @@ type Audit struct {
 	// RetentionDays is how long audit events are kept. 0 keeps them forever
 	// (the default); a positive value lets the retention duty delete older
 	// events (ADR-0054).
+	RetentionDays int `koanf:"retention_days"`
+}
+
+// Runs configures how long finished runs are kept (controller and dev roles).
+type Runs struct {
+	// RetentionDays is how long finished runs (succeeded, failed or canceled),
+	// with their steps, executions and logs, are kept. 0 keeps them forever (the
+	// default); a positive value lets the retention duty delete older runs
+	// (ADR-0074).
 	RetentionDays int `koanf:"retention_days"`
 }
 
@@ -255,6 +265,7 @@ func defaults() map[string]any {
 		"controller.tls_key_file":                         "",
 		"engine.finally_grace":                            "2m",
 		"audit.retention_days":                            0,
+		"runs.retention_days":                             0,
 		"auth.require_token":                              false,
 		"auth.cookie_insecure":                            false,
 		"auth.oidc.issuer":                                "",

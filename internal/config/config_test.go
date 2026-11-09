@@ -61,6 +61,20 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
+			name: "runs retention out of range", role: RoleController,
+			env:     []string{"DAMSON_RUNS__RETENTION_DAYS=-1"},
+			wantErr: []string{"runs.retention_days"},
+		},
+		{
+			name: "runs retention from env", role: RoleController,
+			env: []string{"DAMSON_RUNS__RETENTION_DAYS=90"},
+			check: func(t *testing.T, c Config) {
+				if c.Runs.RetentionDays != 90 {
+					t.Fatalf("runs.retention_days = %d", c.Runs.RetentionDays)
+				}
+			},
+		},
+		{
 			name: "tls cert without key is rejected", role: RoleController,
 			env:     []string{"DAMSON_CONTROLLER__TLS_CERT_FILE=/etc/damson/tls.crt"},
 			wantErr: []string{"controller.tls_cert_file"},

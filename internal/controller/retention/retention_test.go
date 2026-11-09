@@ -3,6 +3,7 @@ package retention_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -207,10 +208,11 @@ func TestLoopPrunesOnStartAndStops(t *testing.T) {
 func TestNewRejectsBadConfig(t *testing.T) {
 	st := open(t)
 	for name, cfg := range map[string]retention.Config{
-		"no store":      {Leader: notLeader{}, Holder: "h"},
-		"no leader":     {Store: st, Holder: "h"},
-		"no holder":     {Store: st, Leader: notLeader{}},
-		"negative days": {Store: st, Leader: notLeader{}, Holder: "h", AuditDays: -1},
+		"no store":          {Leader: notLeader{}, Holder: "h"},
+		"no leader":         {Store: st, Holder: "h"},
+		"no holder":         {Store: st, Leader: notLeader{}},
+		"negative days":     {Store: st, Leader: notLeader{}, Holder: "h", AuditDays: -1},
+		"negative run days": {Store: st, Leader: notLeader{}, Holder: "h", RunDays: -1},
 	} {
 		if _, err := retention.New(cfg); err == nil {
 			t.Errorf("%s must fail", name)
@@ -259,5 +261,54 @@ func TestOncePurgesExpiredSessions(t *testing.T) {
 	}
 	if ns, _, _ := st.PurgeExpiredAuth(ctx, now.Add(time.Second), 2*time.Hour); ns != 0 {
 		t.Errorf("%d expired sessions were left after a pass", ns)
+	}
+}
+
+func TestOncePrunesFinishedRunsAndKeepsTheRest(t *testing.T) {
+	st := open(t)
+	ctx := context.Background()
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	job, ver, err := st.CreateJob(ctx, store.NewJob{ProjectID: store.DefaultProjectID, Name: "j", Spec: json.RawMessage(`{"name":"j"}`), Checksum: "s"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mk := func(finishedDaysAgo int) store.RunTree {
+		tree, err := st.CreateRun(ctx, store.NewRun{JobID: job.ID, JobVersionID: ver.ID, Trigger: json.RawMessage(`{}`), Options: json.RawMessage(`{}`),
+			Steps: []store.NewStepInstance{{Path: "main", Kind: store.KindGroup}}}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if finishedDaysAgo >= 0 {
+			if _, err := st.UpdateRunStatus(ctx, tree.ID, tree.Version, store.RunSucceeded, now.AddDate(0, 0, -finishedDaysAgo)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return tree
+	}
+	old, recent, running := mk(40), mk(5), mk(-1)
+
+	r, err := retention.New(retention.Config{Store: st, Leader: lead(t, st, "c1"), Holder: "c1", RunDays: 30, Now: func() time.Time { return now }, Interval: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Once(ctx)
+	if _, err := st.GetRun(ctx, old.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the 40-day-old run: %v; want it pruned", err)
+	}
+	for name, id := range map[string]string{"recent": recent.ID, "running": running.ID} {
+		if _, err := st.GetRun(ctx, id); err != nil {
+			t.Errorf("%s run was pruned: %v", name, err)
+		}
+	}
+	evs, err := st.ListAuditEvents(ctx, store.AuditFilter{TargetType: store.AuditTargetInstance, Target: "runs"}, 10)
+	if err != nil || len(evs) != 1 || evs[0].Actor != retention.Actor || evs[0].Action != store.ActionRunPrune {
+		t.Fatalf("events = %+v, %v", evs, err)
+	}
+
+	// With no policy nothing is deleted, however old.
+	off, _ := retention.New(retention.Config{Store: st, Leader: lead(t, st, "c1"), Holder: "c1", Now: func() time.Time { return now.AddDate(10, 0, 0) }, Interval: time.Hour})
+	off.Once(ctx)
+	if _, err := st.GetRun(ctx, recent.ID); err != nil {
+		t.Fatalf("a pass without a run policy pruned: %v", err)
 	}
 }

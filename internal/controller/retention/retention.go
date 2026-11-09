@@ -43,6 +43,7 @@ type Config struct {
 	Leader    Leader // holder of the LeaderName lease
 	Holder    string // this controller's id
 	AuditDays int    // 0 keeps the audit trail forever
+	RunDays   int    // 0 keeps finished runs forever (ADR-0074)
 	// Sessions, if set, has expired sessions and logins deleted on each pass.
 	// They were already unusable, so the delete needs no fencing.
 	Sessions    store.SessionStore
@@ -68,8 +69,8 @@ func New(cfg Config) (*Retention, error) {
 	if cfg.Store == nil || cfg.Leader == nil || cfg.Holder == "" {
 		return nil, errors.New("retention: a store, a leader and a holder are required")
 	}
-	if cfg.AuditDays < 0 {
-		return nil, errors.New("retention: audit days must not be negative")
+	if cfg.AuditDays < 0 || cfg.RunDays < 0 {
+		return nil, errors.New("retention: retention days must not be negative")
 	}
 	if cfg.Interval <= 0 {
 		cfg.Interval = time.Hour
@@ -94,7 +95,7 @@ func (r *Retention) Start(ctx context.Context) error {
 	if r.cancel != nil {
 		return errors.New("retention: already started")
 	}
-	if r.cfg.AuditDays == 0 && r.cfg.Sessions == nil {
+	if r.cfg.AuditDays == 0 && r.cfg.RunDays == 0 && r.cfg.Sessions == nil {
 		return nil
 	}
 	ctx, r.cancel = context.WithCancel(context.WithoutCancel(ctx))
@@ -153,6 +154,7 @@ func (r *Retention) Once(ctx context.Context) {
 		return
 	}
 	r.purgeAuth(ctx)
+	r.pruneRuns(ctx, term)
 	if r.cfg.AuditDays == 0 {
 		return
 	}
@@ -206,5 +208,59 @@ func (r *Retention) purgeAuth(ctx context.Context) {
 	}
 	if ns+nl > 0 {
 		r.log.Info("purged expired sessions and logins", "sessions", ns, "logins", nl)
+	}
+}
+
+// runBatch is how many runs one transaction deletes: each run takes its steps,
+// executions and log chunks with it.
+const runBatch = 20
+
+// maxRunBatches bounds one pass over finished runs.
+const maxRunBatches = 200
+
+// pruneRuns deletes finished runs older than the retention, in fenced batches.
+// Log objects in external backends are queued for the log sweeper in the same
+// transaction (ADR-0067).
+func (r *Retention) pruneRuns(ctx context.Context, term int64) {
+	if r.cfg.RunDays == 0 {
+		return
+	}
+	now := r.cfg.Now()
+	cutoff := now.AddDate(0, 0, -r.cfg.RunDays)
+	actx := store.WithAudit(ctx, store.AuditMeta{Actor: Actor})
+	var total store.RunPrune
+	for i := 0; i < maxRunBatches && ctx.Err() == nil; i++ {
+		var got store.RunPrune
+		cctx, cancel := context.WithTimeout(actx, r.cfg.CallTimeout)
+		err := r.cfg.Store.WithTx(cctx, func(tx store.Tx) error {
+			if err := tx.CheckLeader(cctx, LeaderName, r.cfg.Holder, term, now); err != nil {
+				return err
+			}
+			var perr error
+			got, perr = tx.PruneRuns(cctx, cutoff, runBatch, now)
+			return perr
+		})
+		cancel()
+		if errors.Is(err, store.ErrStale) {
+			r.log.Warn("lost the retention lease or a run changed; skipping the rest of this pass")
+			break
+		}
+		if err != nil {
+			if ctx.Err() == nil {
+				r.log.Error("pruning runs", "error", err)
+			}
+			break
+		}
+		total.Runs += got.Runs
+		total.Executions += got.Executions
+		total.Chunks += got.Chunks
+		total.Objects += got.Objects
+		total.Queued += got.Queued
+		if got.Runs < runBatch {
+			break
+		}
+	}
+	if total.Runs > 0 {
+		r.log.Info("pruned finished runs", "runs", total.Runs, "executions", total.Executions, "log_chunks", total.Chunks, "queued_log_deletes", total.Queued, "before", cutoff)
 	}
 }
