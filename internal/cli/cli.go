@@ -52,6 +52,7 @@ Commands:
   agent        run the agent role
   dev          run controller and agent in one process (SQLite)
   admin        manage agent pools and pool tokens
+  migrate      apply database migrations (up) or show their state (status)
   apply        apply a folder of job and project files to a controller
   export       write the jobs and projects of a project as files
   plugin       scaffold, check and run plugins (new, validate, run)
@@ -71,6 +72,8 @@ func dispatch(ctx context.Context, args []string, stdout, stderr io.Writer, envi
 		return runRole(ctx, args[0], args[1:], stderr, environ, plugins, modules)
 	case "admin":
 		return runAdmin(ctx, args[1:], stdout, stderr, environ)
+	case "migrate":
+		return runMigrate(ctx, args[1:], stdout, stderr, environ)
 	case "apply":
 		return runApply(ctx, args[1:], stdout, stderr, environ)
 	case "export":

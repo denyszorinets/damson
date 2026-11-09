@@ -65,13 +65,19 @@ Controller start and readiness
      - The database does not answer within 3 seconds, or it is not migrated.
        The controller log says which: ``database ping``, ``migration version``
        or ``no migrations applied``.
-     - Fix the database connection, or start a controller with
-       ``--auto-migrate``. The WARN ``database is not migrated; agent gateway
+     - Fix the database connection, or run ``damson migrate up`` or start a
+       controller with ``--auto-migrate``. ``damson migrate status`` shows what
+       is pending. The WARN ``database is not migrated; agent gateway
        and run.advance disabled`` confirms the second case.
    * - ``damson admin`` says ``database is not migrated; run "damson
        controller --auto-migrate"``
      - ``admin`` commands need a migrated database.
-     - Start a controller once with ``--auto-migrate``.
+     - Run ``damson migrate up``, or start a controller once with
+       ``--auto-migrate``.
+   * - ``damson migrate up`` says the database is newer than this binary
+     - The database was migrated by a newer release; migrations do not go back.
+     - Run the newer ``damson``. To return to the old version, restore the
+       pre-upgrade backup (:doc:`upgrade`).
    * - Start fails ``checking the KEK: secret encryption key problem: the KEK
        does not match this instance (configured kek_id X, instance kek_id Y)``
      - The key is not the one that encrypted the database (or the previous key

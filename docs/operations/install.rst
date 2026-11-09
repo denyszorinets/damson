@@ -170,7 +170,8 @@ Controllers
 
 Install the controllers as described in the target guide. Both guides start
 them with ``--auto-migrate``: the first controller applies the migrations under
-a database lock and the others wait. Until the database is migrated a
+a database lock and the others wait. To migrate as a separate step, run
+``damson migrate up`` (:ref:`cli-migrate`) before the controllers start. Until the database is migrated a
 controller answers ``/healthz`` but ``/readyz`` returns 503
 (:doc:`monitoring`).
 

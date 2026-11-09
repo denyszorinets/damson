@@ -50,6 +50,23 @@ func provider(db *sql.DB, d Dialect) (*goose.Provider, error) {
 	return p, nil
 }
 
+// Latest returns the highest migration version this binary carries.
+func Latest(d Dialect) (int64, error) {
+	entries, err := fs.ReadDir(files, string(d))
+	if err != nil {
+		return 0, fmt.Errorf("reading %s migrations: %w", d, err)
+	}
+	var latest int64
+	for _, e := range entries {
+		v, err := goose.NumericComponent(e.Name())
+		if err != nil {
+			continue // not a migration file
+		}
+		latest = max(latest, v)
+	}
+	return latest, nil
+}
+
 // Up applies all pending migrations.
 func Up(ctx context.Context, db *sql.DB, d Dialect) error {
 	p, err := provider(db, d)

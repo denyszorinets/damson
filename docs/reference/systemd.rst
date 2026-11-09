@@ -108,6 +108,13 @@ Install the same files on every controller host with the same
 The unit starts the controller with ``--auto-migrate``, which runs migrations behind a PostgreSQL advisory
 lock, so controllers that start together do not race.
 
+The unit does not ship an ``ExecStartPre=`` migration. If you want one, a
+drop-in (``systemctl edit damson-controller``) can add
+``ExecStartPre=/usr/local/bin/damson migrate up``. It reads the same
+``EnvironmentFile``, so the database settings are the ones the controller uses.
+Otherwise run ``damson migrate up`` by hand with that environment before the
+upgrade (:ref:`cli-migrate`).
+
 Install an agent
 ----------------
 
@@ -222,7 +229,8 @@ Logs, stop and secrets
 Upgrade
 -------
 
-#. Take a database backup. Migrations run at start and are not reversed.
+#. Take a database backup. Migrations run at start and are not reversed
+   (:doc:`/operations/upgrade`).
 #. Replace ``/usr/local/bin/damson`` on one host.
 #. ``systemctl restart damson-controller`` on that host (migrations run at
    start under the advisory lock), wait until it is healthy, then continue with

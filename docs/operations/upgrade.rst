@@ -9,8 +9,8 @@ explains what happens and what to check.
 Before you start
 ----------------
 
-#. Take a database backup (:doc:`backup`). Migrations run at controller start
-   and are forward only.
+#. Take a database backup (:doc:`backup`). Migrations are forward only; the
+   backup is your rollback.
 #. Keep the KEK, the cluster secret and the configuration of the running
    version.
 #. Read the release notes for migrations and configuration changes. There is
@@ -29,11 +29,33 @@ How migrations run
 - On PostgreSQL the migration holds a session advisory lock. Controllers that
   start together apply the migrations once and the others wait. River's own
   migrations run after Damson's, under a second lock.
-- There is no separate ``damson migrate`` command. To migrate without serving
-  traffic, start one controller with ``--auto-migrate`` and keep it out of the
-  load balancer until ``/readyz`` answers 200.
-- The migration files carry ``Down`` sections, but no command runs them. Do not
-  rely on them in production (:doc:`/development/store`).
+- ``damson migrate up`` applies the same migrations (and River's) and exits,
+  without serving traffic. ``damson migrate status`` shows the database
+  version and what is pending, and never changes the database. Both read the
+  database settings from the controller configuration and environment; a
+  one-off Job needs only the ``DAMSON_DATABASE__*`` settings. See
+  :ref:`cli-migrate`.
+- ``up`` refuses (exit status 1) when the database is newer than the binary:
+  run a newer ``damson``. It is idempotent, and safe next to controllers that
+  start with ``--auto-migrate``, because both take the advisory lock.
+- Migrations are forward only by decision
+  (:doc:`/architecture/decisions/0072-forward-only-migrations`). There is no
+  ``down`` command. The migration files carry goose ``Down`` sections, but
+  nothing runs them and they are unsupported.
+
+Recommended flow
+~~~~~~~~~~~~~~~~
+
+#. Back up the database.
+#. ``damson migrate status`` with the new binary. It prints ``database version
+   N, M pending (run damson migrate up)``. Add ``--check`` in a pipeline: it
+   exits 1 when migrations are pending or the database is newer.
+#. ``damson migrate up`` as a one-off step: a Helm hook Job
+   (:ref:`reference-helm`), an ``ExecStartPre=`` drop-in
+   (:ref:`reference-systemd`) or by hand. It prints ``migrated from version A
+   to B``.
+#. Roll the controllers, with ``--auto-migrate`` on (nothing is left to apply)
+   or off.
 
 Rolling controllers
 -------------------
@@ -78,7 +100,9 @@ Rollback
 
 Because migrations are forward only, a rollback after a migration means
 restoring the database backup taken before the upgrade, then starting the old
-version. Everything written since the backup is lost, including runs and
+binary version. Never run an old binary against a newer schema: it may fail or
+corrupt data. ``damson migrate status`` reports that case (``database version N,
+newer than this binary``). Everything written since the backup is lost, including runs and
 logs. If the new version did not migrate (the release had no new migration),
 you can simply redeploy the old binary. Test the restore path
 (:doc:`backup`) before you need it.

@@ -98,9 +98,9 @@ These are described in the design but not implemented today. Plan around them.
   controller.
 - **Rolling upgrades are zero-downtime only if migrations are compatible with
   the old version.** Nothing checks that for you (:doc:`upgrade`).
-- **No separate migrate command.** Migrations run at controller start with
-  ``--auto-migrate``. ARCHITECTURE section 16 mentions ``damson migrate up``;
-  it does not exist.
+- **Migrations are forward only.** ``damson migrate`` has ``up`` and
+  ``status`` but no ``down``; rollback is a restore of the backup taken before
+  the upgrade (:doc:`upgrade`).
 - **No backup command.** Use your database's tools (:doc:`backup`).
 - **The offline bundle is unsigned.** It has checksums only
   (:doc:`/reference/offline-bundle`).
