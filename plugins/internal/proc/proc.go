@@ -63,6 +63,11 @@ func Run(ctx context.Context, s Spec, emit pluginsdk.Emitter) (Result, error) {
 	errSink := &sink{emit: emit, stream: pluginsdk.Stderr, tail: tail}
 	cmd.Stdout, cmd.Stderr = outSink, errSink
 	if err := cmd.Start(); err != nil {
+		// Start refuses to launch once ctx has ended; that is a cancellation or
+		// a timeout, not a failure to start.
+		if ctx.Err() != nil {
+			return Result{ExitCode: -1}, interrupted(ctx, s.Name)
+		}
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 			return Result{ExitCode: -1}, pluginsdk.NewError(pluginsdk.KindInternal, s.Name+" is not installed on this agent", err)
 		}
@@ -72,11 +77,7 @@ func Run(ctx context.Context, s Spec, emit pluginsdk.Emitter) (Result, error) {
 	outSink.flush()
 	errSink.flush()
 	if ctx.Err() != nil {
-		kind := pluginsdk.KindCancelled
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			kind = pluginsdk.KindTimeout
-		}
-		return Result{ExitCode: -1, Stderr: tail.String()}, pluginsdk.NewError(kind, s.Name+" was interrupted", ctx.Err())
+		return Result{ExitCode: -1, Stderr: tail.String()}, interrupted(ctx, s.Name)
 	}
 	var ee *exec.ExitError
 	switch {
@@ -86,6 +87,16 @@ func Run(ctx context.Context, s Spec, emit pluginsdk.Emitter) (Result, error) {
 		return Result{ExitCode: ee.ExitCode(), Stderr: tail.String()}, nil
 	}
 	return Result{ExitCode: -1, Stderr: tail.String()}, pluginsdk.NewError(pluginsdk.KindInternal, "running "+s.Name+" failed", waitErr)
+}
+
+// interrupted is the error of a command that ctx ended: cancelled, or a timeout
+// when the deadline passed.
+func interrupted(ctx context.Context, name string) error {
+	kind := pluginsdk.KindCancelled
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		kind = pluginsdk.KindTimeout
+	}
+	return pluginsdk.NewError(kind, name+" was interrupted", ctx.Err())
 }
 
 type tailBuf struct {
