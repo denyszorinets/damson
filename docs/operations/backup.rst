@@ -95,8 +95,8 @@ release. They read the controller's own variables, ``DAMSON_DATABASE__DRIVER``
 
 The scripts run with umask 077. ``damson-restore.sh BACKUP_DIR`` checks the
 manifest (strict), then restores into an **empty** target from the same
-variables. On PostgreSQL it runs ``pg_restore`` into ``psql`` in one
-transaction, all or nothing (needs both tools). On SQLite it refuses to
+variables. On PostgreSQL it runs ``pg_restore --single-transaction``,
+all or nothing. On SQLite it refuses to
 overwrite an existing file. It never unpacks ``files.tar.gz``; do that yourself
 with ``tar -C / -xzf files.tar.gz``.
 
