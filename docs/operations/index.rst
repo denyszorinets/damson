@@ -85,9 +85,10 @@ Known gaps
 
 These are described in the design but not implemented today. Plan around them.
 
-- **No metrics and no traces.** There is no ``/metrics`` endpoint and no
-  OpenTelemetry. ARCHITECTURE section 17 describes both. Monitor with
-  ``/readyz``, logs and the API (:doc:`monitoring`).
+- **No traces and a partial metric set.** ``/metrics`` exists, but there is no
+  OpenTelemetry, and step durations, log bytes, WebSocket messages, lost
+  leases, a runs counter and free slots are not exported. Use the logs for the
+  rest (:doc:`monitoring`).
 - **Agent drain is bounded.** On SIGTERM an agent stops taking work and waits
   up to ``agent.drain_grace`` (default 20 s) for running steps, then cancels
   them. Steps that run longer are cancelled on rollouts, node drains and

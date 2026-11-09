@@ -63,6 +63,24 @@ func (s *Set) Get(ctx context.Context, backend, key string) ([]byte, error) {
 	return b.Get(ctx, key)
 }
 
+// Prober is implemented by backends that can check they are reachable.
+type Prober interface {
+	Probe(ctx context.Context) error
+}
+
+// Probe checks every external backend that can be probed. The db backend is
+// covered by the database ping.
+func (s *Set) Probe(ctx context.Context) error {
+	for _, b := range s.External() {
+		if p, ok := b.(Prober); ok {
+			if err := p.Probe(ctx); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // External returns every configured backend except db, in name order. Their
 // objects are deleted by the sweeper, not in a database transaction.
 func (s *Set) External() []Blob {

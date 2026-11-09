@@ -180,8 +180,8 @@ Metrics
 
 ``Ingest.Stats()`` returns monotonic counters (lines ingested, duplicates,
 stale batches, chunks written, conflicts, dropped subscribers, acks sent, flush
-errors). They are the hook for the Prometheus metrics of ARCHITECTURE section
-17.
+errors). They are not exported on ``/metrics`` yet (the planned
+``damson_log_bytes_total`` would use them; ADR-0070).
 
 Known limits
 ------------

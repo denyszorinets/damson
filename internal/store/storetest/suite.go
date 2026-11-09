@@ -40,6 +40,7 @@ func Run(t *testing.T, f Factory) {
 		{"ListAgents", testListAgents},
 		{"ControllerInstances", testControllerInstances},
 		{"LeaderLease", testLeaderLease},
+		{"MetricsSnapshot", testMetricsSnapshot},
 		{"Secrets", testSecrets},
 		{"SecretsRaces", testSecretsRaces},
 		{"SecretsDeleteRace", testSecretsDeleteRace},

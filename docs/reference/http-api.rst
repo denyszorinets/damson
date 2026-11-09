@@ -25,8 +25,13 @@ Endpoints
        healthy controller because the database is briefly down.
    * - ``GET /readyz``
      - Readiness. ``200 {"status":"ready"}`` when the database answers
-       ``Ping`` and at least one migration is applied; otherwise ``503``
+       ``Ping``, at least one migration is applied and an external log backend
+       answers (S3: bucket exists, cached 10 s); otherwise ``503``
        problem+json. The cause is logged, never returned.
+   * - ``GET /metrics``
+     - Prometheus text format. Requires the admin token as ``Authorization:
+       Bearer``; 401 otherwise. Not in the OpenAPI spec (see
+       :doc:`/operations/monitoring`).
    * - ``/api/v1/...``
      - The typed API (see :ref:`reference-api-v1`).
    * - ``/api/...``

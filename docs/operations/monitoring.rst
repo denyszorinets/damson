@@ -1,8 +1,9 @@
 Monitoring
 ==========
 
-Damson has no metrics endpoint today. What you can monitor is described here.
-:ref:`The plan <operations-monitoring-planned>` is at the end.
+Controllers expose Prometheus metrics on ``/metrics``, plus health endpoints,
+JSON logs and the operational API. :ref:`What is still missing
+<operations-monitoring-planned>` is at the end.
 
 Health endpoints
 ----------------
@@ -15,11 +16,13 @@ Both are unauthenticated ``GET`` (or ``HEAD``) requests on ``controller.listen``
 
 ``/readyz``
    Readiness. Answers 200 ``{"status":"ready"}`` when the database answers a
-   ping (3 second limit) and migrations have been applied. Otherwise it answers
-   503 problem+json; the cause (``database ping``, ``migration version`` or
-   ``no migrations applied``) is logged, not returned. It does not check the S3
-   log store, OpenBao or the other controllers. Use it for the load balancer and
-   for alerting.
+   ping (3 second limit), migrations have been applied and an external log
+   backend answers (S3: the bucket exists; the result is cached for 10 seconds;
+   the ``db`` log store adds no check). Otherwise it answers 503 problem+json;
+   the cause (``database ping``, ``migration version``, ``no migrations
+   applied`` or ``log store: ...``) is logged, not returned. It does not check
+   OpenBao or the other controllers. Use it for the load balancer and for
+   alerting.
 
 The Helm chart wires startup, readiness and liveness probes to these paths. On
 VMs, probe them from your load balancer or monitoring system:
@@ -27,6 +30,53 @@ VMs, probe them from your load balancer or monitoring system:
 .. code-block:: console
 
    $ curl -fsS -o /dev/null -w '%{http_code}\n' https://damson.example.com/readyz
+
+Metrics
+-------
+
+``GET /metrics`` on ``controller.listen`` serves Prometheus text format. It
+requires the admin token as ``Authorization: Bearer dms_admin...`` and answers
+401 otherwise; OIDC sessions are not accepted. It is not in the OpenAPI spec
+(ADR-0070).
+
+.. code-block:: yaml
+
+   scrape_configs:
+     - job_name: damson
+       scheme: https
+       metrics_path: /metrics
+       authorization:
+         type: Bearer
+         credentials_file: /etc/prometheus/damson-admin-token
+       static_configs:
+         - targets: [damson.example.com]
+
+(``bearer_token_file`` in older Prometheus versions.) The workload gauges are
+read from the database at scrape time, so every controller reports the same
+cluster-wide numbers. Scrape one controller or all of them, but do not sum
+across controllers. The Go (``go_*``) and process (``process_*``) metrics
+belong to the scraped controller.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 38 62
+
+   * - Metric
+     - Meaning
+   * - ``damson_runs{status}``
+     - Runs by status. A gauge: it drops when runs are removed.
+   * - ``damson_queue_depth{pool}``
+     - Executions in state ``queued`` per pool.
+   * - ``damson_executions_active{pool,state}``
+     - Executions in state ``dispatched`` or ``running`` per pool.
+   * - ``damson_agents_connected{pool}``
+     - Connected agents per pool.
+   * - ``damson_agent_slots{pool}``
+     - Total capacity of the connected agents of a pool (not free slots).
+   * - ``damson_log_object_deletes_pending``
+     - Log objects queued for deletion in the external log store.
+   * - ``damson_metrics_database_up``
+     - 1, or 0 when the scrape's database query failed.
 
 Logs
 ----
@@ -113,15 +163,22 @@ Operational API
   (``audit.retention_days``, default keep forever;
   :doc:`/reference/audit`).
 - **Runs.** The run and execution endpoints show queued, running and failed
-  work. There is no queue-depth endpoint; a growing number of ``queued`` runs
-  for a pool is the signal (:doc:`troubleshooting`).
+  work. The queue depth per pool is ``damson_queue_depth``; a growing value is
+  the signal (:doc:`troubleshooting`).
 
 Alert ideas
 -----------
 
 - ``/readyz`` fails for more than a minute on any controller, or fewer than two
   controllers are ready.
-- A pool has no ``connected`` agent for five minutes.
+- ``damson_agents_connected{pool} == 0`` for five minutes.
+- ``damson_queue_depth{pool} > 0`` and not falling for ten minutes, or
+  ``damson_executions_active{state="running"}`` close to
+  ``damson_agent_slots`` (the pool is saturated).
+- ``damson_metrics_database_up == 0``, or ``absent(damson_agents_connected)``
+  (the scrape fails).
+- ``damson_log_object_deletes_pending`` keeps growing (the S3 sweeper cannot
+  delete).
 - ``execution lost: lease expired`` appears (rate above your baseline).
 - ``leader lease lost`` or ``renewing leader lease`` repeats for more than a
   minute.
@@ -137,11 +194,11 @@ Alert ideas
 What is not there yet
 ---------------------
 
-ARCHITECTURE section 17 plans OpenTelemetry traces (run, step instance,
-execution, with the trace context passed to agents), Prometheus-style metrics
-(``damson_runs_total``, ``damson_queue_depth``, ``damson_agents_connected``,
-``damson_leases_lost_total`` and others) and a ``/metrics`` endpoint, and a
-``/readyz`` that also checks the log store. None of these exist in the code
-today: no ``/metrics`` route, no OpenTelemetry instrumentation in Damson's own code. Agent telemetry is
-stored as the last snapshot on the agent row only. Use the signals above until
-then.
+ARCHITECTURE section 17 still plans OpenTelemetry traces (run, step instance,
+execution, with the trace context passed to agents); there is no OpenTelemetry
+instrumentation in Damson's own code. These metrics are not exported yet:
+``damson_step_duration_seconds``, ``damson_log_bytes_total``,
+``damson_ws_messages_total``, ``damson_leases_lost_total`` and
+``damson_runs_total`` as a counter (``damson_runs`` is a gauge). There are no
+free-slot counts, only capacity. Agent telemetry is stored as the last snapshot
+on the agent row only. Use the log lines above for lost leases.
