@@ -294,3 +294,4 @@ change nothing until accepted.
    0069-jobs-as-code
    0070-prometheus-metrics-endpoint
    0071-controller-native-tls
+   0072-forward-only-migrations

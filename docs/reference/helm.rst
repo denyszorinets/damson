@@ -196,7 +196,47 @@ Upgrade
   ``kubectl -n damson rollout restart deploy/damson-controller`` (and the agent
   Deployments) after you change one.
 
-Set ``controller.autoMigrate: false`` only if you migrate by another means.
+Set ``controller.autoMigrate: false`` only if you migrate by another means,
+for example the hook Job below.
+
+Migrating in a pre-upgrade hook
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``damson migrate up`` (:ref:`cli-migrate`) can run once before the rollout. The
+chart does not ship this Job. The example below is yours to adapt: set
+``controller.autoMigrate: false``, use the same image as the controller, and
+read the DSN from the Secret named by ``database.existingSecret`` (key
+``database.key``, default ``dsn``).
+
+.. code-block:: yaml
+
+   # Example only; the chart does not ship it.
+   apiVersion: batch/v1
+   kind: Job
+   metadata:
+     name: damson-migrate
+     namespace: damson
+     annotations:
+       helm.sh/hook: pre-upgrade,pre-install
+       helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+   spec:
+     backoffLimit: 2
+     template:
+       spec:
+         restartPolicy: Never
+         containers:
+           - name: migrate
+             image: <the controller image and tag>
+             args: [migrate, up]
+             env:
+               - name: DAMSON_DATABASE__DSN
+                 valueFrom:
+                   secretKeyRef: {name: <database.existingSecret>, key: dsn}
+
+Check how the image's entrypoint takes arguments: the chart passes
+``args``, so ``args: [migrate, up]`` assumes the entrypoint is ``damson``. A
+``pre-install`` hook runs before the Secrets of the same release exist if the
+chart creates them; the Secrets named here are yours and must exist already.
 
 Values reference
 ----------------

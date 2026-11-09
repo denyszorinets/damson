@@ -311,6 +311,38 @@ every path with the apply rules, requires a project folder plus ``project.json``
 or ``*.job.json`` (so ``.git/hooks``, scripts and root files are refused) and
 writes inside an ``os.Root`` so a symlink in the target cannot redirect a write.
 
+.. _cli-migrate:
+
+Migrate command
+---------------
+
+.. code-block:: console
+
+   $ damson migrate up [--config FILE] [--json]
+   $ damson migrate status [--config FILE] [--json] [--check]
+
+Applies or inspects the database migrations without starting a controller. The
+database settings come from the controller configuration and environment, as
+for ``damson admin``. The controller role configuration is loaded but serving
+validation is not run, so a migration Job needs only ``DAMSON_DATABASE__*``.
+
+``up`` refuses with exit status 1 when the database version is newer than the
+binary ("run a newer damson"). Otherwise it runs the same migration as
+``--auto-migrate`` (goose migrations under a PostgreSQL advisory lock, then the
+job queue's own) and prints ``migrated from version A to B``. It is idempotent.
+
+``status`` prints ``database version N, up to date``, ``database version N, M
+pending (run damson migrate up)`` or ``database version N, newer than this
+binary``, and never changes the database. ``--check`` makes pending or newer
+exit 1, for CI and hooks; it is valid only with ``status``. ``--json`` prints
+``database_version``, ``binary_version``, ``pending`` and
+``database_newer_than_binary``.
+
+Exit status is 0 on success, 1 for operational errors (configuration, database,
+newer database on ``up``, ``status --check`` failing) and 2 for usage errors.
+There is no ``down``: migrations are forward only
+(:doc:`/architecture/decisions/0072-forward-only-migrations`).
+
 .. _cli-admin:
 
 Admin commands
@@ -319,8 +351,8 @@ Admin commands
 ``damson admin`` works directly against the configured database; it does not
 need a running controller. Every action accepts ``--config <path>`` (or
 ``DAMSON_CONFIG``) and ``--json`` for machine-readable output; the default is a
-table. The database must already be migrated (run ``damson controller
---auto-migrate`` or ``damson dev`` once); otherwise the command exits with an
+table. The database must already be migrated (run ``damson migrate up``,
+``damson controller --auto-migrate`` or ``damson dev`` once); otherwise the command exits with an
 error saying so.
 
 .. list-table::
