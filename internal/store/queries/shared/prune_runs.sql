@@ -17,3 +17,9 @@ DELETE FROM step_instances WHERE run_id = sqlc.arg(run_id);
 
 -- name: DeleteFinishedRun :execrows
 DELETE FROM runs WHERE id = sqlc.arg(id) AND status IN ('succeeded', 'failed', 'canceled');
+
+-- name: DeleteDBLogDataOfExecution :execrows
+-- The data of the execution's db-backend chunks, by primary key: a prefix scan
+-- of log_chunks_data cannot use an index. Run it before the chunk rows go.
+DELETE FROM log_chunks_data WHERE object_key IN (
+  SELECT c.object_key FROM log_chunks c WHERE c.execution_id = sqlc.arg(execution_id) AND c.backend = 'db');

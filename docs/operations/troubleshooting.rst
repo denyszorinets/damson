@@ -252,7 +252,11 @@ High database load
   ``max_connections``. Lower ``pool_max_conns`` in the DSN or add a pooler in
   session mode.
 - Audit events and old runs are never pruned by default; set
-  ``audit.retention_days``.
+  ``audit.retention_days`` and ``runs.retention_days``. Run pruning logs
+  ``pruned finished runs`` at INFO on the controller holding the ``retention``
+  lease; a large backlog is cleared over several hourly passes (each pass
+  runs for up to half an hour, in batches of up to 20 runs). Each batch writes
+  one ``run.prune`` audit event.
 - Long idle transactions are cut after 30 seconds by design
   (``idle_in_transaction_session_timeout``).
 - Many agents in a pool with a plugin none of them offers make the controllers

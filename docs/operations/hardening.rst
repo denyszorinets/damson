@@ -91,7 +91,8 @@ Authentication and access
   it when an operator leaves (:doc:`upgrade`).
 - **Audit.** Every mutation writes an event (:doc:`/reference/audit`). Decide
   on ``audit.retention_days`` (default keep forever) and copy events to your log
-  system if you need them longer. ``cli:`` actors are labels, not proof of
+  system if you need them longer. Also decide on ``runs.retention_days``
+  (default keep forever), which bounds database growth but deletes runs for good. ``cli:`` actors are labels, not proof of
   identity.
 
 Secrets

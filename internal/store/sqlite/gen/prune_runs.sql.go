@@ -10,6 +10,21 @@ import (
 	"database/sql"
 )
 
+const deleteDBLogDataOfExecution = `-- name: DeleteDBLogDataOfExecution :execrows
+DELETE FROM log_chunks_data WHERE object_key IN (
+  SELECT c.object_key FROM log_chunks c WHERE c.execution_id = ?1 AND c.backend = 'db')
+`
+
+// The data of the execution's db-backend chunks, by primary key: a prefix scan
+// of log_chunks_data cannot use an index. Run it before the chunk rows go.
+func (q *Queries) DeleteDBLogDataOfExecution(ctx context.Context, executionID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteDBLogDataOfExecution, executionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteExecutionsOfRun = `-- name: DeleteExecutionsOfRun :execrows
 DELETE FROM executions WHERE run_id = ?1
 `

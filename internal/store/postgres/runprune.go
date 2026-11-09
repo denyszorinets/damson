@@ -50,23 +50,19 @@ func pruneRun(ctx context.Context, q *gen.Queries, runID string, now time.Time, 
 		if err != nil {
 			return fmt.Errorf("counting external log chunks of %q: %w", id, err)
 		}
+		// Data first, by key (the chunk rows name it), then the chunks.
+		objects, err := q.DeleteDBLogDataOfExecution(ctx, id)
+		if err != nil {
+			return fmt.Errorf("deleting log data of %q: %w", id, err)
+		}
 		chunks, err := q.DeleteLogChunksOfExecution(ctx, id)
 		if err != nil {
 			return fmt.Errorf("deleting log chunks of %q: %w", id, err)
 		}
-		prefix := store.LogDataPrefix(id)
-		l, err := store.PrefixArgs(prefix)
-		if err != nil {
-			return err
-		}
-		objects, err := q.DeleteLogDataPrefix(ctx, gen.DeleteLogDataPrefixParams{PrefixLen: int32(l), Prefix: prefix})
-		if err != nil {
-			return fmt.Errorf("deleting log data of %q: %w", id, err)
-		}
 		out.Chunks += chunks
 		out.Objects += objects
 		if external > 0 {
-			if err := queueLogObjectDelete(ctx, q, prefix, now, now); err != nil {
+			if err := queueLogObjectDelete(ctx, q, store.LogDataPrefix(id), now, now); err != nil {
 				return err
 			}
 			out.Queued++

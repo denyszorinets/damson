@@ -69,8 +69,9 @@ Orphans and lifecycle rules
 Objects can stay behind when an upload succeeded but recording its chunk
 failed and the cleanup also failed, or when a stale writer uploads after the
 grace period. They are removed
-when the execution's logs are purged. Until per-project log retention exists,
-add a bucket lifecycle rule (for example, expire objects under the
+when the execution's logs are purged. Run retention (``runs.retention_days``)
+removes the objects of pruned runs through the same deferred-delete outbox.
+As a backstop for orphans, add a bucket lifecycle rule (for example, expire objects under the
 ``logs/`` prefix after your retention period) as a backstop.
 
 Versioned buckets

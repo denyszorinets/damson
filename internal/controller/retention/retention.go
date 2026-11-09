@@ -1,6 +1,7 @@
 // Package retention is the controller duty that deletes data past its
-// retention (ARCHITECTURE 8.4). Today it prunes the audit trail only, when
-// audit.retention_days is set (ADR-0054).
+// retention (ARCHITECTURE 8.4): the audit trail when audit.retention_days is
+// set (ADR-0054), finished runs with their logs when runs.retention_days is set
+// (ADR-0074), and expired sessions.
 //
 // The duty is a singleton (ARCHITECTURE 8.4): only the holder of the
 // "retention" lease prunes, and each batch is fenced by the lease term. The
@@ -211,39 +212,49 @@ func (r *Retention) purgeAuth(ctx context.Context) {
 	}
 }
 
-// runBatch is how many runs one transaction deletes: each run takes its steps,
-// executions and log chunks with it.
+// runBatch is how many runs one transaction deletes at most: each run takes
+// its steps, executions and log chunks with it. A batch that times out is
+// retried with half as many runs, down to one.
 const runBatch = 20
 
-// maxRunBatches bounds one pass over finished runs.
-const maxRunBatches = 200
+// maxRunBatches is a safety cap on batches in one pass; the time budget
+// (half the interval) normally ends the pass first.
+const maxRunBatches = 100000
 
-// pruneRuns deletes finished runs older than the retention, in fenced batches.
-// Log objects in external backends are queued for the log sweeper in the same
-// transaction (ADR-0067).
+// pruneRuns deletes finished runs older than the retention, in fenced batches,
+// for at most half an interval. Log objects in external backends are queued for
+// the log sweeper in the same transaction (ADR-0067).
 func (r *Retention) pruneRuns(ctx context.Context, term int64) {
 	if r.cfg.RunDays == 0 {
 		return
 	}
-	now := r.cfg.Now()
-	cutoff := now.AddDate(0, 0, -r.cfg.RunDays)
+	cutoff := r.cfg.Now().AddDate(0, 0, -r.cfg.RunDays) // fixed for the pass
+	budget := time.Now().Add(r.cfg.Interval / 2)
 	actx := store.WithAudit(ctx, store.AuditMeta{Actor: Actor})
+	size := runBatch
 	var total store.RunPrune
-	for i := 0; i < maxRunBatches && ctx.Err() == nil; i++ {
+	for i := 0; i < maxRunBatches && ctx.Err() == nil && time.Now().Before(budget); i++ {
 		var got store.RunPrune
+		now := r.cfg.Now() // per batch: the lease check and the event use the current time
 		cctx, cancel := context.WithTimeout(actx, r.cfg.CallTimeout)
 		err := r.cfg.Store.WithTx(cctx, func(tx store.Tx) error {
 			if err := tx.CheckLeader(cctx, LeaderName, r.cfg.Holder, term, now); err != nil {
 				return err
 			}
 			var perr error
-			got, perr = tx.PruneRuns(cctx, cutoff, runBatch, now)
+			got, perr = tx.PruneRuns(cctx, cutoff, size, now)
 			return perr
 		})
+		timedOut := errors.Is(cctx.Err(), context.DeadlineExceeded)
 		cancel()
 		if errors.Is(err, store.ErrStale) {
 			r.log.Warn("lost the retention lease or a run changed; skipping the rest of this pass")
 			break
+		}
+		if err != nil && timedOut && size > 1 {
+			size = max(1, size/2)
+			r.log.Warn("pruning runs timed out; retrying with a smaller batch", "batch", size)
+			continue
 		}
 		if err != nil {
 			if ctx.Err() == nil {
@@ -256,7 +267,7 @@ func (r *Retention) pruneRuns(ctx context.Context, term int64) {
 		total.Chunks += got.Chunks
 		total.Objects += got.Objects
 		total.Queued += got.Queued
-		if got.Runs < runBatch {
+		if got.Runs < int64(size) {
 			break
 		}
 	}

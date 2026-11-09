@@ -38,7 +38,15 @@ func testPruneRuns(t *testing.T, s store.Store) {
 	if _, err := s.InsertLogChunk(ctx, e.AttemptID, ext, claimNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutLogData(ctx, key, []byte("line"), claimNow); err != nil {
+	// A db-backend chunk of the same execution (another attempt's data lives under
+	// the same execution prefix) with its data row.
+	dbKey := store.LogDataPrefix(e.ID) + "11-20"
+	dbc := chunk(e.ID, 11, 20, dbKey)
+	dbc.Backend = "db"
+	if _, err := s.InsertLogChunk(ctx, e.AttemptID, dbc, claimNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutLogData(ctx, dbKey, []byte("line"), claimNow); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CompleteExecution(ctx, store.Completion{ExecutionID: e.ID, AttemptID: e.AttemptID, State: store.ExecFailed}, claimNow); err != nil {
@@ -76,8 +84,8 @@ func testPruneRuns(t *testing.T, s store.Store) {
 	}
 
 	got := pruneRuns(ctx, t, s, cutoff)
-	if got.Runs != 1 || got.Executions != 1 || got.Chunks != 1 || got.Objects != 1 || got.Queued != 1 {
-		t.Fatalf("prune = %+v; want 1 run, 1 execution, 1 chunk, 1 object, 1 queued delete", got)
+	if got.Runs != 1 || got.Executions != 1 || got.Chunks != 2 || got.Objects != 1 || got.Queued != 1 {
+		t.Fatalf("prune = %+v; want 1 run, 1 execution, 2 chunks, 1 db object, 1 queued delete", got)
 	}
 	if _, err := s.GetRun(ctx, run.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("pruned run: %v; want ErrNotFound", err)
@@ -85,7 +93,7 @@ func testPruneRuns(t *testing.T, s store.Store) {
 	if _, err := s.GetExecution(ctx, e.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("pruned execution: %v; want ErrNotFound", err)
 	}
-	if _, err := s.GetLogData(ctx, key); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.GetLogData(ctx, dbKey); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("log data left: %v", err)
 	}
 	if due, _ := s.ListDueLogObjectDeletes(ctx, claimNow, 10); len(due) != 1 || due[0].Prefix != store.LogDataPrefix(e.ID) {
@@ -105,5 +113,48 @@ func testPruneRuns(t *testing.T, s store.Store) {
 	}
 	if strings.Contains(string(evs[0].Details), "line") {
 		t.Fatal("log content in the audit event")
+	}
+}
+
+// Oldest first, at most limit, and a run finished exactly at the cutoff stays.
+func testPruneRunsOrderAndLimit(t *testing.T, s store.Store) {
+	ctx := actorCtx()
+	migrated(t, s)
+	cutoff := claimNow.Add(-24 * time.Hour)
+	mk := func(name string, finished time.Time) store.RunTree {
+		_, tree := mustRun(t, s, name, store.NewStepInstance{Path: "main", Kind: store.KindGroup})
+		if _, err := s.UpdateRunStatus(ctx, tree.ID, tree.Version, store.RunSucceeded, finished); err != nil {
+			t.Fatal(err)
+		}
+		return tree
+	}
+	oldest := mk("oldest", cutoff.Add(-3*time.Hour))
+	middle := mk("middle", cutoff.Add(-2*time.Hour))
+	newer := mk("newer", cutoff.Add(-time.Hour))
+	edge := mk("edge", cutoff)
+
+	var got store.RunPrune
+	if err := s.WithTx(ctx, func(tx store.Tx) error {
+		var err error
+		got, err = tx.PruneRuns(ctx, cutoff, 2, claimNow)
+		return err
+	}); err != nil || got.Runs != 2 {
+		t.Fatalf("prune with limit 2 = %+v, %v", got, err)
+	}
+	for name, id := range map[string]string{"oldest": oldest.ID, "middle": middle.ID} {
+		if _, err := s.GetRun(ctx, id); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("%s run was kept: %v", name, err)
+		}
+	}
+	for name, id := range map[string]string{"newer": newer.ID, "edge": edge.ID} {
+		if _, err := s.GetRun(ctx, id); err != nil {
+			t.Errorf("%s run was pruned: %v", name, err)
+		}
+	}
+	if again := pruneRuns(ctx, t, s, cutoff); again.Runs != 1 {
+		t.Fatalf("second prune = %+v; want only the run before the cutoff", again)
+	}
+	if _, err := s.GetRun(ctx, edge.ID); err != nil {
+		t.Fatalf("a run finished exactly at the cutoff was pruned: %v", err)
 	}
 }

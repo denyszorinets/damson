@@ -32,8 +32,8 @@ How it works
        the ``leader_leases`` table, renewed every 5 seconds with a 15 second
        TTL. The duties are ``reaper`` (marks executions with expired leases
        ``lost`` and removes dead ``controller_instances`` rows), ``scheduler``
-       (fires schedules) and ``retention`` (prunes audit events and expired
-       sessions). A controller that cannot reach the database stops acting as
+       (fires schedules) and ``retention`` (prunes audit events, finished runs
+       and expired sessions). A controller that cannot reach the database stops acting as
        leader before another can take over. Failover takes at most the TTL plus
        one renewal; a graceful stop hands the lease over at once.
    * - Log sweeper

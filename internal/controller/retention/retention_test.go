@@ -312,3 +312,66 @@ func TestOncePrunesFinishedRunsAndKeepsTheRest(t *testing.T) {
 		t.Fatalf("a pass without a run policy pruned: %v", err)
 	}
 }
+
+func TestOncePrunesMoreRunsThanOneBatch(t *testing.T) {
+	st := open(t)
+	ctx := context.Background()
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	job, ver, err := st.CreateJob(ctx, store.NewJob{ProjectID: store.DefaultProjectID, Name: "j", Spec: json.RawMessage(`{"name":"j"}`), Checksum: "s"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for range 45 { // more than two batches of 20
+		tree, err := st.CreateRun(ctx, store.NewRun{JobID: job.ID, JobVersionID: ver.ID, Trigger: json.RawMessage(`{}`), Options: json.RawMessage(`{}`),
+			Steps: []store.NewStepInstance{{Path: "main", Kind: store.KindGroup}}}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.UpdateRunStatus(ctx, tree.ID, tree.Version, store.RunSucceeded, now.AddDate(0, 0, -60)); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, tree.ID)
+	}
+	r, err := retention.New(retention.Config{Store: st, Leader: lead(t, st, "c1"), Holder: "c1", RunDays: 30, Now: func() time.Time { return now }, Interval: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Once(ctx)
+	for _, id := range ids {
+		if _, err := st.GetRun(ctx, id); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("run %s survived the pass: %v", id, err)
+		}
+	}
+	evs, _ := st.ListAuditEvents(ctx, store.AuditFilter{TargetType: store.AuditTargetInstance, Target: "runs"}, 10)
+	if len(evs) != 3 {
+		t.Fatalf("%d run.prune events; want 3 (20 + 20 + 5)", len(evs))
+	}
+}
+
+func TestOnceWithAStaleLeaseDeletesNothing(t *testing.T) {
+	st := open(t)
+	ctx := context.Background()
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	job, ver, err := st.CreateJob(ctx, store.NewJob{ProjectID: store.DefaultProjectID, Name: "j", Spec: json.RawMessage(`{"name":"j"}`), Checksum: "s"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := st.CreateRun(ctx, store.NewRun{JobID: job.ID, JobVersionID: ver.ID, Trigger: json.RawMessage(`{}`), Options: json.RawMessage(`{}`),
+		Steps: []store.NewStepInstance{{Path: "main", Kind: store.KindGroup}}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.UpdateRunStatus(ctx, tree.ID, tree.Version, store.RunSucceeded, now.AddDate(0, 0, -60)); err != nil {
+		t.Fatal(err)
+	}
+	lead(t, st, "c1") // c1 holds the lease; the duty below claims a term it does not hold
+	r, err := retention.New(retention.Config{Store: st, Leader: staleLeader{}, Holder: "c1", RunDays: 30, Now: func() time.Time { return now }, Interval: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Once(ctx)
+	if _, err := st.GetRun(ctx, tree.ID); err != nil {
+		t.Fatalf("a duty without the lease pruned: %v", err)
+	}
+}
