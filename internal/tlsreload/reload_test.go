@@ -84,3 +84,64 @@ func TestStartRefusesAMismatchedPair(t *testing.T) {
 		t.Fatal("missing files were accepted")
 	}
 }
+
+func TestHalfReplacedPairKeepsServingThenReloads(t *testing.T) {
+	dir := t.TempDir()
+	a, b := selfsigned.New(t, "a"), selfsigned.New(t, "b")
+	certFile, keyFile := a.Write(t, dir)
+	logs := &bytes.Buffer{}
+	r, err := New(certFile, keyFile, slog.New(slog.NewTextHandler(logs, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := time.Now()
+	r.now = func() time.Time { return clock }
+	first := cn(t, r)
+
+	// A sequential replacer writes the certificate first: cert B with key A.
+	if err := os.WriteFile(certFile, b.CertPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chtimes(certFile, clock.Add(time.Minute), clock.Add(time.Minute))
+	clock = clock.Add(CheckInterval + time.Second)
+	if cn(t, r) != first {
+		t.Fatal("a certificate without its key was served")
+	}
+	if bytes.Count(logs.Bytes(), []byte("not reloaded")) != 1 {
+		t.Errorf("want one error for the half-replaced pair: %s", logs)
+	}
+	// Then the key lands.
+	if err := os.WriteFile(keyFile, b.KeyPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chtimes(keyFile, clock.Add(time.Minute), clock.Add(time.Minute))
+	clock = clock.Add(CheckInterval + time.Second)
+	if cn(t, r) == first {
+		t.Fatal("the completed pair was not loaded")
+	}
+}
+
+func TestMissingFilesAreLoggedOnce(t *testing.T) {
+	dir := t.TempDir()
+	certFile, keyFile := selfsigned.New(t, "a").Write(t, dir)
+	logs := &bytes.Buffer{}
+	r, err := New(certFile, keyFile, slog.New(slog.NewTextHandler(logs, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := time.Now()
+	r.now = func() time.Time { return clock }
+	first := cn(t, r)
+	if err := os.Remove(certFile); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		clock = clock.Add(CheckInterval + time.Second)
+		if cn(t, r) != first {
+			t.Fatal("the certificate changed after its file vanished")
+		}
+	}
+	if n := bytes.Count(logs.Bytes(), []byte("cannot be read")); n != 1 {
+		t.Errorf("logged %d times, want once: %s", n, logs)
+	}
+}

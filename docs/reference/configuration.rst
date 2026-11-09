@@ -50,15 +50,17 @@ written as a double underscore: ``agent.controller_url`` is
        TLS (or, with ``controller.trust_forwarded_proto``, marked
        ``X-Forwarded-Proto: https`` by a proxy).
    * - ``controller.tls_cert_file``
-     - controller, dev
+     - controller
      - empty
      - PEM certificate file, leaf first, then the chain. Set together with
        ``controller.tls_key_file`` (otherwise startup fails with "must be set
        together"). The listener then serves HTTPS and WSS, TLS 1.2 or newer,
-       HTTP/1.1 only. Environment variable ``DAMSON_CONTROLLER__TLS_CERT_FILE``
+       ALPN ``h2`` and ``http/1.1`` (the agent WebSocket uses HTTP/1.1). The
+       ``dev`` role refuses these keys ("is not supported by the dev role (its
+       agent connects over ws://)"). Environment variable ``DAMSON_CONTROLLER__TLS_CERT_FILE``
        (:doc:`/operations/install`).
    * - ``controller.tls_key_file``
-     - controller, dev
+     - controller
      - empty
      - PEM private key for the certificate. A secret: mode 0640. The pair is
        re-checked at most every 10 seconds by modification time and size and
@@ -294,7 +296,8 @@ written as a double underscore: ``agent.controller_url`` is
      - PEM file of extra CA certificates trusted, in addition to the system
        roots, for the ``wss://`` connection to the controller (a private CA or a
        self-signed controller certificate). Environment variable
-       ``DAMSON_AGENT__CONTROLLER_CA_FILE``. Certificate verification cannot be
+       ``DAMSON_AGENT__CONTROLLER_CA_FILE``. Read at start only (a change needs
+       a restart). Certificate verification cannot be
        turned off. Distinct from ``agent.tls_ca_file``.
    * - ``logs.store``
      - controller, dev

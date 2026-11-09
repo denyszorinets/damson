@@ -292,7 +292,9 @@ Apply and export
    damson export --project P -o DIR [--force] [--json]
 
 Both call the HTTP API. ``--server`` or ``DAMSON_SERVER`` names the controller
-(default ``http://127.0.0.1:8080``). The token comes only from ``DAMSON_TOKEN``
+(default ``http://127.0.0.1:8080``). With controller TLS set it to
+``https://...``; a private CA is trusted through the ``SSL_CERT_FILE``
+environment variable (Go's default transport; the CLI has no CA option). The token comes only from ``DAMSON_TOKEN``
 or ``--token-file``; there is no token flag, so it never shows in ``ps``.
 ``apply`` works with an editor service token (``dms_``); ``export`` needs the
 admin token or an admin user, because tokens are never admin. File layout, ownership and prune are in

@@ -272,8 +272,8 @@ func controllerHTTPClient(cfg config.Agent) (*http.Client, error) {
 	if !pool.AppendCertsFromPEM(pem) {
 		return nil, fmt.Errorf("agent.controller_ca_file %s holds no PEM certificate", cfg.ControllerCAFile)
 	}
-	return &http.Client{Transport: &http.Transport{
-		Proxy:           http.ProxyFromEnvironment,
-		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool},
-	}}, nil
+	// The default transport's timeouts and proxy handling, with the extra roots.
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool}
+	return &http.Client{Transport: tr}, nil
 }

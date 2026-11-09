@@ -34,6 +34,9 @@ func (c Config) Validate(role Role) error {
 			add("controller.listen", "must be host:port such as \":8080\"; got %q", c.Controller.Listen)
 		}
 		c.validateCluster(role, add)
+		if role == RoleDev && (c.Controller.TLSCertFile != "" || c.Controller.TLSKeyFile != "") {
+			add("controller.tls_cert_file", "is not supported by the dev role (its agent connects over ws://); use the controller role")
+		}
 		if (c.Controller.TLSCertFile == "") != (c.Controller.TLSKeyFile == "") {
 			add("controller.tls_cert_file", "and controller.tls_key_file must be set together")
 		}

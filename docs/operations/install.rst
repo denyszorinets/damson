@@ -107,7 +107,8 @@ the chain, PEM) and ``controller.tls_key_file`` (PEM) in ``controller.toml``, or
 ``DAMSON_CONTROLLER__TLS_CERT_FILE`` and ``DAMSON_CONTROLLER__TLS_KEY_FILE``.
 Both or neither: one without the other is a startup error. The listener
 ``controller.listen`` then serves HTTPS and WSS (API, UI and agent sockets) with
-TLS 1.2 as the minimum, over HTTP/1.1 only (the WebSocket needs it). Unreadable
+TLS 1.2 as the minimum, ALPN ``h2`` and ``http/1.1`` (the agent WebSocket upgrade uses HTTP/1.1). Only
+the ``controller`` role accepts these keys; ``dev`` refuses them. Unreadable
 or mismatched files stop the controller at start. The key file is a secret: on
 systemd use mode 0640, owner ``root:damson``; in Kubernetes use a
 ``kubernetes.io/tls`` Secret (:doc:`/reference/helm`). Client-certificate
@@ -125,6 +126,22 @@ replacement is ignored: the previous certificate keeps serving and one ERROR,
 ``controller tls certificate not reloaded; still serving the previous one``, is
 logged per change. Replace the certificate and the key together, as cert-manager
 and certbot do.
+
+Further reload behaviour:
+
+- Files that become unreadable or are removed log one ERROR, ``controller tls
+  files cannot be read; still serving the previous certificate``, per distinct
+  error.
+- A certificate that is expired or not yet valid logs the WARN ``controller tls
+  certificate is not valid now`` at load and reload.
+- A tool that replaces the certificate first and the key second (certbot) can
+  cause one ``not reloaded`` ERROR between the two writes, followed by
+  ``reloaded`` when the key lands. This is harmless.
+- Change detection uses modification time and size. A same-size replacement that
+  preserves the modification time (``cp -p``, ``rsync -a``) is not noticed until
+  a restart or a ``touch``.
+- Kubernetes Secret volumes refresh after a kubelet delay; this can take a
+  minute or more.
 
 *Private CA for agents.* Agents already connect with ``wss://`` and verify the
 controller certificate; verification cannot be turned off. If the certificate

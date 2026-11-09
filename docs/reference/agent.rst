@@ -94,7 +94,7 @@ is masked before it leaves (plain, base64 and URL-encoded forms).
 * ``agent.controller_ca_file`` (``DAMSON_AGENT__CONTROLLER_CA_FILE``) is a PEM file
   of extra CA certificates trusted, in addition to the system roots, for the
   ``wss://`` connection to the controller (private CA or self-signed controller
-  certificate). Verification cannot be turned off. It is separate from
+  certificate). Read at start only; a change needs a restart. Verification cannot be turned off. It is separate from
   ``agent.tls_ca_file``.
 
 Internals are described in :doc:`/development/agent`.

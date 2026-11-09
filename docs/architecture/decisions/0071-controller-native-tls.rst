@@ -21,17 +21,22 @@ Decision
 **Files.** ``controller.tls_cert_file`` (leaf and chain, PEM) and
 ``controller.tls_key_file`` (PEM). Both or neither; one alone is a startup
 error. Unreadable or mismatched files stop the controller at start. With both
-set, ``controller.listen`` serves HTTPS and WSS (API, UI, agent sockets).
+set, ``controller.listen`` serves HTTPS and WSS (API, UI, agent sockets). Only
+the ``controller`` role accepts the keys; the ``dev`` role refuses them at
+validation, because its in-process agent connects over ``ws://``.
 
 **Library.** Standard library ``crypto/tls`` only; no new dependency.
 
-**Protocol.** TLS 1.2 minimum. ALPN offers ``http/1.1`` only: the agent
-transport is a WebSocket, which needs HTTP/1.1.
+**Protocol.** TLS 1.2 minimum. ALPN offers ``h2`` and ``http/1.1``. Browsers
+and API clients get HTTP/2, which avoids the six-connection limit with several
+SSE run pages open. The agent WebSocket upgrade runs over HTTP/1.1 (Go clients
+ask for it on upgrade requests; a test covers it).
 
 **Reload.** On a handshake, the files are re-checked at most every 10 seconds by
 modification time and size. A changed pair is loaded without restart. A broken
 replacement is ignored: the previous certificate keeps serving and one ERROR is
-logged per change. Certificates are replaced together with their key, as
+logged per distinct error. A certificate that is expired or not yet valid logs
+a WARN at load and reload. Certificates are replaced together with their key, as
 cert-manager and certbot do. A mounted Kubernetes Secret is refreshed by the
 kubelet with a delay.
 
@@ -47,7 +52,9 @@ separate from ``agent.tls_ca_file`` (plugins).
 
 **Deployment.** systemd: files in ``/etc/damson``, key mode 0640 ``root:damson``.
 Helm: ``controller.tls.secretName``, a ``kubernetes.io/tls`` Secret mounted at
-``/etc/damson/tls``; probes use HTTPS. A proxy that terminates TLS stays
+``/etc/damson/tls``; probes use HTTPS and the Service port gets
+``appProtocol: https``. ``agents.caSecret`` also sets
+``DAMSON_AGENT__CONTROLLER_CA_FILE``. A proxy that terminates TLS stays
 supported.
 
 Alternatives

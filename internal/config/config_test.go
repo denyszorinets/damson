@@ -66,6 +66,11 @@ func TestLoad(t *testing.T) {
 			wantErr: []string{"controller.tls_cert_file"},
 		},
 		{
+			name: "tls is refused for the dev role", role: RoleDev,
+			env:     []string{"DAMSON_CONTROLLER__TLS_CERT_FILE=/c", "DAMSON_CONTROLLER__TLS_KEY_FILE=/k"},
+			wantErr: []string{"controller.tls_cert_file"},
+		},
+		{
 			name: "tls cert and key together", role: RoleController,
 			env: []string{"DAMSON_CONTROLLER__TLS_CERT_FILE=/etc/damson/tls.crt", "DAMSON_CONTROLLER__TLS_KEY_FILE=/etc/damson/tls.key"},
 			check: func(t *testing.T, c Config) {

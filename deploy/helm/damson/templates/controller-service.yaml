@@ -9,6 +9,9 @@ spec:
   type: {{ .Values.controller.service.type }}
   ports:
     - name: http
+      {{- if .Values.controller.tls.secretName }}
+      appProtocol: https
+      {{- end }}
       port: {{ .Values.controller.service.port }}
       targetPort: http
   selector:
