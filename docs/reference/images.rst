@@ -23,6 +23,23 @@ one source tree. Each is a target:
        command: ``agent``. It sets ``STORAGE_DRIVER=vfs`` and
        ``BUILDAH_ISOLATION=chroot``, which work in an unprivileged pod.
 
+Published images
+----------------
+
+Each release publishes the three targets to the GitHub Container Registry:
+``ghcr.io/denyszorinets/damson``, ``ghcr.io/denyszorinets/damson-agent`` and
+``ghcr.io/denyszorinets/damson-agent-build``. They are multi-arch manifests for
+``linux/amd64`` and ``linux/arm64``. Tags: ``vX.Y.Z``, ``X.Y.Z`` and ``latest``
+(pin a version in production)::
+
+   $ docker pull ghcr.io/denyszorinets/damson-agent:v0.1.0
+
+The images are not signed yet (:doc:`/operations/install`). The Helm chart
+uses these repositories by default (:doc:`helm`).
+
+Build your own
+--------------
+
 Build one with::
 
    docker build -f deploy/docker/Dockerfile --target damson-agent -t damson-agent .

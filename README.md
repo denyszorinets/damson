@@ -2,7 +2,9 @@
 
 Damson is an open-source job orchestrator in the spirit of Rundeck and a modern, minimal Jenkins. You define jobs as JSON specs made of steps, and each step calls a plugin: SSH, WinRM, file transfer, Ansible, Buildah or Helm. Steps run on stateless agents that connect out to a highly available controller tier. The only required infrastructure is PostgreSQL.
 
-> **Status: design and skeleton (milestone M0).** There is no release yet and nothing to run. [ARCHITECTURE.md](ARCHITECTURE.md) holds the v1 design.
+> **Status: 0.1, the first public release.** The v1 design in [ARCHITECTURE.md](ARCHITECTURE.md) is implemented end to end (milestones M0 to M9). Expect changes before 1.0; see the [changelog](CHANGELOG.md) and the known gaps in the [operations guide](https://denyszorinets.github.io/damson/docs/operations/index.html).
+
+**Website and documentation: <https://denyszorinets.github.io/damson/>** · [Docs](https://denyszorinets.github.io/damson/docs/) · [Releases](https://github.com/denyszorinets/damson/releases)
 
 ## Why Damson
 

@@ -8,6 +8,7 @@ How to contribute to Damson.
 
    workflow
    ci
+   releasing
    documentation
    store
    inventory-sync

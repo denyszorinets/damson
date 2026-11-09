@@ -6,7 +6,7 @@ fullnameOverride: ""
 
 image:
   # Build with: docker build -f deploy/docker/Dockerfile --target damson .
-  repository: damson
+  repository: ghcr.io/denyszorinets/damson
   # Defaults to the chart appVersion.
   tag: ""
   pullPolicy: IfNotPresent
@@ -178,7 +178,7 @@ agents:
   caSecret: ""
   caKey: ca.crt
   image:
-    repository: damson-agent
+    repository: ghcr.io/denyszorinets/damson-agent
     tag: ""
   pools:
     - name: default

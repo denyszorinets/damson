@@ -1,0 +1,202 @@
+name: Release
+
+# Pushing a tag vX.Y.Z builds the release: binaries for five platforms, the
+# offline bundle, multi-arch container images on ghcr.io and a GitHub release
+# with checksums and the notes from CHANGELOG.md. A manual run, or a pull request
+# that changes this file, builds everything without publishing anything (a dry run).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+
+permissions:
+  contents: read
+
+env:
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'v0.0.0-dryrun' }}
+
+jobs:
+  web:
+    name: Build the web UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: make web
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-build
+          path: web/build
+          retention-days: 1
+
+  binaries:
+    name: Binary ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: web
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {goos: linux, goarch: amd64}
+          - {goos: linux, goarch: arm64}
+          - {goos: darwin, goarch: amd64}
+          - {goos: darwin, goarch: arm64}
+          - {goos: windows, goarch: amd64}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-build
+          path: web/build
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          name="damson_${VERSION}_${GOOS}_${GOARCH}"
+          mkdir -p "dist/$name"
+          ext=""; [ "$GOOS" = windows ] && ext=".exe"
+          go build -trimpath \
+            -ldflags "-s -w -X github.com/denyszorinets/damson/internal/version.Version=${VERSION}" \
+            -o "dist/$name/damson$ext" ./cmd/damson
+          cp LICENSE README.md "dist/$name/"
+          cd dist
+          if [ "$GOOS" = windows ]; then zip -qr "$name.zip" "$name"; else tar --sort=name --owner=0 --group=0 --numeric-owner -czf "$name.tar.gz" "$name"; fi
+          rm -rf "$name"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bin-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+
+  bundle:
+    name: Offline bundle
+    needs: web
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      HELM_VERSION: 3.16.4
+      HELM_SHA256: fc307327959aa38ed8f9f7e66d45492bb022a66c3e5da6063958254b9767d179
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-build
+          path: web/build
+      - name: Install helm
+        run: |
+          curl -fsSL -o /tmp/helm.tgz "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  /tmp/helm.tgz" | sha256sum -c -
+          sudo tar -xzf /tmp/helm.tgz -C /usr/local/bin --strip-components=1 linux-amd64/helm
+      - run: sh deploy/bundle/build.sh
+      - name: Verify
+        run: |
+          cd dist
+          sha256sum -c ./*.sha256
+          mkdir unpacked && tar -xzf damson-bundle-*.tar.gz -C unpacked
+          ( cd unpacked/damson-bundle-* && ./verify.sh && ./bin/damson-linux-amd64 version )
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bundle
+          path: dist/damson-bundle-*
+
+  images:
+    name: Image ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [damson, damson-agent, damson-agent-build]
+    env:
+      REGISTRY: ghcr.io/${{ github.repository_owner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Log in to ghcr.io
+        if: github.ref_type == 'tag'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tags
+        id: tags
+        run: |
+          image="${REGISTRY}/${{ matrix.target }}"
+          tags="${image}:${VERSION}"
+          if [ "${{ github.ref_type }}" = tag ]; then tags="${tags},${image}:${VERSION#v},${image}:latest"; fi
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ env.VERSION }}
+          push: ${{ github.ref_type == 'tag' }}
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.licenses=GPL-3.0-or-later
+
+  publish:
+    name: Publish the release
+    if: github.ref_type == 'tag'
+    needs: [binaries, bundle, images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd assets
+          sha256sum damson_* damson-bundle-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+      - name: Notes
+        run: |
+          ver="${VERSION#v}"
+          awk -v v="$ver" '$0 ~ "^## \\[?"v"\\]?" {f=1; next} /^## / && f {exit} f' CHANGELOG.md > notes.md
+          [ -s notes.md ] || { echo "CHANGELOG.md has no section for $ver" >&2; exit 1; }
+          {
+            echo
+            echo "## Install"
+            echo
+            echo "- Binaries: download the archive for your platform below and check it against \`SHA256SUMS\`."
+            echo "- Containers: \`ghcr.io/${{ github.repository_owner }}/damson\`, \`damson-agent\`, \`damson-agent-build\` (tags \`${VERSION}\` and \`latest\`)."
+            echo "- Kubernetes: the Helm chart is in the offline bundle (\`chart/\`)."
+            echo "- Docs: https://${{ github.repository_owner }}.github.io/damson/docs/"
+            echo
+            echo "These assets are not signed yet."
+          } >> notes.md
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$VERSION" assets/* --title "Damson ${VERSION#v}" --notes-file notes.md --verify-tag

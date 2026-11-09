@@ -40,9 +40,13 @@ Prerequisites
 - A reachable PostgreSQL 13 or later database and user. Controllers need
   ``CREATE`` rights on the schema because they run migrations.
 - Images: ``damson`` for the controller and ``damson-agent`` (or
-  ``damson-agent-build``) for agents, pushed to a registry the cluster can pull
-  from (see :doc:`images`). Set ``image.repository``, ``agents.image.repository``
-  and the tags.
+  ``damson-agent-build``) for agents. The chart defaults to the published images
+  on ``ghcr.io/denyszorinets`` (see :doc:`images`) and the tag defaults to the
+  chart ``appVersion``. The chart in the offline bundle is packaged with
+  ``--app-version vX.Y.Z``, so it pulls the matching release. A chart from a git
+  checkout has ``appVersion: dev``: set ``image.tag`` and ``agents.image.tag``
+  (for example ``v0.1.0``). For an air-gapped or private registry, set the
+  repositories too.
 - The Secrets in the table below. Create only the ones your configuration uses.
 
 .. list-table::
@@ -100,7 +104,7 @@ Install
    .. code-block:: yaml
 
       # values.yaml
-      image: {repository: registry.example.com/damson, tag: v1.0.0}
+      image: {tag: v0.1.0}
       database: {existingSecret: damson-db}
       secrets:
         clusterSecret: {existingSecret: damson-cluster}
@@ -114,7 +118,7 @@ Install
         tls: [{secretName: damson-tls, hosts: [damson.example.com]}]
       agents:
         controllerUrl: wss://damson.example.com
-        image: {repository: registry.example.com/damson-agent, tag: v1.0.0}
+        image: {tag: v0.1.0}
         pools:
           - {name: default, replicas: 2, tokenSecret: pool-default}
 
@@ -254,7 +258,7 @@ with a message that names the value. Full defaults are in
    * - ``nameOverride``, ``fullnameOverride``
      - Empty. Override resource names.
    * - ``image``
-     - ``repository: damson``, ``tag`` empty (the chart ``appVersion``),
+     - ``repository: ghcr.io/denyszorinets/damson``, ``tag`` empty (the chart ``appVersion``),
        ``pullPolicy: IfNotPresent``. ``imagePullSecrets: []``.
    * - ``database``
      - ``existingSecret`` (required), ``key: dsn``.
@@ -309,7 +313,7 @@ with a message that names the value. Full defaults are in
    * - ``agents``
      - ``controllerUrl`` (``ws://`` or ``wss://``; defaults to the first ingress
        host when the ingress is enabled, otherwise required), ``caSecret``,
-       ``caKey: ca.crt``, ``image`` (``damson-agent``), ``serviceAccount``
+       ``caKey: ca.crt``, ``image`` (``ghcr.io/denyszorinets/damson-agent``, tag empty), ``serviceAccount``
        (``create: true``, ``name``, ``annotations``), ``spoolSizeLimit: 1Gi``
        and ``pools``.
 
