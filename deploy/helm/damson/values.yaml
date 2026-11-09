@@ -103,6 +103,14 @@ controller:
     enabled: true
     minAvailable: 1
   terminationGracePeriodSeconds: 30
+  # TLS on the controller itself. secretName names a kubernetes.io/tls Secret
+  # (tls.crt with the chain, tls.key) in the release namespace; the controller
+  # then serves HTTPS and WSS and re-reads the files when they change (a
+  # cert-manager renewal). Empty serves plain HTTP for an ingress that terminates
+  # TLS. An ingress in front of an HTTPS controller needs the backend protocol
+  # set in its annotations (ingress-nginx: nginx.ingress.kubernetes.io/backend-protocol: HTTPS).
+  tls:
+    secretName: ""
   podAnnotations: {}
   podLabels: {}
   nodeSelector: {}

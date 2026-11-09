@@ -6,6 +6,7 @@ package node
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -91,6 +92,8 @@ type Config struct {
 
 	InsecureDev         bool
 	TrustForwardedProto bool
+	// TLS serves the API and the agent sockets over TLS. Nil serves plain HTTP.
+	TLS *tls.Config
 
 	// Stream tunes the API's server-sent event endpoints (tests shorten the
 	// intervals); zero fields take the defaults.
@@ -165,7 +168,7 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	}
 	apiCfg := api.Config{
 		Addr: cfg.Addr, Store: cfg.Store, Data: cfg.Store, Plugins: cfg.Plugins, UI: cfg.UI, Logger: cfg.Logger,
-		Stream: cfg.Stream, RequireToken: cfg.RequireToken, OIDC: cfg.OIDC,
+		TLS: cfg.TLS, Stream: cfg.Stream, RequireToken: cfg.RequireToken, OIDC: cfg.OIDC,
 		Mounts: map[string]http.Handler{controller.ConnectPath: gw.Handler()},
 	}
 	if n.blobs != nil { // a nil *Set must not become a non-nil interface

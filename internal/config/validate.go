@@ -34,6 +34,9 @@ func (c Config) Validate(role Role) error {
 			add("controller.listen", "must be host:port such as \":8080\"; got %q", c.Controller.Listen)
 		}
 		c.validateCluster(role, add)
+		if (c.Controller.TLSCertFile == "") != (c.Controller.TLSKeyFile == "") {
+			add("controller.tls_cert_file", "and controller.tls_key_file must be set together")
+		}
 		if d, err := time.ParseDuration(c.Engine.FinallyGrace); err != nil || d <= 0 || d > MaxFinallyGrace {
 			add("engine.finally_grace", "must be a duration such as \"2m\", positive and at most %s; got %q", MaxFinallyGrace, c.Engine.FinallyGrace)
 		}

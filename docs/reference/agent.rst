@@ -91,6 +91,12 @@ is masked before it leaves (plain, base64 and URL-encoded forms).
   ``https`` S3 endpoints (and ``winrm`` over https)
   transfers (:doc:`/reference/plugin-transfer`). A bad file fails agent start. The file is read when the agent starts, so a change needs a restart.
 
+* ``agent.controller_ca_file`` (``DAMSON_AGENT__CONTROLLER_CA_FILE``) is a PEM file
+  of extra CA certificates trusted, in addition to the system roots, for the
+  ``wss://`` connection to the controller (private CA or self-signed controller
+  certificate). Verification cannot be turned off. It is separate from
+  ``agent.tls_ca_file``.
+
 Internals are described in :doc:`/development/agent`.
 
 Heartbeats

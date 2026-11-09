@@ -31,10 +31,12 @@ Prerequisites
 - A PostgreSQL database reachable from the controller hosts. SQLite works for
   one controller only (the unit's working directory is ``/var/lib/damson``);
   use PostgreSQL for more than one.
-- TLS in front of the controller for agents: a TLS-terminating proxy
-  (the controller has no TLS settings of its own). Agents connect with ``wss://``. Behind a proxy that
-  sets ``X-Forwarded-Proto``, set ``trust_forwarded_proto = true`` in
-  ``controller.toml``.
+- TLS for agents, either native or in a proxy. Agents connect with ``wss://``.
+  For native TLS put the certificate (with chain) and key in ``/etc/damson``
+  (key mode 0640, owner ``root:damson``) and set ``tls_cert_file`` and
+  ``tls_key_file`` in ``controller.toml``; the certificate is reloaded without
+  a restart. Behind a TLS-terminating proxy that sets ``X-Forwarded-Proto``,
+  set ``trust_forwarded_proto = true`` instead.
 - ``systemd`` on every host.
 
 Install a controller
@@ -119,8 +121,8 @@ On the agent host, install the binary, the user and the units as above, then:
    # systemctl enable --now damson-agent
 
 Put the pool token in ``agent.env`` (``DAMSON_AGENT__TOKEN``) and set
-``controller_url`` (``wss://...``), ``pool`` and optionally ``tls_ca_file`` in
-``agent.toml``.
+``controller_url`` (``wss://...``), ``pool`` and optionally ``controller_ca_file`` (a private CA for the controller
+certificate) and ``tls_ca_file`` (plugins) in ``agent.toml``.
 
 Unit hardening
 --------------

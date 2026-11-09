@@ -10,7 +10,7 @@ Order of steps
 
 #. Prepare PostgreSQL.
 #. Generate the secrets.
-#. Put TLS in front of the controllers.
+#. Serve TLS: on the controllers or in front of them.
 #. Install and start the controllers (they migrate the database).
 #. Create the admin token, the agent pools and their tokens.
 #. Install the agents.
@@ -97,24 +97,56 @@ hold the same KEK and the same cluster secret; only
 Credentials go in environment variables or files of mode 0600, never in the
 TOML file (:doc:`hardening`).
 
-TLS in front of the controller
-------------------------------
+TLS
+---
 
-The controller serves plain HTTP on ``controller.listen`` (default ``:8080``);
-it has no TLS settings of its own. Terminate TLS in a load balancer, reverse
-proxy or ingress that forwards HTTP and WebSocket upgrades to the controllers.
+There are two supported ways to serve TLS; pick one.
+
+**Native TLS.** Set ``controller.tls_cert_file`` (leaf certificate followed by
+the chain, PEM) and ``controller.tls_key_file`` (PEM) in ``controller.toml``, or
+``DAMSON_CONTROLLER__TLS_CERT_FILE`` and ``DAMSON_CONTROLLER__TLS_KEY_FILE``.
+Both or neither: one without the other is a startup error. The listener
+``controller.listen`` then serves HTTPS and WSS (API, UI and agent sockets) with
+TLS 1.2 as the minimum, over HTTP/1.1 only (the WebSocket needs it). Unreadable
+or mismatched files stop the controller at start. The key file is a secret: on
+systemd use mode 0640, owner ``root:damson``; in Kubernetes use a
+``kubernetes.io/tls`` Secret (:doc:`/reference/helm`). Client-certificate
+authentication, OCSP stapling and ACME are not supported.
+
+**TLS-terminating proxy.** The controller serves plain HTTP on
+``controller.listen`` (default ``:8080``) and a load balancer, reverse proxy or
+ingress terminates TLS and forwards HTTP and WebSocket upgrades to the
+controllers. This stays supported.
+
+*Renewal.* The controller checks the certificate files at most every 10 seconds
+(on a TLS handshake), by modification time and size. A changed pair is loaded
+without a restart and logged as ``controller tls certificate reloaded``. A broken
+replacement is ignored: the previous certificate keeps serving and one ERROR,
+``controller tls certificate not reloaded; still serving the previous one``, is
+logged per change. Replace the certificate and the key together, as cert-manager
+and certbot do.
+
+*Private CA for agents.* Agents already connect with ``wss://`` and verify the
+controller certificate; verification cannot be turned off. If the certificate
+is signed by a private CA, or is self-signed, set ``agent.controller_ca_file``
+(``DAMSON_AGENT__CONTROLLER_CA_FILE``) on the agents to a PEM file of CA
+certificates. They are trusted in addition to the system roots. This is distinct
+from ``agent.tls_ca_file``, which serves the ``transfer``, ``winrm`` and
+``ansible`` plugins.
 
 Agents connect to ``<controller_url>/agent/v1/connect`` and the controller
 refuses a connection that is not secure, with the message ``plain ws:// is not
-allowed``. A connection counts as secure when it arrived over TLS or, with
+allowed``. A connection counts as secure when it arrived over TLS (including
+a direct native TLS connection, which needs no other setting) or, with
 ``controller.trust_forwarded_proto = true``, when the proxy sent
 ``X-Forwarded-Proto: https``. Enable that option only behind a proxy that sets
 or strips the header. The Helm chart's ingress and the systemd guide cover the
 details.
 
 Do not expose ``controller.internal_listen`` (default ``:8081``) outside the
-controller network. It is plain HTTP, authenticated by the cluster secret, and
-carries log lines between controllers.
+controller network. It stays plain HTTP, also when native TLS is on (TLS covers
+the main listener only), is authenticated by the cluster secret, and carries
+log lines between controllers.
 
 Controllers
 -----------

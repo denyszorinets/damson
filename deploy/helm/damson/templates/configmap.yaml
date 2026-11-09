@@ -16,6 +16,10 @@ the pod as environment variables or mounted Secret files.
   "logs" (dict "store" $v.logs.store)
   "secrets" (dict "backend" $v.secrets.backend)
 -}}
+{{- if $v.controller.tls.secretName -}}
+{{- $_ := set $cfg.controller "tls_cert_file" "/etc/damson/tls/tls.crt" -}}
+{{- $_ := set $cfg.controller "tls_key_file" "/etc/damson/tls/tls.key" -}}
+{{- end -}}
 {{- if $v.oidc.issuer -}}
 {{- $_ := set $cfg.auth "oidc" (dict
   "issuer" $v.oidc.issuer

@@ -317,7 +317,11 @@ itself must exist in Damson (``damson admin pool create``), and
 Agents connect to ``agents.controllerUrl`` (``wss://damson.example.com``). If the
 controller certificate is signed by a private CA, put the bundle in a Secret
 (key ``ca.crt``) and set ``agents.caSecret``; it is mounted and passed as
-``DAMSON_AGENT__TLS_CA_FILE``.
+``DAMSON_AGENT__TLS_CA_FILE``. The chart does not set
+``DAMSON_AGENT__CONTROLLER_CA_FILE``, which a private CA for a natively
+serving controller needs; the same Secret is mounted at ``/etc/damson/ca``, so
+add ``env: [{name: DAMSON_AGENT__CONTROLLER_CA_FILE, value: /etc/damson/ca/ca.crt}]``
+to the pool.
 
 Pool names must be unique, and a pool with autoscaling needs
 ``resources.requests.cpu``; both fail the render otherwise. The log spool is an
@@ -386,6 +390,25 @@ port with ``networkPolicy.apiFrom`` so that only the ingress controller (and
 agents) reach it. If TLS is terminated elsewhere (a load balancer in front of a
 plain Service), set ``trustForwardedProto: true`` together with the ingress and
 make sure that proxy sets the header.
+
+Native TLS on the controller
+----------------------------
+
+``controller.tls.secretName`` names a ``kubernetes.io/tls`` Secret (``tls.crt``
+with the chain, ``tls.key``) in the release namespace. The chart mounts it at
+``/etc/damson/tls``, sets ``controller.tls_cert_file`` and
+``controller.tls_key_file`` in the config, and switches the probes to scheme
+HTTPS. The controller serves HTTPS and WSS and reloads the files when the Secret
+changes (a cert-manager renewal; the kubelet refreshes the mounted files after a
+delay, see :doc:`/operations/install`). Empty, the default, serves plain HTTP for an
+ingress that terminates TLS.
+
+An ingress in front of an HTTPS controller must speak HTTPS to the backend. For
+ingress-nginx add ``nginx.ingress.kubernetes.io/backend-protocol: HTTPS`` to
+``ingress.annotations`` (``ci/full.yaml`` does). ``agents.controllerUrl``
+stays required.
+
+The internal port stays plain HTTP in either case (next section).
 
 NetworkPolicy and the internal port
 -----------------------------------

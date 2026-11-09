@@ -9,10 +9,11 @@ Transport security
 
 - **Agents use wss.** Agents send their pool token on the connection. Plain
   ``ws://`` is refused unless the controller runs with
-  ``controller.insecure_dev``. Terminate TLS in a proxy or ingress; the
-  controller has no TLS settings of its own. Set
-  ``controller.trust_forwarded_proto = true`` only if the proxy sets or strips
-  ``X-Forwarded-Proto``, otherwise clients can forge it.
+  ``controller.insecure_dev``. Serve TLS on the controller itself
+  (``controller.tls_cert_file`` and ``controller.tls_key_file``, TLS 1.2 or
+  newer, key file mode 0640) or terminate it in a proxy or ingress
+  (:doc:`install`). Set ``controller.trust_forwarded_proto = true`` only if the
+  proxy sets or strips ``X-Forwarded-Proto``, otherwise clients can forge it.
 - **PostgreSQL** with ``sslmode=verify-full`` in the DSN.
 - **https everywhere else:** the OIDC issuer, ``secrets.openbao.address``
   (https is required; verification cannot be disabled), ``logs.s3.endpoint``,

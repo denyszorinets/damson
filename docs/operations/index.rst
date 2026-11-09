@@ -63,7 +63,8 @@ Tick every line before you send real work through an installation.
 - At least two controllers run on PostgreSQL, each with its own
   ``controller.internal_url``, the same cluster secret and the same KEK
   (:doc:`ha`).
-- Agents connect with ``wss://`` through a TLS-terminating proxy or ingress;
+- Agents connect with ``wss://``, to controllers serving TLS or through a
+  TLS-terminating proxy or ingress;
   ``controller.insecure_dev`` is off (:doc:`hardening`).
 - The KEK is stored outside the database backup, in at least two places
   (:doc:`backup`).
@@ -103,8 +104,9 @@ These are described in the design but not implemented today. Plan around them.
 - **No backup command.** Use your database's tools (:doc:`backup`).
 - **The offline bundle is unsigned.** It has checksums only
   (:doc:`/reference/offline-bundle`).
-- **No TLS on the controller itself.** Terminate TLS in a proxy or ingress.
-  The internal listener between controllers is plain HTTP.
+- **Native TLS is basic.** No client-certificate authentication, OCSP or
+  ACME; certificates come from files (:doc:`install`). The internal listener
+  between controllers is plain HTTP.
 - **Log retention is manual.** Only audit events have a retention setting
   (``audit.retention_days``); runs and logs are kept until purged
   (:doc:`backup`).

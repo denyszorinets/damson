@@ -2,11 +2,13 @@ package cli
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"time"
 
@@ -40,7 +42,12 @@ func newAgent(cfg config.Agent, controllerURL, token string, log *slog.Logger, p
 	if err != nil {
 		return nil, err
 	}
+	client, err := controllerHTTPClient(cfg)
+	if err != nil {
+		return nil, err
+	}
 	return agent.New(agent.Config{
+		HTTPClient:    client,
 		ControllerURL: controllerURL,
 		Token:         token,
 		AgentID:       id,
@@ -246,4 +253,27 @@ func stopDevAgent(ctx context.Context, a *agent.Agent, log *slog.Logger) error {
 		return err
 	}
 	return nil
+}
+
+// controllerHTTPClient trusts agent.controller_ca_file in addition to the
+// system roots for the wss:// connection. Nil (the default client) without it.
+func controllerHTTPClient(cfg config.Agent) (*http.Client, error) {
+	if cfg.ControllerCAFile == "" {
+		return nil, nil
+	}
+	pem, err := os.ReadFile(cfg.ControllerCAFile)
+	if err != nil {
+		return nil, fmt.Errorf("reading agent.controller_ca_file: %w", err)
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("agent.controller_ca_file %s holds no PEM certificate", cfg.ControllerCAFile)
+	}
+	return &http.Client{Transport: &http.Transport{
+		Proxy:           http.ProxyFromEnvironment,
+		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool},
+	}}, nil
 }

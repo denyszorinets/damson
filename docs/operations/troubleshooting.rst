@@ -19,7 +19,9 @@ Agents
        allowed; connect with wss://``
      - The connection did not arrive over TLS, and the controller is not in
        ``insecure_dev``.
-     - Use a ``wss://`` URL. Behind a TLS proxy set
+     - Use a ``wss://`` URL. With native TLS on the controller nothing else is
+       needed; a private CA needs ``agent.controller_ca_file`` on the agent.
+       Behind a TLS proxy set
        ``controller.trust_forwarded_proto = true`` and make the proxy send
        ``X-Forwarded-Proto: https``. Only development uses ``insecure_dev``.
    * - 401 ``a pool token is required`` or ``the pool token is unknown or

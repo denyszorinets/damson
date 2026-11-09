@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -36,6 +37,9 @@ type Config struct {
 	// LogBlobs reads stored log chunks from the backend each chunk names. Nil
 	// reads them from Data (the db backend only).
 	LogBlobs LogReader
+	// TLS makes the listener serve HTTPS and WSS. Nil serves plain HTTP (behind
+	// a proxy that terminates TLS, or in development).
+	TLS *tls.Config
 	// LogProbe checks the external log backends; /metrics reports the result as
 	// damson_log_store_up. Nil reports nothing.
 	LogProbe func(context.Context) error
@@ -154,7 +158,10 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("listening on %s: %w", s.cfg.Addr, err)
 	}
 	s.ln = ln
-	s.cfg.Logger.Info("http server listening", "addr", ln.Addr().String())
+	if s.cfg.TLS != nil {
+		ln = tls.NewListener(ln, s.cfg.TLS)
+	}
+	s.cfg.Logger.Info("http server listening", "addr", ln.Addr().String(), "tls", s.cfg.TLS != nil)
 	go func() {
 		defer close(s.done)
 		if err := s.http.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {

@@ -5,11 +5,14 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"io"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +21,7 @@ import (
 
 	"github.com/denyszorinets/damson/internal/config"
 	"github.com/denyszorinets/damson/internal/store"
+	"github.com/denyszorinets/damson/internal/testutil/selfsigned"
 )
 
 func TestPluginConfig(t *testing.T) {
@@ -261,4 +265,41 @@ func TestAgentRoleFatalOnBadToken(t *testing.T) {
 		t.Errorf("stderr = %q", aerr.String())
 	}
 	stopRole(t, ccancel, cdone, &cerr)
+}
+
+func TestControllerHTTPClientTrustsOnlyTheConfiguredCA(t *testing.T) {
+	pair := selfsigned.New(t, "controller")
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	cert, err := tls.X509KeyPair(pair.CertPEM, pair.KeyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
+	srv.StartTLS()
+	defer srv.Close()
+
+	if c, err := controllerHTTPClient(config.Agent{}); c != nil || err != nil {
+		t.Fatalf("no CA configured = %v, %v; want the default client", c, err)
+	}
+	if _, err := (&http.Client{}).Get(srv.URL); err == nil {
+		t.Fatal("the system roots trust a private certificate")
+	}
+	caFile, _ := pair.Write(t, t.TempDir())
+	c, err := controllerHTTPClient(config.Agent{ControllerCAFile: caFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("a client with the CA: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	bad := t.TempDir() + "/ca.pem"
+	if err := os.WriteFile(bad, []byte("nope"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controllerHTTPClient(config.Agent{ControllerCAFile: bad}); err == nil {
+		t.Fatal("a file without a certificate was accepted")
+	}
 }
