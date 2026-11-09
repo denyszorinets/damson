@@ -8,9 +8,10 @@ available controller tier. PostgreSQL is the only required infrastructure.
 
 .. note::
 
-   **Status: pre-release.** Milestones M0 to M9 are implemented
-   (:repo:`ARCHITECTURE.md` section 21). There is no release yet, so expect
-   changes before v1.
+   **Status: 0.1, the first public release.** Milestones M0 to M9 are
+   implemented (:repo:`ARCHITECTURE.md` section 21). Expect changes before 1.0;
+   see the :repo:`changelog <CHANGELOG.md>` and the known gaps in
+   :doc:`operations/index`.
 
 .. grid:: 1 2 2 2
    :gutter: 2
@@ -68,3 +69,4 @@ available controller tier. PostgreSQL is the only required infrastructure.
    architecture/index
    reference/index
    development/index
+   changelog

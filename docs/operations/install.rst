@@ -5,6 +5,37 @@ The steps are the same on Kubernetes and on VMs. This page gives the order and
 the shared prerequisites; the target guides give the exact files and
 commands: :doc:`/reference/helm` and :doc:`/reference/systemd`.
 
+Get Damson
+----------
+
+Every release (``vX.Y.Z``) is on the `GitHub releases page
+<https://github.com/denyszorinets/damson/releases>`_ with these assets:
+
+- ``damson_<tag>_<os>_<arch>.tar.gz`` for Linux and macOS on amd64 and arm64,
+  and ``damson_<tag>_windows_amd64.zip``. Each holds the ``damson`` binary,
+  ``LICENSE`` and ``README.md``.
+- ``damson-bundle-<tag>.tar.gz`` and its ``.sha256``: the offline bundle with
+  the Helm chart and systemd files (:doc:`/reference/offline-bundle`).
+- ``SHA256SUMS`` covering all archives and the bundle.
+
+Containers are on ghcr.io: ``ghcr.io/denyszorinets/damson``, ``damson-agent``
+and ``damson-agent-build``, for linux/amd64 and linux/arm64, tagged ``vX.Y.Z``,
+``X.Y.Z`` and ``latest`` (:doc:`/reference/images`).
+
+Verify a download against the checksums (put the archive and ``SHA256SUMS`` in
+one directory; ``--ignore-missing`` skips the files you did not download)::
+
+   $ sha256sum -c --ignore-missing SHA256SUMS
+
+.. warning::
+
+   The release assets and the container images are **not signed yet**. The
+   checksums only detect a damaged download, not a tampered release. A signing
+   mechanism exists for the offline bundle, but no public key is published.
+
+``damson version`` prints the release tag the binary was built from (for
+example ``v0.1.0``); a binary built from a checkout without a tag says ``dev``.
+
 Order of steps
 --------------
 

@@ -29,12 +29,13 @@ suppress_warnings = ["myst.header"]
 
 html_theme = "furo"
 html_title = "Damson"
+html_baseurl = "https://denyszorinets.github.io/damson/docs/"
 html_static_path = []
 
 nitpicky = True
 
-# The repository is not publicly reachable yet (404 on 2026-10-27), so its
-# links cannot be checked. Remove this once it is public.
+# Links into the repository point at main, which holds files only after a
+# release merge, so a branch build cannot check them.
 linkcheck_ignore = [rf"{repo_url}.*"]
 linkcheck_anchors_ignore_for_url = [r"https://github\.com/.*"]
 
