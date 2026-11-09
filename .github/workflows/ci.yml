@@ -203,6 +203,29 @@ jobs:
           sudo tar -xzf /tmp/helm.tgz -C /usr/local/bin --strip-components=1 linux-amd64/helm
       - run: make helm-check
 
+  scripts:
+    name: Backup and bundle scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: pw
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGTEST_ADMIN_URL: postgres://postgres:pw@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sqlite3 postgresql-client
+      - run: make bundle-check
+      - run: make backup-check
+
   systemd:
     name: systemd units (verify and hardening)
     runs-on: ubuntu-latest

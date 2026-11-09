@@ -9,7 +9,7 @@ GOPKGS   := $(shell go list ./... | grep -v /web/node_modules/)
 GOTESTFLAGS ?=
 SPHINX   := cd $(DOCS_DIR) && uv run --frozen
 
-.PHONY: systemd-check bundle helm-check chaos test-integration plugin-contract build test test-pg gen vet fmt-check lint check docs docs-serve docs-check web web-check
+.PHONY: bundle-check backup-check systemd-check bundle helm-check chaos test-integration plugin-contract build test test-pg gen vet fmt-check lint check docs docs-serve docs-check web web-check
 
 build: ## Build the damson binary into bin/damson
 	go build -ldflags "$(LDFLAGS)" -o bin/damson ./cmd/damson
@@ -83,6 +83,12 @@ helm-check: ## Lint and render the Helm chart (deploy/helm) with every ci/ value
 systemd-check: ## Verify the systemd units with systemd-analyze and check their hardening
 	@command -v systemd-analyze >/dev/null 2>&1 || { echo "systemd-check: systemd-analyze is not installed"; exit 1; }
 	sh deploy/systemd/check.sh
+
+bundle-check: ## Test the bundle verification and signature checks (needs ssh-keygen)
+	sh deploy/bundle/test.sh
+
+backup-check: ## Round-trip test of the backup scripts (sqlite3; PGTEST_ADMIN_URL adds PostgreSQL)
+	sh deploy/backup/test.sh
 
 bundle: ## Build the offline bundle into dist/ (binaries, chart, units, checksums; WITH_IMAGES=1 adds the images). Needs web/build and helm
 	sh deploy/bundle/build.sh

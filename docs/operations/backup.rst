@@ -1,10 +1,10 @@
 Backup and restore
 ==================
 
-There is no built-in backup command. Back up the database with the tools of
-your PostgreSQL service (``pg_dump`` for logical copies, base backups with WAL
-archiving for point-in-time recovery) and keep the few things that are not in
-the database somewhere else.
+There is no ``damson backup`` command. Two helper scripts wrap the database
+tools (see Helper scripts below); for point-in-time recovery use the tools of
+your PostgreSQL service (base backups with WAL archiving). Keep the few things
+that are not in the database somewhere else.
 
 What to back up
 ---------------
@@ -67,6 +67,64 @@ Database
   volume, and the backups with it. There is no run or log retention setting
   yet; only ``audit.retention_days`` prunes audit events. Plan the size, or
   move logs to S3.
+
+Helper scripts
+--------------
+
+:repo:`deploy/backup/damson-backup.sh` and ``damson-restore.sh`` are POSIX shell
+scripts. They are not in the offline bundle; take them from the source of your
+release. They read the controller's own variables, ``DAMSON_DATABASE__DRIVER``
+(``postgres``, the default, or ``sqlite``) and ``DAMSON_DATABASE__DSN``.
+
+.. code-block:: console
+
+   $ damson-backup.sh -o /var/backups/damson -f /etc/damson
+   $ damson-restore.sh /var/backups/damson/damson-backup-20261109T020000Z
+
+``damson-backup.sh [-o OUT] [-f PATH]...`` writes a folder
+``OUT/damson-backup-<UTC time>/`` with:
+
+- ``database.dump`` (``pg_dump`` custom format; the DSN is a command line
+  argument that ``ps`` shows, so keep the password out of it and give it to
+  libpq with ``PGPASSWORD`` or ``~/.pgpass``) or ``database.sqlite``
+  (``sqlite3 .backup``, consistent while a controller runs);
+- ``files.tar.gz`` with each ``-f`` path (configuration, key files), stored
+  relative to ``/``. It holds credentials in clear text: it is mode 0600, so
+  store or encrypt the folder like a secret;
+- ``MANIFEST.sha256``.
+
+The scripts run with umask 077. ``damson-restore.sh BACKUP_DIR`` checks the
+manifest (strict), then restores into an **empty** target from the same
+variables. On PostgreSQL it runs ``pg_restore --single-transaction``,
+all or nothing. On SQLite it refuses to
+overwrite an existing file. It never unpacks ``files.tar.gz``; do that yourself
+with ``tar -C / -xzf files.tar.gz``.
+
+They do not back up a KEK that lives only in the environment (``DAMSON_KEK``),
+the S3 bucket, or the agents. Limits: the dumps are logical, so the RPO is the
+age of the backup (use WAL archiving for less); the scripts do not rotate or
+ship backups; use the ``pg_dump`` and ``pg_restore`` of the same major version as the server (a newer client fails against an older server).
+CI runs them against SQLite and PostgreSQL 18 (``make backup-check``).
+
+A schedule is yours to set up. This is an example, not shipped with Damson:
+
+.. code-block:: ini
+
+   # /etc/systemd/system/damson-backup.service (example)
+   [Service]
+   Type=oneshot
+   EnvironmentFile=/etc/damson/controller.env
+   ExecStart=/usr/local/bin/damson-backup.sh -o /var/backups/damson -f /etc/damson
+
+   # /etc/systemd/system/damson-backup.timer (example)
+   [Timer]
+   OnCalendar=*-*-* 02:00:00
+   Persistent=true
+   [Install]
+   WantedBy=timers.target
+
+or the same command from cron (``0 2 * * *``), plus your own rotation and
+copy to another place.
 
 S3 logs
 -------

@@ -219,6 +219,15 @@ change nothing until accepted.
    * - 0070
      - :doc:`0070-prometheus-metrics-endpoint`
      - Accepted
+   * - 0071
+     - :doc:`0071-controller-native-tls`
+     - Accepted
+   * - 0072
+     - :doc:`0072-forward-only-migrations`
+     - Accepted
+   * - 0073
+     - :doc:`0073-bundle-signing-and-backup-scripts`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -295,3 +304,4 @@ change nothing until accepted.
    0070-prometheus-metrics-endpoint
    0071-controller-native-tls
    0072-forward-only-migrations
+   0073-bundle-signing-and-backup-scripts

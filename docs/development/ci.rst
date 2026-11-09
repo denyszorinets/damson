@@ -46,6 +46,11 @@ Jobs
        covers: sqlc, ``web/openapi.json`` and the TypeScript API client (the job
        installs Node 22 for ``openapi-typescript``); plugin schemas must be
        added to ``make gen`` when they exist.
+   * - ``scripts``
+     - ``make bundle-check`` (``deploy/bundle/test.sh``: checksum and
+       signature checks of ``verify.sh``, needs ``ssh-keygen``) and
+       ``make backup-check`` (``deploy/backup/test.sh``: backup and restore
+       round trip with ``sqlite3`` and a ``postgres:18`` service).
    * - ``plugin-contract``
      - ``make plugin-contract``.
    * - ``docs``
@@ -68,7 +73,9 @@ Jobs
      - ``.github/workflows/bundle.yml``: builds the offline bundle with
        ``make bundle`` and verifies its checksums and contents. Runs on pull
        requests touching ``deploy/bundle`` or ``deploy/systemd`` and on manual
-       dispatch (``with_images`` adds the container images); see
+       dispatch (``with_images`` adds the container images). It signs the
+       bundle with a throwaway key to prove that signing and
+       ``verify.sh --pubkey`` work; it is not a release signature. See
        :doc:`/reference/offline-bundle`.
 
 Required status checks
