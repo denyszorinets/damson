@@ -81,12 +81,12 @@ func (d *Dispatcher) targetPool(ctx context.Context, ex store.Execution) (string
 	if err != nil {
 		return "", &permanent{err}
 	}
+	nodePools, err := nodePoolsOf(ctx, ps, ex.RunID, names)
+	if err != nil {
+		return "", err
+	}
 	var pools []string
-	for _, name := range names {
-		p, err := ps.NodePool(ctx, ex.RunID, name)
-		if err != nil {
-			return "", nodeError(name, err)
-		}
+	for _, p := range nodePools {
 		if p != "" && !slices.Contains(pools, p) {
 			pools = append(pools, p)
 		}
@@ -99,4 +99,34 @@ func (d *Dispatcher) targetPool(ctx context.Context, ex store.Execution) (string
 	}
 	sort.Strings(pools)
 	return "", &permanent{fmt.Errorf("step targets nodes in pools %s; set runs_on.pool", strings.Join(pools, ", "))}
+}
+
+// nodePoolsOf returns the pool of each name in order, stopping at the first
+// name that cannot be used. A source with BatchPoolSource answers in one go.
+func nodePoolsOf(ctx context.Context, ps PoolSource, runID string, names []string) ([]string, error) {
+	out := make([]string, len(names))
+	if bs, ok := ps.(BatchPoolSource); ok && len(names) > 1 {
+		res, err := bs.NodePools(ctx, runID, names)
+		if err != nil {
+			return nil, err
+		}
+		if len(res) != len(names) {
+			return nil, fmt.Errorf("node source answered %d pools for %d names", len(res), len(names))
+		}
+		for i, r := range res {
+			if r.Err != nil {
+				return nil, nodeError(names[i], r.Err)
+			}
+			out[i] = r.Pool
+		}
+		return out, nil
+	}
+	for i, name := range names {
+		p, err := ps.NodePool(ctx, runID, name)
+		if err != nil {
+			return nil, nodeError(name, err)
+		}
+		out[i] = p
+	}
+	return out, nil
 }

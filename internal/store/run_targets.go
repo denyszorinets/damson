@@ -47,6 +47,10 @@ type RunTargetStore interface {
 	// RunTargetNodeID returns the frozen inventory id of the target called name,
 	// or ErrNotFound if the name is not in the snapshot (case matters).
 	RunTargetNodeID(ctx context.Context, runID, name string) (string, error)
+	// RunTargetNodeIDs is RunTargetNodeID for many names at once, in chunks of
+	// MaxBatch: it maps each name found in the snapshot to its node id; a name
+	// outside the snapshot is absent.
+	RunTargetNodeIDs(ctx context.Context, runID string, names []string) (map[string]string, error)
 }
 
 // ValidateRunTargets rejects a snapshot the store cannot hold: too many rows,

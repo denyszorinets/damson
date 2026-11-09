@@ -36,6 +36,32 @@ type NodeSource interface {
 	Node(ctx context.Context, runID, name string) (pluginsdk.NodeInfo, error)
 }
 
+// NodeResult is the outcome for one name of a batch: the node, or the error
+// Node would have returned for it.
+type NodeResult struct {
+	Info pluginsdk.NodeInfo
+	Err  error
+}
+
+// BatchNodeSource is implemented by a NodeSource that resolves many names with
+// a constant number of queries per chunk (an inventory step names up to 1000).
+// Nodes answers one result per name, in order, with the errors Node returns;
+// its own error means the lookup itself failed.
+type BatchNodeSource interface {
+	Nodes(ctx context.Context, runID string, names []string) ([]NodeResult, error)
+}
+
+// PoolResult is the outcome for one name of a pool batch.
+type PoolResult struct {
+	Pool string
+	Err  error
+}
+
+// BatchPoolSource is BatchNodeSource for NodePool.
+type BatchPoolSource interface {
+	NodePools(ctx context.Context, runID string, names []string) ([]PoolResult, error)
+}
+
 // PoolSource is implemented by a NodeSource that knows the pool of a node. A
 // NodeSource without it routes every step to the default pool.
 type PoolSource interface {
@@ -90,11 +116,12 @@ func (d *Dispatcher) resolveTargets(ctx context.Context, runID string, m plugins
 		if err != nil {
 			return nil, nil, &permanent{err}
 		}
-		for _, name := range names {
-			n, err := d.cfg.Nodes.Node(ctx, runID, name)
-			if err != nil {
-				return nil, nil, nodeError(name, err)
-			}
+		infos, err := d.resolveNodes(ctx, runID, names)
+		if err != nil {
+			return nil, nil, err
+		}
+		for i, name := range names {
+			n := infos[i]
 			if nodes == nil {
 				nodes = map[string]pluginsdk.NodeInfo{}
 			}
@@ -210,4 +237,35 @@ func wipe(b protocol.SecretBundle) {
 		clear(fields)
 		delete(b, ref)
 	}
+}
+
+// resolveNodes resolves the names in order and stops at the first one that
+// cannot be used, with the same error whichever way the source answers. A
+// source that implements BatchNodeSource is asked once for a list of names.
+func (d *Dispatcher) resolveNodes(ctx context.Context, runID string, names []string) ([]pluginsdk.NodeInfo, error) {
+	out := make([]pluginsdk.NodeInfo, len(names))
+	if bs, ok := d.cfg.Nodes.(BatchNodeSource); ok && len(names) > 1 {
+		res, err := bs.Nodes(ctx, runID, names)
+		if err != nil {
+			return nil, err
+		}
+		if len(res) != len(names) {
+			return nil, fmt.Errorf("node source answered %d results for %d names", len(res), len(names))
+		}
+		for i, r := range res {
+			if r.Err != nil {
+				return nil, nodeError(names[i], r.Err)
+			}
+			out[i] = r.Info
+		}
+		return out, nil
+	}
+	for i, name := range names {
+		n, err := d.cfg.Nodes.Node(ctx, runID, name)
+		if err != nil {
+			return nil, nodeError(name, err)
+		}
+		out[i] = n
+	}
+	return out, nil
 }

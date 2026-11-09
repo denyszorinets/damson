@@ -118,6 +118,22 @@ contract suite checks an inventory plugin's cases against ``NodeNames`` and, wit
 a ``nodes_fail_closed`` check, that it refuses a listed host that was not
 delivered. ``examples/plugins/hello`` has mode ``none`` and needs no change.
 
+Amendment 2026-11-09: batch node resolution
+-------------------------------------------
+
+Resolving a list of up to 1000 names one by one cost about four queries per name,
+twice (pool routing and dispatch). A ``NodeSource`` that implements the optional
+consumer-side interfaces ``BatchNodeSource`` and ``BatchPoolSource`` is now asked
+once with the whole sorted name list. ``InventoryNodes`` resolves the project
+once, reads the frozen run targets and fetches the nodes (by id when frozen, by
+exact name otherwise) in chunks of ``store.MaxBatch`` (500) through the new
+``RunTargetNodeIDs``, ``GetNodesByIDs`` and ``GetNodesByNames``, then applies
+scope, enabled and host key policy per node in memory. Semantics are unchanged:
+results come back per name in order, the first unusable name in sorted order
+fails the step with the same error, and a frozen target still follows its node
+id. A source without the batch interface and single-name steps keep the
+one-by-one path. There is no schema, protocol or API change.
+
 References
 ----------
 

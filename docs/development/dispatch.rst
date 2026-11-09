@@ -211,5 +211,21 @@ requested name, and a deleted node fails as ``unknown node``. A name outside the
 snapshot is looked up by name. The scope check, the enabled check and the host
 key policy still apply to the current row, so the address, credential and host
 key are those at dispatch time.
+
+A step that names several nodes (``TargetMode = inventory``, up to 1000 names)
+is resolved in one batch, both for pool routing (``nodePoolsOf``) and for
+dispatch (``resolveNodes``). If the ``NodeSource`` also implements
+``BatchNodeSource`` (``Nodes``) or ``BatchPoolSource`` (``NodePools``), it is
+asked once with the whole sorted name list and answers one result per name, in
+order. ``InventoryNodes`` resolves the project once, reads the frozen targets
+with ``RunTargetNodeIDs``, fetches nodes with ``GetNodesByIDs`` (frozen) and
+``GetNodesByNames`` (not frozen), all in chunks of ``store.MaxBatch`` (500), and
+then applies scope, enabled and host key policy per node in memory. The first
+unusable name in sorted order fails the whole step with the same error as the
+one-by-one path. A 1000-node step needs a constant number of queries (about 4
+fetches plus the project lookup) instead of about 8000. A source without the
+batch interfaces (tests, the dev-nodes seeder) and single-name steps keep the
+one-by-one path.
+
 * A notify hint for dispatch and cancel (the 1 s and 2 s polls are the only triggers).
 * Retries (M3).

@@ -318,3 +318,118 @@ func TestObserveHostKeyFollowsFrozenID(t *testing.T) {
 		t.Fatal("the node that took the name recorded the key")
 	}
 }
+
+// countingNodes counts the node reads that go to the store one at a time and
+// the batch reads, to pin the O(1) queries per chunk of a big inventory step.
+type countingNodes struct {
+	store.Store
+	single, batch int
+}
+
+func (c *countingNodes) GetNode(ctx context.Context, name string) (store.Node, error) {
+	c.single++
+	return c.Store.GetNode(ctx, name)
+}
+func (c *countingNodes) GetNodeByID(ctx context.Context, id string) (store.Node, error) {
+	c.single++
+	return c.Store.GetNodeByID(ctx, id)
+}
+func (c *countingNodes) RunTargetNodeID(ctx context.Context, runID, name string) (string, error) {
+	c.single++
+	return c.Store.RunTargetNodeID(ctx, runID, name)
+}
+func (c *countingNodes) GetNodesByIDs(ctx context.Context, ids []string) (map[string]store.Node, error) {
+	c.batch++
+	return c.Store.GetNodesByIDs(ctx, ids)
+}
+func (c *countingNodes) GetNodesByNames(ctx context.Context, names []string) (map[string]store.Node, error) {
+	c.batch++
+	return c.Store.GetNodesByNames(ctx, names)
+}
+func (c *countingNodes) RunTargetNodeIDs(ctx context.Context, runID string, names []string) (map[string]string, error) {
+	c.batch++
+	return c.Store.RunTargetNodeIDs(ctx, runID, names)
+}
+
+// The batch answers are the answers Node and NodePool give name by name: frozen
+// ids, names outside the snapshot, unknown, disabled, out of scope, insecure.
+func TestBatchMatchesSingleLookups(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	web := put(t, s, "web-1", true)
+	put(t, s, "extra", true)
+	put(t, s, "off", false)
+	put(t, s, "denied", true)
+	ins := put(t, s, "insecure", true)
+	ins.HostKeyPolicy = inventory.PolicyInsecure
+	if err := s.ApplyNodeDiff(ctx, store.NodeDiff{Update: []store.NodeUpdate{{Node: ins, Expected: 1}}}, t0); err != nil {
+		t.Fatal(err)
+	}
+	job, ver, err := s.CreateJob(ctx, store.NewJob{ProjectID: store.DefaultProjectID, Name: "j", Spec: []byte(`{}`), Checksum: "c"}, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := s.CreateRun(ctx, store.NewRun{JobID: job.ID, JobVersionID: ver.ID,
+		Targets: []store.RunTarget{{Name: "web-1", NodeID: web.ID, Node: []byte(`{"name":"web-1"}`)}}}, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed := web
+	renamed.Name = "web-renamed"
+	if err := s.ApplyNodeDiff(ctx, store.NodeDiff{Update: []store.NodeUpdate{{Node: renamed, Expected: web.Version}}}, t0); err != nil {
+		t.Fatal(err)
+	}
+
+	names := []string{"web-1", "extra", "off", "denied", "insecure", "nope"}
+	src := source(s, nameScope{deny: "denied"}, nil)
+	nodes, err := src.Nodes(ctx, tree.ID, names)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pools, err := src.NodePools(ctx, tree.ID, names)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, name := range names {
+		info, serr := src.Node(ctx, tree.ID, name)
+		if !errors.Is(nodes[i].Err, serr) && (nodes[i].Err != nil || serr != nil) {
+			t.Errorf("%s: batch error %v, single %v", name, nodes[i].Err, serr)
+		}
+		if serr == nil && (nodes[i].Info.Name != info.Name || nodes[i].Info.Address != info.Address || nodes[i].Info.HostKey != info.HostKey) {
+			t.Errorf("%s: batch info %+v, single %+v", name, nodes[i].Info, info)
+		}
+		pool, perr := src.NodePool(ctx, tree.ID, name)
+		if !errors.Is(pools[i].Err, perr) && (pools[i].Err != nil || perr != nil) || pools[i].Pool != pool {
+			t.Errorf("%s: batch pool %q/%v, single %q/%v", name, pools[i].Pool, pools[i].Err, pool, perr)
+		}
+	}
+}
+
+func TestBatchQueriesDoNotGrowWithTheNodeCount(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+	const total = 1000
+	names := make([]string, total)
+	for i := range names {
+		names[i] = fmt.Sprintf("host-%04d", i)
+		put(t, st, names[i], true)
+	}
+	cs := &countingNodes{Store: st}
+	src := source(cs, inventory.AllNodes{}, nil)
+	res, err := src.Nodes(ctx, "run", names)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, r := range res {
+		if r.Err != nil || r.Info.Name != names[i] {
+			t.Fatalf("result %d = %+v", i, r)
+		}
+	}
+	if cs.single != 0 {
+		t.Errorf("%d one-by-one reads for %d names", cs.single, total)
+	}
+	// 1000 names: 1 frozen-target read (2 chunks), 0 id reads (nothing frozen), 1 name read (2 chunks).
+	if cs.batch > 3 {
+		t.Errorf("%d batch calls for %d names; want a constant number", cs.batch, total)
+	}
+}
