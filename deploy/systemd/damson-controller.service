@@ -18,6 +18,7 @@ RestartSec=5s
 # The controller stops its listeners and flushes logs in two steps of up to 15 seconds each.
 TimeoutStopSec=45s
 StateDirectory=damson
+WorkingDirectory=/var/lib/damson
 StateDirectoryMode=0750
 LimitNOFILE=65536
 

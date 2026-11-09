@@ -6,8 +6,8 @@ Wants=network-online.target
 
 [Service]
 Type=exec
-User=damson
-Group=damson
+User=damson-agent
+Group=damson-agent
 # The environment file holds the pool token (DAMSON_AGENT__TOKEN).
 EnvironmentFile=/etc/damson/agent.env
 Environment=DAMSON_CONFIG=/etc/damson/agent.toml
@@ -36,6 +36,7 @@ PrivateTmp=yes
 PrivateDevices=yes
 ProtectSystem=strict
 ProtectHome=read-only
+ProtectProc=invisible
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes

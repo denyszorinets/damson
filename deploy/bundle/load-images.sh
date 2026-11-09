@@ -11,11 +11,14 @@ for e in docker podman; do command -v "$e" >/dev/null 2>&1 && { engine="$e"; bre
 [ -n "$engine" ] || { echo "load-images: docker or podman is required" >&2; exit 1; }
 ./verify.sh >/dev/null
 prefix="${1:-}"
+# verify.sh refused unlisted files, so every tar here is checksummed.
 for tar in images/*.tar; do
 	ref="$("$engine" load -i "$tar" | sed -n 's/^Loaded image: //p' | head -1)"
+	[ -n "$ref" ] || { echo "load-images: $tar did not load an image" >&2; exit 1; }
 	echo "loaded $ref"
 	if [ -n "$prefix" ]; then
-		"$engine" tag "$ref" "$prefix/$ref"
-		"$engine" push "$prefix/$ref"
+		short="${ref##*/}" # podman names images localhost/NAME:TAG
+		"$engine" tag "$ref" "$prefix/$short"
+		"$engine" push "$prefix/$short"
 	fi
 done

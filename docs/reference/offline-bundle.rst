@@ -34,8 +34,10 @@ Build
 ``make bundle`` runs :repo:`deploy/bundle/build.sh`. It needs Go, ``helm``,
 ``tar``, ``sha256sum`` and ``web/build`` (hence ``make web``). The output is
 ``dist/damson-bundle-VERSION.tar.gz`` and ``dist/damson-bundle-VERSION.tar.gz.sha256``.
-``VERSION`` comes from ``git describe`` unless you set it. The archive is
-reproducible: sorted names, owner 0, a fixed modification time. The images
+``VERSION`` comes from ``git describe`` unless you set it. The archive uses
+sorted names, owner 0, a fixed modification time and fixed modes. The chart
+(``helm package``) and the images (``docker save``) are not byte-reproducible, so
+two builds may differ in them; the checksums cover whatever you built. The images
 are ``damson``, ``damson-agent`` and ``damson-agent-build`` built from
 :repo:`deploy/docker/Dockerfile` (see :doc:`images`).
 
@@ -65,8 +67,9 @@ Install
 
   ``load-images.sh`` verifies the bundle, loads each image into docker or
   podman, and with a prefix tags and pushes it. Without a prefix it only loads.
-  Set ``image.repository`` and ``agents.image.repository`` in the values to the
-  registry.
+  With the prefix ``registry.example.com/damson`` set ``image.repository`` to
+  ``registry.example.com/damson/damson`` and ``agents.image.repository`` to
+  ``registry.example.com/damson/damson-agent``.
 
 Air-gapped notes
 ----------------
