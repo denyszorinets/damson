@@ -922,7 +922,7 @@ export interface components {
             };
         };
         AuditEvent: {
-            /** @description secret.create, secret.update, secret.delete, secret.kek_rotate, log.purge, admin_token.create, admin_token.revoke, audit.prune, schedule.create, schedule.update, schedule.delete, webhook.create, webhook.revoke, project.create, project.update, project.delete, project.access_rules.update, job.access_rules.update, service_account.create, service_account.delete, service_token.create, service_token.revoke, job.create, job.version.create, run.trigger, run.cancel, auth.login or secret.read. */
+            /** @description secret.create, secret.update, secret.delete, secret.kek_rotate, log.purge, admin_token.create, admin_token.revoke, metrics_token.create, metrics_token.revoke, audit.prune, schedule.create, schedule.update, schedule.delete, webhook.create, webhook.revoke, project.create, project.update, project.delete, project.access_rules.update, job.access_rules.update, service_account.create, service_account.delete, service_token.create, service_token.revoke, job.create, job.version.create, run.trigger, run.cancel, auth.login or secret.read. */
             action: string;
             /** @description user:<sub>, sa:<service account id>, admin-token:<hash prefix>, cli:<os user>, system:<duty>, webhook:<id> or anonymous. */
             actor: string;
