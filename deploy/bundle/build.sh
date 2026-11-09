@@ -20,6 +20,11 @@ while getopts o: opt; do
 done
 
 VERSION="${VERSION:-$(git -C "$root" describe --tags --always --dirty 2>/dev/null || echo dev)}"
+case "$VERSION" in
+	*[!A-Za-z0-9._+-]*|"") echo "build.sh: VERSION may hold only letters, digits and . _ + -" >&2; exit 2 ;;
+esac
+umask 022
+commit="$(git -C "$root" rev-parse HEAD 2>/dev/null || echo unknown)"
 # Chart versions are semver; a git describe string is made into one.
 chart_version="$(printf '%s' "$VERSION" | sed -E 's/^v//')"
 case "$chart_version" in
@@ -32,7 +37,7 @@ trap 'rm -rf "$stage"' EXIT
 dir="$stage/$name"
 mkdir -p "$dir/bin" "$dir/chart" "$dir/systemd" "$dir/images"
 
-[ -d "$root/web/build" ] || { echo "build.sh: web/build is missing; run 'make web'" >&2; exit 1; }
+[ -f "$root/web/build/index.html" ] || { echo "build.sh: web/build is missing; run 'make web'" >&2; exit 1; }
 command -v helm >/dev/null 2>&1 || { echo "build.sh: helm is required to package the chart" >&2; exit 1; }
 
 echo "== binaries"
@@ -49,7 +54,7 @@ echo "== systemd"
 cp "$root"/deploy/systemd/damson-controller.service "$root"/deploy/systemd/damson-agent.service \
 	"$root"/deploy/systemd/damson.sysusers "$root"/deploy/systemd/*.example "$dir/systemd/"
 
-cp "$root/LICENSE" "$dir/" 2>/dev/null || true
+cp "$root/LICENSE" "$dir/"
 cp "$root/deploy/bundle/INSTALL.txt" "$dir/INSTALL.txt"
 cp "$root/deploy/bundle/verify.sh" "$root/deploy/bundle/load-images.sh" "$dir/"
 chmod 755 "$dir/verify.sh" "$dir/load-images.sh"
@@ -70,12 +75,13 @@ fi
 echo "== checksums"
 ( cd "$dir" && find . -type f ! -name SHA256SUMS | sort | sed 's|^\./||' | xargs sha256sum > SHA256SUMS )
 cat > "$dir/manifest.json" <<JSON
-{"name":"damson-bundle","version":"$VERSION","chart_version":"$chart_version","images":$( [ "${WITH_IMAGES:-0}" = 1 ] && echo true || echo false )}
+{"name":"damson-bundle","version":"$VERSION","chart_version":"$chart_version","images":$( [ "${WITH_IMAGES:-0}" = 1 ] && echo true || echo false ),"source":"https://github.com/denyszorinets/damson","commit":"$commit"}
 JSON
 ( cd "$dir" && sha256sum manifest.json >> SHA256SUMS )
 
 mkdir -p "$out"
-# A reproducible archive: sorted names, fixed owner and time.
-tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='UTC 2020-01-01' -C "$stage" -czf "$out/$name.tar.gz" "$name"
+# Sorted names, fixed owner, time and modes. The chart (helm) and the images
+# (docker save) are not byte-reproducible, so two builds may differ in them.
+tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='UTC 2020-01-01' --mode='u+rwX,go+rX,go-w' -C "$stage" -cf - "$name" | gzip -n > "$out/$name.tar.gz"
 ( cd "$out" && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256" )
 echo "bundle: $out/$name.tar.gz"

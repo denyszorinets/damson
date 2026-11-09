@@ -1,6 +1,6 @@
 Damson offline bundle
 
-  1. Verify:    sha256sum -c ../<archive>.sha256   (before unpacking)
+  1. Verify:    sha256sum -c <archive>.sha256      (next to the archive, before unpacking)
                 ./verify.sh                        (after unpacking)
   2. Binaries:  bin/damson-linux-amd64, bin/damson-linux-arm64 (static, no
                 runtime dependencies). Install one as /usr/local/bin/damson.
@@ -11,5 +11,7 @@ Damson offline bundle
                 If the bundle has images/, load them into your registry:
                   ./load-images.sh registry.example.com/damson
                 and set image.repository / agents.image.repository.
+
+Source code: see manifest.json (source URL and commit). Licence: LICENSE (GPL-3.0-or-later).
 
 No file in this bundle talks to the internet when it runs.

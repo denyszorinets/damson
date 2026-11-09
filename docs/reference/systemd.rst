@@ -19,7 +19,7 @@ host). The files are also part of the :doc:`offline bundle <offline-bundle>`.
    * - ``damson-agent.service``
      - Agent.
    * - ``damson.sysusers``
-     - The ``damson`` system user (``systemd-sysusers``).
+     - The two system users, ``damson`` (controller) and ``damson-agent`` (``systemd-sysusers``). They differ on purpose: the agent runs job code, which must not be able to read the controller's credentials.
    * - ``controller.env.example``, ``controller.toml.example``
      - Credentials and configuration of a controller.
    * - ``agent.env.example``, ``agent.toml.example``
@@ -28,8 +28,9 @@ host). The files are also part of the :doc:`offline bundle <offline-bundle>`.
 Prerequisites
 -------------
 
-- A PostgreSQL database reachable from the controller hosts. SQLite is not for
-  this setup: it is for ``damson dev`` and single-controller installs.
+- A PostgreSQL database reachable from the controller hosts. SQLite works for
+  one controller only (the unit's working directory is ``/var/lib/damson``);
+  use PostgreSQL for more than one.
 - TLS in front of the controller for agents: a TLS-terminating proxy
   (the controller has no TLS settings of its own). Agents connect with ``wss://``. Behind a proxy that
   sets ``X-Forwarded-Proto``, set ``trust_forwarded_proto = true`` in
@@ -45,7 +46,8 @@ Install a controller
 
       # install -m 0755 damson-linux-amd64 /usr/local/bin/damson
 
-#. Create the service user:
+#. Create the service users (do this on agent hosts too: it creates both, only
+   the agent's is used there):
 
    .. code-block:: console
 
@@ -88,6 +90,9 @@ Install a controller
           -p EnvironmentFile=/etc/damson/controller.env \
           -E DAMSON_CONFIG=/etc/damson/controller.toml \
           /usr/local/bin/damson admin token create --pool default --name vm-agent
+
+   The pool must exist first (``damson admin pool create default``, run the same
+   way), and the admin token is created with ``damson admin admin-token create``.
 
    The controller must have run once so that migrations are applied. The token
    is printed once; put it in ``agent.env`` of the agent host.
@@ -145,8 +150,10 @@ Both units run as ``damson`` with these directives.
        ``ProtectHostname``
      - Kernel settings, modules, logs, cgroups, clock and hostname cannot be
        changed.
-   * - ``ProtectProc=invisible``, ``ProcSubset=pid``
-     - Controller only: other users' processes are hidden in ``/proc``.
+   * - ``ProtectProc=invisible``
+     - Other users' processes are hidden in ``/proc``.
+   * - ``ProcSubset=pid``
+     - Controller only.
    * - ``RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX``
      - IP and Unix sockets only.
    * - ``RestrictNamespaces``, ``RestrictRealtime``, ``LockPersonality``
@@ -161,8 +168,8 @@ Both units run as ``damson`` with these directives.
      - ``/var/lib/damson`` (controller) and ``/var/lib/damson-agent``
        (agent, also its working directory and ``HOME``), mode ``0750``.
 
-``systemd-analyze security`` reports an exposure of 1.3 for the controller and
-3.1 for the agent. The agent keeps the ability to start any process and has no
+``systemd-analyze security`` reports an exposure of about 1.3 for the controller
+(1.4 with systemd 259) and 3.1 for the agent. The agent keeps the ability to start any process and has no
 system call filter because it runs job code (``ssh``, ``ansible``, ``git``,
 ``helm``). ``make systemd-check`` verifies the units with
 ``systemd-analyze verify`` and fails when a core hardening line is removed.
@@ -178,10 +185,21 @@ Loosen only what a job needs, with a drop-in
    [Service]
    # A path a job writes to (for example an ansible inventory cache).
    ReadWritePaths=/srv/inventory
-   # A tool that needs more system calls.
+   # Harden further: the agent has no system call filter by default.
    SystemCallFilter=@system-service
-   # Jobs that read ~/.ssh or ~/.kube of the damson user.
-   ProtectHome=no
+   SystemCallFilter=~@privileged @resources @debug @module @raw-io @reboot @swap @mount
+   # Jobs read ~/.ssh and ~/.kube of the damson-agent user in its state
+   # directory /var/lib/damson-agent, which is writable already.
+
+Limits of the agent unit
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+``RestrictNamespaces=yes``, ``NoNewPrivileges=yes`` and the empty capability set
+stop rootless user namespaces, so the ``buildah`` plugin cannot build images
+under this unit. Run those jobs in a separate pool on the ``damson-agent-build``
+image (:doc:`images`), or write a drop-in that lifts the restrictions for a
+dedicated build agent. The pool token sits in the agent's own environment, which
+the job code can read: that is inherent while jobs run as the agent user.
 
 Logs, stop and secrets
 ----------------------
