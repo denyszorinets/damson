@@ -185,10 +185,10 @@ Upgrade
   code. Zero-downtime upgrades therefore need migrations that old controllers
   tolerate (expand/contract). Otherwise the old pods can return errors or be
   briefly unavailable during the roll. Take a database backup first.
-- Agents roll one pool at a time. The agent has no drain on SIGTERM yet: when
-  its pod stops it gets 5 s and running steps are cancelled. This also holds for
-  node drains and HPA scale-down. Roll a pool when its steps are idle, or accept
-  that they are cancelled. A protocol change stays compatible with the previous
+- Agents roll one pool at a time. On SIGTERM an agent drains for
+  ``agent.drain_grace`` (default 20 s) and then cancels what is still running.
+  This also holds for node drains and HPA scale-down. For longer steps raise
+  ``agent.drain_grace`` and the pool's ``terminationGracePeriodSeconds`` together. A protocol change stays compatible with the previous
   protocol version, so controllers and agents may differ by one release during
   the roll (:doc:`protocol`).
 - Changing the content of a Secret (cluster secret, KEK, DSN, pool tokens) does

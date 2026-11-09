@@ -86,6 +86,9 @@ func (c Config) validateAgent(add func(key, format string, args ...any)) {
 	if c.Agent.Slots < 0 {
 		add("agent.slots", "must be 0 (CPU count x 4) or more; got %d", c.Agent.Slots)
 	}
+	if d, err := time.ParseDuration(c.Agent.DrainGrace); err != nil || d < 0 || d > MaxDrainGrace {
+		add("agent.drain_grace", "must be a duration such as \"20s\", zero or positive and at most %s; got %q", MaxDrainGrace, c.Agent.DrainGrace)
+	}
 	if c.Agent.SpoolMaxBytes < 0 {
 		add("agent.spool_max_bytes", "must be 0 (256 MiB) or more; got %d", c.Agent.SpoolMaxBytes)
 	}

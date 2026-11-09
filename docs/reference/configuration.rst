@@ -203,6 +203,12 @@ written as a double underscore: ``agent.controller_url`` is
      - ``0``
      - Concurrent executions (``max_concurrent`` in ``agent.hello``).
        ``0`` means the CPU count times four; otherwise at least 1.
+   * - ``agent.drain_grace``
+     - agent
+     - ``20s``
+     - How long a stopping agent (SIGTERM) waits for running steps before it
+       cancels them. During the wait it takes no new work. ``0s`` cancels at
+       once. Keep it plus 5 s below the platform's stop timeout.
    * - ``agent.spool_dir``
      - agent
      - empty

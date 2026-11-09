@@ -179,7 +179,7 @@ agents:
       # Secret holding the pool token created with `damson admin token create`.
       tokenSecret: ""
       tokenKey: token
-      # Running steps are cancelled when the pod stops (SIGTERM gives the agent 5 s).
+      # On SIGTERM the agent drains for agent.drain_grace (20s), then cancels; keep this above drain_grace + 5.
       terminationGracePeriodSeconds: 30
       resources:
         requests: {cpu: 100m, memory: 128Mi}
