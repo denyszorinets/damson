@@ -188,10 +188,12 @@ Logs, stop and secrets
 
 - **Logs.** Both services write JSON ``slog`` lines to journald:
   ``journalctl -u damson-controller -o cat``.
-- **Stop.** The controller stops its listeners and flushes logs within 15
-  seconds; ``TimeoutStopSec=30s`` leaves room. The agent drains for
+- **Stop.** The controller stops its listeners and flushes logs in two
+  steps of up to 15 seconds each; ``TimeoutStopSec=45s`` leaves room. The agent drains for
   ``agent.drain_grace`` (default 20 s), then cancels its running steps and
-  gives them 5 seconds. Keep the two below ``TimeoutStopSec`` and raise them
+  gives them 5 seconds. The agent unit uses ``KillMode=mixed`` so SIGTERM reaches only the agent and
+  its job processes keep running during the drain. Keep the two below
+  ``TimeoutStopSec`` and raise them
   together for longer steps.
 - **Secrets.** Credentials live only in the ``EnvironmentFile`` (mode ``0600``,
   owned by root). Never put them in a unit file, a drop-in or on a command

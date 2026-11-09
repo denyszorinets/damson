@@ -15,6 +15,9 @@ ExecStart=/usr/local/bin/damson agent
 Restart=on-failure
 RestartSec=5s
 # On stop the agent drains for agent.drain_grace (20s), then cancels running steps (5 s more).
+# SIGTERM goes to the agent only, so its children keep running during the drain;
+# systemd kills the whole group after TimeoutStopSec. Raise it with agent.drain_grace.
+KillMode=mixed
 TimeoutStopSec=30s
 StateDirectory=damson-agent
 StateDirectoryMode=0750

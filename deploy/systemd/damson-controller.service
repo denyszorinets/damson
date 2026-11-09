@@ -15,8 +15,8 @@ Environment=DAMSON_CONFIG=/etc/damson/controller.toml
 ExecStart=/usr/local/bin/damson controller --auto-migrate
 Restart=on-failure
 RestartSec=5s
-# The controller stops its listeners and flushes logs within 15 seconds.
-TimeoutStopSec=30s
+# The controller stops its listeners and flushes logs in two steps of up to 15 seconds each.
+TimeoutStopSec=45s
 StateDirectory=damson
 StateDirectoryMode=0750
 LimitNOFILE=65536
