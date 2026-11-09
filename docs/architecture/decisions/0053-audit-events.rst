@@ -72,7 +72,8 @@ Not audited
 - Failed or unauthorized attempts; the request log covers them.
 - Secret reads at dispatch; they arrive with M8.
 - Admin-token create and revoke are audited (``admin_token.create``,
-  ``admin_token.revoke``).
+  ``admin_token.revoke``). ADR-0070 adds ``metrics_token.create`` and
+  ``metrics_token.revoke`` the same way.
 
 Consequences
 ------------

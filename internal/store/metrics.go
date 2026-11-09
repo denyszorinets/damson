@@ -1,6 +1,9 @@
 package store
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // MetricsSnapshot is the cluster-wide state /metrics reports. It comes from
 // the database, so any controller answers with the same numbers.
@@ -29,5 +32,6 @@ type PoolAgents struct {
 
 // MetricsStore reads the numbers behind /metrics.
 type MetricsStore interface {
-	MetricsSnapshot(ctx context.Context) (MetricsSnapshot, error)
+	// seenAfter is the oldest last_seen a connected agent may have to count.
+	MetricsSnapshot(ctx context.Context, seenAfter time.Time) (MetricsSnapshot, error)
 }

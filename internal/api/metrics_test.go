@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,18 +19,28 @@ import (
 	"github.com/denyszorinets/damson/internal/store/tokens"
 )
 
-func metricsServer(t *testing.T, st store.Store, probe func(context.Context) error) (http.Handler, string) {
+type snapCounter struct {
+	store.Store
+	snapshots atomic.Int32
+}
+
+func (c *snapCounter) MetricsSnapshot(ctx context.Context, seenAfter time.Time) (store.MetricsSnapshot, error) {
+	c.snapshots.Add(1)
+	return c.Store.MetricsSnapshot(ctx, seenAfter)
+}
+
+func metricsServer(t *testing.T, st store.Store, probe func(context.Context) error) (http.Handler, string, *snapCounter) {
 	t.Helper()
-	admin, hash, err := tokens.GenerateWithPrefix(rand.Reader, tokens.AdminPrefix)
+	tok, hash, err := tokens.GenerateWithPrefix(rand.Reader, tokens.MetricsPrefix)
 	require.NoError(t, err)
-	if _, err = st.CreateSetting(t.Context(), tokens.AdminSettingKey, hash); !errors.Is(err, store.ErrConflict) {
-		require.NoError(t, err)
-	}
+	_, err = st.CreateSetting(t.Context(), tokens.MetricsSettingKey, hash)
+	require.NoError(t, err)
+	cs := &snapCounter{Store: st}
 	h := api.NewServer(api.Config{
-		Addr: "127.0.0.1:0", Store: st, Data: st, Metrics: st, LogProbe: probe, UI: ui(),
+		Addr: "127.0.0.1:0", Store: st, Data: st, Metrics: cs, LogProbe: probe, UI: ui(),
 		Logger: slog.New(slog.NewJSONHandler(&syncBuffer{}, nil)),
 	}).Handler()
-	return h, admin
+	return h, tok, cs
 }
 
 func get(h http.Handler, path, token string) *httptest.ResponseRecorder {
@@ -41,22 +53,40 @@ func get(h http.Handler, path, token string) *httptest.ResponseRecorder {
 	return rec
 }
 
-func TestMetricsNeedTheAdminToken(t *testing.T) {
+func TestMetricsNeedTheMetricsToken(t *testing.T) {
 	forEachBackend(t, func(t *testing.T, st store.Store) {
-		h, admin := metricsServer(t, st, nil)
+		admin, ahash, err := tokens.GenerateWithPrefix(rand.Reader, tokens.AdminPrefix)
+		require.NoError(t, err)
+		_, err = st.CreateSetting(t.Context(), tokens.AdminSettingKey, ahash)
+		require.NoError(t, err)
+		h, tok, cs := metricsServer(t, st, nil)
 		pool, _, _ := tokens.New()
-		for _, tok := range []string{"", pool, tokens.AdminPrefix + "nope"} {
-			rec := get(h, "/metrics", tok)
-			assert.Equal(t, http.StatusUnauthorized, rec.Code, "token %q", tok)
+		for _, bad := range []string{"", pool, admin, tokens.MetricsPrefix + "nope"} {
+			rec := get(h, "/metrics", bad)
+			assert.Equal(t, http.StatusUnauthorized, rec.Code, "token %q", bad)
 			assert.NotEmpty(t, rec.Header().Get("WWW-Authenticate"))
+			assert.Equal(t, api.ProblemContentType, rec.Header().Get("Content-Type"))
 		}
-		rec := get(h, "/metrics", admin)
+		assert.Zero(t, cs.snapshots.Load(), "a refused scrape must not query the database")
+
+		rec := get(h, "/metrics", tok)
 		require.Equal(t, http.StatusOK, rec.Code)
 		body := rec.Body.String()
 		assert.Contains(t, body, "damson_metrics_database_up 1")
 		assert.Contains(t, body, "damson_log_object_deletes_pending 0")
 		assert.Contains(t, body, "go_goroutines")
-		assert.NotContains(t, body, admin)
+		assert.NotContains(t, body, tok)
+		assert.NotContains(t, body, "damson_log_store_up", "no external backend, no gauge")
+
+		// The metrics token reads nothing else.
+		assert.Equal(t, http.StatusUnauthorized, get(h, "/api/v1/secrets", tok).Code)
+
+		// Revoking ends access at once.
+		cur, err := st.GetSetting(t.Context(), tokens.MetricsSettingKey)
+		require.NoError(t, err)
+		_, err = st.UpdateSetting(t.Context(), tokens.MetricsSettingKey, "", cur.Version)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, get(h, "/metrics", tok).Code)
 	})
 }
 
@@ -65,15 +95,20 @@ func TestMetricsOffWithoutAStore(t *testing.T) {
 	assert.NotContains(t, get(h, "/metrics", "").Body.String(), "damson_metrics_database_up")
 }
 
-func TestReadyzChecksTheLogStore(t *testing.T) {
-	forEachBackend(t, func(t *testing.T, st store.Store) {
-		fail := errors.New("bucket gone")
-		h, _ := metricsServer(t, st, func(context.Context) error { return fail })
-		rec := get(h, "/readyz", "")
-		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
-		assert.NotContains(t, rec.Body.String(), "bucket gone", "the cause is logged, not returned")
-
-		ok, _ := metricsServer(t, st, func(context.Context) error { return nil })
-		assert.Equal(t, http.StatusOK, get(ok, "/readyz", "").Code)
-	})
+func TestMetricsReportTheLogStore(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want string
+	}{{"down", errors.New("bucket gone"), "damson_log_store_up 0"}, {"up", nil, "damson_log_store_up 1"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			forEachBackend(t, func(t *testing.T, st store.Store) {
+				h, tok, _ := metricsServer(t, st, func(context.Context) error { return tc.err })
+				body := get(h, "/metrics", tok).Body.String()
+				assert.Contains(t, body, tc.want)
+				assert.NotContains(t, body, "bucket gone")
+				assert.Equal(t, http.StatusOK, get(h, "/readyz", "").Code, "a log store outage must not make the controller unready")
+			})
+		})
+	}
 }

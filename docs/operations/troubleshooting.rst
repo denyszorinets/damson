@@ -60,10 +60,9 @@ Controller start and readiness
      - Cause
      - Fix
    * - ``/readyz`` 503
-     - The database does not answer within 3 seconds, it is not migrated, or
-       the external log store (S3 bucket) does not answer. The controller log
-       says which: ``database ping``, ``migration version``, ``no migrations
-       applied`` or ``log store: ...``.
+     - The database does not answer within 3 seconds, or it is not migrated.
+       The controller log says which: ``database ping``, ``migration version``
+       or ``no migrations applied``.
      - Fix the database connection, or start a controller with
        ``--auto-migrate``. The WARN ``database is not migrated; agent gateway
        and run.advance disabled`` confirms the second case.

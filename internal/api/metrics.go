@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -17,7 +19,14 @@ import (
 	"github.com/denyszorinets/damson/internal/store/tokens"
 )
 
-const metricsTimeout = 5 * time.Second
+const (
+	metricsTimeout = 5 * time.Second
+	// metricsLiveWindow is how long an agent may stay unseen and still count as
+	// connected: a crashed controller's agents age out.
+	metricsLiveWindow = 2 * time.Minute
+	probeTTL          = 10 * time.Second
+	probeTimeout      = 3 * time.Second
+)
 
 type settingReader interface {
 	GetSetting(ctx context.Context, key string) (store.Setting, error)
@@ -26,22 +35,28 @@ type settingReader interface {
 // newMetricsHandler serves /metrics in the Prometheus text format. The numbers
 // are read from the database when scraped, so every controller reports the
 // same cluster-wide state, plus Go runtime and process metrics of its own.
-// The admin token is required: pool names and queue depths are not public.
-func newMetricsHandler(ms store.MetricsStore, settings settingReader, log *slog.Logger) http.Handler {
+// It needs the metrics token (dmm_...), which can read nothing else: pool
+// names and queue depths are not public, and the admin token must not sit in
+// the monitoring system's configuration.
+func newMetricsHandler(ms store.MetricsStore, settings settingReader, logProbe func(context.Context) error, log *slog.Logger) http.Handler {
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
-	reg.MustRegister(&dbCollector{ms: ms, log: log})
-	inner := promhttp.HandlerFor(reg, promhttp.HandlerOpts{ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn), Timeout: metricsTimeout})
+	reg.MustRegister(&dbCollector{ms: ms, log: log, probe: cachedProbe(logProbe, probeTTL)})
+	inner := promhttp.HandlerFor(reg, promhttp.HandlerOpts{
+		ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn), Timeout: metricsTimeout, MaxRequestsInFlight: 2,
+	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			methodNotAllowed(w, r, "GET, HEAD")
 			return
 		}
-		if status, msg := checkAdminBearer(r, settings); status != 0 {
+		if status, msg := checkMetricsToken(r, settings); status != 0 {
 			if status == http.StatusUnauthorized {
-				w.Header().Set("WWW-Authenticate", `Bearer realm="damson-admin"`)
+				w.Header().Set("WWW-Authenticate", `Bearer realm="damson-metrics"`)
+				WriteProblem(w, r, status, TypeUnauthorized, msg)
+				return
 			}
-			http.Error(w, msg, status)
+			WriteError(w, r, fmt.Errorf("%w: %s", errUnavailable, msg))
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
@@ -49,9 +64,10 @@ func newMetricsHandler(ms store.MetricsStore, settings settingReader, log *slog.
 	})
 }
 
-// checkAdminBearer validates the admin token of a plain HTTP request. It
-// returns 0 when the token is valid.
-func checkAdminBearer(r *http.Request, settings settingReader) (int, string) {
+// checkMetricsToken validates the metrics token of a plain HTTP request. It
+// returns 0 when the token is valid. A request without a dmm_ token never
+// reaches the database.
+func checkMetricsToken(r *http.Request, settings settingReader) (int, string) {
 	if settings == nil {
 		return http.StatusServiceUnavailable, "a required dependency is not available"
 	}
@@ -60,20 +76,45 @@ func checkAdminBearer(r *http.Request, settings settingReader) (int, string) {
 	if len(h) > 7 && strings.EqualFold(h[:7], "Bearer ") {
 		tok = strings.TrimSpace(h[7:])
 	}
-	if !strings.HasPrefix(tok, tokens.AdminPrefix) {
-		return http.StatusUnauthorized, "an admin token is required"
+	if !strings.HasPrefix(tok, tokens.MetricsPrefix) {
+		return http.StatusUnauthorized, "a metrics token is required"
 	}
-	s, err := settings.GetSetting(r.Context(), tokens.AdminSettingKey)
+	s, err := settings.GetSetting(r.Context(), tokens.MetricsSettingKey)
 	switch {
 	case errors.Is(err, store.ErrNotFound) || (err == nil && s.Value == ""):
-		return http.StatusUnauthorized, "the admin token is not valid"
+		return http.StatusUnauthorized, "the metrics token is not valid" // same text as a wrong token
 	case err != nil:
 		return http.StatusServiceUnavailable, "a required dependency is not available"
 	}
 	if subtle.ConstantTimeCompare([]byte(tokens.Hash(tok)), []byte(s.Value)) != 1 {
-		return http.StatusUnauthorized, "the admin token is not valid"
+		return http.StatusUnauthorized, "the metrics token is not valid"
 	}
 	return 0, ""
+}
+
+// cachedProbe reuses the last result of probe for ttl, so scrapes do not each
+// cost a round trip to the log store. The probe runs on its own deadline: a
+// caller that went away must not mark the store down. A nil probe is nil.
+func cachedProbe(probe func(context.Context) error, ttl time.Duration) func() (bool, bool) {
+	if probe == nil {
+		return nil
+	}
+	var (
+		mu sync.Mutex
+		at time.Time
+		up bool
+	)
+	return func() (bool, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		if at.IsZero() || time.Since(at) >= ttl {
+			ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+			up = probe(ctx) == nil
+			cancel()
+			at = time.Now()
+		}
+		return up, true
+	}
 }
 
 var (
@@ -83,16 +124,18 @@ var (
 	descAgents     = prometheus.NewDesc("damson_agents_connected", "Connected agents, by pool.", []string{"pool"}, nil)
 	descSlots      = prometheus.NewDesc("damson_agent_slots", "Execution slots of the connected agents, by pool.", []string{"pool"}, nil)
 	descLogDeletes = prometheus.NewDesc("damson_log_object_deletes_pending", "Queued deletes of external log objects.", nil, nil)
+	descLogUp      = prometheus.NewDesc("damson_log_store_up", "1 when the external log backends answer a probe (cached 10 s); absent with the db log store.", nil, nil)
 	descScrapeOK   = prometheus.NewDesc("damson_metrics_database_up", "1 when the database answered the scrape.", nil, nil)
 )
 
 type dbCollector struct {
-	ms  store.MetricsStore
-	log *slog.Logger
+	ms    store.MetricsStore
+	log   *slog.Logger
+	probe func() (up, ok bool) // nil without an external log backend
 }
 
 func (c *dbCollector) Describe(ch chan<- *prometheus.Desc) {
-	for _, d := range []*prometheus.Desc{descRuns, descQueue, descActive, descAgents, descSlots, descLogDeletes, descScrapeOK} {
+	for _, d := range []*prometheus.Desc{descRuns, descQueue, descActive, descAgents, descSlots, descLogDeletes, descLogUp, descScrapeOK} {
 		ch <- d
 	}
 }
@@ -100,7 +143,7 @@ func (c *dbCollector) Describe(ch chan<- *prometheus.Desc) {
 func (c *dbCollector) Collect(ch chan<- prometheus.Metric) {
 	ctx, cancel := context.WithTimeout(context.Background(), metricsTimeout)
 	defer cancel()
-	snap, err := c.ms.MetricsSnapshot(ctx)
+	snap, err := c.ms.MetricsSnapshot(ctx, time.Now().Add(-metricsLiveWindow))
 	if err != nil {
 		c.log.Warn("metrics: reading the database failed", "error", err)
 		ch <- prometheus.MustNewConstMetric(descScrapeOK, prometheus.GaugeValue, 0)
@@ -120,6 +163,14 @@ func (c *dbCollector) Collect(ch chan<- prometheus.Metric) {
 	for _, a := range snap.Agents {
 		ch <- prometheus.MustNewConstMetric(descAgents, prometheus.GaugeValue, float64(a.Agents), a.Pool)
 		ch <- prometheus.MustNewConstMetric(descSlots, prometheus.GaugeValue, float64(a.Slots), a.Pool)
+	}
+	if c.probe != nil {
+		up, _ := c.probe()
+		v := 0.0
+		if up {
+			v = 1
+		}
+		ch <- prometheus.MustNewConstMetric(descLogUp, prometheus.GaugeValue, v)
 	}
 	ch <- prometheus.MustNewConstMetric(descLogDeletes, prometheus.GaugeValue, float64(snap.LogDeletesPending))
 }

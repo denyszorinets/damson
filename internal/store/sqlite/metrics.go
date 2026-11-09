@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/denyszorinets/damson/internal/store"
 )
@@ -10,7 +11,7 @@ import (
 var _ store.MetricsStore = (*Store)(nil)
 
 // MetricsSnapshot implements store.MetricsStore.
-func (s *Store) MetricsSnapshot(ctx context.Context) (store.MetricsSnapshot, error) {
+func (s *Store) MetricsSnapshot(ctx context.Context, seenAfter time.Time) (store.MetricsSnapshot, error) {
 	out := store.MetricsSnapshot{RunsByStatus: map[string]int64{}}
 	runs, err := s.q.CountRunsByStatus(ctx)
 	if err != nil {
@@ -26,7 +27,7 @@ func (s *Store) MetricsSnapshot(ctx context.Context) (store.MetricsSnapshot, err
 	for _, e := range execs {
 		out.Executions = append(out.Executions, store.PoolExecutions{Pool: e.Pool, State: e.State, Count: e.N})
 	}
-	agents, err := s.q.CountConnectedAgentsByPool(ctx)
+	agents, err := s.q.CountConnectedAgentsByPool(ctx, fmtTime(seenAfter))
 	if err != nil {
 		return out, fmt.Errorf("counting agents: %w", err)
 	}

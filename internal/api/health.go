@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sync"
 	"time"
 )
 
@@ -36,8 +35,7 @@ func healthz(w http.ResponseWriter, r *http.Request) {
 
 // readyz is readiness: the database answers and migrations have been applied.
 // Failures are 503 problem+json; the cause is logged, not returned.
-func readyz(c Checker, logProbe func(context.Context) error) http.HandlerFunc {
-	probe := cachedProbe(logProbe, probeTTL)
+func readyz(c Checker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			methodNotAllowed(w, r, "GET, HEAD")
@@ -45,11 +43,7 @@ func readyz(c Checker, logProbe func(context.Context) error) http.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), readyTimeout)
 		defer cancel()
-		err := checkReady(ctx, c)
-		if err == nil {
-			err = probe(ctx)
-		}
-		if err != nil {
+		if err := checkReady(ctx, c); err != nil {
 			WriteError(w, r, fmt.Errorf("%w: %w", errUnavailable, err))
 			return
 		}
@@ -69,35 +63,4 @@ func checkReady(ctx context.Context, c Checker) error {
 		return errors.New("no migrations applied")
 	}
 	return nil
-}
-
-// probeTTL is how long a log store probe result is reused: readiness probes
-// arrive every few seconds from every load balancer and kubelet.
-const probeTTL = 10 * time.Second
-
-// cachedProbe reuses the last result of probe for ttl, so readiness checks do
-// not each cost a round trip to the log store. A nil probe always succeeds.
-func cachedProbe(probe func(context.Context) error, ttl time.Duration) func(context.Context) error {
-	if probe == nil {
-		return func(context.Context) error { return nil }
-	}
-	var (
-		mu   sync.Mutex
-		at   time.Time
-		last error
-	)
-	return func(ctx context.Context) error {
-		mu.Lock()
-		defer mu.Unlock()
-		if !at.IsZero() && time.Since(at) < ttl {
-			return last
-		}
-		if err := probe(ctx); err != nil {
-			last = fmt.Errorf("log store: %w", err)
-		} else {
-			last = nil
-		}
-		at = time.Now()
-		return last
-	}
 }

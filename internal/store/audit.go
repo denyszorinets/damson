@@ -9,14 +9,16 @@ import (
 
 // Audit actions.
 const (
-	ActionSecretCreate     = "secret.create"
-	ActionSecretUpdate     = "secret.update"
-	ActionSecretDelete     = "secret.delete"
-	ActionSecretKEKRotate  = "secret.kek_rotate"
-	ActionLogPurge         = "log.purge"
-	ActionAuditPrune       = "audit.prune"
-	ActionAdminTokenCreate = "admin_token.create"
-	ActionAdminTokenRevoke = "admin_token.revoke"
+	ActionSecretCreate       = "secret.create"
+	ActionSecretUpdate       = "secret.update"
+	ActionSecretDelete       = "secret.delete"
+	ActionSecretKEKRotate    = "secret.kek_rotate"
+	ActionLogPurge           = "log.purge"
+	ActionAuditPrune         = "audit.prune"
+	ActionAdminTokenCreate   = "admin_token.create"
+	ActionAdminTokenRevoke   = "admin_token.revoke"
+	ActionMetricsTokenCreate = "metrics_token.create"
+	ActionMetricsTokenRevoke = "metrics_token.revoke"
 )
 
 // Audit target types.
@@ -216,6 +218,15 @@ func NewLogPurgeEvent(ctx context.Context, d LogPurgeAuditDetails, now time.Time
 // (action is ActionAdminTokenCreate or ActionAdminTokenRevoke). It carries no
 // details: neither the token nor its hash is recorded.
 func NewAdminTokenEvent(ctx context.Context, action string, now time.Time) (AuditEvent, error) {
+	return newInstanceTokenEvent(ctx, action, "admin_token", now)
+}
+
+// NewMetricsTokenEvent builds the event of a metrics token create or revoke.
+func NewMetricsTokenEvent(ctx context.Context, action string, now time.Time) (AuditEvent, error) {
+	return newInstanceTokenEvent(ctx, action, "metrics_token", now)
+}
+
+func newInstanceTokenEvent(ctx context.Context, action, target string, now time.Time) (AuditEvent, error) {
 	meta, err := AuditFrom(ctx)
 	if err != nil {
 		return AuditEvent{}, err
@@ -226,7 +237,7 @@ func NewAdminTokenEvent(ctx context.Context, action string, now time.Time) (Audi
 	}
 	return AuditEvent{
 		ID: id, At: NormalizeTime(now), Actor: meta.Actor, Action: action, TargetType: AuditTargetInstance,
-		Target: "admin_token", Details: json.RawMessage(`{}`), RequestID: meta.RequestID,
+		Target: target, Details: json.RawMessage(`{}`), RequestID: meta.RequestID,
 	}, nil
 }
 

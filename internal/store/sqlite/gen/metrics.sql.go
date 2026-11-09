@@ -46,7 +46,8 @@ func (q *Queries) CountActiveExecutionsByPool(ctx context.Context) ([]CountActiv
 const countConnectedAgentsByPool = `-- name: CountConnectedAgentsByPool :many
 SELECT p.name AS pool, count(*) AS agents, CAST(COALESCE(SUM(a.capacity), 0) AS BIGINT) AS slots
 FROM agents a JOIN agent_pools p ON p.id = a.pool_id
-WHERE a.controller_id IS NOT NULL GROUP BY p.name
+WHERE a.controller_id IS NOT NULL AND a.disconnected_at IS NULL AND a.last_seen >= ?1
+GROUP BY p.name
 `
 
 type CountConnectedAgentsByPoolRow struct {
@@ -55,8 +56,9 @@ type CountConnectedAgentsByPoolRow struct {
 	Slots  int64
 }
 
-func (q *Queries) CountConnectedAgentsByPool(ctx context.Context) ([]CountConnectedAgentsByPoolRow, error) {
-	rows, err := q.db.QueryContext(ctx, countConnectedAgentsByPool)
+// Connected and seen recently: a crashed controller's agents age out.
+func (q *Queries) CountConnectedAgentsByPool(ctx context.Context, seenAfter string) ([]CountConnectedAgentsByPoolRow, error) {
+	rows, err := q.db.QueryContext(ctx, countConnectedAgentsByPool, seenAfter)
 	if err != nil {
 		return nil, err
 	}

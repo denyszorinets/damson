@@ -16,13 +16,12 @@ Both are unauthenticated ``GET`` (or ``HEAD``) requests on ``controller.listen``
 
 ``/readyz``
    Readiness. Answers 200 ``{"status":"ready"}`` when the database answers a
-   ping (3 second limit), migrations have been applied and an external log
-   backend answers (S3: the bucket exists; the result is cached for 10 seconds;
-   the ``db`` log store adds no check). Otherwise it answers 503 problem+json;
-   the cause (``database ping``, ``migration version``, ``no migrations
-   applied`` or ``log store: ...``) is logged, not returned. It does not check
-   OpenBao or the other controllers. Use it for the load balancer and for
-   alerting.
+   ping (3 second limit) and migrations have been applied. Otherwise it
+   answers 503 problem+json; the cause (``database ping``, ``migration
+   version`` or ``no migrations applied``) is logged, not returned. It does
+   not check the log store, OpenBao or the other controllers. Use it for the
+   load balancer and for alerting. A log store outage is degraded, not down, so
+   it is reported by ``damson_log_store_up`` (see below).
 
 The Helm chart wires startup, readiness and liveness probes to these paths. On
 VMs, probe them from your load balancer or monitoring system:
@@ -35,9 +34,22 @@ Metrics
 -------
 
 ``GET /metrics`` on ``controller.listen`` serves Prometheus text format. It
-requires the admin token as ``Authorization: Bearer dms_admin...`` and answers
-401 otherwise; OIDC sessions are not accepted. It is not in the OpenAPI spec
-(ADR-0070).
+requires a dedicated read-only metrics token as ``Authorization: Bearer
+dmm_...``. Create it once; it is printed once, replaces any earlier metrics
+token, and only its SHA-256 is stored:
+
+.. code-block:: console
+
+   $ damson admin metrics-token create > /etc/prometheus/damson-metrics-token
+   $ damson admin metrics-token revoke
+
+The token reads ``/metrics`` and nothing else: the admin token and service
+tokens get 401 there, and the metrics token gets 401 on the API. Requests
+without a ``dmm_`` token get 401 problem+json before the database is touched.
+OIDC sessions are not accepted. Create and revoke are audited
+(``metrics_token.create``, ``metrics_token.revoke``). The admin token is
+deliberately not used, so the recovery token never sits in the monitoring
+system. The endpoint is not in the OpenAPI spec (ADR-0070).
 
 .. code-block:: yaml
 
@@ -45,17 +57,21 @@ requires the admin token as ``Authorization: Bearer dms_admin...`` and answers
      - job_name: damson
        scheme: https
        metrics_path: /metrics
+       scrape_interval: 30s
        authorization:
          type: Bearer
-         credentials_file: /etc/prometheus/damson-admin-token
+         credentials_file: /etc/prometheus/damson-metrics-token
        static_configs:
          - targets: [damson.example.com]
 
 (``bearer_token_file`` in older Prometheus versions.) The workload gauges are
 read from the database at scrape time, so every controller reports the same
 cluster-wide numbers. Scrape one controller or all of them, but do not sum
-across controllers. The Go (``go_*``) and process (``process_*``) metrics
-belong to the scraped controller.
+across controllers. The gauges are queried on each scrape and the cost grows
+with the number of runs, so scrape every 30 to 60 seconds; one controller is
+enough. ``/metrics`` allows 2 requests in flight and times out after 5
+seconds. The Go (``go_*``) and process (``process_*``) metrics belong to the
+scraped controller.
 
 .. list-table::
    :header-rows: 1
@@ -70,11 +86,16 @@ belong to the scraped controller.
    * - ``damson_executions_active{pool,state}``
      - Executions in state ``dispatched`` or ``running`` per pool.
    * - ``damson_agents_connected{pool}``
-     - Connected agents per pool.
+     - Agents per pool that a controller owns, that are not disconnected and
+       that were seen in the last 2 minutes (a crashed controller's agents age
+       out).
    * - ``damson_agent_slots{pool}``
-     - Total capacity of the connected agents of a pool (not free slots).
+     - Total capacity of those agents of a pool (not free slots).
    * - ``damson_log_object_deletes_pending``
      - Log objects queued for deletion in the external log store.
+   * - ``damson_log_store_up``
+     - 1, or 0 when an external log backend (S3) fails a probe (cached 10
+       seconds, own 3 second timeout). Absent with the ``db`` log store.
    * - ``damson_metrics_database_up``
      - 1, or 0 when the scrape's database query failed.
 
@@ -171,6 +192,8 @@ Alert ideas
 
 - ``/readyz`` fails for more than a minute on any controller, or fewer than two
   controllers are ready.
+- ``damson_log_store_up == 0`` (the log store is down; log flushes retry, runs
+  continue).
 - ``damson_agents_connected{pool} == 0`` for five minutes.
 - ``damson_queue_depth{pool} > 0`` and not falling for ten minutes, or
   ``damson_executions_active{state="running"}`` close to

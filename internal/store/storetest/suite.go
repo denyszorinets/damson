@@ -41,6 +41,8 @@ func Run(t *testing.T, f Factory) {
 		{"ControllerInstances", testControllerInstances},
 		{"LeaderLease", testLeaderLease},
 		{"MetricsSnapshot", testMetricsSnapshot},
+		{"MetricsSnapshotWork", testMetricsSnapshotWork},
+		{"MetricsStaleAgents", testMetricsStaleAgents},
 		{"Secrets", testSecrets},
 		{"SecretsRaces", testSecretsRaces},
 		{"SecretsDeleteRace", testSecretsDeleteRace},

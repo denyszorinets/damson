@@ -36,9 +36,10 @@ type Config struct {
 	// LogBlobs reads stored log chunks from the backend each chunk names. Nil
 	// reads them from Data (the db backend only).
 	LogBlobs LogReader
-	// LogProbe checks the external log backends for /readyz. Nil skips it.
+	// LogProbe checks the external log backends; /metrics reports the result as
+	// damson_log_store_up. Nil reports nothing.
 	LogProbe func(context.Context) error
-	// Metrics serves /metrics (admin token required). Nil leaves it off.
+	// Metrics serves /metrics (metrics token required). Nil leaves it off.
 	Metrics store.MetricsStore
 	// RunNotify wakes run event streams early. Nil means polling only.
 	RunNotify RunNotifier
@@ -112,9 +113,9 @@ func NewServer(cfg Config) *Server {
 func routes(cfg Config) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthz)
-	mux.HandleFunc("/readyz", readyz(cfg.Store, cfg.LogProbe))
+	mux.HandleFunc("/readyz", readyz(cfg.Store))
 	if cfg.Metrics != nil {
-		mux.Handle("/metrics", newMetricsHandler(cfg.Metrics, cfg.Data, cfg.Logger))
+		mux.Handle("/metrics", newMetricsHandler(cfg.Metrics, cfg.Data, cfg.LogProbe, cfg.Logger))
 	}
 	d := newDeps(cfg)
 	env, err := expr.NewRequestEnv(expr.Limits{})
