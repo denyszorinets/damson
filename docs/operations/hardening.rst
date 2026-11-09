@@ -134,9 +134,10 @@ Anything a job can do, the agent host or pod can do.
 Binaries and images
 -------------------
 
-- Verify the checksum of the offline bundle with ``verify.sh`` and deliver the
-  ``.sha256`` over another trusted channel than the archive. There is no
-  signature yet (:doc:`/reference/offline-bundle`).
+- Verify the offline bundle with ``verify.sh --pubkey release.pub`` when you
+  have a public key from a trusted channel. No release key is published yet,
+  so until then deliver the ``.sha256`` over another trusted channel than the
+  archive (:doc:`/reference/offline-bundle`).
 - Pull images by digest and mirror them into your registry. Image signing is
   an open decision, so there is nothing to verify beyond the digest.
 - Build custom agent binaries yourself with ``damson build`` and pin module

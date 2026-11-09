@@ -3,6 +3,7 @@
 # site needs to install Damson, with checksums.
 #
 #   deploy/bundle/build.sh [-o DIR]            binaries, chart, units, docs pointers
+#   SIGNING_KEY=~/.ssh/damson-release deploy/bundle/build.sh   sign the checksums
 #   WITH_IMAGES=1 deploy/bundle/build.sh       also the three container images
 #                                              (docker or podman, a few GB)
 #
@@ -79,9 +80,23 @@ cat > "$dir/manifest.json" <<JSON
 JSON
 ( cd "$dir" && sha256sum manifest.json >> SHA256SUMS )
 
+# Optional signature (OpenSSH signatures, ssh-keygen -Y): SIGNING_KEY names the
+# private key. The signature over SHA256SUMS goes into the bundle (verify.sh
+# checks it), and the archive's .sha256 is signed next to the archive.
+if [ -n "${SIGNING_KEY:-}" ]; then
+	command -v ssh-keygen >/dev/null 2>&1 || { echo "build.sh: SIGNING_KEY needs ssh-keygen" >&2; exit 1; }
+	[ -f "$SIGNING_KEY" ] || { echo "build.sh: SIGNING_KEY $SIGNING_KEY does not exist" >&2; exit 1; }
+	ssh-keygen -q -Y sign -f "$SIGNING_KEY" -n damson-bundle "$dir/SHA256SUMS"
+fi
+
 mkdir -p "$out"
 # Sorted names, fixed owner, time and modes. The chart (helm) and the images
 # (docker save) are not byte-reproducible, so two builds may differ in them.
 tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='UTC 2020-01-01' --mode='u+rwX,go+rX,go-w' -C "$stage" -cf - "$name" | gzip -n > "$out/$name.tar.gz"
 ( cd "$out" && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256" )
+if [ -n "${SIGNING_KEY:-}" ]; then
+	rm -f "$out/$name.tar.gz.sha256.sig"
+	ssh-keygen -q -Y sign -f "$SIGNING_KEY" -n damson-bundle "$out/$name.tar.gz.sha256"
+	echo "signed: $out/$name.tar.gz.sha256.sig"
+fi
 echo "bundle: $out/$name.tar.gz"

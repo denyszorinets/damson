@@ -44,15 +44,24 @@ jobs:
           echo "${HELM_SHA256}  /tmp/helm.tgz" | sha256sum -c -
           sudo tar -xzf /tmp/helm.tgz -C /usr/local/bin --strip-components=1 linux-amd64/helm
       - run: make web
-      - run: make bundle
+      - run: make bundle-check
+      # A throwaway key: this run proves that signing and verifying work. Release
+      # builds use the maintainers' key (docs: offline bundle).
+      - name: Make a test signing key
+        run: ssh-keygen -q -t ed25519 -N '' -f "$RUNNER_TEMP/test-signing" -C ci
+      - name: Build the bundle (signed)
+        run: SIGNING_KEY="$RUNNER_TEMP/test-signing" make bundle
       - name: Verify the archive and its contents
         run: |
           cd dist
           sha256sum -c ./*.sha256
+          printf 'damson-bundle %s\n' "$(cut -d' ' -f1,2 "$RUNNER_TEMP/test-signing.pub")" > "$RUNNER_TEMP/signers"
+          sums="$(ls damson-bundle-*.tar.gz.sha256)"
+          ssh-keygen -Y verify -f "$RUNNER_TEMP/signers" -I damson-bundle -n damson-bundle -s "$sums.sig" < "$sums"
           mkdir unpacked
           tar -xzf damson-bundle-*.tar.gz -C unpacked
           cd unpacked/damson-bundle-*
-          ./verify.sh
+          ./verify.sh --pubkey "$RUNNER_TEMP/test-signing.pub"
           ./bin/damson-linux-amd64 version
           test -f chart/damson-*.tgz
           test -f systemd/damson-controller.service

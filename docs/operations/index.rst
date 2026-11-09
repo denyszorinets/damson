@@ -101,9 +101,13 @@ These are described in the design but not implemented today. Plan around them.
 - **Migrations are forward only.** ``damson migrate`` has ``up`` and
   ``status`` but no ``down``; rollback is a restore of the backup taken before
   the upgrade (:doc:`upgrade`).
-- **No backup command.** Use your database's tools (:doc:`backup`).
-- **The offline bundle is unsigned.** It has checksums only
-  (:doc:`/reference/offline-bundle`).
+- **Backup is a helper script, not a scheduler.** ``damson-backup.sh`` and
+  ``damson-restore.sh`` exist, but nothing schedules, rotates or ships the
+  backups, and the dumps are logical (:doc:`backup`).
+- **The offline bundle signature has no published key yet.** The mechanism
+  exists (OpenSSH signatures), but there is no published release key and no
+  release pipeline that signs automatically; until then, only checksums can
+  be checked (:doc:`/reference/offline-bundle`).
 - **Native TLS is basic.** No client-certificate authentication, OCSP or
   ACME; certificates come from files (:doc:`install`). The internal listener
   between controllers is plain HTTP.
