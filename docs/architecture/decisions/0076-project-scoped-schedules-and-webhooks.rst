@@ -54,17 +54,22 @@ instance admin may do everything.
   ``schedules.job_id`` and ``webhooks.job_id`` are immutable and jobs never
   change project, so nothing can change between the middleware check and the
   handler.
-- ``tgtAll``: an instance admin may do everything; a token uses its scope as the
-  project (scope ``""`` means all); a user gets 400 ``job_id or project
-  required``.
+- ``tgtAll``: an instance admin may do everything; a token covering every project
+  (scope ``""``) may too; a scoped token that names neither ``job_id`` nor
+  ``project`` is out of scope (404), so it must name its project; a user gets
+  400 ``job_id or project is required``. Naming both is 400. An instance admin
+  that names a missing job or an unknown project gets an empty list, as before.
 
 **List filter.** Both lists gain an additive ``project`` query that means the
 project and its subtree and needs ``viewer`` on it (children inherit).
-``ListSchedules`` and ``ListWebhooks`` take ``Filter{JobID, ProjectPath}``,
-joined in shared SQL with ``path = p OR`` a prefix match on ``p/`` (no
+The store gains ``ListSchedulesByProject`` and ``ListWebhooksByProject`` beside
+the existing per-job lists, joined in shared SQL with ``path = p OR`` a prefix match on ``p/`` (no
 ``LIKE``).
 
-**Service tokens.** The role rank is checked first (403), then the scope (404).
+**Service tokens.** On the routes that address an existing schedule, webhook or
+list, the role rank is checked first (403), then the scope (404). The two create
+routes check in the handler, so a token whose scope does not cover the job's
+project gets 404 there before its role is compared.
 ``NewServiceToken`` rejects the ``admin`` role, so a token never creates or
 revokes a webhook. Before this change a token had no access to either resource
 (401); it is now role based. A non-admin session got 403 and now gets 404 or 403
@@ -89,8 +94,8 @@ the write transaction from the job and its project. Actors are ``user:``,
 details. Project admins read these events through ``GET /audit?project=``.
 
 **Compatibility.** Same paths, operation ids and shapes; ``project`` is
-additive. ``requireAdmin`` and ``adminSecurity`` are removed from these
-operations and the routes move into ``routePolicies``. Instance admin and the
+additive. ``requireAdmin`` is removed from these operations (``adminSecurity``
+stays: it only documents the bearer scheme) and the routes move into ``routePolicies``. Instance admin and the
 admin token behave as before. The UI ``JobTriggers`` keeps working; project
 tabs come with R13.
 
@@ -124,7 +129,9 @@ Run on SQLite and Postgres:
 - Lists filtered by project subtree and by ``job_id``; a user on ``tgtAll`` gets
   400; anonymous gets 401.
 - The token is absent from get, list and audit; audit ``project_path`` is set.
-- A route coverage test; a secret ref outside the chain is denied.
+- A route coverage test. That a secret ref outside the job's project chain is
+  denied rests on the existing ``secrets.Authorize`` tests; a fire-path test is
+  tracked as a follow-up.
 
 References
 ----------
