@@ -6,6 +6,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { crumbs, fetchScopedJobs, problemMessage, type Job } from '$lib/jobs';
+	import { atLeast, fetchProject } from '$lib/projects';
 
 	/** The project whose jobs to list, with those below it; empty lists every project the caller can see. */
 	let { scope = '' }: { scope?: string } = $props();
@@ -16,10 +17,13 @@
 	let loaded = $state(false);
 	let loadingMore = $state(false);
 	let error = $state<string | null>(null);
+	let myRole = $state<string | undefined>(undefined); // the caller's role on the scope project
 
 	$effect(() => {
 		const current = scope;
 		const ctl = new AbortController();
+		myRole = undefined;
+		if (current) fetchProject(current).then((p) => current === scope && (myRole = p?.my_role));
 		loaded = false;
 		error = null;
 		fetchScopedJobs(current, '', ctl.signal)
@@ -85,6 +89,14 @@
 			{/if}
 		</div>
 	</div>
+
+	{#if scope && atLeast(myRole, 'editor')}
+		<a
+			class="inline-block rounded-md border px-3 py-1 text-sm hover:bg-muted"
+			href={resolve('/jobs/new/[...project]', { project: scope })}
+			data-testid="new-job">New job in {scope}</a
+		>
+	{/if}
 
 	{#if error}
 		<Alert.Root variant="destructive" data-testid="jobs-error">

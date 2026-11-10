@@ -288,3 +288,16 @@ Checksum
 ``engine.Checksum`` is the SHA-256 of the canonical JSON form (sorted keys, no
 insignificant whitespace, numbers verbatim, no HTML escaping), so formatting
 and key order do not change a job version's checksum.
+
+Editing in the web UI
+---------------------
+
+A user with the ``editor`` role on a project can create a job under it with **New
+job** on the project page, and add a version with **Edit** on the job page. The
+editor holds the spec as JSON. **Validate** posts it to ``POST /api/v1/jobs/validate``:
+errors come back by spec path (``spec.steps``) and, for a valid spec, the graph
+the server builds is drawn beside the editor; the UI never works out control flow
+itself. **Create job** and **Save new version** use ``POST /api/v1/jobs`` and
+``POST /api/v1/jobs/{id}/versions`` with ``expected_version``, so a version that
+landed meanwhile is a ``409``. A job managed by a file source or archived opens
+read-only with the reason (:doc:`jobs-as-code`).

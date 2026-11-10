@@ -326,3 +326,92 @@ test("the home page shows recent runs of the caller's projects only, failures fi
 	await expect(frank.getByTestId('home-shared-nightly')).toBeVisible();
 	await expect(frank.getByTestId('home-run')).toHaveCount(0);
 });
+
+const spec = (project: string, name: string, command: string, steps?: unknown[]) =>
+	JSON.stringify(
+		{
+			apiVersion: 'damson.dev/v1',
+			kind: 'Job',
+			metadata: { project, name },
+			spec: { steps: steps ?? [{ id: 's', plugin: 'ssh', with: { node: 'n', command } }] }
+		},
+		null,
+		2
+	);
+
+test('an editor creates a job and a second version from the UI, with server validation', async ({
+	browser
+}) => {
+	const name = `made-in-ui-${Date.now()}`;
+	const dave = await as(browser, 'dave-sub'); // editor on tree-acme/pay
+	await dave.goto('/projects/tree-acme/pay');
+	await dave.getByTestId('new-job').click();
+	await expect(dave.getByTestId('editor-title')).toHaveText('New job');
+	await expect(dave.getByTestId('spec-text')).toHaveValue(/"project": "tree-acme\/pay"/);
+
+	// A spec error points at its path; nothing is created.
+	await dave.getByTestId('spec-text').fill(spec('tree-acme/pay', name, 'echo one', []));
+	await dave.getByTestId('spec-validate').click();
+	await expect(dave.getByTestId('spec-issue').first()).toContainText('steps');
+	await expect(dave.getByTestId('spec-no-graph')).toBeVisible();
+	await dave.getByTestId('spec-save').click();
+	await expect(dave.getByTestId('spec-issue').first()).toContainText('steps');
+	await expect(dave).toHaveURL(/\/jobs\/new/);
+
+	// Text that is not JSON is reported without a request.
+	await dave.getByTestId('spec-text').fill('{ not json');
+	await dave.getByTestId('spec-validate').click();
+	await expect(dave.getByTestId('spec-issue').first()).toContainText('(document)');
+
+	// A valid spec: the server's graph appears beside the editor; saving creates the job.
+	await dave.getByTestId('spec-text').fill(spec('tree-acme/pay', name, 'echo one'));
+	await dave.getByTestId('spec-validate').click();
+	await expect(dave.getByTestId('spec-valid')).toBeVisible();
+	await expect(dave.getByTestId('graph-node-s')).toBeVisible();
+	await dave.getByTestId('spec-save').click();
+	await expect(dave).toHaveURL(/\/jobs\/[^/]+$/);
+	await expect(dave.getByTestId('job-title')).toHaveText(name);
+
+	// A second version, based on the first.
+	await dave.getByTestId('edit-job').click();
+	await expect(dave.getByTestId('editor-title')).toContainText(`New version of ${name}`);
+	await dave.getByTestId('spec-text').fill(spec('tree-acme/pay', name, 'echo two'));
+	await dave.getByTestId('spec-save').click();
+	await expect(dave).toHaveURL(/\/jobs\/[^/]+$/);
+	await expect(dave.getByText('version 2')).toBeVisible();
+
+	// A listing under the project shows it.
+	await dave.goto('/projects/tree-acme/pay');
+	await expect(rows(dave).filter({ hasText: name })).toHaveCount(1);
+});
+
+test('only an editor sees New job and Edit; a managed job is read-only with the reason', async ({
+	browser
+}) => {
+	const id = await jobId(browser, 'deploy');
+	for (const sub of ['carol-sub', 'bob-sub']) {
+		const p = await as(browser, sub); // viewer and runner on tree-acme
+		await p.goto('/projects/tree-acme');
+		await expect(p.getByTestId('jobs-table')).toBeVisible();
+		await expect(p.getByTestId('new-job')).toHaveCount(0);
+		await p.goto(`/jobs/${id}`);
+		await expect(p.getByTestId('job-title')).toHaveText('deploy');
+		await expect(p.getByTestId('edit-job')).toHaveCount(0);
+		await p.goto(`/jobs/${id}/edit`);
+		await expect(p.getByTestId('editor-readonly')).toContainText('needs the editor role');
+		await expect(p.getByTestId('spec-save')).toHaveCount(0);
+		await expect(p.getByTestId('spec-text')).toHaveAttribute('readonly', '');
+	}
+
+	// A job a file source manages cannot be changed here, even by an admin.
+	const alice = await as(browser, 'alice-sub');
+	await alice.route(`**/api/v1/jobs/${id}`, async (route) => {
+		const res = await route.fetch();
+		const body = await res.json();
+		body.job.managed_by = 'files:infra-repo';
+		await route.fulfill({ response: res, json: body });
+	});
+	await alice.goto(`/jobs/${id}/edit`);
+	await expect(alice.getByTestId('editor-readonly')).toContainText('managed by files:infra-repo');
+	await expect(alice.getByTestId('spec-save')).toHaveCount(0);
+});

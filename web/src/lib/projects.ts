@@ -59,6 +59,12 @@ export async function fetchProjects(): Promise<Project[]> {
 	return fail(await api.GET('/projects')).items ?? [];
 }
 
+/** One project the caller can see, or null when there is none (missing and no role read the same). */
+export async function fetchProject(path: string): Promise<Project | null> {
+	const res = await api.GET('/projects/{path}', { params: { path: { path } } });
+	return res.data ?? null;
+}
+
 export async function createProject(path: string, description: string): Promise<Project> {
 	return fail(await api.POST('/projects', { body: { path, description } }));
 }

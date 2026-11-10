@@ -8,7 +8,7 @@
 	import type { Graph } from '$lib/graph/layout';
 	import { fetchJobGraph, isNotFound, problemMessage, type Job } from '$lib/jobs';
 	import NotFound from '$lib/components/NotFound.svelte';
-	import { isInstanceAdmin } from '$lib/projects';
+	import { atLeast, isInstanceAdmin } from '$lib/projects';
 	import RunDialog from '$lib/components/RunDialog.svelte';
 	import JobTriggers from '$lib/components/JobTriggers.svelte';
 	import { optionsSchema } from '$lib/triggers';
@@ -56,6 +56,13 @@
 			>
 		{/if}
 		{#if job?.archived}<Badge variant="outline" data-testid="job-archived">archived</Badge>{/if}
+		{#if job && atLeast(job.my_role, 'editor')}
+			<a
+				class="ml-auto text-sm underline underline-offset-4"
+				href={resolve('/jobs/[id]/edit', { id: job.id })}
+				data-testid="edit-job">{job.managed_by === 'ui' && !job.archived ? 'Edit' : 'View spec'}</a
+			>
+		{/if}
 	</div>
 
 	{#if missing}
