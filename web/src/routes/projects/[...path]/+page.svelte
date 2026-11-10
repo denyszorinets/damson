@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import JobView from '$lib/components/JobView.svelte';
 	import JobsView from '$lib/components/JobsView.svelte';
 	import NotFound from '$lib/components/NotFound.svelte';
 	import ProjectAccess from '$lib/components/ProjectAccess.svelte';
@@ -8,20 +9,27 @@
 	import ProjectOverview from '$lib/components/ProjectOverview.svelte';
 	import ProjectSettings from '$lib/components/ProjectSettings.svelte';
 	import ProjectTable from '$lib/components/ProjectTable.svelte';
+	import RunView from '$lib/components/RunView.svelte';
 	import { atLeast, fetchProject } from '$lib/projects';
 	import { parseProjectRoute } from '$lib/projectroute';
 	import { isUser } from '$lib/session';
 
 	// The URL is the project's path, then "/-/" and a tab; a view is stable and shareable.
 	const route = $derived(parseProjectRoute(page.params.path));
-	// The front page is the jobs table; the other tabs are named after the "-".
-	const tab = $derived(route.tab.length ? route.tab[0] : '');
+	// The front page is the jobs table; the other tabs are named after the "-". A job is
+	// jobs/<id>[/<tab>] and a run runs/<id>; the sidebar highlights Jobs and Activity for them.
+	const head = $derived(route.tab.length ? route.tab[0] : '');
+	const isJob = $derived(head === 'jobs' && route.tab.length >= 2 && route.tab.length <= 3);
+	const isRun = $derived(head === 'runs' && route.tab.length === 2);
+	const tab = $derived(isJob ? '' : isRun ? 'activity' : head);
 	const known = $derived(
-		route.tab.length <= 1 && ['', 'overview', 'activity', 'access', 'settings'].includes(tab)
+		isJob ||
+			isRun ||
+			(route.tab.length <= 1 && ['', 'overview', 'activity', 'access', 'settings'].includes(head))
 	);
 	// Settings and Access are for the project's admins: the role decides which tabs show, and
 	// anyone else who types the URL gets the not-found view, as for a project they cannot see.
-	const adminTab = $derived(tab === 'access' || tab === 'settings');
+	const adminTab = $derived(head === 'access' || head === 'settings');
 
 	// The caller's role on this project; unknown until read, and absent without a login.
 	let role = $state<string | undefined>(undefined);
@@ -61,13 +69,17 @@
 			{#key route.path}
 				{#if !allowed}
 					<!-- the role is still being read -->
-				{:else if tab === 'overview'}
+				{:else if isJob}
+					<JobView path={route.path} id={route.tab[1]} sub={route.tab.slice(2)} />
+				{:else if isRun}
+					<RunView path={route.path} id={route.tab[1]} />
+				{:else if head === 'overview'}
 					<ProjectOverview path={route.path} />
-				{:else if tab === 'activity'}
+				{:else if head === 'activity'}
 					<ProjectActivity path={route.path} />
-				{:else if tab === 'access'}
+				{:else if head === 'access'}
 					<ProjectAccess path={route.path} />
-				{:else if tab === 'settings'}
+				{:else if head === 'settings'}
 					<ProjectSettings path={route.path} />
 				{:else if isUser()}
 					<ProjectTable path={route.path} />

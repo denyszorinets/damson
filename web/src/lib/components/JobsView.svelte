@@ -5,6 +5,7 @@
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import { jobRest } from '$lib/jobroute';
 	import { fetchScopedJobs, problemMessage, type Job } from '$lib/jobs';
 	import { atLeast, fetchProject } from '$lib/projects';
 
@@ -97,7 +98,8 @@
 						<Table.Cell>
 							<a
 								class="font-medium underline-offset-4 hover:underline"
-								href={resolve('/jobs/[id]', { id: job.id })}>{job.name}</a
+								href={resolve('/projects/[...path]', { path: jobRest(job.project, job.id) })}
+								>{job.name}</a
 							>
 							{#if job.managed_by !== 'ui'}
 								<Badge variant="secondary" class="ml-2" data-testid="managed-{job.name}"

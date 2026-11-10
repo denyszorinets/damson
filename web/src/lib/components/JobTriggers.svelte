@@ -25,7 +25,8 @@
 		type Webhook
 	} from '$lib/triggers';
 
-	let { jobId }: { jobId: string } = $props();
+	/** only: show just the schedules or just the webhooks (a job page tab each); default both. */
+	let { jobId, only }: { jobId: string; only?: 'schedules' | 'webhooks' } = $props();
 
 	let token = $state('');
 	let schedules = $state<Schedule[]>([]);
@@ -119,7 +120,9 @@
 
 <section class="space-y-6" data-testid="job-triggers" aria-label="Triggers">
 	<div class="flex items-center justify-between">
-		<h2 class="text-lg font-medium">Triggers</h2>
+		<h2 class="text-lg font-medium">
+			{only === 'schedules' ? 'Schedules' : only === 'webhooks' ? 'Webhooks' : 'Triggers'}
+		</h2>
 		{#if token}
 			{#if token !== SESSION_TOKEN}
 				<Button variant="outline" data-testid="forget-token" onclick={forget}>Forget token</Button>
@@ -142,115 +145,119 @@
 			}}
 		/>
 	{:else}
-		<div class="space-y-3">
-			<h3 class="font-medium">Schedules</h3>
-			<Table.Root data-testid="schedules">
-				<Table.Header>
-					<Table.Row>
-						<Table.Head>Name</Table.Head>
-						<Table.Head>Cron</Table.Head>
-						<Table.Head>Next fire</Table.Head>
-						<Table.Head>Last result</Table.Head>
-						<Table.Head></Table.Head>
-					</Table.Row>
-				</Table.Header>
-				<Table.Body>
-					{#each schedules as s (s.id)}
-						<Table.Row data-testid="schedule-row">
-							<Table.Cell>{s.name}{s.enabled ? '' : ' (off)'}</Table.Cell>
-							<Table.Cell><code>{s.cron}</code> {s.timezone}</Table.Cell>
-							<Table.Cell>{s.next_fire_at ?? '-'}</Table.Cell>
-							<Table.Cell>{s.last_error ?? s.last_run_id ?? '-'}</Table.Cell>
-							<Table.Cell class="space-x-2 text-right">
-								<Button
-									variant="outline"
-									size="sm"
-									disabled={busy}
-									onclick={() => act(() => setScheduleEnabled(token, s.id, !s.enabled))}
-								>
-									{s.enabled ? 'Disable' : 'Enable'}
-								</Button>
-								<Button
-									variant="outline"
-									size="sm"
-									disabled={busy}
-									onclick={() => act(() => deleteSchedule(token, s.id))}>Delete</Button
-								>
-							</Table.Cell>
+		{#if only !== 'webhooks'}
+			<div class="space-y-3">
+				<h3 class="font-medium">Schedules</h3>
+				<Table.Root data-testid="schedules">
+					<Table.Header>
+						<Table.Row>
+							<Table.Head>Name</Table.Head>
+							<Table.Head>Cron</Table.Head>
+							<Table.Head>Next fire</Table.Head>
+							<Table.Head>Last result</Table.Head>
+							<Table.Head></Table.Head>
 						</Table.Row>
-					{:else}
-						<Table.Row
-							><Table.Cell colspan={5} class="text-muted-foreground">No schedules.</Table.Cell
-							></Table.Row
-						>
-					{/each}
-				</Table.Body>
-			</Table.Root>
-			<form class="grid max-w-xl gap-2" data-testid="schedule-form" onsubmit={addSchedule}>
-				<Label for="sched-name">Name</Label>
-				<Input id="sched-name" bind:value={schedName} required />
-				<Label for="sched-cron">Cron (5 fields)</Label>
-				<Input id="sched-cron" bind:value={schedCron} required />
-				<Label for="sched-zone">Time zone</Label>
-				<Input id="sched-zone" bind:value={schedZone} />
-				<Button type="submit" disabled={busy}>Add schedule</Button>
-			</form>
-		</div>
-
-		<div class="space-y-3">
-			<h3 class="font-medium">Webhooks</h3>
-			{#if newHookPath}
-				<Alert.Root data-testid="new-webhook">
-					<Alert.Description>
-						Copy this URL path now; it is not shown again:
-						<code class="break-all" data-testid="new-webhook-path">{newHookPath}</code>
-						<Button variant="outline" size="sm" onclick={() => (newHookPath = null)}>Done</Button>
-					</Alert.Description>
-				</Alert.Root>
-			{/if}
-			<Table.Root data-testid="webhooks">
-				<Table.Header>
-					<Table.Row>
-						<Table.Head>Name</Table.Head>
-						<Table.Head>Last used</Table.Head>
-						<Table.Head></Table.Head>
-					</Table.Row>
-				</Table.Header>
-				<Table.Body>
-					{#each webhooks as w (w.id)}
-						<Table.Row data-testid="webhook-row">
-							<Table.Cell>{w.name}{w.revoked ? ' (revoked)' : ''}</Table.Cell>
-							<Table.Cell>{w.last_used_at ?? '-'}</Table.Cell>
-							<Table.Cell class="text-right">
-								{#if !w.revoked}
+					</Table.Header>
+					<Table.Body>
+						{#each schedules as s (s.id)}
+							<Table.Row data-testid="schedule-row">
+								<Table.Cell>{s.name}{s.enabled ? '' : ' (off)'}</Table.Cell>
+								<Table.Cell><code>{s.cron}</code> {s.timezone}</Table.Cell>
+								<Table.Cell>{s.next_fire_at ?? '-'}</Table.Cell>
+								<Table.Cell>{s.last_error ?? s.last_run_id ?? '-'}</Table.Cell>
+								<Table.Cell class="space-x-2 text-right">
 									<Button
 										variant="outline"
 										size="sm"
 										disabled={busy}
-										onclick={() => act(() => revokeWebhook(token, w.id))}>Revoke</Button
+										onclick={() => act(() => setScheduleEnabled(token, s.id, !s.enabled))}
 									>
-								{/if}
-							</Table.Cell>
+										{s.enabled ? 'Disable' : 'Enable'}
+									</Button>
+									<Button
+										variant="outline"
+										size="sm"
+										disabled={busy}
+										onclick={() => act(() => deleteSchedule(token, s.id))}>Delete</Button
+									>
+								</Table.Cell>
+							</Table.Row>
+						{:else}
+							<Table.Row
+								><Table.Cell colspan={5} class="text-muted-foreground">No schedules.</Table.Cell
+								></Table.Row
+							>
+						{/each}
+					</Table.Body>
+				</Table.Root>
+				<form class="grid max-w-xl gap-2" data-testid="schedule-form" onsubmit={addSchedule}>
+					<Label for="sched-name">Name</Label>
+					<Input id="sched-name" bind:value={schedName} required />
+					<Label for="sched-cron">Cron (5 fields)</Label>
+					<Input id="sched-cron" bind:value={schedCron} required />
+					<Label for="sched-zone">Time zone</Label>
+					<Input id="sched-zone" bind:value={schedZone} />
+					<Button type="submit" disabled={busy}>Add schedule</Button>
+				</form>
+			</div>
+		{/if}
+
+		{#if only !== 'schedules'}
+			<div class="space-y-3">
+				<h3 class="font-medium">Webhooks</h3>
+				{#if newHookPath}
+					<Alert.Root data-testid="new-webhook">
+						<Alert.Description>
+							Copy this URL path now; it is not shown again:
+							<code class="break-all" data-testid="new-webhook-path">{newHookPath}</code>
+							<Button variant="outline" size="sm" onclick={() => (newHookPath = null)}>Done</Button>
+						</Alert.Description>
+					</Alert.Root>
+				{/if}
+				<Table.Root data-testid="webhooks">
+					<Table.Header>
+						<Table.Row>
+							<Table.Head>Name</Table.Head>
+							<Table.Head>Last used</Table.Head>
+							<Table.Head></Table.Head>
 						</Table.Row>
-					{:else}
-						<Table.Row
-							><Table.Cell colspan={3} class="text-muted-foreground">No webhooks.</Table.Cell
-							></Table.Row
-						>
-					{/each}
-				</Table.Body>
-			</Table.Root>
-			<form class="grid max-w-xl gap-2" data-testid="webhook-form" onsubmit={addWebhook}>
-				<Label for="hook-name">Name</Label>
-				<Input id="hook-name" bind:value={hookName} required />
-				<Label for="hook-mapping">Options mapping (CEL, optional)</Label>
-				<Input
-					id="hook-mapping"
-					bind:value={hookMapping}
-					placeholder={'{"env": body.environment}'}
-				/>
-				<Button type="submit" disabled={busy}>Add webhook</Button>
-			</form>
-		</div>
+					</Table.Header>
+					<Table.Body>
+						{#each webhooks as w (w.id)}
+							<Table.Row data-testid="webhook-row">
+								<Table.Cell>{w.name}{w.revoked ? ' (revoked)' : ''}</Table.Cell>
+								<Table.Cell>{w.last_used_at ?? '-'}</Table.Cell>
+								<Table.Cell class="text-right">
+									{#if !w.revoked}
+										<Button
+											variant="outline"
+											size="sm"
+											disabled={busy}
+											onclick={() => act(() => revokeWebhook(token, w.id))}>Revoke</Button
+										>
+									{/if}
+								</Table.Cell>
+							</Table.Row>
+						{:else}
+							<Table.Row
+								><Table.Cell colspan={3} class="text-muted-foreground">No webhooks.</Table.Cell
+								></Table.Row
+							>
+						{/each}
+					</Table.Body>
+				</Table.Root>
+				<form class="grid max-w-xl gap-2" data-testid="webhook-form" onsubmit={addWebhook}>
+					<Label for="hook-name">Name</Label>
+					<Input id="hook-name" bind:value={hookName} required />
+					<Label for="hook-mapping">Options mapping (CEL, optional)</Label>
+					<Input
+						id="hook-mapping"
+						bind:value={hookMapping}
+						placeholder={'{"env": body.environment}'}
+					/>
+					<Button type="submit" disabled={busy}>Add webhook</Button>
+				</form>
+			</div>
+		{/if}
 	{/if}
 </section>

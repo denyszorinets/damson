@@ -33,6 +33,12 @@ export async function fetchJobs(signal?: AbortSignal): Promise<Job[]> {
 	return data.items ?? [];
 }
 
+/** The project path of a job, or null when the caller cannot read it. */
+export async function fetchJobProject(id: string, signal?: AbortSignal): Promise<string | null> {
+	const { data } = await api.GET('/jobs/{id}', { params: { path: { id } }, signal });
+	return data?.job.project ?? null;
+}
+
 /** A job and the graph of its current version. */
 export async function fetchJobGraph(id: string, signal?: AbortSignal) {
 	const detail = await api.GET('/jobs/{id}', { params: { path: { id } }, signal });

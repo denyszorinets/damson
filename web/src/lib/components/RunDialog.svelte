@@ -2,6 +2,7 @@
 	// The run dialog of a job: a form generated from spec.options (ARCHITECTURE
 	// 12.3), or a plain confirmation when the job takes no options.
 	import { goto } from '$app/navigation';
+	import { runRest } from '$lib/jobroute';
 	import { resolve } from '$app/paths';
 	import * as Alert from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
@@ -11,9 +12,16 @@
 
 	let {
 		jobId,
+		project,
 		schema,
 		role
-	}: { jobId: string; schema: Record<string, unknown> | null; role?: string } = $props();
+	}: {
+		jobId: string;
+		/** The job's project: the run opens under it; without it the old run URL resolves it. */
+		project?: string;
+		schema: Record<string, unknown> | null;
+		role?: string;
+	} = $props();
 	const canRun = $derived(atLeast(role, 'runner'));
 
 	let open = $state(false);
@@ -27,7 +35,11 @@
 		fieldErrors = {};
 		try {
 			const id = await triggerRun(jobId, options);
-			await goto(resolve('/runs/[id]', { id }));
+			await goto(
+				project
+					? resolve('/projects/[...path]', { path: runRest(project, id) })
+					: resolve('/runs/[id]', { id })
+			);
 		} catch (e) {
 			if (e instanceof OptionsRejected) {
 				fieldErrors = e.fields;

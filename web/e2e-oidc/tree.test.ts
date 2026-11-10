@@ -194,6 +194,9 @@ test('a viewer sees Run disabled with the missing role and no trigger forms', as
 	await expect(carol.getByTestId('run-job')).toBeDisabled();
 	await expect(carol.getByTestId('run-needs')).toHaveText('needs runner');
 	await expect(carol.getByTestId('job-triggers')).toHaveCount(0); // admin-only: absent
+	await expect(carol.getByTestId('job-tab-schedule')).toHaveCount(0);
+	await expect(carol.getByTestId('job-tab-webhooks')).toHaveCount(0);
+	await expect(carol).toHaveURL(/\/projects\/tree-acme\/-\/jobs\/[^/]+$/); // the old URL moved
 	await expect(carol.getByTestId('schedule-form')).toHaveCount(0);
 	await expect(carol.getByTestId('webhook-form')).toHaveCount(0);
 
@@ -206,7 +209,51 @@ test('a viewer sees Run disabled with the missing role and no trigger forms', as
 	const alice = await as(browser, 'alice-sub');
 	await alice.goto(`/jobs/${id}`);
 	await expect(alice.getByTestId('run-job')).toBeEnabled();
+	await alice.getByTestId('job-tab-schedule').click();
 	await expect(alice.getByTestId('job-triggers')).toBeVisible();
+	await expect(alice.getByTestId('schedule-form')).toBeVisible();
+	await expect(alice.getByTestId('webhook-form')).toHaveCount(0); // its own tab
+	await alice.getByTestId('job-tab-webhooks').click();
+	await expect(alice.getByTestId('webhook-form')).toBeVisible();
+});
+
+test('a job opens from the project table at its project URL with tabs; old URLs redirect', async ({
+	browser
+}) => {
+	const id = await jobId(browser, 'charge');
+	const alice = await as(browser, 'alice-sub');
+	await alice.goto('/projects/tree-acme/pay');
+	await alice.getByTestId('job-link-charge').click();
+	await expect(alice).toHaveURL(new RegExp(`/projects/tree-acme/pay/-/jobs/${id}$`));
+	await expect(alice.getByTestId('job-title')).toHaveText('charge');
+	await expect(alice.getByTestId('crumb-tree-acme/pay')).toBeVisible();
+	for (const t of ['run', 'runs', 'definition', 'schedule', 'webhooks'])
+		await expect(alice.getByTestId(`job-tab-${t}`)).toBeVisible();
+	await alice.getByTestId('job-tab-definition').click();
+	await expect(alice).toHaveURL(new RegExp(`/-/jobs/${id}/definition$`));
+	await expect(alice.getByTestId('graph-node-$start')).toBeVisible();
+	await alice.getByTestId('job-tab-runs').click();
+	await expect(alice).toHaveURL(new RegExp(`/-/jobs/${id}/runs$`));
+	await expect(alice.getByTestId('job-runs')).toBeVisible();
+	await alice.goto(`/projects/tree-acme/pay/-/jobs/${id}/nope`);
+	await expect(alice.getByTestId('not-found')).toBeVisible();
+	// A wrong project in the URL is corrected.
+	await alice.goto(`/projects/tree-ops/-/jobs/${id}`);
+	await expect(alice).toHaveURL(new RegExp(`/projects/tree-acme/pay/-/jobs/${id}$`));
+
+	// A run opens under the project too, and the old run URL moves.
+	const me = await (await alice.request.get('/api/v1/me')).json();
+	const run = await (
+		await alice.request.post(`/api/v1/jobs/${id}/runs`, {
+			data: {},
+			headers: { 'X-CSRF-Token': me.csrf_token }
+		})
+	).json();
+	await alice.goto(`/runs/${run.id}`);
+	await expect(alice).toHaveURL(new RegExp(`/projects/tree-acme/pay/-/runs/${run.id}$`));
+	await expect(alice.getByTestId('run-status')).toBeVisible();
+	await alice.goto(`/projects/tree-acme/pay/-/jobs/${id}/runs`);
+	await expect(alice.getByTestId('run-row').first()).toBeVisible();
 });
 
 test('a user with no role gets a not-found page with a way back and no hint', async ({
@@ -217,7 +264,7 @@ test('a user with no role gets a not-found page with a way back and no hint', as
 	await erin.goto(`/jobs/${id}`);
 	await expect(erin.getByTestId('not-found')).toBeVisible();
 	await expect(erin.getByTestId('not-found')).toContainText('may not exist, or you may not have');
-	await expect(erin.getByTestId('job-title')).toHaveText('');
+	await expect(erin.getByTestId('job-title')).toHaveCount(0); // nothing of the job shows
 	await expect(erin.getByTestId('job-error')).toHaveCount(0);
 	const gone = await as(browser, 'erin-sub');
 	await gone.goto('/jobs/00000000-0000-7000-8000-00000000dead');

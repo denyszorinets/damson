@@ -41,8 +41,9 @@ test('job graph shows groups, catch, finally, for_each and edge kinds', async ({
 	const { job } = await created.json();
 
 	await page.goto(`/jobs/${job.id}`);
-	await expect(page).toHaveURL(new RegExp(`/jobs/${job.id}$`));
+	await expect(page).toHaveURL(new RegExp(`/projects/default/-/jobs/${job.id}$`));
 	await expect(page.getByTestId('job-title')).toHaveText('graph-e2e');
+	await page.getByTestId('job-tab-definition').click();
 
 	const node = (id: string) => page.getByTestId(`graph-node-${id}`);
 	await expect(node('$start')).toHaveAttribute('data-kind', 'start');
@@ -88,6 +89,7 @@ test('a job lists its versions, compares two, and a run names the version it ran
 	expect(v2.status()).toBe(201);
 
 	await page.goto(`/jobs/${job.id}`);
+	await page.getByTestId('job-tab-definition').click();
 	await expect(page.getByTestId('version-row')).toHaveCount(2);
 	await expect(page.locator('[data-testid="version-row"][data-version="2"]')).toContainText(
 		'current'

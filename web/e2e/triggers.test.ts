@@ -32,7 +32,7 @@ test('run dialog is generated from spec.options and starts a run', async ({ page
 	await page.getByLabel('Replicas').fill('5');
 	await page.getByRole('button', { name: 'Submit' }).click();
 
-	await expect(page).toHaveURL(/\/runs\/[0-9a-f-]+$/);
+	await expect(page).toHaveURL(/\/-\/runs\/[0-9a-f-]+$/);
 	const id = page.url().split('/').pop();
 	const run = await (await request.get(`/api/v1/runs/${id}`)).json();
 	expect(run.options).toEqual({ env: 'prod', replicas: 5 });
@@ -54,7 +54,7 @@ test('run dialog for a job without options starts the run directly', async ({ pa
 	await page.getByTestId('run-job').click();
 	await expect(page.getByText('This job takes no options.')).toBeVisible();
 	await page.getByTestId('run-confirm').click();
-	await expect(page).toHaveURL(/\/runs\//);
+	await expect(page).toHaveURL(/\/-\/runs\//);
 });
 
 test('job triggers: schedules and webhooks, webhook path shown once', async ({ page, request }) => {
@@ -129,6 +129,7 @@ test('job triggers: schedules and webhooks, webhook path shown once', async ({ p
 	});
 
 	await page.goto(`/jobs/${job.id}`);
+	await page.getByTestId('job-tab-schedule').click();
 	await page.getByLabel('Admin token').fill('dma_bad');
 	await page.getByRole('button', { name: 'Use token' }).click();
 	await expect(page.getByTestId('triggers-error')).toContainText('rejected');
@@ -141,6 +142,7 @@ test('job triggers: schedules and webhooks, webhook path shown once', async ({ p
 	await page.getByRole('button', { name: 'Delete' }).click();
 	await expect(page.getByTestId('schedule-row')).toHaveCount(0);
 
+	await page.getByTestId('job-tab-webhooks').click();
 	await page.locator('#hook-name').fill('ci');
 	await page.getByRole('button', { name: 'Add webhook' }).click();
 	await expect(page.getByTestId('new-webhook-path')).toHaveText('/hooks/SECRETTOKEN');

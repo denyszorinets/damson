@@ -51,7 +51,7 @@ test('a value the form can check is refused beside its field and no run is reque
 	await page.getByLabel('Version').fill('not a version');
 	await page.getByRole('button', { name: /submit/i }).click();
 	await expect(page.getByTestId('schema-form')).toContainText('must match pattern');
-	await expect(page).toHaveURL(/\/jobs\/[^/]+$/);
+	await expect(page).toHaveURL(/\/-\/jobs\/[^/]+$/);
 	expect(posts).toBe(0);
 });
 
@@ -77,7 +77,7 @@ test('an error the server finds is shown beside the field and no run is created'
 	await page.getByRole('button', { name: /submit/i }).click();
 	await expect(page.getByTestId('schema-form')).toContainText('version 9.9 is not published');
 	await expect(page.getByTestId('run-error')).toHaveCount(0); // beside the field, not a banner
-	await expect(page).toHaveURL(/\/jobs\/[^/]+$/);
+	await expect(page).toHaveURL(/\/-\/jobs\/[^/]+$/);
 	const after = await (await page.request.get(`/api/v1/runs?job=${jobId}`)).json();
 	expect((after.items ?? []).length).toBe((before.items ?? []).length);
 });
@@ -85,5 +85,5 @@ test('an error the server finds is shown beside the field and no run is created'
 test('a valid form starts a run and opens it', async ({ page }) => {
 	await openDialog(page);
 	await page.getByRole('button', { name: /submit/i }).click();
-	await expect(page).toHaveURL(/\/runs\/[^/]+$/);
+	await expect(page).toHaveURL(/\/-\/runs\/[^/]+$/);
 });

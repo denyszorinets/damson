@@ -10,6 +10,7 @@
 	import { problemMessage } from '$lib/jobs';
 	import { poll } from '$lib/polling';
 	import { atLeast, fetchProject } from '$lib/projects';
+	import { jobRest } from '$lib/jobroute';
 	import { projectRest } from '$lib/projectroute';
 	import { fetchLevel, type TreeJob, type TreeProject } from '$lib/tree';
 
@@ -131,7 +132,7 @@
 						<Table.Cell>
 							<a
 								class="font-medium underline-offset-4 hover:underline"
-								href={resolve('/jobs/[id]', { id: j.id })}
+								href={resolve('/projects/[...path]', { path: jobRest(path, j.id) })}
 								data-testid="job-link-{j.name}">{j.name}</a
 							>
 						</Table.Cell>
