@@ -7,6 +7,7 @@
 	import ProjectActivity from '$lib/components/ProjectActivity.svelte';
 	import ProjectNav from '$lib/components/ProjectNav.svelte';
 	import ProjectOverview from '$lib/components/ProjectOverview.svelte';
+	import ProjectSecrets from '$lib/components/ProjectSecrets.svelte';
 	import ProjectSettings from '$lib/components/ProjectSettings.svelte';
 	import ProjectTable from '$lib/components/ProjectTable.svelte';
 	import RunView from '$lib/components/RunView.svelte';
@@ -25,11 +26,13 @@
 	const known = $derived(
 		isJob ||
 			isRun ||
-			(route.tab.length <= 1 && ['', 'overview', 'activity', 'access', 'settings'].includes(head))
+			(route.tab.length <= 1 &&
+				['', 'overview', 'activity', 'secrets', 'access', 'settings'].includes(head))
 	);
-	// Settings and Access are for the project's admins: the role decides which tabs show, and
+	// Secrets are for editors and up (writes for admins), Settings and Access for the project's admins: the role decides which tabs show, and
 	// anyone else who types the URL gets the not-found view, as for a project they cannot see.
-	const adminTab = $derived(head === 'access' || head === 'settings');
+	const adminTab = $derived(head === 'access' || head === 'settings' || head === 'secrets');
+	const needed = $derived(head === 'secrets' ? 'editor' : 'admin');
 
 	// The caller's role on this project; unknown until read, and absent without a login.
 	let role = $state<string | undefined>(undefined);
@@ -53,7 +56,7 @@
 			}
 		);
 	});
-	const allowed = $derived(!adminTab || (roleLoaded && atLeast(role, 'admin')));
+	const allowed = $derived(!adminTab || (roleLoaded && atLeast(role, needed)));
 </script>
 
 <svelte:head>
@@ -77,6 +80,8 @@
 					<ProjectOverview path={route.path} />
 				{:else if head === 'activity'}
 					<ProjectActivity path={route.path} />
+				{:else if head === 'secrets'}
+					<ProjectSecrets path={route.path} canWrite={atLeast(role, 'admin')} />
 				{:else if head === 'access'}
 					<ProjectAccess path={route.path} />
 				{:else if head === 'settings'}

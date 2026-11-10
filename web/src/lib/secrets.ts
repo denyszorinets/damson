@@ -18,6 +18,31 @@ export async function fetchSecrets(token: string, signal?: AbortSignal): Promise
 	return res.data?.items ?? [];
 }
 
+/**
+ * The secrets a job of the project may use: its own and its ancestors' (names and
+ * types only). Needs editor on the project; an ancestor's scope is shown as it is.
+ */
+export async function fetchProjectSecrets(
+	token: string,
+	project: string,
+	signal?: AbortSignal
+): Promise<SecretMeta[]> {
+	const out: SecretMeta[] = [];
+	let cursor: string | undefined;
+	for (let i = 0; i < 10; i++) {
+		const res = await api.GET('/secrets', {
+			params: { query: { project, limit: 200, cursor } },
+			headers: headers(token),
+			signal
+		});
+		check(res);
+		out.push(...(res.data?.items ?? []));
+		cursor = res.data?.next_cursor || undefined;
+		if (!cursor) break;
+	}
+	return out;
+}
+
 export async function fetchSecretTypes(signal?: AbortSignal): Promise<SecretType[]> {
 	const { data, error } = await api.GET('/secret-types', { signal });
 	if (error !== undefined || !data) throw error ?? new Error('Empty response');

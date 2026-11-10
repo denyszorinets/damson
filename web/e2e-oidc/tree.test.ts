@@ -426,6 +426,73 @@ test('Settings and Access are for project admins: tabs, description, rules and t
 	await expect(carol.getByTestId('settings-delete-needs')).toBeVisible();
 });
 
+test("a project's Secrets tab lists its own and inherited secrets, writes by role, shows no value", async ({
+	browser
+}) => {
+	const value = 'canary-e2e-VALUE-77';
+	const alice = await as(browser, 'alice-sub');
+	const me = await (await alice.request.get('/api/v1/me')).json();
+	const headers = { 'X-CSRF-Token': me.csrf_token };
+	const made = await alice.request.put('/api/v1/secrets/tree-acme/shared', {
+		data: { type: 'generic', fields: { token: value } },
+		headers
+	});
+	expect([200, 201]).toContain(made.status());
+
+	// An instance admin on the child sees the parent's secret labelled with its origin.
+	await alice.goto('/projects/tree-acme/pay');
+	await alice.getByTestId('nav-secrets').click();
+	await expect(alice).toHaveURL(/\/projects\/tree-acme\/pay\/-\/secrets$/);
+	const inherited = alice.locator('[data-testid="secret-row"][data-scope="tree-acme"]');
+	await expect(inherited).toContainText('secret://tree-acme/shared');
+	await expect(inherited.getByTestId('origin-inherited')).toContainText('tree-acme');
+	await expect(inherited.getByTestId('delete-secret')).toHaveCount(0); // read-only here
+
+	// Create one on the child: its own origin, and no value anywhere in the page.
+	await alice.getByTestId('new-secret').click();
+	await alice.locator('#secret-name').fill('api-key');
+	await alice.getByLabel('Field name').fill('token');
+	await alice.locator('#field-0').fill(value);
+	await alice.getByTestId('save-secret').click();
+	const own = alice.locator('[data-testid="secret-row"][data-scope="tree-acme/pay"]');
+	await expect(own).toContainText('secret://tree-acme/pay/api-key');
+	await expect(own.getByTestId('origin-own')).toBeVisible();
+	expect(await alice.locator('body').innerHTML()).not.toContain(value);
+	expect(await alice.locator('body').innerText()).not.toContain(value);
+
+	// dave is an editor there: names, no write controls.
+	const dave = await as(browser, 'dave-sub');
+	await dave.goto('/projects/tree-acme/pay/-/secrets');
+	await expect(dave.getByTestId('secret-row').first()).toBeVisible();
+	await expect(dave.getByTestId('new-secret')).toHaveCount(0);
+	await expect(dave.getByTestId('delete-secret')).toHaveCount(0);
+
+	// bob (runner) and carol (viewer) on tree-acme have no Secrets tab, and the URL reads as not found.
+	for (const sub of ['bob-sub', 'carol-sub']) {
+		const user = await as(browser, sub);
+		await user.goto('/projects/tree-acme');
+		await expect(user.getByTestId('project-nav')).toBeVisible();
+		await expect(user.getByTestId('nav-secrets')).toHaveCount(0);
+		await user.goto('/projects/tree-acme/-/secrets');
+		await expect(user.getByTestId('not-found')).toBeVisible();
+		await expect(user.getByTestId('secrets-table')).toHaveCount(0);
+	}
+
+	// A project admin (carol on tree-set) may write; deleting needs a confirm.
+	const carol = await as(browser, 'carol-sub');
+	await carol.goto('/projects/tree-set/-/secrets');
+	await expect(carol.getByTestId('new-secret')).toBeVisible();
+	await alice.goto('/projects/tree-acme/pay/-/secrets');
+	await alice
+		.locator('[data-testid="secret-row"][data-scope="tree-acme/pay"]')
+		.getByTestId('delete-secret')
+		.click();
+	await alice.getByTestId('confirm-delete').click();
+	await expect(alice.locator('[data-testid="secret-row"][data-scope="tree-acme/pay"]')).toHaveCount(
+		0
+	);
+});
+
 test('an instance admin deletes an empty project from its Settings', async ({ browser }) => {
 	const alice = await as(browser, 'alice-sub');
 	const me = await (await alice.request.get('/api/v1/me')).json();
