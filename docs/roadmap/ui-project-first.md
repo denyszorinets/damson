@@ -30,7 +30,7 @@ Exit: signed in as the dev test users, home shows only projects, choosing one op
 |-------|------|----------|--------|------------|--------|------|--------|
 | R1 | build | App shell: top bar with project switcher and path breadcrumb; route scheme `/projects/<path>/-/<tab>`; Home as a projects table (name, child count, jobs, failed in 24 h from the existing counts); old tree sidebar and `/jobs` list removed from navigation | G1, G2, G6 | none | e2e: bob's home lists only his projects and no job; switcher lists the same set; `/jobs` redirects to home | med | shipped 2026-11-10 pf-r1-app-shell |
 | R2 | build | Project page table: child projects and jobs together with status, last success, last failure and duration per job (additive API fields on the jobs-in-project read) | G2, G3 | R1 (shell and routes) | e2e: `acme` shows its child projects and jobs with last-run columns; a user with a job-only rule sees none of them | med | |
-| R3 | build | Project sidebar and Overview and Activity tabs: recent runs, success rate, run list filtered by status and job, scoped to the project (`GET /runs` gets a visible-set `project` filter) | G3 | R1 (shell and routes) | e2e: Activity of `acme/payments` lists only runs of its jobs; a runner on another project cannot read them (404 as missing) | high | |
+| R3 | build | Project sidebar and Overview and Activity tabs: recent runs, success rate, run list filtered by status and job, scoped to the project (`GET /runs` gets a visible-set `project` filter) | G3 | R1 (shell and routes) | e2e: Activity of `acme/payments` lists only runs of its jobs; a runner on another project cannot read them (404 as missing) | high | shipped 2026-11-10 pf-r3-project-activity |
 
 ### M2: A job and a project are self-contained
 
@@ -87,3 +87,4 @@ None.
 ## Changes
 
 - 2026-11-10 R1 shipped (pf-r1-app-shell).
+- 2026-11-10 R3 shipped (pf-r3-project-activity).

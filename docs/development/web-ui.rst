@@ -99,9 +99,14 @@ Pages
 ``/projects/<path>/-/<tab>``
    A project. One catch-all route reads the path up to a ``-`` segment and the
    tab after it (``lib/projectroute.ts``), because SvelteKit allows a rest
-   parameter only last. With no tab it lists the jobs of the project and those
-   below it; an unknown tab is the not-found view. A project the caller has no
-   role on reads as missing.
+   parameter only last. The project has its own sidebar (``ProjectNav``):
+   **Jobs** (no tab) lists the jobs of the project and those below it;
+   ``-/overview`` shows the success rate over the newest 50 runs (succeeded
+   over succeeded plus failed) and the 10 newest runs; ``-/activity`` lists
+   the runs filtered by status and job, with "More" paging. Runs come from
+   ``GET /runs?project=``, which covers the project and those below it and
+   answers 404 for a project the caller has no role on, so a hidden project
+   reads as missing on every tab. An unknown tab is the not-found view.
 
 ``/jobs``
    Redirects to Home: no screen lists jobs across projects.

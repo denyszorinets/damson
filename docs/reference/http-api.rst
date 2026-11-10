@@ -167,7 +167,9 @@ Go test fails when ``web/openapi.json`` differs from the live document.
    * - ``GET /api/v1/runs``
      - Runs newest first, paged, filtered by ``job`` (job id) and
        ``status`` (``pending``, ``running``, ``succeeded``, ``failed``,
-       ``canceled``). Items have no step tree.
+       ``canceled``) and ``project`` (a project path: the runs of its jobs
+       and of the projects below it). A project the caller holds no role on
+       answers ``404``, as a missing one does. Items have no step tree.
    * - ``GET /api/v1/runs/{id}``
      - The run (``status``, ``trigger``, resolved ``options``, timestamps,
        ``job_version``) with ``steps``: every step instance in creation
