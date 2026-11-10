@@ -1,7 +1,15 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { layout, type Graph, type PlacedNode } from './layout';
+import type { NodeState } from '$lib/runs';
+import {
+	badgesOf,
+	layout,
+	stepHeight,
+	type Graph,
+	type GraphNode,
+	type PlacedNode
+} from './layout';
 
 // The graphs are the engine's golden outputs (testdata/engine/graph-*.golden.json),
 // so the layout is checked against every shape BuildGraph produces.
@@ -89,4 +97,56 @@ describe('layout', () => {
 			}
 		}
 	});
+});
+
+// A chain of n steps, each with the badges that make a box taller.
+function chain(n: number): { graph: Graph; overlay: Map<string, NodeState> } {
+	const nodes: GraphNode[] = [{ id: '$start', kind: 'start', label: 'start' }];
+	const overlay = new Map<string, NodeState>();
+	for (let i = 0; i < n; i++) {
+		const id = `step-${i}`;
+		nodes.push({
+			id,
+			kind: 'step',
+			label: id,
+			plugin: 'ssh',
+			when: i % 2 ? 'always()' : "env == 'prod' && version != ''",
+			retry_max_attempts: 3,
+			continue_on_error: i % 3 === 0
+		} as GraphNode);
+		overlay.set(id, {
+			status: ['succeeded', 'failed', 'running', 'skipped'][i % 4],
+			attempt: 1 + (i % 3),
+			lanes: i % 5 === 0 ? { succeeded: 12, failed: 3, running: 1 } : {},
+			laneTotal: i % 5 === 0 ? 16 : 0
+		});
+	}
+	nodes.push({ id: '$end', kind: 'end', label: 'end' });
+	return { graph: { nodes, edges: [] } as Graph, overlay };
+}
+
+describe('layout with badges', () => {
+	it('grows a step with its badges and never shrinks below the base size', () => {
+		const bare = { id: 'a', kind: 'step', label: 'a' } as GraphNode;
+		const busy = chain(1).graph.nodes![1];
+		expect(stepHeight(bare)).toBe(48);
+		expect(stepHeight(busy, chain(1).overlay.get('step-0'))).toBeGreaterThan(stepHeight(busy));
+		expect(badgesOf(busy).map((b) => b.text)).toContain('retry ×3');
+	});
+
+	for (let n = 1; n <= 20; n++) {
+		it(`stacks ${n} steps with retry, when and status badges without overlap`, () => {
+			const { graph, overlay } = chain(n);
+			const out = layout(graph, overlay);
+			const nodes = out.nodes;
+			for (let i = 0; i < nodes.length; i++)
+				for (let j = i + 1; j < nodes.length; j++)
+					expect(overlap(nodes[i], nodes[j]), `${nodes[i].node.id} / ${nodes[j].node.id}`).toBe(
+						false
+					);
+			const last = nodes[nodes.length - 1];
+			expect(last.node.kind).toBe('end');
+			expect(out.height).toBeGreaterThanOrEqual(last.y + last.h);
+		});
+	}
 });

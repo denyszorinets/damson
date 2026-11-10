@@ -13,6 +13,10 @@ behavior; read the notes before upgrading.
 - The Jobs page lists the jobs of every project the user can see; choosing a project in the sidebar shows that project and the ones below it at `/projects/<path>`, with a breadcrumb and an All / project selector. New `GET /api/v1/tree/jobs`. A project the user has no role on reads as not found.
 - The job page matches the user's role: Run is disabled with "needs runner" for a viewer, schedules and webhooks show only for instance admins, and a job or run the user cannot see shows a not-found page with links back, the same as one that does not exist. `GET /api/v1/jobs/{id}` returns the caller's role as `job.my_role`.
 
+### Fixed
+
+- The run graph no longer lets a step box overlap the next one or the end node when badges (when, retry, status, attempt, lanes) wrap: a step is as tall as its badges need.
+
 ## [0.1.0] - 2026-11-10
 
 First public release. Everything below was built across milestones M0 to M9

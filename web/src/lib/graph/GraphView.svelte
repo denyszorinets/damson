@@ -10,7 +10,7 @@
 
 	const nodeTypes = { box: GraphBox };
 
-	const laid = $derived(layout(graph));
+	const laid = $derived(layout(graph, overlay));
 	const nodes = $derived<Node[]>(
 		laid.nodes.map((p) => {
 			const container =

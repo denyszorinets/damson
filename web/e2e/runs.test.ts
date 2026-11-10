@@ -177,3 +177,43 @@ test('a refused stream is reopened', async ({ page }) => {
 	await expect(page.getByTestId('run-status')).toHaveText('succeeded');
 	expect(calls).toBe(2);
 });
+
+test('a run with when, retry and status badges lays out without overlapping boxes', async ({
+	page
+}) => {
+	const steps = Array.from({ length: 6 }, (_, i) =>
+		step(`s${i}`, {
+			when: 'always()',
+			retry: { max_attempts: 2, retry_on: 'true', backoff: { initial: '50ms', jitter: 0 } },
+			continue_on_error: i % 2 === 0
+		})
+	);
+	const id = await trigger(page, 'layout-e2e', steps);
+	await page.goto(`/runs/${id}`);
+	await expect(page.getByTestId('run-status')).toHaveText('failed');
+	await expect(node(page, 's5')).toHaveAttribute('data-status', 'failed');
+	const boxes = await page.evaluate(() =>
+		[...document.querySelectorAll('[data-testid^="graph-node-"]')]
+			.filter((e) => ['step', 'start', 'end'].includes(e.getAttribute('data-kind') ?? ''))
+			.map((e) => {
+				const r = e.getBoundingClientRect();
+				return { id: e.getAttribute('data-testid'), x: r.x, y: r.y, w: r.width, h: r.height };
+			})
+	);
+	expect(boxes.length).toBe(8); // start, six steps, end
+	for (let i = 0; i < boxes.length; i++)
+		for (let j = i + 1; j < boxes.length; j++) {
+			const a = boxes[i];
+			const b = boxes[j];
+			const overlaps = a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+			expect(overlaps, `${a.id} overlaps ${b.id}`).toBe(false);
+		}
+	// A box also shows all of its content: nothing is clipped.
+	const clipped = await page.evaluate(
+		() =>
+			[...document.querySelectorAll('[data-testid^="graph-node-s"]')].filter(
+				(e) => e.scrollHeight > e.clientHeight + 1
+			).length
+	);
+	expect(clipped).toBe(0);
+});
