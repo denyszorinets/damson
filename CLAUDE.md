@@ -64,7 +64,7 @@ Run `make check` before declaring any task done, and `make docs-check` when docs
 
 Implement the milestone's open issues one by one without asking which is next. Per issue: branch from `develop`, implement, check (see Agent team), PR, wait for green CI, merge yourself (`gh pr merge --squash`), verify MERGED, take the next issue. All git operations on feature branches are allowed, including `--force-with-lease`. Never merge into `main`, release, plain `--force`, or bypass red CI. Ask only for "When unsure" topics ARCHITECTURE doesn't settle. Details: `.claude/skills/gitflow/SKILL.md` (Standing Autonomy).
 
-UI overhaul work (the `ui-*` and `pf-*` roadmaps) branches from `ui-develop` and its PRs target `ui-develop`, not `develop`. PRs go to `origin` (`rshingleton/damson`), never `upstream`. A do-it run (`/do-it`, `/finish-it`) still commits only and never pushes or opens a PR unless asked.
+UI overhaul work (the `ui-*` and `pf-*` roadmaps) happens directly on `ui-develop`: one branch, no slice branches, no PRs unless asked. PRs go to `origin` (`rshingleton/damson`), never `upstream`. A do-it run (`/do-it`, `/finish-it`) still commits only and never pushes or opens a PR unless asked.
 
 ## Go conventions
 

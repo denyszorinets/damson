@@ -16,7 +16,7 @@ The repository uses two permanent branches:
 
 * `main` — release/production branch
 * `develop` — latest development branch
-* `ui-develop` — integration branch for the UI overhaul. UI slice branches start from it and their PRs target it (`--base ui-develop`). It merges into `develop` once, as a whole, only when the maintainer says so.
+* `ui-develop` — integration branch for the UI overhaul. UI work is committed directly on it: no slice branches, no PRs unless asked. It merges into `develop` once, as a whole, only when the maintainer says so.
 
 PRs go to `origin` (`rshingleton/damson`), never to `upstream` (`denyszorinets/damson`): pass `--repo rshingleton/damson` to `gh pr create`.
 

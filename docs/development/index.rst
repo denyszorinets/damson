@@ -18,3 +18,4 @@ How to contribute to Damson.
    agent
    controller-logs
    web-ui
+   dev-environment

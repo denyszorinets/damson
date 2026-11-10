@@ -40,6 +40,15 @@ R13 audit round, not fixed in the run:
 - `from` and `to` are hand-parsed strings; a `format:"date-time"` tag would put the format in the OpenAPI schema.
 - No e2e of Load more combined with a filter.
 
+Final review of R12 and R13, not fixed in the run:
+- `utcTime` drops an unparsable `from` or `to`, so a half-typed time filter silently shows an unfiltered list.
+- The audit actor filter matches the id only; filtering by the shown name or email returns nothing.
+- `from` later than `to` returns an empty page; a 400 would say why.
+- `/access/check` on a missing project returns a bare 404 with no message; `p, _ := PrincipalFrom(ctx)` in `/access/me` drops the error.
+- No test pins that a check result equals the enforced role for the same identity.
+- The fail-closed audit of `access.check` (an audit failure returns no result) is not in the ADR.
+(A reviewer's claim that `jobRules[g.Index]` can go out of range was rejected: `Explain` and the rule lookup use the same in-memory lists from one read.)
+
 ## Acceptance
 
 - Each point fixed or dropped with a reason.
