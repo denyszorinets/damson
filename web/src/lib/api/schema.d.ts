@@ -4830,6 +4830,8 @@ export interface operations {
                 job?: string;
                 /** @description Only runs in this status. */
                 status?: "pending" | "running" | "succeeded" | "failed" | "canceled";
+                /** @description Only runs of jobs in this project and the projects below it. A project the caller holds no role on answers 404, as a missing one does. */
+                project?: string;
             };
             header?: never;
             path?: never;

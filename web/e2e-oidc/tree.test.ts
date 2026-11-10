@@ -262,6 +262,56 @@ test('Home never lists jobs or runs, and each project is an entry point', async 
 	await expect(dave.getByTestId('project-title')).toHaveText('tree-acme/pay');
 });
 
+test("a project's Activity and Overview list only the runs of its jobs", async ({ browser }) => {
+	const alice = await as(browser, 'alice-sub');
+	const me = await (await alice.request.get('/api/v1/me')).json();
+	const jobs = (await (await alice.request.get('/api/v1/tree/jobs?limit=200')).json()).items;
+	for (const name of ['charge', 'nightly']) {
+		const j = jobs.find(
+			(x: { name: string; project: string }) => x.name === name && x.project.startsWith('tree-')
+		);
+		const r = await alice.request.post(`/api/v1/jobs/${j.id}/runs`, {
+			data: {},
+			headers: { 'X-CSRF-Token': me.csrf_token }
+		});
+		expect(r.status()).toBe(201);
+	}
+	const names = async (page: Page) =>
+		(await page.getByTestId('run-row').allTextContents()).join('\n');
+
+	// The dev agent has no inventory, so the runs fail at once.
+	await alice.goto('/projects/tree-acme/pay/-/activity');
+	await expect(alice.getByTestId('run-row').first()).toBeVisible();
+	expect(await names(alice)).toContain('charge');
+	expect(await names(alice)).not.toContain('nightly');
+	expect(await names(alice)).not.toContain('deploy');
+	// The status filter narrows the list; the project filter stays.
+	await alice.getByTestId('filter-status').click();
+	await alice.getByRole('option', { name: 'succeeded' }).click();
+	await expect(alice.getByTestId('run-row')).toHaveCount(0);
+	await alice.getByTestId('filter-status').click();
+	await alice.getByRole('option', { name: 'failed' }).click();
+	await expect(alice.getByTestId('run-row').first()).toBeVisible();
+
+	await alice.goto('/projects/tree-acme/pay/-/overview');
+	await expect(alice.getByTestId('success-rate')).toContainText('0%');
+	await expect(alice.getByTestId('run-row').first()).toContainText('charge');
+
+	// dave holds a role on tree-acme/pay alone and sees its runs there.
+	const dave = await as(browser, 'dave-sub');
+	await dave.goto('/projects/tree-acme/pay/-/activity');
+	await expect(dave.getByTestId('run-row').first()).toBeVisible();
+	expect(await names(dave)).not.toContain('nightly');
+
+	// bob is a runner on tree-acme: another project's runs read as missing, in the page and the API.
+	const bob = await as(browser, 'bob-sub');
+	await bob.goto('/projects/tree-ops/-/activity');
+	await expect(bob.getByTestId('activity-error')).toBeVisible();
+	await expect(bob.getByTestId('run-row')).toHaveCount(0);
+	expect((await bob.request.get('/api/v1/runs?project=tree-ops')).status()).toBe(404);
+	expect((await bob.request.get('/api/v1/runs?project=tree-acme')).status()).toBe(200);
+});
+
 const spec = (project: string, name: string, command: string, steps?: unknown[]) =>
 	JSON.stringify(
 		{

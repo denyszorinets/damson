@@ -348,6 +348,63 @@ func TestListRunsOfAMissingJobIsNotFound(t *testing.T) {
 	})
 }
 
+func TestListRunsFilteredByProject(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		w := newAuthzWorld(t, st, 1)
+		w.mustAdmin("POST", "/api/v1/jobs/"+w.webJob+"/runs", `{"options":{}}`, 201)
+		w.mustAdmin("POST", "/api/v1/jobs/"+w.opsJob+"/runs", `{"options":{}}`, 201)
+		count := func(user, project string) (int, int) {
+			rec := w.do(0, "GET", "/api/v1/runs?project="+project, "", withCookies(cookieHeader(w.sess[user])))
+			if rec.Code != http.StatusOK {
+				return rec.Code, 0
+			}
+			var page struct {
+				Items []struct {
+					JobID string `json:"job_id"`
+				} `json:"items"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page))
+			for _, it := range page.Items {
+				assert.Contains(t, []string{w.webJob, w.opsJob}, it.JobID)
+			}
+			return rec.Code, len(page.Items)
+		}
+		tests := []struct {
+			user, project string
+			code, runs    int
+		}{
+			{"alice", "team", 200, 1}, // the web job's run, from the project below
+			{"alice", "team%2Fweb", 200, 1},
+			{"alice", "ops", 200, 1},
+			{"bob", "team", 200, 1},
+			{"bob", "team%2Fweb", 200, 1},
+			{"bob", "ops", 404, 0},   // no role looks like no project
+			{"bob", "nope", 404, 0},  // and so does a missing one
+			{"dave", "team", 404, 0}, // a role on a child gives no view of its parent
+			{"dave", "team%2Fweb", 200, 1},
+			{"erin", "team%2Fweb", 404, 0},
+			{"frank", "ops", 404, 0}, // a job rule alone is not a project role
+		}
+		for _, tt := range tests {
+			code, n := count(tt.user, tt.project)
+			assert.Equal(t, tt.code, code, "%s %s", tt.user, tt.project)
+			assert.Equal(t, tt.runs, n, "%s %s", tt.user, tt.project)
+		}
+		// A job outside the project matches nothing; the pair is not silently reduced to the job.
+		rec := w.do(0, "GET", "/api/v1/runs?project=ops&job="+w.webJob, "", withCookies(cookieHeader(w.sess["alice"])))
+		require.Equal(t, 200, rec.Code)
+		assert.JSONEq(t, `{"items":[]}`, rec.Body.String())
+		// The instance admin and a job in the project work as before.
+		rec = w.do(0, "GET", "/api/v1/runs?project=team&job="+w.webJob, "", withCookies(cookieHeader(w.sess["alice"])))
+		require.Equal(t, 200, rec.Code)
+		assert.Contains(t, rec.Body.String(), w.webJob)
+		// The filter composes with the other filters and keeps the visible set.
+		code, n := count("bob", "team&status=failed")
+		assert.Equal(t, 200, code)
+		assert.Zero(t, n)
+	})
+}
+
 type auditList struct {
 	Items []api.AuditEvent `json:"items"`
 }

@@ -243,15 +243,11 @@ const (
 	scanPages = 20
 )
 
-// visibleRuns is QueryRuns for a user who may see only some projects: it reads
+// visibleRuns is QueryRuns for a caller who may see only the projects in visible (roles by path): it reads
 // pages and keeps the runs of projects the user holds a role on, until limit
 // are found or the scan bound is hit (then the cursor lets the caller go on).
-func (d deps) visibleRuns(ctx context.Context, p Principal, f store.RunFilter, cursor string, limit int) (store.RunPage, error) {
-	projects, err := d.ds.ListProjects(ctx)
-	if err != nil {
-		return store.RunPage{}, err
-	}
-	visible := d.projectRoles(ctx, p, projects)
+// A non-empty project keeps only the runs of that project and those below it.
+func (d deps) visibleRuns(ctx context.Context, f store.RunFilter, visible map[string]string, project, cursor string, limit int) (store.RunPage, error) {
 	limit = store.ClampLimit(limit)
 	projectOfJob := map[string]string{} // job id to project path, "" when unknown
 	var out store.RunPage
@@ -268,7 +264,7 @@ func (d deps) visibleRuns(ctx context.Context, p Principal, f store.RunFilter, c
 				}
 				projectOfJob[r.JobID] = path
 			}
-			if visible[path] == "" {
+			if visible[path] == "" || !inScope(path, project) {
 				continue
 			}
 			out.Runs = append(out.Runs, r)

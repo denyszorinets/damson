@@ -7168,6 +7168,17 @@
               ],
               "type": "string"
             }
+          },
+          {
+            "description": "Only runs of jobs in this project and the projects below it. A project the caller holds no role on answers 404, as a missing one does.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Only runs of jobs in this project and the projects below it. A project the caller holds no role on answers 404, as a missing one does.",
+              "maxLength": 256,
+              "type": "string"
+            }
           }
         ],
         "responses": {

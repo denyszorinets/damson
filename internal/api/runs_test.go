@@ -138,6 +138,9 @@ func TestListRuns(t *testing.T) {
 		}
 		assert.Equal(t, ids, collect(""))
 		assert.Equal(t, []string{ids[0], ids[2]}, collect("&job="+a.Job.ID))
+		assert.Equal(t, ids, collect("&project=default"), "login off sees every project, through the same helper")
+		assert.Equal(t, []string{ids[0], ids[2]}, collect("&project=default&job="+a.Job.ID))
+		f.callOK(t, http.MethodGet, "/api/v1/runs?project=nope", "", http.StatusNotFound, nil)
 		assert.Equal(t, ids[:1], collect("&status=running"))
 		assert.Empty(t, collect("&status=failed"))
 		f.callOK(t, http.MethodGet, "/api/v1/runs?status=bogus", "", http.StatusUnprocessableEntity, nil)

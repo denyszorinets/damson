@@ -166,10 +166,11 @@ type runIDInput struct {
 }
 
 type listRunsInput struct {
-	Cursor string `query:"cursor" doc:"Opaque cursor from a previous page's next_cursor."`
-	Limit  int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Page size."`
-	Job    string `query:"job" maxLength:"128" doc:"Only runs of this job id."`
-	Status string `query:"status" enum:"pending,running,succeeded,failed,canceled" doc:"Only runs in this status."`
+	Cursor  string `query:"cursor" doc:"Opaque cursor from a previous page's next_cursor."`
+	Limit   int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Page size."`
+	Job     string `query:"job" maxLength:"128" doc:"Only runs of this job id."`
+	Status  string `query:"status" enum:"pending,running,succeeded,failed,canceled" doc:"Only runs in this status."`
+	Project string `query:"project" maxLength:"256" doc:"Only runs of jobs in this project and the projects below it. A project the caller holds no role on answers 404, as a missing one does."`
 }
 
 type listRunsOutput struct {
@@ -205,10 +206,40 @@ func registerRuns(api huma.API, d deps) {
 				return nil, apiError(ctx, err)
 			}
 		}
+		var visible map[string]string // roles by project path, when the list needs a scan
+		if in.Project != "" {
+			v, err := d.scopeOf(ctx) // the one helper that decides visibility, login off included
+			if err != nil {
+				return nil, apiError(ctx, err)
+			}
+			if !v.sees(in.Project) {
+				return nil, apiError(ctx, store.ErrNotFound) // no role looks like no project
+			}
+			visible = v.roles
+		}
 		filter := store.RunFilter{JobID: in.Job, Status: store.RunStatus(in.Status)}
+		if in.Job != "" && in.Project != "" { // the job must lie in the project, else nothing matches
+			path, err := d.projectOfJobRow(ctx, in.Job)
+			if err != nil {
+				return nil, apiError(ctx, err)
+			}
+			if !inScope(path, in.Project) {
+				empty := &listRunsOutput{}
+				empty.Body.Items = []Run{}
+				return empty, nil
+			}
+		}
 		var page store.RunPage
-		if p, _ := PrincipalFrom(ctx); in.Job == "" && p.Session != nil && !p.InstanceAdmin {
-			page, err = d.visibleRuns(ctx, p, filter, cursor, in.Limit)
+		p, _ := PrincipalFrom(ctx)
+		if restricted := p.Session != nil && !p.InstanceAdmin; in.Job == "" && (visible != nil || restricted) {
+			if visible == nil {
+				projects, err := d.ds.ListProjects(ctx)
+				if err != nil {
+					return nil, apiError(ctx, err)
+				}
+				visible = d.projectRoles(ctx, p, projects)
+			}
+			page, err = d.visibleRuns(ctx, filter, visible, in.Project, cursor, in.Limit)
 		} else {
 			page, err = d.ds.QueryRuns(ctx, filter, cursor, in.Limit)
 		}
