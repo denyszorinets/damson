@@ -28,7 +28,7 @@ test.beforeAll(async ({ browser }) => {
 	const me = await (await page.request.get('/api/v1/me')).json();
 	const h = { 'X-CSRF-Token': me.csrf_token };
 	const ok = (r: { status(): number }) => expect([200, 201, 409]).toContain(r.status());
-	for (const path of ['tree-acme', 'tree-acme/pay', 'tree-ops'])
+	for (const path of ['tree-acme', 'tree-acme/pay', 'tree-ops', 'tree-set'])
 		ok(await page.request.post('/api/v1/projects', { data: { path }, headers: h }));
 	const rules = (path: string, rules: { role: string; rule: string }[]) =>
 		page.request.put(`/api/v1/projects/${encodeURIComponent(path)}/access-rules`, {
@@ -42,6 +42,7 @@ test.beforeAll(async ({ browser }) => {
 		])
 	);
 	ok(await rules('tree-acme/pay', [{ role: 'editor', rule: "'team-leads' in claims.groups" }]));
+	ok(await rules('tree-set', [{ role: 'admin', rule: "'team-viewers' in claims.groups" }]));
 	const ids: Record<string, string> = {};
 	for (const [project, name] of [
 		['tree-acme', 'deploy'],
@@ -325,6 +326,72 @@ test("a project's Activity and Overview list only the runs of its jobs", async (
 	await expect(bob.getByTestId('run-row')).toHaveCount(0);
 	expect((await bob.request.get('/api/v1/runs?project=tree-ops')).status()).toBe(404);
 	expect((await bob.request.get('/api/v1/runs?project=tree-acme')).status()).toBe(200);
+});
+
+test('Settings and Access are for project admins: tabs, description, rules and the check', async ({
+	browser
+}) => {
+	// alice, an instance admin, edits the description and reads the rules of tree-acme.
+	const alice = await as(browser, 'alice-sub');
+	await alice.goto('/projects/tree-acme');
+	await expect(alice.getByTestId('nav-settings')).toBeVisible();
+	await expect(alice.getByTestId('nav-access')).toBeVisible();
+	await alice.getByTestId('nav-settings').click();
+	await expect(alice).toHaveURL(/\/projects\/tree-acme\/-\/settings$/);
+	await alice.getByTestId('settings-description').fill('Acme payments and friends');
+	await alice.getByTestId('settings-save').click();
+	await expect(alice.getByTestId('settings-saved')).toBeVisible();
+	await alice.reload();
+	await expect(alice.getByTestId('settings-description')).toHaveValue('Acme payments and friends');
+
+	await alice.getByTestId('nav-access').click();
+	await expect(alice.getByTestId('access-rule')).toHaveCount(2);
+	await expect(alice.getByTestId('access-rules')).toContainText("'team-ops' in claims.groups");
+	// The check has the project filled in.
+	await alice.getByTestId('check-groups').fill('team-ops');
+	await alice.getByTestId('check-run').click();
+	await expect(alice.getByTestId('check-role')).toHaveText('runner');
+
+	// bob (runner) and carol (viewer) on tree-acme: no tabs, and the URLs read as not found.
+	for (const sub of ['bob-sub', 'carol-sub']) {
+		const user = await as(browser, sub);
+		await user.goto('/projects/tree-acme');
+		await expect(user.getByTestId('project-nav')).toBeVisible();
+		await expect(user.getByTestId('nav-settings')).toHaveCount(0);
+		await expect(user.getByTestId('nav-access')).toHaveCount(0);
+		for (const tab of ['settings', 'access']) {
+			await user.goto(`/projects/tree-acme/-/${tab}`);
+			await expect(user.getByTestId('not-found')).toBeVisible();
+			await expect(user.getByTestId('access')).toHaveCount(0);
+		}
+	}
+
+	// carol administers tree-set (not an instance admin): both tabs, rules read-only, no check form.
+	const carol = await as(browser, 'carol-sub');
+	await carol.goto('/projects/tree-set');
+	await carol.getByTestId('nav-access').click();
+	await expect(carol.getByTestId('access-rule')).toHaveCount(1);
+	await expect(carol.getByTestId('access-check')).toHaveCount(0);
+	await carol.getByTestId('nav-settings').click();
+	await expect(carol.getByTestId('settings-description')).toBeVisible();
+	// Deleting a root project needs an instance admin.
+	await expect(carol.getByTestId('settings-delete')).toHaveCount(0);
+	await expect(carol.getByTestId('settings-delete-needs')).toBeVisible();
+});
+
+test('an instance admin deletes an empty project from its Settings', async ({ browser }) => {
+	const alice = await as(browser, 'alice-sub');
+	const me = await (await alice.request.get('/api/v1/me')).json();
+	const made = await alice.request.post('/api/v1/projects', {
+		data: { path: 'tree-del' },
+		headers: { 'X-CSRF-Token': me.csrf_token }
+	});
+	expect([200, 201, 409]).toContain(made.status());
+	await alice.goto('/projects/tree-del/-/settings');
+	await alice.getByTestId('settings-delete').click();
+	await alice.getByTestId('settings-delete-confirm').click();
+	await expect(alice).toHaveURL(/\/$/);
+	expect((await alice.request.get('/api/v1/projects/tree-del')).status()).toBe(404);
 });
 
 const spec = (project: string, name: string, command: string, steps?: unknown[]) =>

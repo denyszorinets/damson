@@ -1,15 +1,24 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { atLeast } from '$lib/projects';
 	import { projectRest } from '$lib/projectroute';
 
-	/** The project's own sidebar; every page behind it shows only that project's data. */
-	let { path, tab }: { path: string; tab: string } = $props();
+	/**
+	 * The project's own sidebar; every page behind it shows only that project's
+	 * data. Settings and Access are for the project's admins; the caller's role
+	 * decides, and the server checks again.
+	 */
+	let { path, tab, role }: { path: string; tab: string; role?: string } = $props();
 
-	const items = [
-		{ id: 'overview', label: 'Overview', rest: ['overview'] },
-		{ id: '', label: 'Jobs', rest: [] },
-		{ id: 'activity', label: 'Activity', rest: ['activity'] }
-	];
+	const items = $derived(
+		[
+			{ id: 'overview', label: 'Overview', rest: ['overview'], need: 'viewer' as const },
+			{ id: '', label: 'Jobs', rest: [] as string[], need: 'viewer' as const },
+			{ id: 'activity', label: 'Activity', rest: ['activity'], need: 'viewer' as const },
+			{ id: 'access', label: 'Access', rest: ['access'], need: 'admin' as const },
+			{ id: 'settings', label: 'Settings', rest: ['settings'], need: 'admin' as const }
+		].filter((i) => i.need === 'viewer' || atLeast(role, i.need))
+	);
 </script>
 
 <nav aria-label="Project" class="flex gap-1 md:flex-col" data-testid="project-nav">

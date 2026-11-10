@@ -69,6 +69,20 @@ export async function createProject(path: string, description: string): Promise<
 	return fail(await api.POST('/projects', { body: { path, description } }));
 }
 
+/** Changes a project's description; the path never changes. 409 when the version moved. */
+export async function updateProjectDescription(
+	path: string,
+	description: string,
+	version: number
+): Promise<Project> {
+	return fail(
+		await api.PATCH('/projects/{path}', {
+			params: { path: { path } },
+			body: { description, if_version: version }
+		})
+	);
+}
+
 export async function deleteProject(path: string): Promise<void> {
 	const res = await api.DELETE('/projects/{path}', { params: { path: { path } } });
 	if (res.error !== undefined) throw res.error;
