@@ -29,6 +29,8 @@ behavior; read the notes before upgrading.
 
 - Nodes page: a selector builder turns a field and a value into a quoted clause (os, transport, pool, name, tag, or an attribute with an identifier key) and adds it to the selector; selectors can be saved under a name, reused and deleted (kept in this browser). Agents page: a Health column tells a healthy agent from one that is connected but has not been heard from for 30 seconds, and from one that is offline. Secrets page: **Copy reference** copies the `secret://` reference (never a value).
 
+- An **Access** page: every signed-in user sees their own roles and the kind of rule that gave each (direct, inherited from a named ancestor, or the job's own); an instance admin can enter groups, an optional email and a project or job to see the role they would hold and the rule that grants it, evaluated by the same code that enforces rules. New `GET /api/v1/access/me` and `POST /api/v1/access/check`; the check is audited as `access.check` without the groups or the email.
+
 ### Fixed
 
 - The run graph no longer lets a step box overlap the next one or the end node when badges (when, retry, status, attempt, lanes) wrap: a step is as tall as its badges need.

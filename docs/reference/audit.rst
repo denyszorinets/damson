@@ -71,6 +71,9 @@ Actions
    * - ``project.create``, ``project.update``, ``project.delete``
      - ``project``
      - see :doc:`projects`
+   * - ``access.check``
+     - ``project``, ``job``
+     - see :doc:`access-rules`
    * - ``project.access_rules.update``, ``job.access_rules.update``
      - ``project``, ``job``
      - see :doc:`access-rules`

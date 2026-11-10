@@ -118,3 +118,25 @@ Further limits
   disconnects.
 - ``GET /runs?job=<id>`` answers 404 for a job that does not exist, like for one the
   caller cannot see.
+
+Addendum: explaining a role (2026-11-10)
+----------------------------------------
+
+The web UI shows where a role comes from (roadmap ``ui-overhaul``, R12). Two
+policies the text above did not record:
+
+- **Rule text is for instance admins.** ``POST /access/check`` returns the
+  granting rule's expression to an instance admin. ``GET /access/me`` gives any
+  signed-in user the kind of rule and, for an inherited role, the ancestor's path
+  (a role on an ancestor means a role on that project too, so it is not hidden),
+  never an expression: expressions can name other people and groups. A project
+  admin can already read their own project's rules (``get-project-access``).
+- **A check is audited though it changes nothing.** ``access.check`` records the
+  number of groups, whether an email was given, the role and the source kind,
+  never the groups, the email or a rule. The request fails if the event cannot be
+  written.
+
+``policy.Evaluator.Role`` is defined as ``Explain(...).Role``, so what is
+explained is what is enforced. The checked identity holds only the groups and the
+email: rules on other claims grant nothing in a check (decision D4: no raw claims
+and no acting as another user).

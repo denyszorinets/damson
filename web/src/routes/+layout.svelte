@@ -24,6 +24,9 @@
 		<a href={resolve('/jobs')} class="text-muted-foreground hover:text-foreground">Jobs</a>
 		<a href={resolve('/projects')} class="text-muted-foreground hover:text-foreground">Projects</a>
 		<a href={resolve('/agents')} class="text-muted-foreground hover:text-foreground">Agents</a>
+		{#if me?.kind === 'user'}
+			<a href={resolve('/access')} class="text-muted-foreground hover:text-foreground">Access</a>
+		{/if}
 		{#if admin}
 			<a href={resolve('/nodes')} class="text-muted-foreground hover:text-foreground">Nodes</a>
 			<a href={resolve('/secrets')} class="text-muted-foreground hover:text-foreground">Secrets</a>

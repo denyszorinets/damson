@@ -129,6 +129,8 @@ Go test fails when ``web/openapi.json`` differs from the live document.
      - Project tree, authorized by role (:doc:`projects`).
    * - ``GET /api/v1/tree``, ``GET /api/v1/tree/shared``, ``GET /api/v1/tree/jobs``
      - One level of the caller's project tree, the jobs shared only through job rules, and the jobs of a project and below (:doc:`projects`).
+   * - ``GET /api/v1/access/me``, ``POST /api/v1/access/check``
+     - The caller's own roles and their sources; why an identity has a role (instance admin) (:doc:`access-rules`).
    * - ``GET``/``PUT /api/v1/projects/{path}/access-rules``, ``GET``/``PUT /api/v1/jobs/{id}/access-rules``
      - Read and set access rules; ``{"rules": [{"role","rule"}], "if_version"}``,
        response ``{"rules","version"}``. ``admin`` needed

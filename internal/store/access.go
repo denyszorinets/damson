@@ -17,7 +17,9 @@ const (
 const (
 	ActionProjectAccessRulesUpdate = "project.access_rules.update"
 	ActionJobAccessRulesUpdate     = "job.access_rules.update"
-	AuditTargetJob                 = "job"
+	// ActionAccessCheck is an instance admin asking why an identity has or lacks a role.
+	ActionAccessCheck = "access.check"
+	AuditTargetJob    = "job"
 )
 
 // AccessRule grants Role to whoever the CEL expression Rule is true for

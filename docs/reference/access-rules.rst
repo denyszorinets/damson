@@ -119,6 +119,30 @@ Audit
 ``path`` or ``job_id``, ``count`` and ``roles``, never the expressions. The
 actor is ``user:<sub>``, ``sa:<id>`` or ``admin-token:<hash prefix>``.
 
+Explaining a role
+-----------------
+
+``GET /api/v1/access/me`` lists the caller's own roles with where each comes
+from: ``direct`` (a rule of the project itself), ``inherited`` (a rule of an
+ancestor, named), ``job`` (a rule of the job itself, for a job reached only that
+way), ``instance_admin`` (the admin rule at login) or ``token`` (a service token's
+scope), with the rule's position in its list. Rule texts are not shown: an
+expression can name other users and groups. The web UI shows this at **Access**.
+
+``POST /api/v1/access/check`` (an instance admin) answers "why can this person do
+that?": the body is ``groups`` (as the groups claim would list them), an optional
+``email``, and a ``project`` or a ``job_id`` (whose own rules count too). The
+answer names the role, the granting rule with its expression and position, and
+how many rules were evaluated. It runs the evaluator that enforces the rules
+(``Role`` is defined as ``Explain``), so the answer cannot drift from
+enforcement. Limits: the identity has the groups and email only, so a rule on any
+other claim, on ``user.sub`` or on ``user.name`` grants nothing here, and the
+instance admin rule, evaluated at login, is not part of it. ``/access/me`` is
+evaluated on every call while enforcement is cached for a minute per controller,
+so after a rule edit the two can briefly differ on another controller. The check is audited as
+``access.check`` (target ``project`` or ``job``) with the group count, whether an
+email was given, the role and the source kind, never the groups or the email.
+
 Caching
 -------
 

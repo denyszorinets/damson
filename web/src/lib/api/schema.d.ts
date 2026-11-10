@@ -4,6 +4,46 @@
  */
 
 export interface paths {
+    "/access/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Why an identity has, or lacks, a role (instance admin)
+         * @description Evaluates the access rules for the given groups and email with the evaluator that enforces them, and names the rule that granted the role. The instance admin rule is evaluated at login and is not part of this. The check is audited as access.check, with counts, never the groups or the email.
+         */
+        post: operations["check-access"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/access/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's own roles and where they come from
+         * @description Each project the caller holds a role on, and each job reached only through a rule of the job, with the kind of rule and the project it belongs to. Rule texts are not shown here.
+         */
+        get: operations["get-my-access"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents": {
         parameters: {
             query?: never;
@@ -896,6 +936,29 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AccessCheck: {
+            job_id?: string;
+            note: string;
+            project: string;
+            /** @description Absent when no rule grants a role. */
+            role?: string;
+            /**
+             * Format: int64
+             * @description How many rules were evaluated, along the project path and the job.
+             */
+            rules: number;
+            source?: components["schemas"]["AccessSource"];
+        };
+        AccessCheckInputBody: {
+            /** @description An email address, for rules on user.email. */
+            email?: string;
+            /** @description Group names to evaluate the rules for, as the groups claim would list them. */
+            groups?: string[] | null;
+            /** @description A job to check: its own rules count too. */
+            job_id?: string;
+            /** @description The project to check. Needed unless job_id is given. */
+            project?: string;
+        };
         AccessRule: {
             /**
              * @description On a job only viewer, runner and editor are allowed.
@@ -912,6 +975,22 @@ export interface components {
              * @description Send as if_version on the next change. A job with no rules has version 0.
              */
             version: number;
+        };
+        AccessSource: {
+            /**
+             * @description direct: a rule of the project itself; inherited: a rule of an ancestor project; job: a rule of the job; instance_admin: the instance admin rule at login; token: the service token's scope.
+             * @enum {string}
+             */
+            kind: "direct" | "inherited" | "job" | "instance_admin" | "token";
+            /** @description The project whose rule granted the role. */
+            project?: string;
+            /** @description The rule's expression; present in an access check only. */
+            rule?: string;
+            /**
+             * Format: int64
+             * @description Position of the rule in that project's or job's list, from 0; -1 when no rule applies (an instance admin or a token).
+             */
+            rule_index: number;
         };
         Agent: {
             /** @description Plugin name to version. */
@@ -982,7 +1061,7 @@ export interface components {
             };
         };
         AuditEvent: {
-            /** @description secret.create, secret.update, secret.delete, secret.kek_rotate, log.purge, admin_token.create, admin_token.revoke, metrics_token.create, metrics_token.revoke, audit.prune, run.prune, schedule.create, schedule.update, schedule.delete, webhook.create, webhook.revoke, project.create, project.update, project.delete, project.access_rules.update, job.access_rules.update, service_account.create, service_account.delete, service_token.create, service_token.revoke, job.create, job.version.create, run.trigger, run.cancel, auth.login or secret.read. */
+            /** @description secret.create, secret.update, secret.delete, secret.kek_rotate, log.purge, admin_token.create, admin_token.revoke, metrics_token.create, metrics_token.revoke, audit.prune, run.prune, schedule.create, schedule.update, schedule.delete, webhook.create, webhook.revoke, project.create, project.update, project.delete, project.access_rules.update, job.access_rules.update, service_account.create, service_account.delete, service_token.create, service_token.revoke, job.create, job.version.create, run.trigger, run.cancel, access.check, auth.login or secret.read. */
             action: string;
             /** @description user:<sub>, sa:<service account id>, admin-token:<hash prefix>, cli:<os user>, system:<duty>, webhook:<id> or anonymous. */
             actor: string;
@@ -1356,6 +1435,19 @@ export interface components {
             kind: "anonymous" | "admin_token" | "service_account" | "user";
             name?: string;
             sub?: string;
+        };
+        MyAccessItem: {
+            job_id?: string;
+            /** @description The job's name, for a job. */
+            name?: string;
+            /** @description Set for a project. A job shared only by its own rule names no project. */
+            project?: string;
+            role: string;
+            source: components["schemas"]["AccessSource"];
+        };
+        MyAccessOutputBody: {
+            /** @description Projects first, ordered by path, then jobs reached only through a rule of the job. */
+            items: components["schemas"]["MyAccessItem"][] | null;
         };
         Node: {
             address: string;
@@ -1969,6 +2061,131 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    "check-access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccessCheckInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessCheck"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "get-my-access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyAccessOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "list-agents": {
         parameters: {
             query?: {

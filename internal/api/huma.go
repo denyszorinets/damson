@@ -156,6 +156,7 @@ func newHuma(mux *http.ServeMux, d deps, env *expr.Env) huma.API {
 	registerProjects(api, d)
 	registerTree(api, d)
 	registerTreeJobs(api, d)
+	registerAccessCheck(api, d)
 	registerAccess(api, d)
 	registerApply(api, d)
 	registerNodeScope(api, d)

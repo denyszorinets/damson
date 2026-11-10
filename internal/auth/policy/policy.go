@@ -63,15 +63,27 @@ func (e *Evaluator) program(rule string) (*expr.Program, error) {
 	return p, nil
 }
 
-// Role is the highest role granted to id by any rule of any list: a rule grants
-// its role when it evaluates to true. A rule that does not compile or does not
-// evaluate (for example because a claim is missing) grants nothing; the log
-// names the rule's role, never claim values (at debug level: a rule on a claim some users lack fails on every request). "" means no role.
-func (e *Evaluator) Role(id expr.Identity, lists ...[]store.AccessRule) string {
-	best := ""
-	for _, rules := range lists {
+// Grant is the outcome of evaluating rule lists for one identity: the role and
+// the rule that gave it. List and Index locate the rule (which of the lists
+// passed in, and its place in that list); both are -1 when no rule granted a role.
+type Grant struct {
+	Role  string
+	List  int
+	Index int
+}
+
+// Explain evaluates the rule lists for id and says which rule granted the role:
+// the highest role any rule grants, and of equal roles the first. A rule grants
+// its role when it evaluates to true; one that does not compile or does not
+// evaluate (for example because a claim is missing) grants nothing. The log names
+// the rule's role, never claim values (at debug level: a rule on a claim some
+// users lack fails on every request). Role is this function, so what is explained
+// is what is enforced.
+func (e *Evaluator) Explain(id expr.Identity, lists ...[]store.AccessRule) Grant {
+	best := Grant{List: -1, Index: -1}
+	for li, rules := range lists {
 		for i, r := range rules {
-			if store.RoleRank(r.Role) <= store.RoleRank(best) {
+			if store.RoleRank(r.Role) <= store.RoleRank(best.Role) {
 				continue // cannot raise the result; skip the evaluation
 			}
 			p, err := e.program(r.Rule)
@@ -85,11 +97,16 @@ func (e *Evaluator) Role(id expr.Identity, lists ...[]store.AccessRule) string {
 				continue
 			}
 			if ok {
-				best = r.Role
+				best = Grant{Role: r.Role, List: li, Index: i}
 			}
 		}
 	}
 	return best
+}
+
+// Role is the highest role granted to id by any rule of any list ("" for none).
+func (e *Evaluator) Role(id expr.Identity, lists ...[]store.AccessRule) string {
+	return e.Explain(id, lists...).Role
 }
 
 // FieldError locates one invalid rule.
