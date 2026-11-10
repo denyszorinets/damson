@@ -370,6 +370,35 @@ Tests: ``lib/nodes.test.ts`` (vitest) covers form parsing and ``formOf`` with
 null tags and attributes. The Playwright test ``web/e2e/nodes.test.ts`` mocks
 the nodes API.
 
+.. _web-ui-job-editor:
+
+Job editor
+----------
+
+New job and Edit (``/jobs/new/{project}`` and ``/jobs/{id}/edit``) show the spec in
+tabs. The JSON text is the single source of truth: each tab parses it, changes its
+own part and writes it back, so fields the tabs do not know (groups, ``catch``,
+``finally``, ``runs_on``, ``for_each``, retry backoff) are kept as they are. While
+the text does not parse, the form tabs are disabled and the JSON tab stays usable.
+
+* **Details**: name, description, the run timeout and the node selector.
+* **Options**: one row per property of ``spec.options`` (name, type, title,
+  default, required). A property that uses other schema keywords, such as an
+  enum, is kept untouched and edited in the JSON tab.
+* **Steps**: add, remove and reorder steps; each plugin step has id, plugin
+  (names from ``GET /plugins``), timeout, ``when``, retry attempts and
+  continue-on-error. ``with`` is edited as JSON, because its values may be
+  ``${{ }}`` expressions that a typed plugin form would refuse. A group, or a step
+  with more fields than the form shows, is edited whole as JSON.
+* **Triggers**: the job's schedules and webhooks, for an existing job only. They
+  are separate resources saved on their own, not part of a version.
+* **JSON**: the full text.
+
+Validate and Save go to the server as before. Errors by path are listed under the
+editor and counted on the tab that owns the path (``metadata`` and
+``spec.timeout`` or ``spec.targets`` on Details, ``spec.options`` on Options,
+``spec.steps`` on Steps, anything else on JSON).
+
 .. _web-ui-run-dialog:
 
 Run dialog and triggers
