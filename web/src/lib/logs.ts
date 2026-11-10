@@ -16,6 +16,9 @@ export type LogRow =
 	| { kind: 'line'; seq: number; ts: string; stream: string; text: string }
 	| { kind: 'gap'; from: number; to: number };
 
+/** Which lines to show: all of them, or one stream (stderr carries the errors). */
+export type LogLevel = 'all' | 'stdout' | 'stderr';
+
 /** Rows kept in memory and offered to the list; older ones are dropped and counted. */
 export const MAX_LOG_ROWS = 5000;
 
@@ -62,9 +65,14 @@ export class LogBuffer {
 		}
 	}
 
-	/** The rows to show: at most `max` of the newest. */
-	view(): LogRow[] {
-		return this.rows.length > this.max ? this.rows.slice(-this.max) : this.rows.slice();
+	/**
+	 * The rows to show: at most `max` of the newest, of one stream when `level` is
+	 * not "all". A gap is shown whatever the filter: it says lines are missing.
+	 */
+	view(level: LogLevel = 'all'): LogRow[] {
+		const rows =
+			level === 'all' ? this.rows : this.rows.filter((r) => r.kind === 'gap' || r.stream === level);
+		return rows.length > this.max ? rows.slice(-this.max) : rows.slice();
 	}
 
 	get shown(): number {

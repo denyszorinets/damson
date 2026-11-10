@@ -328,3 +328,67 @@ test('the log viewer shows live lines, colours, stays bounded, de-duplicates and
 	);
 	await expect(page.getByTestId('log-connection')).toHaveText('ended: failed');
 });
+
+test('a step panel shows its attempts; the log follows the step and filters by stream', async ({
+	page
+}) => {
+	await fakeLogStream(page);
+	const id = await trigger(page, 'panel-e2e', [
+		step('alpha', {
+			retry: { max_attempts: 2, retry_on: 'true', backoff: { initial: '50ms', jitter: 0 } }
+		}),
+		step('beta', { when: 'always()' })
+	]);
+	await page.goto(`/runs/${id}`);
+	await expect(page.getByTestId('run-status')).toHaveText('failed');
+	const detail = await (await page.request.get(`/api/v1/runs/${id}`)).json();
+	const exec = (path: string) =>
+		detail.steps
+			.find((s: { path: string }) => s.path === path)
+			.executions.map((e: { id: string }) => e.id);
+	const [alpha, beta] = [exec('alpha'), exec('beta')];
+	expect(alpha.length).toBe(2);
+
+	const row = (path: string) => page.locator(`[data-testid="instance-row"][data-path="${path}"]`);
+	await row('alpha').getByTestId('open-log').click();
+	await expect(page.getByTestId('step-path')).toHaveText('alpha');
+	await expect(page.getByTestId('step-status')).toHaveText('failed');
+	await expect(page.getByTestId('attempt-row')).toHaveCount(2);
+	await expect(page.getByTestId('step-error')).toBeVisible();
+	const urls = () => page.evaluate(() => (window as unknown as { __logUrls: string[] }).__logUrls);
+	await expect.poll(async () => (await urls()).at(-1)).toContain(alpha[1]); // the latest attempt
+
+	// Another attempt's log, from the panel.
+	await page.getByTestId('attempt-log-1').click();
+	await expect.poll(async () => (await urls()).at(-1)).toContain(alpha[0]);
+
+	// A level filter shows one stream.
+	await page.evaluate(() => {
+		const w = window as unknown as { __emit: (n: string, d: unknown) => void };
+		w.__emit('log', { seq: 1, ts: '', stream: 'stdout', line: 'out one' });
+		w.__emit('log', { seq: 2, ts: '', stream: 'stderr', line: 'err one' });
+		w.__emit('log', { seq: 3, ts: '', stream: 'stdout', line: 'out two' });
+	});
+	await expect(page.getByTestId('log-row')).toHaveCount(3);
+	await page.getByTestId('log-level-stderr').click();
+	await expect(page.getByTestId('log-row')).toHaveCount(1);
+	await expect(page.getByTestId('log-row')).toContainText('err one');
+	await page.getByTestId('log-level-all').click();
+	await expect(page.getByTestId('log-row')).toHaveCount(3);
+
+	// Another step: its own execution, its own lines; the first step's are gone.
+	await row('beta').getByTestId('open-log').click();
+	await expect(page.getByTestId('step-path')).toHaveText('beta');
+	await expect.poll(async () => (await urls()).at(-1)).toContain(beta[0]);
+	await expect(page.getByTestId('log-row')).toHaveCount(0);
+	await page.evaluate(() =>
+		(window as unknown as { __emit: (n: string, d: unknown) => void }).__emit('log', {
+			seq: 1,
+			ts: '',
+			stream: 'stdout',
+			line: 'beta only'
+		})
+	);
+	await expect(page.getByTestId('log-row')).toHaveCount(1);
+	await expect(page.getByTestId('log-row')).toContainText('beta only');
+});

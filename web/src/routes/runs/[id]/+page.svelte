@@ -11,6 +11,7 @@
 	import { isNotFound, problemMessage } from '$lib/jobs';
 	import NotFound from '$lib/components/NotFound.svelte';
 	import LogViewer from '$lib/components/LogViewer.svelte';
+	import StepPanel from '$lib/components/StepPanel.svelte';
 	import {
 		fetchRunGraph,
 		fromEvents,
@@ -34,6 +35,7 @@
 	let conn = $state<StreamState>('connecting');
 	let error = $state<string | null>(null);
 	let missing = $state(false);
+	let selected = $state<string | null>(null); // the step path whose panel is open
 	let logOf = $state<string | null>(null); // the execution whose log is open
 
 	const all = $derived(Object.values(instances));
@@ -137,7 +139,10 @@
 									type="button"
 									class="underline underline-offset-4"
 									data-testid="open-log"
-									onclick={() => (logOf = i.execution_id ?? null)}>Log</button
+									onclick={() => {
+										selected = i.path;
+										logOf = i.execution_id ?? null;
+									}}>Log</button
 								>
 							{/if}
 						</Table.Cell>
@@ -145,6 +150,16 @@
 				{/each}
 			</Table.Body>
 		</Table.Root>
+		{#if selected}
+			{@const inst = instances[selected]}
+			<StepPanel
+				runId={page.params.id ?? ''}
+				path={selected}
+				stamp={`${inst?.status}:${inst?.attempt}:${inst?.state}`}
+				selected={logOf}
+				onselect={(id) => (logOf = id)}
+			/>
+		{/if}
 		{#if logOf}
 			{#key logOf}<LogViewer executionId={logOf} />{/key}
 		{/if}

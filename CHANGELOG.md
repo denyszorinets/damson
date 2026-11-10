@@ -17,6 +17,8 @@ behavior; read the notes before upgrading.
 
 - The run dialog shows what the server finds wrong with an option beside that field (a 422 with a located error such as `options.env`) instead of a banner, and no run is created. Errors about the options as a whole stay in a banner.
 
+- Choosing a step's Log on the run page opens a step panel (status, error, and every attempt with its state, agent and times) and the log of its latest attempt; any attempt's log can be opened from the panel, and the log can be filtered to stdout or stderr.
+
 ### Fixed
 
 - The run graph no longer lets a step box overlap the next one or the end node when badges (when, retry, status, attempt, lanes) wrap: a step is as tall as its badges need.

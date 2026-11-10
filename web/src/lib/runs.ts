@@ -93,3 +93,12 @@ export async function fetchRunGraph(id: string, signal?: AbortSignal) {
 }
 
 export const isTerminal = (status: string) => ['succeeded', 'failed', 'canceled'].includes(status);
+
+export type StepDetail = NonNullable<RunDetail['steps']>[number];
+
+/** A run with its step tree and each step's attempts. */
+export async function fetchRunDetail(id: string, signal?: AbortSignal): Promise<RunDetail> {
+	const { data, error } = await api.GET('/runs/{id}', { params: { path: { id } }, signal });
+	if (error !== undefined || !data) throw error ?? new Error('Empty response');
+	return data;
+}

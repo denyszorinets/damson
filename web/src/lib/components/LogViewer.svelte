@@ -6,6 +6,7 @@
 		MAX_LOG_ROWS,
 		visibleWindow,
 		type LogGap,
+		type LogLevel,
 		type LogLine,
 		type LogRow
 	} from '$lib/logs';
@@ -29,6 +30,7 @@
 	let ended = $state('');
 	let scrollTop = $state(0);
 	let follow = $state(true);
+	let level = $state<LogLevel>('all');
 	let box: HTMLDivElement | undefined = $state();
 	let frame = 0;
 
@@ -37,7 +39,7 @@
 		if (frame) return;
 		frame = requestAnimationFrame(() => {
 			frame = 0;
-			rows = buffer.view();
+			rows = buffer.view(level);
 			stats = { total: buffer.total, dropped: buffer.dropped, lastSeq: buffer.lastSeq };
 			if (follow && box) {
 				requestAnimationFrame(() => box && (box.scrollTop = box.scrollHeight));
@@ -68,6 +70,14 @@
 		};
 	});
 
+	// A new filter re-reads the buffer at once and shows the newest rows.
+	function setLevel(next: LogLevel) {
+		level = next;
+		rows = buffer.view(level);
+		follow = true;
+		schedule();
+	}
+
 	const win = $derived(visibleWindow(rows.length, scrollTop, VIEWPORT, ROW));
 	const slice = $derived(rows.slice(win.start, win.end));
 
@@ -91,6 +101,19 @@
 				>showing the last {Math.min(rows.length, MAX_LOG_ROWS)}; {stats.dropped} earlier not kept</span
 			>
 		{/if}
+		<span class="flex gap-1" role="group" aria-label="Show lines of" data-testid="log-levels">
+			{#each ['all', 'stdout', 'stderr'] as const as l (l)}
+				<button
+					type="button"
+					class="rounded border px-1.5 py-0.5"
+					class:bg-muted={level === l}
+					class:text-foreground={level === l}
+					aria-pressed={level === l}
+					onclick={() => setLevel(l)}
+					data-testid={`log-level-${l}`}>{l}</button
+				>
+			{/each}
+		</span>
 		<span data-testid="log-connection">{ended ? `ended: ${ended}` : conn}</span>
 		{#if !follow}
 			<button type="button" class="underline" onclick={latest} data-testid="log-latest"

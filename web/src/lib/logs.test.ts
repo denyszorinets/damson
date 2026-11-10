@@ -41,6 +41,21 @@ describe('LogBuffer', () => {
 	});
 });
 
+describe('LogBuffer level filter', () => {
+	it('shows one stream, keeps gaps and the cap', () => {
+		const b = new LogBuffer(10);
+		for (let i = 1; i <= 6; i++)
+			b.push({ seq: i, ts: '', stream: i % 2 ? 'stdout' : 'stderr', line: `l${i}` });
+		b.gap({ seq_from: 7, seq_to: 8 });
+		const seqs = (rows: ReturnType<LogBuffer['view']>) =>
+			rows.map((r) => (r.kind === 'line' ? r.seq : 'gap'));
+		expect(seqs(b.view('stderr'))).toEqual([2, 4, 6, 'gap']);
+		expect(seqs(b.view('stdout'))).toEqual([1, 3, 5, 'gap']);
+		expect(b.view('all')).toHaveLength(7);
+		expect(b.view('stderr').length).toBeLessThanOrEqual(10);
+	});
+});
+
 describe('window', () => {
 	it('renders only what is visible plus overscan', () => {
 		expect(visibleWindow(100_000, 0, 320, 20)).toEqual({ start: 0, end: 26 });
