@@ -9,6 +9,8 @@ behavior; read the notes before upgrading.
 
 ### Added
 
+- The instance-wide pages (agents, audit, nodes, all secrets, service accounts, access check) are in one Admin area, opened from a gear in the top bar that only instance admins see, with a new Log purge page; the old top-level URLs redirect into it, and anyone else who opens an Admin URL gets the not-found page.
+
 - Projects have Schedules and Webhooks tabs listing those of their jobs and the projects below, with next run, state and last use; the job page's Schedule and Webhooks tabs show the same controls by role (editors manage schedules, project admins webhooks, viewers read) instead of for instance admins only.
 
 - A project's Secrets tab shows the secrets its jobs may use, its own and those inherited from the projects above it, each labelled with where it comes from; editors see the names, project admins create, version and delete the project's own secrets. Values are never shown.

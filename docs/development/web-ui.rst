@@ -75,7 +75,19 @@ Components and conventions
 Pages
 -----
 
-``/agents``
+``/admin``
+   The Admin area, with its own left navigation: Agents, Audit, Nodes, Secrets
+   (every scope), Service accounts, Access check and Log purge. A gear in the top
+   bar opens it and shows only to instance admins (and to a bearer token operator,
+   who has no session role); anyone else who opens an Admin URL gets the not-found
+   view, and the server checks every call again. The old top-level routes
+   ``/agents``, ``/audit``, ``/nodes``, ``/nodes/[name]``, ``/secrets`` and
+   ``/service-accounts`` redirect into it. Access check is the instance-admin check
+   that used to sit on ``/access``, which now shows only "My access"; Log purge
+   removes the stored logs of one finished execution (``DELETE
+   /executions/{id}/logs``, ADR-0047) after a confirmation.
+
+``/admin/agents``
    Lists agent pools (connected agents, free slots and capacity) and agents
    (status, pool, free slots and capacity, CPU, memory, one-minute load, last
    seen, labels). It reads ``GET /pools`` and ``GET /agents`` through the
@@ -152,13 +164,13 @@ Pages
 ``/projects``
    Project administration: the tree indented by depth (see :ref:`web-ui-login`).
 
-``/secrets``
+``/admin/secrets``
    Secret metadata and management (see :ref:`web-ui-secrets`).
 
-``/audit``
+``/admin/audit``
    The audit trail (see :ref:`web-ui-audit`).
 
-``/nodes``, ``/nodes/[name]``
+``/admin/nodes``, ``/admin/nodes/[name]``
    The node inventory list and the node detail page (see
    :ref:`web-ui-nodes`).
 
@@ -267,7 +279,7 @@ Testing
 Secrets page
 ------------
 
-``/secrets`` lists secret metadata in a table: ref, type, field names and
+``/admin/secrets`` lists secret metadata in a table: ref, type, field names and
 version. Values are never shown. The page is not schema-driven, so it uses
 plain shadcn inputs (``input``, ``label``, ``select``, ``textarea``,
 ``separator``) and not ``SchemaForm``. Logic lives in ``lib/secrets.ts``.
@@ -297,7 +309,7 @@ controller has no KEK until #115.
 Audit page
 ----------
 
-``/audit`` shows ``GET /api/v1/audit`` (ADR-0053) and needs the admin token,
+``/admin/audit`` shows ``GET /api/v1/audit`` (ADR-0053) and needs the admin token,
 handled as on the secrets page (``lib/admin.ts``, ``sessionStorage`` only,
 "Forget token", a new prompt after a 401). It is read-only: a table of time
 (UTC), actor, action, target and the details as one compact JSON line (they never
@@ -310,13 +322,13 @@ hold secret values), newest first, with a target type and target filter and a
 Nodes pages
 -----------
 
-All ``/nodes`` routes need the admin token, reads included. Token handling is
+All ``/admin/nodes`` routes need the admin token, reads included. Token handling is
 the same as on the secrets page: the shared helpers in ``lib/admin.ts`` and the
 ``TokenGate`` component, ``sessionStorage`` only, a "Forget token" button and a
 new prompt after a 401. Form parsing and field logic live in ``lib/nodes.ts``.
 The form uses plain shadcn inputs and ``Select``, not ``SchemaForm``.
 
-``/nodes`` lists nodes: name (a link to the detail page), ``address:port``,
+``/admin/nodes`` lists nodes: name (a link to the detail page), ``address:port``,
 transport, OS, pool, tags as badges, source, enabled or disabled, and the host
 key state (pinned, observed or none) with the host key policy. The list has
 source and enabled filters, a selector box (a CEL selector, debounced 400 ms,
@@ -328,7 +340,7 @@ pool, tags (comma separated), attributes (a JSON object), credential
 (``secret://`` ref), host key, host key policy (select) and enabled. It sends
 ``POST /nodes``. Validation problems returned by the API are shown in the form.
 
-``/nodes/[name]`` shows all fields, the pinned and observed host key
+``/admin/nodes/[name]`` shows all fields, the pinned and observed host key
 fingerprints (SHA256) with a **Forget** button next to the observed one
 (``DELETE /nodes/{name}/host-key``), the source and the version.
 
@@ -383,7 +395,7 @@ Test: ``web/e2e/triggers.test.ts``.
 Service accounts page
 ---------------------
 
-``/service-accounts`` (nav link "Accounts") needs the admin token, handled as
+``/admin/service-accounts`` needs the admin token, handled as
 on the secrets page. It lists service accounts and can create and delete them.
 Selecting an account shows its tokens: name, scope, role and last used. Create
 token takes a name, a project (empty for all projects) and a role (viewer,

@@ -52,7 +52,7 @@ Exit: instance tools are only under Admin, the old pages and components are gone
 
 | Slice | Kind | Delivers | Covers | Blocked by | Verify | Risk | Status |
 |-------|------|----------|--------|------------|--------|------|--------|
-| R8 | build | Admin area `/admin` with its own left nav: Agents, Audit, Nodes, Secrets (all scopes), Service accounts, Access check, Log purge; gear entry in the top bar for instance admins only; old top-level routes redirect | G5, G6 | R1 (shell) | e2e: alice sees the gear and every Admin page; bob has no gear and `/admin/audit` is a not-found view | med | |
+| R8 | build | Admin area `/admin` with its own left nav: Agents, Audit, Nodes, Secrets (all scopes), Service accounts, Access check, Log purge; gear entry in the top bar for instance admins only; old top-level routes redirect | G5, G6 | R1 (shell) | e2e: alice sees the gear and every Admin page; bob has no gear and `/admin/audit` is a not-found view | med | shipped 2026-11-10 pf-r8-admin-area |
 | R9 | build | Shared with me on Home (jobs reached only through a job rule, no project or ancestor shown) and a project search box on Home (name or `/regex/`) over the visible set | G1 | R1 (Home) | e2e: frank sees one shared job and no project; searching `pay` lists only visible projects | low | |
 | R10 | build | Keyboard and phone width for the shell: switcher opens with `/`, table and tab keyboard use, sidebar collapses to a drawer under 640 px | G7 | R4 (all shell parts exist) | e2e: switcher by keyboard; at 390 px width the sidebar is a drawer and no horizontal scroll | low | |
 | R11 | build | Contract: delete `ProjectTree`, `TreeNode`, the `/jobs` list, `/projects` index route and dead redirects older than this roadmap; update the UI reference docs and screenshots list | G1, G6 | R5, R6, R7, R8, R9, R10, R12, R13, R14 | `rg` finds none of the removed names; `make check` and the whole e2e suite pass | low | |
@@ -95,3 +95,4 @@ None.
 - 2026-11-10 R4 shipped (pf-r4-job-run-pages).
 - 2026-11-10 R7 shipped (pf-r7-project-secrets).
 - 2026-11-10 R13 shipped (pf-r13-trigger-tabs).
+- 2026-11-10 R8 shipped (pf-r8-admin-area).

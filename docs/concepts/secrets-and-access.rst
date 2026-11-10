@@ -24,7 +24,7 @@ is the optional alternative, with Damson reading and optionally writing
 secrets there (:doc:`/reference/secrets-openbao`,
 :doc:`/architecture/security`). Authorization by project is the same for both.
 
-In the web UI, the ``/secrets`` page lists secret metadata (ref, type, field
+In the web UI, the ``/admin/secrets`` page lists secret metadata (ref, type, field
 names, version; never values) and lets an admin create, version and delete
 secrets. It asks for the admin token, keeps it for the browser tab only and
 clears entered values after every submit. The API itself follows project roles
