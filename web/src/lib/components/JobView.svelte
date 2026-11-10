@@ -8,6 +8,7 @@
 	import type { Graph } from '$lib/graph/layout';
 	import { fetchJobGraph, isNotFound, problemMessage, type Job } from '$lib/jobs';
 	import { jobRest, jobTab } from '$lib/jobroute';
+	import { arrowNav } from '$lib/keys';
 	import NotFound from '$lib/components/NotFound.svelte';
 	import { atLeast } from '$lib/projects';
 	import { projectRest } from '$lib/projectroute';
@@ -108,7 +109,7 @@
 	{:else if !job || !graph}
 		<Skeleton class="h-64 w-full" />
 	{:else}
-		<nav aria-label="Job" class="flex flex-wrap gap-1 border-b" data-testid="job-tabs">
+		<nav aria-label="Job" class="flex flex-wrap gap-1 border-b" use:arrowNav data-testid="job-tabs">
 			{#each tabs as t (t.id)}
 				<a
 					class="rounded-t px-3 py-1.5 text-sm hover:bg-muted"

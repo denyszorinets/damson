@@ -634,6 +634,92 @@ test('Home searches the visible projects by name or regex and shows nothing else
 	await expect(frank.getByText('tree-ops')).toHaveCount(0);
 });
 
+test('the shell works by keyboard: "/" opens the switcher, arrows move through the tabs', async ({
+	browser
+}) => {
+	const alice = await as(browser, 'alice-sub');
+	await alice.goto('/projects/tree-acme');
+	await expect(alice.getByTestId('project-nav')).toBeVisible();
+	// "/" opens the switcher where nothing is being typed, and a project is chosen without the mouse.
+	await alice.keyboard.press('/');
+	await expect(alice.getByTestId('project-switcher-list')).toBeVisible();
+	// The arrow keys walk the list; Enter chooses the highlighted project.
+	await expect(alice.getByTestId('switch-tree-ops')).toBeVisible(); // the list has loaded
+	// A "/" typed inside the open list belongs to it: the list stays open.
+	await alice.keyboard.press('/');
+	await expect(alice.getByTestId('project-switcher-list')).toBeVisible();
+	await alice.waitForTimeout(1200); // the list's typeahead forgets that "/"
+	await alice.keyboard.type('tree-o', { delay: 80 }); // typeahead
+	await expect
+		.poll(() =>
+			alice.evaluate(
+				() => document.querySelector('[role=option][data-highlighted]')?.textContent?.trim() ?? ''
+			)
+		)
+		.toBe('tree-ops');
+	await alice.keyboard.press('Enter');
+	await expect(alice).toHaveURL(/\/projects\/tree-ops$/);
+	await expect(alice.getByTestId('project-switcher-list')).toBeHidden();
+
+	// "/" typed into a field is text, not the shortcut.
+	await alice.goto('/');
+	await alice.getByTestId('project-search').fill('');
+	await alice.getByTestId('project-search').focus();
+	await alice.keyboard.type('a/b');
+	await expect(alice.getByTestId('project-search')).toHaveValue('a/b');
+	await expect(alice.getByTestId('project-switcher-list')).toBeHidden();
+
+	// Arrow keys move focus through the project tabs, and Tab reaches them too.
+	await alice.goto('/projects/tree-acme');
+	await alice.getByTestId('nav-overview').focus();
+	await alice.keyboard.press('ArrowDown');
+	await expect(alice.getByTestId('nav-jobs')).toBeFocused();
+	await alice.keyboard.press('End');
+	await expect(alice.getByTestId('nav-settings')).toBeFocused();
+	await alice.keyboard.press('Home');
+	await expect(alice.getByTestId('nav-overview')).toBeFocused();
+	await alice.keyboard.press('Enter');
+	await expect(alice).toHaveURL(/\/-\/overview$/);
+});
+
+test('at phone width the project sidebar is a drawer and no page scrolls sideways', async ({
+	browser
+}) => {
+	const alice = await as(browser, 'alice-sub');
+	await alice.setViewportSize({ width: 390, height: 800 });
+	const noSideways = async (label: string) => {
+		const [scroll, width] = await alice.evaluate(() => [
+			document.documentElement.scrollWidth,
+			window.innerWidth
+		]);
+		expect(scroll, `${label} scrolls sideways`).toBeLessThanOrEqual(width);
+	};
+	await alice.goto('/');
+	await expect(alice.getByTestId('home-projects')).toBeVisible();
+	await noSideways('home');
+
+	await alice.goto('/projects/tree-acme');
+	await expect(alice.getByTestId('jobs-table')).toBeVisible();
+	await expect(alice.getByTestId('nav-toggle')).toBeVisible();
+	await expect(alice.getByTestId('project-nav')).toBeHidden(); // closed by default
+	await noSideways('project page');
+	await alice.getByTestId('nav-toggle').click();
+	await expect(alice.getByTestId('project-nav')).toBeVisible();
+	await alice.getByTestId('nav-activity').click();
+	await expect(alice).toHaveURL(/\/-\/activity$/);
+	await expect(alice.getByTestId('project-nav')).toBeHidden(); // closes after a choice
+	await noSideways('activity');
+
+	await alice.goto('/admin/audit');
+	await noSideways('admin audit');
+
+	// At desktop width the sidebar is always there and needs no toggle.
+	await alice.setViewportSize({ width: 1280, height: 800 });
+	await alice.goto('/projects/tree-acme');
+	await expect(alice.getByTestId('project-nav')).toBeVisible();
+	await expect(alice.getByTestId('nav-toggle')).toBeHidden();
+});
+
 test('the Admin area is for instance admins, and old top-level routes redirect into it', async ({
 	browser
 }) => {

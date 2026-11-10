@@ -2,6 +2,7 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import NotFound from '$lib/components/NotFound.svelte';
+	import { arrowNav } from '$lib/keys';
 	import { isInstanceAdmin } from '$lib/projects';
 	import type { LayoutProps } from './$types';
 
@@ -27,10 +28,15 @@
 {#if !isInstanceAdmin()}
 	<main class="mx-auto max-w-6xl px-4 py-8"><NotFound /></main>
 {:else}
-	<div class="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 md:flex-row">
-		<aside class="shrink-0 md:w-48">
-			<nav aria-label="Admin" class="flex gap-1 md:flex-col" data-testid="admin-nav">
-				<h2 class="hidden px-3 py-1 text-xs font-medium text-muted-foreground uppercase md:block">
+	<div class="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 sm:flex-row">
+		<aside class="shrink-0 sm:w-48">
+			<nav
+				aria-label="Admin"
+				class="flex flex-wrap gap-1 sm:flex-col sm:flex-nowrap"
+				use:arrowNav
+				data-testid="admin-nav"
+			>
+				<h2 class="hidden px-3 py-1 text-xs font-medium text-muted-foreground uppercase sm:block">
 					Admin
 				</h2>
 				{#each items as item (item.id)}

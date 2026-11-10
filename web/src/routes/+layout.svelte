@@ -21,7 +21,7 @@
 </script>
 
 <nav class="border-b" aria-label="Main">
-	<div class="mx-auto flex max-w-6xl items-center gap-6 px-4 py-3 text-sm">
+	<div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 text-sm">
 		<a href={resolve('/')} class="font-semibold">Damson</a>
 		{#if me?.kind === 'user'}
 			<ProjectSwitcher current={project} />
@@ -41,7 +41,11 @@
 				>
 			{/if}
 			{#if me?.kind === 'user'}
-				<span class="text-muted-foreground" data-testid="user-name">{me.email || me.sub}</span>
+				<span
+					class="max-w-[9rem] truncate text-muted-foreground sm:max-w-none"
+					title={me.email || me.sub}
+					data-testid="user-name">{me.email || me.sub}</span
+				>
 				<Button variant="outline" size="sm" onclick={logout} data-testid="logout">Log out</Button>
 			{/if}
 		</span>

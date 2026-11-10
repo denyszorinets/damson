@@ -73,9 +73,9 @@
 	<title>{route.path} - Damson</title>
 </svelte:head>
 
-<main class="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 md:flex-row">
+<main class="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 sm:flex-row">
 	{#if known && (allowed || (adminTab && !roleLoaded))}
-		<aside class="shrink-0 md:w-48">
+		<aside class="shrink-0 sm:w-48">
 			<ProjectNav path={route.path} {tab} {role} />
 		</aside>
 		<div class="min-w-0 flex-1">
@@ -107,7 +107,7 @@
 			{/key}
 		</div>
 	{:else if known}
-		<aside class="shrink-0 md:w-48">
+		<aside class="shrink-0 sm:w-48">
 			<ProjectNav path={route.path} {tab} {role} />
 		</aside>
 		<div class="min-w-0 flex-1"><NotFound /></div>
