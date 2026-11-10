@@ -5,6 +5,12 @@ All notable changes to Damson are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Before 1.0, minor versions may change
 behavior; read the notes before upgrading.
 
+## [Unreleased]
+
+### Added
+
+- A project tree in the web UI sidebar: the projects a signed-in user holds a role on, nested by path, with their jobs, loaded one level at a time, a role badge per project and a "Shared with me" section for jobs reached only through a job's own rules. Nothing the user may not see is listed or hinted at. New `GET /api/v1/tree` and `GET /api/v1/tree/shared` (ADR-0075).
+
 ## [0.1.0] - 2026-11-10
 
 First public release. Everything below was built across milestones M0 to M9

@@ -1,7 +1,7 @@
 ADR-0075: UI project tree API
 =============================
 
-:Status: Proposed
+:Status: Accepted
 :Date: 2026-11-10
 
 Roadmap ``docs/roadmap/ui-overhaul.md`` (R3). Builds on ADR-0062 (project tree)
@@ -117,3 +117,14 @@ References
 - :doc:`0062-project-tree`
 - :doc:`0064-access-rules-and-authorization`
 - Roadmap ``docs/roadmap/ui-overhaul.md``, slice R3
+
+Execution notes
+---------------
+
+Built in R4. Differences from the text above: ``/tree`` pages projects and jobs
+with separate cursors (``cursor``, ``jobs_cursor``) and always answers both
+lists, so a client continues only the list whose cursor is set. A job's
+``my_role`` in the tree is its project's role. The count fields and the
+``jobs`` and runs roll-up queries are not built yet (R9). Open points are in
+``docs/issues/adr-0075-tree-api-open-points.md`` and
+``docs/issues/tree-ui-and-api-follow-ups.md``.

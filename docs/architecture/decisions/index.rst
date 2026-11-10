@@ -233,7 +233,7 @@ change nothing until accepted.
      - Accepted
    * - 0075
      - :doc:`0075-ui-project-tree-api`
-     - Proposed
+     - Accepted
 
 .. toctree::
    :hidden:
