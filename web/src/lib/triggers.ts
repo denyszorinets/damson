@@ -82,6 +82,33 @@ export async function fetchSchedules(token: string, jobId: string): Promise<Sche
 	return res.data?.items ?? [];
 }
 
+// shortcut: one page of 200 rows for a project's schedules or webhooks; a project with more is
+// not expected, so the list says so instead of paging. Add a cursor loop when it is.
+function capped<T>(items: T[], next: string | undefined): T[] {
+	if (next) throw new Error('This project has more than 200 entries; open the job to see its own.');
+	return items;
+}
+
+/** The schedules of the jobs of a project and the projects below it. */
+export async function fetchProjectSchedules(token: string, project: string): Promise<Schedule[]> {
+	const res = await api.GET('/schedules', {
+		params: { query: { project, limit: 200 } },
+		headers: headers(token)
+	});
+	check(res);
+	return capped(res.data?.items ?? [], res.data?.next_cursor);
+}
+
+/** The webhooks (revoked ones too) of the jobs of a project and the projects below it. */
+export async function fetchProjectWebhooks(token: string, project: string): Promise<Webhook[]> {
+	const res = await api.GET('/webhooks', {
+		params: { query: { project, limit: 200 } },
+		headers: headers(token)
+	});
+	check(res);
+	return capped(res.data?.items ?? [], res.data?.next_cursor);
+}
+
 export async function createSchedule(
 	token: string,
 	b: {

@@ -9,7 +9,7 @@
 	import { fetchJobGraph, isNotFound, problemMessage, type Job } from '$lib/jobs';
 	import { jobRest, jobTab } from '$lib/jobroute';
 	import NotFound from '$lib/components/NotFound.svelte';
-	import { atLeast, isInstanceAdmin } from '$lib/projects';
+	import { atLeast } from '$lib/projects';
 	import { projectRest } from '$lib/projectroute';
 	import JobRuns from '$lib/components/JobRuns.svelte';
 	import JobTriggers from '$lib/components/JobTriggers.svelte';
@@ -31,18 +31,12 @@
 	let missing = $state(false);
 
 	const tab = $derived(jobTab(sub));
-	// Schedules and webhooks are shown to instance admins here; the project tabs of R13 show them by role.
-	const triggers = $derived(isInstanceAdmin());
 	const tabs = $derived([
 		{ id: '', label: 'Run' },
 		{ id: 'runs', label: 'Runs' },
 		{ id: 'definition', label: 'Definition' },
-		...(triggers
-			? [
-					{ id: 'schedule', label: 'Schedule' },
-					{ id: 'webhooks', label: 'Webhooks' }
-				]
-			: [])
+		{ id: 'schedule', label: 'Schedule' },
+		{ id: 'webhooks', label: 'Webhooks' }
 	]);
 
 	$effect(() => {
@@ -133,10 +127,12 @@
 		{:else if tab === 'definition'}
 			<GraphView {graph} />
 			<VersionHistory jobId={job.id} current={job.current_version} />
-		{:else if triggers}
-			<JobTriggers jobId={job.id} only={tab === 'schedule' ? 'schedules' : 'webhooks'} />
 		{:else}
-			<NotFound what="This page" />
+			<JobTriggers
+				jobId={job.id}
+				role={job.my_role}
+				only={tab === 'schedule' ? 'schedules' : 'webhooks'}
+			/>
 		{/if}
 	{/if}
 </div>

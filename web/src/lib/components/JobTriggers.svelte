@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { SESSION_TOKEN } from '$lib/session';
-	// Schedules and webhooks of a job. Both are admin operations until M8, so the
-	// section asks for the admin token (kept in this tab only).
+	import { SESSION_TOKEN, isUser } from '$lib/session';
+	import { atLeast } from '$lib/projects';
+	// Schedules and webhooks of a job, by role; a bearer token operator is asked for the admin token.
 	import { onMount } from 'svelte';
 	import * as Alert from '$lib/components/ui/alert';
 	import * as Table from '$lib/components/ui/table';
@@ -26,7 +26,20 @@
 	} from '$lib/triggers';
 
 	/** only: show just the schedules or just the webhooks (a job page tab each); default both. */
-	let { jobId, only }: { jobId: string; only?: 'schedules' | 'webhooks' } = $props();
+	let {
+		jobId,
+		only,
+		role
+	}: {
+		jobId: string;
+		only?: 'schedules' | 'webhooks';
+		/** The caller's role on the job; absent for a bearer token, which may do everything. */
+		role?: string;
+	} = $props();
+
+	// Schedules are written by editors, webhooks by project admins (ADR-0076); the server checks again.
+	const canSchedule = $derived(!isUser() || atLeast(role, 'editor'));
+	const canHook = $derived(!isUser() || atLeast(role, 'admin'));
 
 	let token = $state('');
 	let schedules = $state<Schedule[]>([]);
@@ -166,20 +179,22 @@
 								<Table.Cell>{s.next_fire_at ?? '-'}</Table.Cell>
 								<Table.Cell>{s.last_error ?? s.last_run_id ?? '-'}</Table.Cell>
 								<Table.Cell class="space-x-2 text-right">
-									<Button
-										variant="outline"
-										size="sm"
-										disabled={busy}
-										onclick={() => act(() => setScheduleEnabled(token, s.id, !s.enabled))}
-									>
-										{s.enabled ? 'Disable' : 'Enable'}
-									</Button>
-									<Button
-										variant="outline"
-										size="sm"
-										disabled={busy}
-										onclick={() => act(() => deleteSchedule(token, s.id))}>Delete</Button
-									>
+									{#if canSchedule}
+										<Button
+											variant="outline"
+											size="sm"
+											disabled={busy}
+											onclick={() => act(() => setScheduleEnabled(token, s.id, !s.enabled))}
+										>
+											{s.enabled ? 'Disable' : 'Enable'}
+										</Button>
+										<Button
+											variant="outline"
+											size="sm"
+											disabled={busy}
+											onclick={() => act(() => deleteSchedule(token, s.id))}>Delete</Button
+										>
+									{/if}
 								</Table.Cell>
 							</Table.Row>
 						{:else}
@@ -190,15 +205,21 @@
 						{/each}
 					</Table.Body>
 				</Table.Root>
-				<form class="grid max-w-xl gap-2" data-testid="schedule-form" onsubmit={addSchedule}>
-					<Label for="sched-name">Name</Label>
-					<Input id="sched-name" bind:value={schedName} required />
-					<Label for="sched-cron">Cron (5 fields)</Label>
-					<Input id="sched-cron" bind:value={schedCron} required />
-					<Label for="sched-zone">Time zone</Label>
-					<Input id="sched-zone" bind:value={schedZone} />
-					<Button type="submit" disabled={busy}>Add schedule</Button>
-				</form>
+				{#if !canSchedule}
+					<p class="text-sm text-muted-foreground" data-testid="schedule-needs">
+						Changing schedules needs the editor role.
+					</p>
+				{:else}
+					<form class="grid max-w-xl gap-2" data-testid="schedule-form" onsubmit={addSchedule}>
+						<Label for="sched-name">Name</Label>
+						<Input id="sched-name" bind:value={schedName} required />
+						<Label for="sched-cron">Cron (5 fields)</Label>
+						<Input id="sched-cron" bind:value={schedCron} required />
+						<Label for="sched-zone">Time zone</Label>
+						<Input id="sched-zone" bind:value={schedZone} />
+						<Button type="submit" disabled={busy}>Add schedule</Button>
+					</form>
+				{/if}
 			</div>
 		{/if}
 
@@ -228,7 +249,7 @@
 								<Table.Cell>{w.name}{w.revoked ? ' (revoked)' : ''}</Table.Cell>
 								<Table.Cell>{w.last_used_at ?? '-'}</Table.Cell>
 								<Table.Cell class="text-right">
-									{#if !w.revoked}
+									{#if !w.revoked && canHook}
 										<Button
 											variant="outline"
 											size="sm"
@@ -246,17 +267,23 @@
 						{/each}
 					</Table.Body>
 				</Table.Root>
-				<form class="grid max-w-xl gap-2" data-testid="webhook-form" onsubmit={addWebhook}>
-					<Label for="hook-name">Name</Label>
-					<Input id="hook-name" bind:value={hookName} required />
-					<Label for="hook-mapping">Options mapping (CEL, optional)</Label>
-					<Input
-						id="hook-mapping"
-						bind:value={hookMapping}
-						placeholder={'{"env": body.environment}'}
-					/>
-					<Button type="submit" disabled={busy}>Add webhook</Button>
-				</form>
+				{#if !canHook}
+					<p class="text-sm text-muted-foreground" data-testid="webhook-needs">
+						Creating or revoking webhooks needs the admin role on the project.
+					</p>
+				{:else}
+					<form class="grid max-w-xl gap-2" data-testid="webhook-form" onsubmit={addWebhook}>
+						<Label for="hook-name">Name</Label>
+						<Input id="hook-name" bind:value={hookName} required />
+						<Label for="hook-mapping">Options mapping (CEL, optional)</Label>
+						<Input
+							id="hook-mapping"
+							bind:value={hookMapping}
+							placeholder={'{"env": body.environment}'}
+						/>
+						<Button type="submit" disabled={busy}>Add webhook</Button>
+					</form>
+				{/if}
 			</div>
 		{/if}
 	{/if}

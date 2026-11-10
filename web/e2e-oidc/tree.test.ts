@@ -194,9 +194,14 @@ test('a viewer sees Run disabled with the missing role and no trigger forms', as
 	await expect(carol.getByTestId('run-job')).toBeDisabled();
 	await expect(carol.getByTestId('run-needs')).toHaveText('needs runner');
 	await expect(carol.getByTestId('job-triggers')).toHaveCount(0); // admin-only: absent
-	await expect(carol.getByTestId('job-tab-schedule')).toHaveCount(0);
-	await expect(carol.getByTestId('job-tab-webhooks')).toHaveCount(0);
-	await expect(carol).toHaveURL(/\/projects\/tree-acme\/-\/jobs\/[^/]+$/); // the old URL moved
+	// A viewer may read schedules and webhooks but not change them.
+	await carol.getByTestId('job-tab-schedule').click();
+	await expect(carol.getByTestId('schedule-needs')).toBeVisible();
+	await expect(carol.getByTestId('schedule-form')).toHaveCount(0);
+	await carol.getByTestId('job-tab-webhooks').click();
+	await expect(carol.getByTestId('webhook-needs')).toBeVisible();
+	await expect(carol.getByTestId('webhook-form')).toHaveCount(0);
+	await expect(carol).toHaveURL(/\/projects\/tree-acme\/-\/jobs\/[^/]+\/webhooks$/); // the old URL moved
 	await expect(carol.getByTestId('schedule-form')).toHaveCount(0);
 	await expect(carol.getByTestId('webhook-form')).toHaveCount(0);
 
@@ -516,6 +521,82 @@ test('a failed secret save keeps no value in the form or the URL', async ({ brow
 	expect(alice.url()).not.toContain(value);
 	expect(logs.join('\n')).not.toContain(value);
 	expect(await alice.locator('body').innerText()).not.toContain(value);
+});
+
+test("a project's Schedules and Webhooks tabs list its jobs' triggers, controls by role", async ({
+	browser
+}) => {
+	const id = await jobId(browser, 'charge');
+	const alice = await as(browser, 'alice-sub');
+	const me = await (await alice.request.get('/api/v1/me')).json();
+	const headers = { 'X-CSRF-Token': me.csrf_token };
+	const sched = await alice.request.post('/api/v1/schedules', {
+		data: { job_id: id, name: 'tree-nightly', cron: '0 3 * * *' },
+		headers
+	});
+	expect([201, 409]).toContain(sched.status());
+	const hook = await alice.request.post('/api/v1/webhooks', {
+		data: { job_id: id, name: 'tree-hook' },
+		headers
+	});
+	expect([201, 409]).toContain(hook.status());
+
+	// An instance admin lists them from the parent project, pauses and resumes the schedule.
+	await alice.goto('/projects/tree-acme');
+	await alice.getByTestId('nav-schedules').click();
+	await expect(alice).toHaveURL(/\/projects\/tree-acme\/-\/schedules$/);
+	const row = alice.getByTestId('schedule-row').filter({ hasText: 'tree-nightly' });
+	await expect(row).toContainText('charge');
+	await expect(row.getByTestId('schedule-state')).toHaveText('enabled');
+	await expect(row.getByTestId('schedule-next')).not.toHaveText('-');
+	await row.getByTestId('schedule-toggle').click();
+	await expect(row.getByTestId('schedule-state')).toHaveText('paused');
+	await row.getByTestId('schedule-toggle').click();
+	await expect(row.getByTestId('schedule-state')).toHaveText('enabled');
+
+	// Switching between the two tabs shows each list at once, without a reload.
+	await alice.getByTestId('nav-webhooks').click();
+	await expect(alice.getByTestId('webhook-row').filter({ hasText: 'tree-hook' })).toBeVisible();
+	await alice.getByTestId('nav-schedules').click();
+	await expect(alice.getByTestId('schedule-row').filter({ hasText: 'tree-nightly' })).toBeVisible();
+
+	// Viewer and runner read, without controls; an editor controls schedules but not webhooks.
+	for (const sub of ['carol-sub', 'bob-sub']) {
+		const user = await as(browser, sub);
+		await user.goto('/projects/tree-acme/-/schedules');
+		await expect(
+			user.getByTestId('schedule-row').filter({ hasText: 'tree-nightly' })
+		).toBeVisible();
+		await expect(user.getByTestId('schedule-toggle')).toHaveCount(0);
+		await expect(user.getByTestId('schedule-needs')).toBeVisible();
+		await user.goto('/projects/tree-acme/-/webhooks');
+		await expect(user.getByTestId('webhook-row').filter({ hasText: 'tree-hook' })).toBeVisible();
+		await expect(user.getByTestId('webhook-revoke')).toHaveCount(0);
+	}
+	const dave = await as(browser, 'dave-sub');
+	await dave.goto('/projects/tree-acme/pay/-/schedules');
+	await expect(dave.getByTestId('schedule-toggle').first()).toBeVisible();
+	await dave.goto('/projects/tree-acme/pay/-/webhooks');
+	await expect(dave.getByTestId('webhook-row').filter({ hasText: 'tree-hook' })).toBeVisible();
+	await expect(dave.getByTestId('webhook-revoke')).toHaveCount(0);
+	// On the job page the editor gets the schedule form and no webhook form.
+	await dave.goto(`/projects/tree-acme/pay/-/jobs/${id}/schedule`);
+	await expect(dave.getByTestId('schedule-form')).toBeVisible();
+	await dave.goto(`/projects/tree-acme/pay/-/jobs/${id}/webhooks`);
+	await expect(dave.getByTestId('webhook-form')).toHaveCount(0);
+	await expect(dave.getByTestId('webhook-needs')).toBeVisible();
+
+	// No role on the project: the list is refused as missing.
+	const erin = await as(browser, 'erin-sub');
+	await erin.goto('/projects/tree-acme/-/schedules');
+	await expect(erin.getByTestId('triggers-error')).toBeVisible();
+	await expect(erin.getByTestId('schedule-row')).toHaveCount(0);
+
+	// An instance admin revokes the webhook.
+	await alice.goto('/projects/tree-acme/-/webhooks');
+	const hrow = alice.getByTestId('webhook-row').filter({ hasText: 'tree-hook' });
+	await hrow.getByTestId('webhook-revoke').click();
+	await expect(hrow.getByTestId('webhook-state')).toHaveText('revoked');
 });
 
 test('an instance admin deletes an empty project from its Settings', async ({ browser }) => {

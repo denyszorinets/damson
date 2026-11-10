@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { atLeast } from '$lib/projects';
+	import { isUser } from '$lib/session';
 	import { projectRest } from '$lib/projectroute';
 
 	/**
@@ -15,10 +16,16 @@
 			{ id: 'overview', label: 'Overview', rest: ['overview'], need: 'viewer' as const },
 			{ id: '', label: 'Jobs', rest: [] as string[], need: 'viewer' as const },
 			{ id: 'activity', label: 'Activity', rest: ['activity'], need: 'viewer' as const },
+			{ id: 'schedules', label: 'Schedules', rest: ['schedules'], need: 'viewer' as const },
+			{ id: 'webhooks', label: 'Webhooks', rest: ['webhooks'], need: 'viewer' as const },
 			{ id: 'secrets', label: 'Secrets', rest: ['secrets'], need: 'editor' as const },
 			{ id: 'access', label: 'Access', rest: ['access'], need: 'admin' as const },
 			{ id: 'settings', label: 'Settings', rest: ['settings'], need: 'admin' as const }
-		].filter((i) => i.need === 'viewer' || atLeast(role, i.need))
+		].filter((i) => {
+			// A bearer token has no session for the project tabs of triggers.
+			if (i.id === 'schedules' || i.id === 'webhooks') return isUser();
+			return i.need === 'viewer' || atLeast(role, i.need);
+		})
 	);
 </script>
 

@@ -7,6 +7,7 @@
 	import ProjectActivity from '$lib/components/ProjectActivity.svelte';
 	import ProjectNav from '$lib/components/ProjectNav.svelte';
 	import ProjectOverview from '$lib/components/ProjectOverview.svelte';
+	import ProjectTriggers from '$lib/components/ProjectTriggers.svelte';
 	import ProjectSecrets from '$lib/components/ProjectSecrets.svelte';
 	import ProjectSettings from '$lib/components/ProjectSettings.svelte';
 	import ProjectTable from '$lib/components/ProjectTable.svelte';
@@ -27,7 +28,16 @@
 		isJob ||
 			isRun ||
 			(route.tab.length <= 1 &&
-				['', 'overview', 'activity', 'secrets', 'access', 'settings'].includes(head))
+				[
+					'',
+					'overview',
+					'activity',
+					'schedules',
+					'webhooks',
+					'secrets',
+					'access',
+					'settings'
+				].includes(head))
 	);
 	// Secrets are for editors and up (writes for admins), Settings and Access for the project's admins: the role decides which tabs show, and
 	// anyone else who types the URL gets the not-found view, as for a project they cannot see.
@@ -69,7 +79,7 @@
 			<ProjectNav path={route.path} {tab} {role} />
 		</aside>
 		<div class="min-w-0 flex-1">
-			{#key route.path}
+			{#key `${route.path}|${head}`}
 				{#if !allowed}
 					<!-- the role is still being read -->
 				{:else if isJob}
@@ -80,6 +90,8 @@
 					<ProjectOverview path={route.path} />
 				{:else if head === 'activity'}
 					<ProjectActivity path={route.path} />
+				{:else if head === 'schedules' || head === 'webhooks'}
+					<ProjectTriggers path={route.path} kind={head} {role} {roleLoaded} />
 				{:else if head === 'secrets'}
 					<ProjectSecrets path={route.path} canWrite={atLeast(role, 'admin')} />
 				{:else if head === 'access'}
