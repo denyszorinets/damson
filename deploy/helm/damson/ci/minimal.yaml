@@ -1,0 +1,8 @@
+database: {existingSecret: damson-db}
+secrets:
+  clusterSecret: {existingSecret: damson-cluster}
+  kek: {existingSecret: damson-kek}
+agents:
+  controllerUrl: wss://damson.example.com
+  pools:
+    - {name: default, tokenSecret: pool-default}

@@ -1,0 +1,231 @@
+Dispatch, completion and the reaper
+===================================
+
+``internal/controller/dispatch`` implements steps 3 and 4 of the run lifecycle
+(ARCHITECTURE section 8.3) and the lease rules of section 7.3. Dispatch is not
+a River job: it is a loop owned by the ``Dispatcher`` component (``Start`` and
+``Stop``, goleak clean). Applying the result goes back through ``run.advance``
+(see :doc:`orchestration`).
+
+Dispatch loop
+-------------
+
+Every second, for each locally connected agent with free slots:
+
+#. ``ClaimExecutions`` by the agent's pool (see :doc:`store`). The claim gives
+   each execution a new ``attempt_id`` and a lease (TTL 60 s).
+#. Resolve the plugin through ``pluginreg`` and check that the agent is
+   capable (name, version and ``Requires``).
+#. Send ``step.execute`` with the plugin's resolved name and version and the
+   step input.
+#. On accept, ``MarkExecutionRunning``.
+
+Every claim also includes the reserved pool ``@node`` (see "Node pool
+routing" below). The claim filters by pool only; plugin and capability matching happens after
+it. An execution claimed by an agent that cannot run it is requeued with a 5 s
+delay (``Config.IncapableRetry``; known limitation: incapable agents in the pool
+churn it).
+
+Node pool routing
+-----------------
+
+The advancer sets an execution's pool to ``runs_on.pool``, else to the
+reserved marker ``@node`` (ADR-0052). A claimed ``@node`` execution is
+resolved before any secret is read: the plugin is resolved in any pool (none
+requeues it after 5 s), ``Manifest.NodeNames(input)`` names the nodes, and
+``PoolSource.NodePool`` looks each up with the checks ``Node`` applies. Nodes
+with an empty pool add no constraint. One distinct pool selects it, none
+selects ``default``, and two or more fail the step permanently
+(``step targets nodes in pools dc1, dc2; set runs_on.pool``). An unknown,
+disabled or ``insecure`` node fails permanently. When the target is the
+claiming agent's pool the send continues; otherwise ``Store.RouteExecution``
+(a fenced CAS) sets the pool and requeues the execution, and ``ErrStale``
+cancels the undelivered attempt. A pool with no connected agent leaves the
+execution queued.
+
+Definite failures (agent rejected, plugin unresolved) requeue at once with a
+CAS under the ``attempt_id``. Delivery is at-most-once on an ambiguous send: if
+``step.execute`` times out or the socket closes after the write, the controller
+sends ``step.cancel`` for the attempt and requeues only if the cancel is
+answered. Otherwise the execution stays ``dispatched`` and the lease reaper
+marks it ``lost``; the agent also tombstones a cancelled attempt, so a late
+execute is rejected.
+
+Dispatch rounds run per agent asynchronously, one in flight per agent. After a
+transport failure the rest of that agent's claimed batch is requeued
+immediately.
+
+Slots are a soft in-memory count: seeded from ``max_concurrent`` in
+``agent.hello`` and refreshed by ``free_slots`` in each heartbeat. The agent's
+"no free slot" rejection is the authority; the count only avoids pointless
+claims, so "never dispatches beyond free slots" is best effort: the count can
+briefly exceed reality.
+
+``step.complete``
+-----------------
+
+The handler is fenced by ``attempt_id`` and by the owning ``agent_id``. An
+unknown, foreign or already finished attempt is acknowledged as ``stale`` and
+changes nothing. Otherwise, in one transaction:
+
+* ``Tx.CompleteExecution`` (CAS on the attempt);
+* the step instance moves to ``succeeded`` or ``canceled`` with its outputs
+  or error, but only for those two outcomes. A ``failed``, ``timed_out`` or
+  ``lost`` attempt leaves the step pending: the engine retries it or settles it
+  in the next advance (ADR-0036), so the run wakes through the version bump
+  below;
+* ``runs.version`` is bumped and a River ``run.advance`` job is enqueued.
+
+The agent is acknowledged after the commit. After the commit the dispatcher also
+asks the log ingest to ``Finish`` the execution (``Config.Finish``), so its
+buffered lines are flushed and readers of the finished execution see them at
+once instead of after the periodic flush.
+
+Lease renewal
+-------------
+
+Every 10 s each controller makes one ``RenewLeases`` call for the union of the
+``running_attempts`` of its local agents' heartbeats. The lease TTL is 60 s.
+
+Reaper
+------
+
+Every 10 s ``Tx.ExpireLeases`` marks expired leases ``lost``, fails their
+steps and enqueues ``run.advance``. Only the leader of the ``reaper`` lease
+runs it (ADR-0039): ``dispatch.Config.Leader`` gates the reaper and the
+dead-controller cleanup, and ``nil`` means every controller runs them (tests).
+The reaper calls ``Tx.CheckLeader`` first in its transaction and gets
+``ErrStale`` if it lost the lease. The leader also deletes
+``controller_instances`` rows with ``last_seen`` older than 1 minute. Agent
+rows are not touched. Lease expiry is judged with the leader's clock.
+
+The elector (``internal/controller/leader``) acquires or renews every 5 s with
+a 15 s TTL (``node.Timing.LeaderRenew`` / ``LeaderTTL``) and reports a term only
+while ``now < expires_at - renew``. ``Stop`` releases the lease. It runs on
+SQLite too. Dispatch, lease renewal, cancels, adoption and the sweep stay on
+every controller. The chaos tests ``TestLeaderFailoverAfterControllerCrash`` and
+``TestLeaderHandoverOnGracefulStop`` cover failover and handover.
+
+Lock order
+----------
+
+The reaper and complete transactions touch rows in a fixed order: step rows
+first, then each distinct run once, sorted by run id.
+
+Gateway hooks
+-------------
+
+The gateway exposes ``SessionHook`` / ``AddHook``: log ingest and the
+dispatcher install their handlers per socket. ``Agents()``, ``Reserve()`` and
+``Release()`` let the dispatcher list connected agents and hold their slots.
+``node.Start`` in ``internal/controller/node`` wires the gateway, advance, log
+ingest, the dispatcher and the HTTP API in that order, with the production hook
+and stop order. ``cmd/damson`` and the HA chaos test both run it; ``node.Timing``
+shortens the background intervals for tests, and ``Timing.LeaseTTL`` is the one
+lease length used for dispatch and for adoption on reconnect.
+
+Adoption on reconnect
+---------------------
+
+``agent.hello`` reconciliation answers ``continue`` for a ``finished`` attempt
+that is still current and owned by the agent (it redelivers ``step.complete``)
+and for a ``dispatched`` or ``running`` attempt of the agent. All of them are
+adopted by the controller in one call to ``ExecutionStore.AdoptExecutions``. The adoption moves
+``controller_id`` and extends the lease by ``Config.LeaseTTL``, in one
+statement that also checks the agent row still names this controller at this
+``session_seq``; a newer session makes it a no-op and the attempt is answered
+``cancel``. Other controllers' ``RenewLeases`` no longer match, so the old
+controller cannot keep the lease alive. Any store error fails the hello.
+
+Cancel
+------
+
+A cancel request reaches running steps in two parts (ARCHITECTURE 8.3 step 7).
+``run.advance`` decides which executions to cancel: a queued one is cancelled
+with its step, a ``dispatched`` or ``running`` one gets
+``executions.cancel_requested_at``. The flag is set whatever the attempt id,
+because a claim between the advance's read and its apply rotates the attempt,
+and the engine stops emitting the cancel once the flag is in the tree. A queued
+row never carries the flag.
+
+Every ``CancelInterval`` (2 seconds) each controller lists the flagged
+attempts it owns (``controller_id``) and sends ``step.cancel`` with
+``CancelGrace`` (5 seconds) to the agents it has a socket to, one goroutine per
+agent. An answered attempt is not asked again (an in-memory cache; losing it
+causes a harmless resend). ``known=false`` changes nothing in the database: the
+agent's report or the lease reaper settles it. The agent stops the plugin and
+reports ``canceled``; a plugin that finishes anyway reports ``succeeded``, which
+is applied as reported.
+
+If the agent is away, no controller has a socket to it and the flag waits. The
+controller that adopts the agent on reconnect (see above) owns the attempt and
+sends the cancel on its next poll; reconciliation itself still answers
+``continue``, so a result the agent finished is not thrown away.
+
+A flagged attempt that never reached the agent (the agent rejected it, the
+send failed, or its cancel was answered first) is not requeued:
+``RequeueExecution`` refuses a flagged row and the dispatcher ends it with
+``Tx.CancelUndelivered``, which makes it and its step ``canceled`` and wakes the
+run. A running attempt is never ended this way.
+
+There is no notify hint yet; the poll is the only trigger.
+
+Node sources
+------------
+
+The dispatcher reads node rows from the store at dispatch time
+(``node.InventoryNodes``, ADR-0043) and secrets from the db backend. There is
+no other source: ``--dev-nodes`` only seeds these stores at startup (ADR-0044).
+
+* A missing node, or one outside the project's node scope (``inventory.ProjectScope``,
+  ADR-0066), fails the step permanently as ``unknown node``. There
+  is no probing.
+* A disabled node fails permanently as ``node is disabled``. A node deleted
+  after the run started fails the same way at dispatch.
+* A database error requeues the execution.
+* The node credential goes through the secret authorization
+  (``secrets.Authorize`` with ``fromNode``); ``_inventory`` is allowed only as
+  a node credential.
+* Host keys (ADR-0046, ``InventoryNodes.Node``): ``strict`` sends ``host_key``
+  (empty fails at connect); ``tofu`` sends the pinned ``host_key``, else the
+  observed key, else none; ``insecure`` fails permanently as
+  ``host key policy not available``.
+* ``hostkeys.go`` handles ``node.hostkey_observed``: the attempt must exist,
+  belong to the reporting agent and be unfinished, and the step's
+  ``input.node`` must equal the reported node. The key is parsed, type and
+  SHA256 fingerprint recomputed (mismatch dropped) and stored canonically via
+  ``NodeStore.ObserveNodeHostKey``. The node is resolved like dispatch (frozen
+  run target id, else by name). Drops are silent (INFO log).
+* Inventory nodes are reachable through a literal ``node: <name>`` in step
+  input and through ``targets``.
+
+Not yet implemented
+-------------------
+
+* Step timeout (``timeout_ms``).
+
+A step's node name is resolved through the run's frozen targets (ADR-0045). A
+name in the snapshot follows its frozen ``node_id`` (``GetNodeByID``), so a node
+renamed after the run started is still reached; ``NodeInfo.Name`` stays the
+requested name, and a deleted node fails as ``unknown node``. A name outside the
+snapshot is looked up by name. The scope check, the enabled check and the host
+key policy still apply to the current row, so the address, credential and host
+key are those at dispatch time.
+
+A step that names several nodes (``TargetMode = inventory``, up to 1000 names)
+is resolved in one batch, both for pool routing (``nodePoolsOf``) and for
+dispatch (``resolveNodes``). If the ``NodeSource`` also implements
+``BatchNodeSource`` (``Nodes``) or ``BatchPoolSource`` (``NodePools``), it is
+asked once with the whole sorted name list and answers one result per name, in
+order. ``InventoryNodes`` resolves the project once, reads the frozen targets
+with ``RunTargetNodeIDs``, fetches nodes with ``GetNodesByIDs`` (frozen) and
+``GetNodesByNames`` (not frozen), all in chunks of ``store.MaxBatch`` (500), and
+then applies scope, enabled and host key policy per node in memory. The first
+unusable name in sorted order fails the whole step with the same error as the
+one-by-one path. A 1000-node step needs a constant number of queries (about 4
+fetches plus the project lookup) instead of about 8000. A source without the
+batch interfaces (tests, the dev-nodes seeder) and single-name steps keep the
+one-by-one path.
+
+* A notify hint for dispatch and cancel (the 1 s and 2 s polls are the only triggers).
+* Retries (M3).

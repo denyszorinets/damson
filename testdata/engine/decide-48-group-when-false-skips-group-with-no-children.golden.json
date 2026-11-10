@@ -1,0 +1,27 @@
+[
+  {
+    "kind": "group",
+    "path": "g",
+    "reason": "when condition is false",
+    "status": "skipped",
+    "step_id": "g",
+    "type": "skip_step"
+  },
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "input": {
+      "command": "after",
+      "node": "n"
+    },
+    "path": "after",
+    "plugin": "ssh",
+    "step_id": "after",
+    "type": "create_step_instance"
+  },
+  {
+    "attempt": 1,
+    "path": "after",
+    "scheduled_at": "2026-03-01T10:05:00Z",
+    "type": "schedule_execution"
+  }
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "path": "publish",
+    "reason": "run cancelled",
+    "status": "cancelled",
+    "step_id": "publish",
+    "type": "skip_step"
+  },
+  {
+    "finished_at": "2026-03-01T10:05:00Z",
+    "status": "cancelled",
+    "type": "complete_run"
+  }
+]

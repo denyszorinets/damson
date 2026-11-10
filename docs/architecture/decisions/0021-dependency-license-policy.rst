@@ -21,6 +21,8 @@ Decision
   commit message or PR (hard rule 9).
 - Documentation tooling under ``docs/`` (Sphinx and extensions) is not
   distributed with the binary but follows the same list.
+- Exception: dev-only tooling that is never shipped may also use BlueOak-1.0.0
+  (:doc:`0033-blueoak-licensed-dev-only-tooling-dependencies`).
 
 Alternatives Considered
 -----------------------

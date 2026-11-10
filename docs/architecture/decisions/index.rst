@@ -114,6 +114,120 @@ change nothing until accepted.
    * - 0032
      - :doc:`0032-runtime-loaded-plugins`
      - Proposed
+   * - 0033
+     - :doc:`0033-blueoak-licensed-dev-only-tooling-dependencies`
+     - Accepted
+   * - 0034
+     - :doc:`0034-dev-only-inline-nodes-and-secrets`
+     - Superseded by 0044
+   * - 0035
+     - :doc:`0035-timeout-semantics`
+     - Accepted
+   * - 0036
+     - :doc:`0036-retry-semantics`
+     - Accepted
+   * - 0037
+     - :doc:`0037-groups-scoping-and-status`
+     - Accepted
+   * - 0038
+     - :doc:`0038-for-each-lanes`
+     - Accepted
+   * - 0042
+     - :doc:`0042-db-secret-backend-keyring`
+     - Accepted
+   * - 0043
+     - :doc:`0043-inventory-nodes`
+     - Accepted
+   * - 0044
+     - :doc:`0044-dev-nodes-is-a-seeder`
+     - Accepted
+   * - 0045
+     - :doc:`0045-frozen-run-targets`
+     - Accepted
+   * - 0046
+     - :doc:`0046-tofu-host-key-recording`
+     - Accepted (amended by 0048)
+   * - 0047
+     - :doc:`0047-agent-side-masking-only`
+     - Accepted
+   * - 0048
+     - :doc:`0048-plugins-that-target-several-nodes`
+     - Accepted
+   * - 0049
+     - :doc:`0049-winrm-transport-security-and-remote-execution`
+     - Accepted
+   * - 0050
+     - :doc:`0050-custom-binaries-with-damson-build`
+     - Accepted
+   * - 0051
+     - :doc:`0051-non-secret-s3-connection-fields`
+     - Accepted
+   * - 0052
+     - :doc:`0052-route-steps-by-node-pool-at-dispatch`
+     - Accepted
+   * - 0053
+     - :doc:`0053-audit-events`
+     - Accepted
+   * - 0054
+     - :doc:`0054-audit-retention`
+     - Accepted
+   * - 0055
+     - :doc:`0055-inventory-target-mode`
+     - Accepted
+   * - 0056
+     - :doc:`0056-buildah-registry-credentials`
+     - Accepted
+   * - 0057
+     - :doc:`0057-helm-credentials`
+     - Accepted
+   * - 0058
+     - :doc:`0058-schedules-and-the-scheduler-duty`
+     - Accepted
+   * - 0059
+     - :doc:`0059-webhooks`
+     - Accepted
+   * - 0060
+     - :doc:`0060-service-accounts-and-api-tokens`
+     - Accepted
+   * - 0061
+     - :doc:`0061-basic-theme-for-schema-forms`
+     - Accepted
+   * - 0062
+     - :doc:`0062-project-tree`
+     - Accepted
+   * - 0063
+     - :doc:`0063-oidc-login-and-sessions`
+     - Accepted
+   * - 0064
+     - :doc:`0064-access-rules-and-authorization`
+     - Accepted
+   * - 0065
+     - :doc:`0065-audit-actors-and-coverage`
+     - Accepted
+   * - 0066
+     - :doc:`0066-project-node-scope`
+     - Accepted
+   * - 0067
+     - :doc:`0067-s3-log-store-and-deferred-deletes`
+     - Accepted
+   * - 0068
+     - :doc:`0068-openbao-secret-backend`
+     - Accepted
+   * - 0069
+     - :doc:`0069-jobs-as-code`
+     - Accepted
+   * - 0070
+     - :doc:`0070-prometheus-metrics-endpoint`
+     - Accepted
+   * - 0071
+     - :doc:`0071-controller-native-tls`
+     - Accepted
+   * - 0072
+     - :doc:`0072-forward-only-migrations`
+     - Accepted
+   * - 0073
+     - :doc:`0073-bundle-signing-and-backup-scripts`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -150,3 +264,45 @@ change nothing until accepted.
    0030-helm-diff-preview
    0031-manual-approval-steps-and-notifications
    0032-runtime-loaded-plugins
+   0033-blueoak-licensed-dev-only-tooling-dependencies
+   0034-dev-only-inline-nodes-and-secrets
+   0035-timeout-semantics
+   0036-retry-semantics
+   0037-groups-scoping-and-status
+   0038-for-each-lanes
+   0039-leader-lease
+   0040-internal-controller-endpoints
+   0041-job-graph
+   0042-db-secret-backend-keyring
+   0043-inventory-nodes
+   0044-dev-nodes-is-a-seeder
+   0045-frozen-run-targets
+   0046-tofu-host-key-recording
+   0047-agent-side-masking-only
+   0048-plugins-that-target-several-nodes
+   0049-winrm-transport-security-and-remote-execution
+   0050-custom-binaries-with-damson-build
+   0051-non-secret-s3-connection-fields
+   0052-route-steps-by-node-pool-at-dispatch
+   0053-audit-events
+   0054-audit-retention
+   0055-inventory-target-mode
+   0056-buildah-registry-credentials
+   0057-helm-credentials
+   0058-schedules-and-the-scheduler-duty
+   0059-webhooks
+   0060-service-accounts-and-api-tokens
+   0061-basic-theme-for-schema-forms
+   0062-project-tree
+   0063-oidc-login-and-sessions
+   0064-access-rules-and-authorization
+   0065-audit-actors-and-coverage
+   0066-project-node-scope
+   0067-s3-log-store-and-deferred-deletes
+   0068-openbao-secret-backend
+   0069-jobs-as-code
+   0070-prometheus-metrics-endpoint
+   0071-controller-native-tls
+   0072-forward-only-migrations
+   0073-bundle-signing-and-backup-scripts
+   0074-run-retention

@@ -1,0 +1,8 @@
+[
+  {
+    "attempt_id": "at-c",
+    "execution_id": "ex-c",
+    "path": "deploy/finally/cleanup",
+    "type": "cancel_execution"
+  }
+]

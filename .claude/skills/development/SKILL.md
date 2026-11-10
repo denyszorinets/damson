@@ -658,6 +658,8 @@ Do not add a large collection of linters without a reason.
 
 If a linter is configured for the repository, the Makefile should expose it.
 
+In this repository `golangci-lint` v2 (config `.golangci.yml`, version pinned in `.github/workflows/ci.yml`) is adopted. Install it locally and run `golangci-lint run ./...` (or `make lint`) before every push; `make check` silently skips it when it is missing. The full local gate is in the `gitflow` skill, section "Before Every Push".
+
 ---
 
 # 26. go fix

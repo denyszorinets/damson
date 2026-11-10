@@ -18,8 +18,8 @@ Each agent advertises:
   startup;
 - the manifests of every plugin compiled into its binary.
 
-A step runs on an agent from the pool chosen by ``runs_on`` or the target
-node's pool, that has the plugin at a compatible version and free capacity.
+A step runs on an agent from the pool chosen by ``runs_on.pool``, else the
+target node's pool, else ``default``, that has the plugin at a compatible version and free capacity.
 
 If a controller goes away, agents keep executing and reconnect to another one.
 If an agent goes away, its executions are marked ``lost`` when their lease
@@ -41,12 +41,15 @@ Built-in plugins (v1):
      - Purpose
    * - ``ssh``
      - Run a command or script on a node; host key policies
-       ``strict``/``tofu``/``insecure``.
+       ``strict``/``tofu``/``insecure`` (:doc:`/reference/plugin-ssh`).
    * - ``winrm``
-     - Run a command or PowerShell on Windows (HTTPS, Basic or NTLM).
+     - Run a command or PowerShell on Windows (HTTPS, Basic or NTLM; http
+       only with NTLM and an agent opt-in). Not yet proven on a real Windows
+       host (:doc:`/reference/plugin-winrm`).
    * - ``transfer``
-     - Copy or move one file between nodes (SFTP, SCP, FTP, FTPS) and S3,
-       streamed through agent memory with in-stream SHA-256.
+     - Copy or move one file between nodes, streamed through agent memory
+       with in-stream SHA-256. SFTP, SCP, FTP, FTPS and S3 endpoints are
+       implemented (:doc:`/reference/plugin-transfer`).
    * - ``ansible``
      - Run a playbook from Git with an inventory generated from the run's
        targets.
@@ -58,7 +61,68 @@ Built-in plugins (v1):
 Plugins are compiled into the binary. Built-ins use the same public SDK
 (``pkg/pluginsdk``) that third-party plugins use; custom binaries with extra
 plugins are built with ``damson build --with <module>@<version>``
-(:doc:`/architecture/decisions/0014-compiled-in-plugins-with-a-public-sdk`).
+(:ref:`cli-build`,
+:doc:`/architecture/decisions/0014-compiled-in-plugins-with-a-public-sdk`).
+Extra plugins are fully trusted code in the process, so link them into agent
+binaries only.
 
 Scripts run by ``ssh`` and ``winrm`` can return values by printing
 ``##damson-output key=value`` or ``##damson-output-json {...}``.
+
+.. _plugin-registry:
+
+Plugin registry
+---------------
+
+The controller keeps a plugin registry (``internal/pluginreg``). It holds the
+manifests of the built-in plugins, which the controller links itself, so their
+schemas are known with no agent connected, and the manifests every connected
+agent sent in ``agent.hello``. The registry is a derived cache, not durable
+state: the gateway adds an agent's manifests after a successful hello and drops
+them when that agent's socket ends. The manifests are also stored in the
+``plugin_manifests`` table (one row per name, version and checksum) and linked
+to the agent in ``agent_plugins``, in the hello transaction. Every few seconds
+each controller reads the plugins of live agents connected to the *other*
+controllers and merges them in, so any controller can validate, resolve and
+list. An agent counts as live while it is owned by a controller, not
+disconnected and seen within twice the heartbeat plus flush intervals (40 s at defaults), so the
+agents of a crashed controller age out. A controller that starts while agents are
+live on other controllers learns their plugins at once; its own agents
+reconnect first.
+
+* **Deduplication.** Manifests are keyed by name, version and checksum; many
+  agents reporting the same manifest are one entry with many providers.
+* **Resolution.** ``plugin`` picks the highest semver version that at least
+  one eligible agent can run. ``plugin@1`` pins the major version. An agent is
+  eligible when it is in the requested pool, reports the accepted manifest and
+  has every capability in the manifest's ``requires``.
+* **Conflicts.** If agents report different checksums for one name and
+  version, the controller's own manifest wins, otherwise the most reported one
+  (ties go to the smaller checksum). Agents on the other side are listed under
+  ``conflicts`` in the API and are never chosen for dispatch.
+* **Built-ins cannot be shadowed.** An unpinned reference to a name the
+  controller links itself resolves only to a built-in version. An agent-only
+  version of such a name (for example a higher ``ssh``) is reachable only with
+  an explicit pin such as ``ssh@2``. An agent that reports a manifest for a
+  built-in name that differs from the built-in, or a higher version, is
+  logged as a warning (names, versions and checksums only, never manifest
+  contents).
+* **Authoring versus dispatch.** ``Lookup`` returns the highest matching
+  manifest even if no connected agent can run it; use it for job validation
+  and forms only. Dispatch must validate against the manifest ``Resolve``
+  returned, because that is the version an agent will execute.
+* **Limits.** A manifest input schema is bounded in size and nesting depth
+  and must compile (reference cycles are refused); an oversized step input is
+  rejected. The compiled-schema cache is bounded and never stores failures.
+* **Several controllers.** Resolution is cluster-wide: an unpinned reference
+  resolves to the highest version on eligible agents of any controller. If
+  that agent belongs to another controller, the execution is requeued until
+  that controller claims it. The view of other controllers lags by up to one
+  sync interval (7 s), plus the liveness window after a crash. The
+  checksum stored with a manifest is used as is and is part of the storage
+  contract. Manifests no agent references are swept after an hour.
+* **Input validation.** Before dispatch the resolved step input is validated
+  against the manifest ``input_schema`` (the agent's own ``Validate`` still
+  runs later). Errors name the field path and the rule, never an input value
+  or an input property name, and a
+  ``secret://`` reference is an ordinary string.

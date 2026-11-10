@@ -1,0 +1,52 @@
+[Unit]
+Description=Damson controller
+Documentation=https://github.com/denyszorinets/damson
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=damson
+Group=damson
+# The environment file holds the credentials: database DSN, cluster secret, KEK.
+# Mode 0600, owned by root; systemd reads it before it drops privileges.
+EnvironmentFile=/etc/damson/controller.env
+Environment=DAMSON_CONFIG=/etc/damson/controller.toml
+ExecStart=/usr/local/bin/damson controller --auto-migrate
+Restart=on-failure
+RestartSec=5s
+# The controller stops its listeners and flushes logs in two steps of up to 15 seconds each.
+TimeoutStopSec=45s
+StateDirectory=damson
+WorkingDirectory=/var/lib/damson
+StateDirectoryMode=0750
+LimitNOFILE=65536
+
+# Hardening. The controller only needs the network and its state directory.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

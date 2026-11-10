@@ -1,0 +1,69 @@
+{
+  "nodes": [
+    {
+      "id": "$start",
+      "kind": "start",
+      "label": "start"
+    },
+    {
+      "id": "deploy",
+      "kind": "group",
+      "label": "deploy"
+    },
+    {
+      "id": "deploy/a",
+      "kind": "step",
+      "parent": "deploy",
+      "label": "a",
+      "plugin": "ssh"
+    },
+    {
+      "id": "deploy/finally",
+      "kind": "finally",
+      "parent": "deploy",
+      "label": "finally"
+    },
+    {
+      "id": "deploy/finally/c1",
+      "kind": "step",
+      "parent": "deploy/finally",
+      "label": "c1",
+      "plugin": "ssh"
+    },
+    {
+      "id": "deploy/finally/c2",
+      "kind": "step",
+      "parent": "deploy/finally",
+      "label": "c2",
+      "plugin": "ssh"
+    },
+    {
+      "id": "$end",
+      "kind": "end",
+      "label": "end"
+    }
+  ],
+  "edges": [
+    {
+      "from": "$start",
+      "to": "deploy",
+      "kind": "sequence"
+    },
+    {
+      "from": "deploy/finally/c1",
+      "to": "deploy/finally/c2",
+      "kind": "sequence"
+    },
+    {
+      "from": "deploy/a",
+      "to": "deploy/finally",
+      "kind": "finally",
+      "label": "always"
+    },
+    {
+      "from": "deploy",
+      "to": "$end",
+      "kind": "sequence"
+    }
+  ]
+}

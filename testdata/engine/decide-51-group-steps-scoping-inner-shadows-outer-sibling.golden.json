@@ -1,0 +1,19 @@
+[
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "input": {
+      "command": "inner",
+      "node": "n"
+    },
+    "path": "g/b",
+    "plugin": "ssh",
+    "step_id": "b",
+    "type": "create_step_instance"
+  },
+  {
+    "attempt": 1,
+    "path": "g/b",
+    "scheduled_at": "2026-03-01T10:05:00Z",
+    "type": "schedule_execution"
+  }
+]

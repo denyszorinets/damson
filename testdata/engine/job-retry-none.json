@@ -1,0 +1,28 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "retry-none"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "flaky",
+        "plugin": "ssh",
+        "with": {
+          "node": "n",
+          "command": "flaky"
+        }
+      },
+      {
+        "id": "after",
+        "plugin": "ssh",
+        "with": {
+          "node": "n",
+          "command": "after"
+        }
+      }
+    ]
+  }
+}

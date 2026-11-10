@@ -1,0 +1,19 @@
+[
+  {
+    "path": "deploy/finally/c2",
+    "reason": "finally grace expired",
+    "status": "cancelled",
+    "step_id": "c2",
+    "type": "skip_step"
+  },
+  {
+    "path": "deploy",
+    "status": "cancelled",
+    "type": "complete_group"
+  },
+  {
+    "finished_at": "2026-03-01T10:06:30Z",
+    "status": "cancelled",
+    "type": "complete_run"
+  }
+]

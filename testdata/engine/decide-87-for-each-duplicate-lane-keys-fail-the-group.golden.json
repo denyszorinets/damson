@@ -1,0 +1,24 @@
+[
+  {
+    "error": {
+      "kind": "expression",
+      "message": "evaluating for_each: items 0 and 1 have the same lane key \"a\""
+    },
+    "kind": "group",
+    "path": "per-node",
+    "step_id": "per-node",
+    "type": "fail_step"
+  },
+  {
+    "path": "after",
+    "reason": "a previous step failed",
+    "status": "skipped",
+    "step_id": "after",
+    "type": "skip_step"
+  },
+  {
+    "finished_at": "2026-03-01T10:05:00Z",
+    "status": "failed",
+    "type": "complete_run"
+  }
+]

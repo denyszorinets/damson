@@ -28,7 +28,8 @@ its constraints to be recorded:
 Decision
 --------
 
-Not decided yet. This ADR records the question and the options so they can be
+Not decided yet. Until then third-party plugins are linked in with
+``damson build --with`` (:doc:`0050-custom-binaries-with-damson-build`). This ADR records the question and the options so they can be
 evaluated; it changes nothing until it is accepted. Not before v1 ships.
 
 Alternatives Considered

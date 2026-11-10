@@ -1,0 +1,344 @@
+package engine
+
+import (
+	"fmt"
+	"regexp"
+	"sort"
+	"time"
+
+	"github.com/denyszorinets/damson/internal/expr"
+)
+
+var (
+	stepIDPattern = regexp.MustCompile(`^[a-z0-9-]+$`)
+	// "name" or "name@<major>".
+	pluginPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*(@[0-9]+)?$`)
+)
+
+// Validate checks the semantic rules the JSON Schema cannot express. Paths
+// are relative to the document root, e.g. "spec.steps[1].when". It returns
+// nil for a valid job.
+func Validate(j *Job) ValidationErrors {
+	env, err := expr.NewEnv(expr.Limits{})
+	if err != nil {
+		return ValidationErrors{{Path: "$", Message: err.Error()}}
+	}
+	v := &validator{env: env}
+	v.job(j)
+	return v.errs
+}
+
+type validator struct {
+	env  *expr.Env
+	errs ValidationErrors
+	// inLane is true while the steps of a for_each group are being checked:
+	// for_each groups do not nest (ADR-0038).
+	inLane bool
+}
+
+func (v *validator) add(path, format string, args ...any) {
+	v.errs = append(v.errs, FieldError{Path: path, Message: fmt.Sprintf(format, args...)})
+}
+
+func (v *validator) job(j *Job) {
+	if j.APIVersion != APIVersion {
+		v.add("apiVersion", "must be %q", APIVersion)
+	}
+	if j.Kind != KindJob {
+		v.add("kind", "must be %q", KindJob)
+	}
+	v.spec(&j.Spec)
+}
+
+func (v *validator) spec(s *Spec) {
+	if s.Options != nil {
+		v.options(s.Options)
+	}
+	if s.Targets != nil && s.Targets.Selector != "" {
+		v.expression("spec.targets.selector", s.Targets.Selector)
+	}
+	if s.Concurrency != nil {
+		v.errs = append(v.errs, errNotSupported("spec.concurrency", "concurrency"))
+	}
+	v.duration("spec.timeout", s.Timeout)
+	if len(s.Steps) == 0 {
+		v.add("spec.steps", "must contain at least one step")
+	}
+	v.steps("spec.steps", s.Steps, 1)
+}
+
+// options checks that spec.options is itself a valid JSON Schema.
+func (v *validator) options(opts map[string]any) {
+	if t, ok := opts["type"]; ok && t != "object" {
+		v.add("spec.options.type", "must be \"object\"")
+		return
+	}
+	c := newSchemaCompiler()
+	if err := c.AddResource("damson:options", opts); err != nil {
+		v.add("spec.options", "not a valid JSON Schema: %v", err)
+		return
+	}
+	if _, err := c.Compile("damson:options"); err != nil {
+		v.add("spec.options", "not a valid JSON Schema: %v", err)
+		return
+	}
+	v.checkSecretSchema("spec.options", opts, false)
+}
+
+// maxGroupDepth bounds how deep groups nest (ADR-0037).
+const maxGroupDepth = 8
+
+// reservedIDs are the path markers of a group's catch and finally lists; a
+// step cannot take them as its id, or a body step could collide with a marker.
+var reservedIDs = map[string]bool{SegCatch: true, SegFinally: true}
+
+// steps checks one step list. depth is 1 for the job's own list and grows with
+// each group. The ids catch and finally are reserved only inside a group, where
+// they could be mistaken for a list marker in a path; a top-level step may
+// still use them, as jobs saved before groups existed may.
+func (v *validator) steps(path string, steps []Step, depth int) {
+	v.stepsIn(path, steps, depth, map[string]string{})
+}
+
+// stepsIn is steps with the ids already taken: a group's steps, catch and
+// finally lists share one id namespace, so the group passes the same map to all
+// three. seen maps an id to where it was first used.
+func (v *validator) stepsIn(path string, steps []Step, depth int, seen map[string]string) {
+	for i := range steps {
+		p := fmt.Sprintf("%s[%d]", path, i)
+		s := &steps[i]
+		switch first, dup := seen[s.ID]; {
+		case s.ID == "":
+			v.add(p+".id", "is required")
+		case !stepIDPattern.MatchString(s.ID):
+			v.add(p+".id", "%q must match [a-z0-9-]+", s.ID)
+		case depth > 1 && reservedIDs[s.ID]:
+			v.add(p+".id", "%q is reserved inside a group (it marks the catch and finally lists in step paths)", s.ID)
+		case dup:
+			v.add(p+".id", "duplicate id %q (first used at %s)", s.ID, first)
+		}
+		if s.ID != "" {
+			if _, ok := seen[s.ID]; !ok {
+				seen[s.ID] = p
+			}
+		}
+		v.step(p, s, depth)
+	}
+}
+
+func (v *validator) step(p string, s *Step, depth int) {
+	if s.IsGroup() {
+		v.group(p, s, depth)
+		return
+	}
+	for _, f := range []struct {
+		name string
+		set  bool
+	}{
+		{"steps", len(s.Steps) > 0}, {"catch", len(s.Catch) > 0}, {"finally", len(s.Finally) > 0}, {"rethrow", s.Rethrow != nil},
+		{"for_each", s.ForEach != ""}, {"max_parallel", s.MaxParallel != nil}, {"fail_threshold", s.FailThreshold != nil},
+	} {
+		if f.set {
+			v.add(p+"."+f.name, "is only valid on a step of type %q", StepTypeGroup)
+		}
+	}
+	switch {
+	case s.Plugin == "":
+		v.add(p+".plugin", "is required for a plugin step")
+	case !pluginPattern.MatchString(s.Plugin):
+		v.add(p+".plugin", "%q must be \"name\" or \"name@<major>\"", s.Plugin)
+	}
+	v.duration(p+".timeout", s.Timeout)
+	v.retry(p+".retry", s.Retry)
+	if s.When != "" {
+		v.expression(p+".when", s.When)
+	}
+	if s.RunsOn != nil && s.RunsOn.Pool == "" && len(s.RunsOn.Labels) == 0 {
+		v.add(p+".runs_on", "must set pool or labels")
+	}
+	v.templates(p+".with", s.With)
+}
+
+// group checks a step of type "group": a container of steps that has no
+// attempts of its own, so it takes none of the per-attempt settings.
+func (v *validator) group(p string, s *Step, depth int) {
+	if depth > maxGroupDepth {
+		v.add(p, "groups nest at most %d deep", maxGroupDepth)
+		return
+	}
+	for _, f := range []struct {
+		name string
+		set  bool
+	}{
+		{"plugin", s.Plugin != ""}, {"with", s.With != nil}, {"retry", s.Retry != nil},
+		{"timeout", s.Timeout != ""}, {"runs_on", s.RunsOn != nil},
+	} {
+		if f.set {
+			v.add(p+"."+f.name, "is not allowed on a group")
+		}
+	}
+	if s.When != "" {
+		v.expression(p+".when", s.When)
+	}
+	if s.Rethrow != nil && *s.Rethrow && len(s.Catch) == 0 {
+		v.add(p+".rethrow", "needs a catch list")
+	}
+	v.forEach(p, s)
+	if len(s.Steps) == 0 {
+		v.add(p+".steps", "a group needs at least one step")
+		return
+	}
+	outer := v.inLane
+	v.inLane = outer || s.ForEach != ""
+	seen := map[string]string{}
+	v.stepsIn(p+".steps", s.Steps, depth+1, seen)
+	v.stepsIn(p+".catch", s.Catch, depth+1, seen)
+	v.stepsIn(p+".finally", s.Finally, depth+1, seen)
+	v.inLane = outer
+}
+
+// forEach checks the fan-out settings of a group.
+func (v *validator) forEach(p string, s *Step) {
+	if s.ForEach == "" {
+		if s.MaxParallel != nil {
+			v.add(p+".max_parallel", "needs for_each")
+		}
+		if s.FailThreshold != nil {
+			v.add(p+".fail_threshold", "needs for_each")
+		}
+		return
+	}
+	if v.inLane {
+		v.add(p+".for_each", "cannot be nested inside another for_each group")
+	}
+	prog, err := v.env.Compile(s.ForEach)
+	switch {
+	case err != nil:
+		v.add(p+".for_each", "%s", unwrapCompile(err))
+	case prog.UsesStatus():
+		v.add(p+".for_each", "cannot call status functions: it is evaluated once, when the group starts")
+	}
+	for _, f := range []struct {
+		name string
+		n    *int
+	}{{"max_parallel", s.MaxParallel}, {"fail_threshold", s.FailThreshold}} {
+		if f.n != nil && (*f.n < 1 || *f.n > maxLanes) {
+			v.add(p+"."+f.name, "must be between 1 and %d", maxLanes)
+		}
+	}
+}
+
+func (v *validator) duration(path, s string) {
+	if s == "" {
+		return
+	}
+	d, err := time.ParseDuration(s)
+	switch {
+	case err != nil:
+		v.add(path, "%q is not a duration such as \"30s\" or \"10m\"", s)
+	case d <= 0:
+		v.add(path, "must be positive")
+	}
+}
+
+// expression compile-checks one CEL expression.
+func (v *validator) expression(path, src string) {
+	if _, err := v.env.Compile(src); err != nil {
+		v.add(path, "%s", unwrapCompile(err))
+	}
+}
+
+func unwrapCompile(err error) string {
+	msg := err.Error()
+	prefix := expr.ErrCompile.Error() + ": "
+	if len(msg) > len(prefix) && msg[:len(prefix)] == prefix {
+		return "invalid expression: " + msg[len(prefix):]
+	}
+	return msg
+}
+
+// templates compile-checks every ${{ }} expression found in strings of a
+// JSON value, reporting the path of the offending string.
+func (v *validator) templates(path string, val any) {
+	switch t := val.(type) {
+	case string:
+		segs, err := expr.ParseTemplate(t)
+		if err != nil {
+			v.add(path, "%s", unwrapCompile(err))
+			return
+		}
+		for _, seg := range segs {
+			if seg.IsExpr {
+				v.expression(path, seg.Expr)
+			}
+		}
+	case map[string]any:
+		keys := make([]string, 0, len(t))
+		for k := range t {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			v.templates(path+"."+k, t[k])
+		}
+	case []any:
+		for i, x := range t {
+			v.templates(fmt.Sprintf("%s[%d]", path, i), x)
+		}
+	}
+}
+
+// Bounds of the retry block (ADR-0036).
+const (
+	maxRetryAttempts = 100
+	maxBackoffDelay  = 24 * time.Hour
+	maxMultiplier    = 10
+)
+
+func (v *validator) retry(p string, r *Retry) {
+	if r == nil {
+		return
+	}
+	if r.MaxAttempts < 1 || r.MaxAttempts > maxRetryAttempts {
+		v.add(p+".max_attempts", "is required and must be between 1 and %d (it counts the first attempt)", maxRetryAttempts)
+	}
+	if r.RetryOn != "" {
+		v.expression(p+".retry_on", r.RetryOn)
+	}
+	b := r.Backoff
+	if b == nil {
+		return
+	}
+	initial, iok := v.backoffDuration(p+".backoff.initial", b.Initial)
+	maxDelay, mok := v.backoffDuration(p+".backoff.max", b.Max)
+	if iok && mok && maxDelay < initial {
+		v.add(p+".backoff.max", "must not be less than backoff.initial")
+	}
+	if b.Multiplier != nil && (*b.Multiplier < 1 || *b.Multiplier > maxMultiplier) {
+		v.add(p+".backoff.multiplier", "must be between 1 and %d (1 is a constant delay)", maxMultiplier)
+	}
+	if b.Jitter != nil && (*b.Jitter < 0 || *b.Jitter > 1) {
+		v.add(p+".backoff.jitter", "must be a fraction between 0 and 1")
+	}
+}
+
+// backoffDuration checks an optional backoff duration: positive and at most
+// 24h. It returns the value and whether one was given and valid.
+func (v *validator) backoffDuration(path, s string) (time.Duration, bool) {
+	if s == "" {
+		return 0, false
+	}
+	d, err := time.ParseDuration(s)
+	switch {
+	case err != nil:
+		v.add(path, "%q is not a duration such as \"1s\" or \"5m\"", s)
+		return 0, false
+	case d <= 0:
+		v.add(path, "must be positive")
+		return 0, false
+	case d > maxBackoffDelay:
+		v.add(path, "must be at most %s", maxBackoffDelay)
+		return 0, false
+	}
+	return d, true
+}

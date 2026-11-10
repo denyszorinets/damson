@@ -1,0 +1,290 @@
+.. _reference-job-spec:
+
+Job spec v1
+===========
+
+A job is a JSON document (``apiVersion: damson.dev/v1``, ``kind: Job``); the
+design is in ``ARCHITECTURE.md`` section 5. This page documents what the
+implementation in ``internal/engine`` and ``internal/expr`` supports today
+(milestone M2: sequential plugin steps) and what is reserved for M3.
+
+The JSON Schema is generated from the Go types (``engine.Schema``) and
+committed at ``testdata/engine/job-v1.schema.json``; ``make gen`` refreshes
+it. ``engine.Parse`` validates a document against that schema and then applies
+the rules below. Errors carry precise paths such as ``spec.steps[1].id`` and
+all problems are reported at once.
+
+Document layout
+---------------
+
+.. code-block:: json
+
+   {
+     "apiVersion": "damson.dev/v1",
+     "kind": "Job",
+     "metadata": { "project": "infra/billing", "name": "deploy", "description": "" },
+     "spec": {
+       "options": { "type": "object", "properties": { "env": { "type": "string" } } },
+       "targets": { "selector": "'web' in node.tags" },
+       "timeout": "30m",
+       "steps": [
+         { "id": "fetch", "plugin": "transfer@1", "timeout": "10m",
+           "with": { "key": "app/${{ inputs.env }}.tgz" } },
+         { "id": "report", "plugin": "ssh", "when": "always()",
+           "continue_on_error": true, "with": { "command": "echo ${{ run.status }}" } }
+       ]
+     }
+   }
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Field
+     - Rules
+   * - ``spec.options``
+     - A JSON Schema of ``type: object`` describing run inputs. It must itself
+       be a valid schema. A property marked ``x-damson-secret: true`` (and
+       everything below it) accepts only ``secret://`` references; see
+       :ref:`job-spec-secret-options`.
+   * - ``spec.targets.selector``
+     - A CEL expression over ``node`` (``id``, ``name``, ``address``, ``tags``,
+       ``attributes``, ``pool``, ``os``, ``transport``) and ``inputs``; the nodes
+       for which it is true are ``targets``. The nodes are the enabled inventory nodes
+       in the project's scope, sorted by name; nodes seeded from a
+       :ref:`dev nodes file <cli-dev-nodes>` are included. The selection is made once, when
+       the run is triggered, and frozen into the run (ADR-0045): later inventory changes do not
+       affect it. More than 1000 matches rejects the trigger with 422 at ``spec.targets``.
+       A node for which it fails does not match.
+   * - ``spec.timeout``
+     - Go duration (``30s``, ``10m``), positive. Covers the whole run from its
+       start (time spent pending does not count). When it expires the run is
+       cancelled like a user cancel, with ``cancel_reason`` ``timeout``: running
+       steps are stopped, pending steps are cancelled as ``job timed out``, and
+       only steps whose ``when`` calls ``always()`` or ``cancelled()`` still run
+       (the timeout itself does not trigger ``failure()`` handlers; a step that
+       really failed still does). The run ends ``failed`` if any step
+       failed or was cancelled, ``succeeded`` if every step still succeeded
+       (:doc:`/architecture/decisions/0035-timeout-semantics`).
+   * - ``spec.steps``
+     - At least one step; run strictly in order.
+   * - ``steps[].id``
+     - Required, ``[a-z0-9-]+``, unique within the list.
+   * - ``steps[].plugin``
+     - Required: ``name`` or ``name@<major>``. Whether the plugin exists, and
+       its input schema, are checked by the caller against the plugin
+       registry, on the *resolved* ``with``.
+   * - ``steps[].with``
+     - Plugin input. Any string may contain ``${{ }}`` expressions; they are
+       compile-checked at validation time.
+   * - ``steps[].retry``
+     - Plugin steps only (:doc:`/architecture/decisions/0036-retry-semantics`).
+       ``max_attempts`` is required (1 to 100, counts the first attempt).
+       ``backoff``: ``initial`` (default ``1s``), ``multiplier`` (1 to 10,
+       default 2), ``max`` (default ``5m``, at most 24h) and ``jitter`` (a
+       fraction, 0 to 1, default 0.2: the delay is shortened by up to that
+       share). ``retry_on`` is a CEL condition over ``error`` (``kind``,
+       ``message``, and ``exit_code`` for an ``exit_code`` failure; use
+       ``has(error.exit_code)`` to test for it), default ``error.kind in ['connection',
+       'timeout', 'lost']``. ``on_lost`` (optional boolean): unset retries a
+       lost attempt only for an idempotent plugin, ``true`` always,
+       ``false`` never. Nothing is retried once the run is being cancelled
+       (a user cancel or the job timeout), and a step without ``retry`` runs
+       once.
+   * - ``steps[].timeout``
+     - Per attempt, Go duration. Stored on the execution and enforced by the
+       agent (a deadline that starts when it accepts the step). A timed-out
+       attempt is a failed step with ``error.kind`` ``timeout``.
+   * - ``steps[].when``
+     - CEL condition, default ``success()``.
+   * - ``steps[].continue_on_error``
+     - A failure is recorded but does not fail the run or skip later steps.
+   * - ``steps[].runs_on``
+     - ``{ "pool": "...", "labels": { ... } }``; at least one of the two.
+
+Groups
+------
+
+``type: "group"`` is a container with ``steps`` (at least one). It takes
+``when`` and ``continue_on_error`` like a step, and none of ``plugin``,
+``with``, ``retry``, ``timeout`` and ``runs_on``. The steps of a group run in
+order; a failure inside skips the rest of the group (unless a later step's
+``when`` calls a status function), and the group then fails with that step's
+error, which fails the enclosing list like any failed step. A group whose
+``when`` is false is skipped without creating its steps.
+
+A group may also have ``catch``, ``finally`` and ``rethrow``
+(:doc:`/architecture/decisions/0037-groups-scoping-and-status`). When a body
+step fails, the rest of the body is skipped and the ``catch`` steps run with
+``error`` bound (``error.step``, ``error.path``, ``error.kind``,
+``error.message``, ``error.exit_code`` when known); if the catch steps do not
+fail the group *succeeds as handled* (``steps.<group>.handled``), unless
+``rethrow: true``, which fails it with the original error after ``finally``. The
+``finally`` steps always run for a group that started, also after a failure or a
+cancel, and a failure in ``finally`` fails the group. After a cancel or the job
+timeout, ``finally`` is protected for ``engine.finally_grace`` (default 2m,
+:doc:`configuration`): its steps keep running during the grace, a finally step
+that starts then gets at most the time left as its timeout, and what is still
+running after it is cancelled. The three lists of a group share one id
+namespace, and ``rethrow`` needs a ``catch`` list.
+
+``for_each``
+~~~~~~~~~~~~
+
+A group with ``for_each`` runs once per item of a list, in independent lanes
+(:doc:`/architecture/decisions/0038-for-each-lanes`). ``for_each`` is a CEL
+expression that evaluates to a list, for example ``inputs.hosts`` or
+``steps.plan.outputs.nodes``; it is evaluated once, when the group starts, and
+the list is frozen. Inside a lane ``item`` is the item, and ``node`` is the item
+when it is an object. The lane key is the item's ``name`` (an object with a
+string ``name``), the item (a string), or its index; it must match
+``^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`` and be unique, and a list with more than
+1000 items, a bad or duplicate key, or an expression that is not a list fails the
+group. An empty list succeeds with no lanes.
+
+Each lane is a full instance of the group: ``steps``, ``catch``, ``finally`` and
+``rethrow`` run per lane, and ``steps.<id>`` inside a lane means that lane's
+steps. ``max_parallel`` (1 to 1000, default all lanes) limits the lanes open at
+once, in list order; ``fail_threshold`` (1 to 1000, default never) cancels the
+lanes that have not started after that many lanes failed. From outside, the
+results are ``steps.<group>.lanes[<key>]``. A group with ``for_each`` cannot sit
+inside another one. The group fails with the first failed lane's error.
+
+Inside a group the step ids ``catch`` and ``finally`` are reserved (a
+top-level step may still use them), and groups nest at most 8 deep. A nested step's path is ``<group>/<id>``
+(:doc:`/architecture/decisions/0037-groups-scoping-and-status`).
+
+In expressions ``steps.<id>`` is lexical: a step sees the earlier steps of its
+own list and of every enclosing list, an inner id shadowing an outer one.
+``steps.<group>`` has ``status``, ``outputs``, ``error``, ``handled``,
+``started_at``, ``finished_at`` and ``steps`` (the values of its body steps),
+for example ``steps.deploy.steps.build.status``. ``success()`` and
+``failure()`` look only at the earlier steps of the same list. A group whose
+``when`` admits it after a cancel or the job timeout (``always()``,
+``cancelled()``) runs its body: the run-level cancel does not make ``success()``
+false inside it.
+
+Reserved fields (rejected for now)
+----------------------------------
+
+These fields are part of the schema so that later milestones extend the model
+instead of reshaping it, but validation rejects them with
+``<path> is not supported yet``: ``spec.concurrency``.
+
+Control flow (sequential)
+-------------------------
+
+``engine.Engine.Decide(job, state, now)`` is a pure function (no I/O, no
+clock, no randomness; ``now`` is injected) returning the actions to apply. It
+implements ``ARCHITECTURE.md`` section 5.3 rules 1 to 3 and the status
+functions of rule 8:
+
+* Steps run in order. A step is created only when every earlier step is
+  terminal.
+* Before a step runs its ``when`` is evaluated; false means ``skipped``.
+* After a failure without ``continue_on_error`` the rest of the list is
+  skipped, except steps whose ``when`` calls ``failure()``, ``always()`` or
+  ``cancelled()``.
+* A ``when`` that calls no status function is evaluated as
+  ``success() && (when)``. So ``inputs.env == 'prod'`` never runs after a
+  failure, while ``failure() && steps.a.status == 'failed'`` does.
+* ``success()`` is true while no earlier step failed (unhandled) and the run
+  is not cancelled. ``failure()`` is true after an unhandled failure.
+  ``cancelled()`` is true once cancel was requested. ``always()`` is true.
+* A ``when`` or ``with`` expression that fails to evaluate fails that step
+  with error kind ``expression``; the rest follows rule 3.
+* On cancel, in-flight executions that started before the request are
+  cancelled; pending steps become ``cancelled`` unless their ``when`` allows
+  them to run (an ``always()`` cleanup still runs). The run ends ``cancelled``
+  if any step was cancelled.
+* If cancel arrives after the last step finished, nothing is cancelled and the
+  run ends ``succeeded`` (or ``failed``).
+* ``Decide`` does not derive step status from executions: when an execution
+  completes, the store must update the step instance status in the same
+  transaction. Until then a pending step simply waits.
+* The run ends ``failed`` if any step failed without ``continue_on_error``,
+  otherwise ``succeeded``.
+
+Actions are ``StartRun``, ``CreateStepInstance``, ``ScheduleExecution``,
+``SkipStep``, ``FailStep``, ``CancelExecution`` and ``CompleteRun``. The
+caller applies them in order inside one transaction guarded by
+``runs.version``. An empty result means "wait". The step timeout is carried on
+``ScheduleExecution``.
+
+Expressions
+-----------
+
+Interpolation uses ``${{ <CEL> }}`` inside any string of ``with``.
+
+* A string that is exactly one expression keeps the CEL type (number, bool,
+  list, map): ``"retries": "${{ inputs.retries }}"`` resolves to a JSON number.
+* Otherwise each result is stringified (strings as is, ``null`` as empty,
+  everything else as compact JSON) and concatenated.
+* ``$${{`` yields a literal ``${{``. The closing ``}}`` is the first one
+  outside a quoted string.
+* Map keys are not interpolated.
+* Limitation: the closing ``}}`` is the first one outside a quoted string, so
+  a map literal ending in ``}}`` inside an expression (``${{ {'a': {'b': 1}} }}``)
+  closes early. Put a space between the braces: ``{'b': 1} }``.
+
+Context variables: ``inputs``, ``run`` (``id``, ``status``, ``trigger``,
+``triggered_by``, ``started_at``), ``job`` (``name``, ``project``,
+``version``) and ``steps.<id>`` (``status``, ``outputs``, ``error``,
+``started_at``, ``finished_at``). ``node``, ``targets`` and ``error`` compile
+but are bound only from M3. Whole JSON numbers are exposed to CEL as integers,
+so ``inputs.count + 1`` works. The ``strings`` extension functions are
+available.
+
+Secrets are never values in the context. ``secret://`` references are plain
+strings that pass through resolution unchanged and are resolved at dispatch
+time.
+
+With the ``db`` secret backend, every literal ``secret://`` string in a step's
+``with`` (including groups, ``catch`` and ``finally``) and in ``spec.options``
+(``default``, ``const``, ``enum``) is checked when a job is
+created, a version is added or a spec is validated. It must parse and refer to a
+secret in the job's project or an ancestor project; a violation is a ``422``
+naming only the path in the spec, never the ref. The scope ``_inventory`` is not
+allowed as a literal. A ref that contains a ``${{ }}`` expression is only known
+at run time and is not checked here. The dispatcher checks every ref again
+before reading any secret.
+
+.. _job-spec-secret-options:
+
+Secret options
+~~~~~~~~~~~~~~
+
+Run options are stored with the run and returned by the API verbatim. Mark every
+option that carries a credential with ``x-damson-secret: true``:
+
+.. code-block:: json
+
+   { "type": "object",
+     "properties": { "token": { "type": "string", "x-damson-secret": true } } }
+
+A marked option, and every value below it (array items, nested properties),
+accepts only ``secret://...`` reference strings. A run trigger with any other
+value is rejected with ``422`` and a value-free message ("must be a secret://
+reference") at ``options.<path>``; the value is never stored, logged or
+returned. Validation of the spec itself requires a marked option to be a string
+(or an array or object of strings) and rejects a ``default``, ``const`` or
+``enum`` that is not a ``secret://`` reference. Options that are **not** marked
+are stored and returned as given, so authors must mark credentials.
+
+Expressions run under limits (``expr.Limits``): a CEL cost budget (default
+100,000), a maximum result size (64 KiB per expression) and a maximum source
+length (4 KiB). Exceeding one fails the expression with a clear error; the
+resolved input of a step is capped at 1 MiB.
+
+Jobs in files
+-------------
+
+A job document can be kept in a repository as ``<name>.job.json`` and applied
+with ``damson apply``; see :doc:`jobs-as-code`.
+
+Checksum
+--------
+
+``engine.Checksum`` is the SHA-256 of the canonical JSON form (sorted keys, no
+insignificant whitespace, numbers verbatim, no HTML escaping), so formatting
+and key order do not change a job version's checksum.

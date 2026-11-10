@@ -1,0 +1,38 @@
+[
+  {
+    "path": "deploy/build",
+    "reason": "a previous step failed",
+    "status": "skipped",
+    "step_id": "build",
+    "type": "skip_step"
+  },
+  {
+    "path": "deploy/verify",
+    "reason": "a previous step failed",
+    "status": "skipped",
+    "step_id": "verify",
+    "type": "skip_step"
+  },
+  {
+    "error": {
+      "kind": "exit_code",
+      "message": "boom",
+      "path": "deploy/unpack"
+    },
+    "path": "deploy",
+    "status": "failed",
+    "type": "complete_group"
+  },
+  {
+    "path": "report",
+    "reason": "a previous step failed",
+    "status": "skipped",
+    "step_id": "report",
+    "type": "skip_step"
+  },
+  {
+    "finished_at": "2026-03-01T10:05:00Z",
+    "status": "failed",
+    "type": "complete_run"
+  }
+]

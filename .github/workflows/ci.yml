@@ -1,0 +1,235 @@
+# CI mirrors `make check` plus the Postgres suite, generated-code drift,
+# plugin contract, web e2e and the docs build. See docs/development/ci.rst.
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+# Least privilege: no job needs to write to the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Makes make targets fail instead of printing SKIPPED (e.g. web-check, lint).
+  CI: "1"
+
+jobs:
+  go:
+    name: Go (gofmt, vet, golangci-lint, tests on SQLite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make fmt-check
+      - run: make vet
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.15.0
+          # Build with the Go toolchain from go.mod so the linter can load
+          # packages of the module's (newest) Go version. Same as `make lint`.
+          install-mode: goinstall
+      - name: Tests (SQLite, race detector)
+        run: make test GOTESTFLAGS=-race
+      - name: Build
+        run: make build
+
+  postgres:
+    name: Store tests on PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # testcontainers starts PostgreSQL through the runner's Docker daemon.
+      - name: Store tests (PostgreSQL via testcontainers)
+        run: |
+          set -o pipefail
+          if [ -n "${DAMSON_SKIP_POSTGRES:-}" ]; then
+            echo "DAMSON_SKIP_POSTGRES must not be set in CI"; exit 1
+          fi
+          make test-pg GOTESTFLAGS=-v 2>&1 | tee postgres-test.log
+          if grep -q -e '--- SKIP' postgres-test.log; then
+            echo "Postgres suite skipped tests"; exit 1
+          fi
+          if ! grep -q -e '--- PASS' postgres-test.log; then
+            echo "Postgres suite did not run (no PASS lines)"; exit 1
+          fi
+
+  chaos:
+    name: HA chaos tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Chaos tests (PostgreSQL via testcontainers)
+        run: |
+          set -o pipefail
+          if [ -n "${DAMSON_SKIP_POSTGRES:-}" ]; then
+            echo "DAMSON_SKIP_POSTGRES must not be set in CI"; exit 1
+          fi
+          make chaos GOTESTFLAGS=-v 2>&1 | tee chaos-test.log
+          if grep -q -e '--- SKIP' chaos-test.log; then
+            echo "Chaos suite skipped tests"; exit 1
+          fi
+          if ! grep -q -e '--- PASS' chaos-test.log; then
+            echo "Chaos suite did not run (no PASS lines)"; exit 1
+          fi
+
+  integration:
+    name: Integration tests (sshd container)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # testcontainers starts the containers through the runner's Docker daemon.
+      - name: Integration tests (testcontainers)
+        run: |
+          set -o pipefail
+          make test-integration GOTESTFLAGS=-v 2>&1 | tee integration-test.log
+          if grep -q -e '--- SKIP' integration-test.log; then
+            echo "Integration suite skipped tests"; exit 1
+          fi
+          if ! grep -q -e '--- PASS' integration-test.log; then
+            echo "Integration suite did not run (no PASS lines)"; exit 1
+          fi
+
+  web:
+    name: Web (build, lint, typecheck, e2e)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make web
+      - run: make web-check
+      - name: Playwright e2e
+        # Uses the Google Chrome preinstalled on ubuntu-latest (the config
+        # takes the path from CHROME_PATH); no browser download.
+        working-directory: web
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: npm run test:e2e
+
+  generated:
+    name: Generated code is up to date
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # make gen also regenerates the TypeScript API client (openapi-typescript).
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: make gen
+      - name: Fail on drift
+        run: |
+          git status --short
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+
+  plugin-contract:
+    name: Plugin contract suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # The ansible plugin's TestRealAnsible runs the callback plugin and the
+      # generated inventory on a real ansible-core (it skips without one). The
+      # tool is only run, never linked into Damson.
+      - name: Install ansible-core for the ansible plugin test
+        run: python3 -m pip install --user "ansible-core==2.18.1"
+      - run: make plugin-contract
+
+  docs:
+    name: Docs (strict build and linkcheck)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: docs/uv.lock
+      - run: make docs-check
+
+  helm:
+    name: Helm chart (lint and render)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Same version and checksum as deploy/docker/Dockerfile (HELM_VERSION).
+      HELM_VERSION: 3.16.4
+      HELM_SHA256: fc307327959aa38ed8f9f7e66d45492bb022a66c3e5da6063958254b9767d179
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install helm
+        run: |
+          curl -fsSL -o /tmp/helm.tgz "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  /tmp/helm.tgz" | sha256sum -c -
+          sudo tar -xzf /tmp/helm.tgz -C /usr/local/bin --strip-components=1 linux-amd64/helm
+      - run: make helm-check
+
+  scripts:
+    name: Backup and bundle scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: pw
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGTEST_ADMIN_URL: postgres://postgres:pw@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sqlite3 postgresql-client
+      - run: make bundle-check
+      - run: make backup-check
+
+  systemd:
+    name: systemd units (verify and hardening)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: make systemd-check

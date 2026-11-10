@@ -1,0 +1,27 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "lanes-bad"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "per-node",
+        "type": "group",
+        "steps": [
+          {
+            "id": "install",
+            "plugin": "ssh",
+            "with": {
+              "node": "${{ item }}",
+              "command": "install ${{ item }}"
+            }
+          }
+        ],
+        "for_each": "inputs.nope.x"
+      }
+    ]
+  }
+}

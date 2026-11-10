@@ -1,0 +1,29 @@
+[
+  {
+    "error": {
+      "kind": "exit_code",
+      "message": "boom",
+      "path": "o/i/x"
+    },
+    "path": "o/i",
+    "status": "failed",
+    "type": "complete_group"
+  },
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "input": {
+      "command": "handle x o/i/x",
+      "node": "n"
+    },
+    "path": "o/catch/handle",
+    "plugin": "ssh",
+    "step_id": "handle",
+    "type": "create_step_instance"
+  },
+  {
+    "attempt": 1,
+    "path": "o/catch/handle",
+    "scheduled_at": "2026-03-01T10:05:00Z",
+    "type": "schedule_execution"
+  }
+]

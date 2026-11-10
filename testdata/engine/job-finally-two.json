@@ -1,0 +1,44 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "finally-two"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "deploy",
+        "type": "group",
+        "steps": [
+          {
+            "id": "a",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "a"
+            }
+          }
+        ],
+        "finally": [
+          {
+            "id": "c1",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "c1"
+            }
+          },
+          {
+            "id": "c2",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "c2"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

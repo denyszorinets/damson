@@ -1,0 +1,39 @@
+[
+  {
+    "error": {
+      "kind": "exit_code",
+      "message": "boom",
+      "path": "o/per-node/for_each[a]/install"
+    },
+    "path": "o/per-node/for_each[a]",
+    "status": "failed",
+    "type": "complete_group"
+  },
+  {
+    "error": {
+      "kind": "exit_code",
+      "message": "boom",
+      "path": "o/per-node/for_each[a]/install"
+    },
+    "path": "o/per-node",
+    "status": "failed",
+    "type": "complete_group"
+  },
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "input": {
+      "command": "handle install o/per-node/for_each[a]/install",
+      "node": "n"
+    },
+    "path": "o/catch/handle",
+    "plugin": "ssh",
+    "step_id": "handle",
+    "type": "create_step_instance"
+  },
+  {
+    "attempt": 1,
+    "path": "o/catch/handle",
+    "scheduled_at": "2026-03-01T10:05:00Z",
+    "type": "schedule_execution"
+  }
+]

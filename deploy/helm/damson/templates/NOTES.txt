@@ -1,0 +1,14 @@
+Damson {{ .Chart.AppVersion }} is installed as {{ include "damson.fullname" . }}.
+
+Controllers: {{ .Values.controller.replicas }} replicas, API on service {{ include "damson.fullname" . }}-controller:{{ .Values.controller.service.port }}.
+{{- if .Values.ingress.enabled }}
+Ingress hosts: {{ range .Values.ingress.hosts }}{{ .host }} {{ end }}
+{{- end }}
+
+Next steps (the install guide in the documentation, reference/helm, has the commands):
+  1. Create the admin token and one pool token per agent pool with `damson admin`
+     (run it in a controller pod); store each pool token in the Secret named by
+     agents.pools[].tokenSecret and restart the agents.
+  2. Keep the KEK Secret safe: losing it loses every stored secret.
+  3. Secret changes (cluster secret, KEK, DSN) do not restart pods by themselves:
+     run `kubectl rollout restart` for the controller and agents.

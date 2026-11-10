@@ -1,0 +1,31 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "lanes-targets"
+  },
+  "spec": {
+    "targets": {
+      "selector": "node.os == 'linux'"
+    },
+    "steps": [
+      {
+        "id": "per-node",
+        "type": "group",
+        "for_each": "targets",
+        "max_parallel": 2,
+        "steps": [
+          {
+            "id": "install",
+            "plugin": "ssh",
+            "with": {
+              "node": "${{ node.name }}",
+              "command": "install on ${{ node.address }} ${{ node.attributes.role }}"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

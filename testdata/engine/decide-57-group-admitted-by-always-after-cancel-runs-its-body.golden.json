@@ -1,0 +1,26 @@
+[
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "kind": "group",
+    "path": "cleanup",
+    "step_id": "cleanup",
+    "type": "create_step_instance"
+  },
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "input": {
+      "command": "x",
+      "node": "n"
+    },
+    "path": "cleanup/x",
+    "plugin": "ssh",
+    "step_id": "x",
+    "type": "create_step_instance"
+  },
+  {
+    "attempt": 1,
+    "path": "cleanup/x",
+    "scheduled_at": "2026-03-01T10:05:00Z",
+    "type": "schedule_execution"
+  }
+]

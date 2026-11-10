@@ -1,0 +1,336 @@
+package postgres
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/denyszorinets/damson/internal/store"
+	"github.com/denyszorinets/damson/internal/store/postgres/gen"
+)
+
+var _ store.TxRunner = (*Store)(nil)
+
+// Pool returns the connection pool, for the River queue client (ADR-0010).
+func (s *Store) Pool() *pgxpool.Pool { return s.pool }
+
+// WithTx implements store.TxRunner.
+func (s *Store) WithTx(ctx context.Context, fn func(tx store.Tx) error) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	// Rollback after a successful commit is a no-op, so it also covers panics.
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := fn(&txn{tx: tx, q: s.q.WithTx(tx)}); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing transaction: %w", err)
+	}
+	return nil
+}
+
+type txn struct {
+	tx pgx.Tx
+	q  *gen.Queries
+}
+
+func (t *txn) GetRun(ctx context.Context, runID string) (store.Run, error) {
+	return getRun(ctx, t.q, runID)
+}
+
+func (t *txn) TouchRun(ctx context.Context, runID string) (int64, error) {
+	n, err := t.q.TouchRunCAS(ctx, runID)
+	if err != nil {
+		return 0, fmt.Errorf("touching run %q: %w", runID, err)
+	}
+	if n == 0 {
+		return 0, staleRun(ctx, t.q, runID, "is finished")
+	}
+	run, err := getRun(ctx, t.q, runID)
+	return run.Version, err
+}
+
+func (t *txn) Native() any { return t.tx }
+
+func (t *txn) CreateRun(ctx context.Context, nr store.NewRun, now time.Time) (store.RunTree, error) {
+	return createRun(ctx, t.q, nr, now)
+}
+
+func (t *txn) RequestCancel(ctx context.Context, runID string, now time.Time) (store.Run, error) {
+	n, err := t.q.RequestRunCancelCAS(ctx, gen.RequestRunCancelCASParams{Now: ts(now), ID: runID})
+	if err != nil {
+		return store.Run{}, fmt.Errorf("requesting cancel of run %q: %w", runID, err)
+	}
+	if n == 0 {
+		return store.Run{}, staleRun(ctx, t.q, runID, "cancel already requested or run finished")
+	}
+	return getRun(ctx, t.q, runID)
+}
+
+func (t *txn) ApplyAdvance(ctx context.Context, runID string, expectedVersion int64, a store.Advance, now time.Time) (store.Run, error) {
+	if err := store.ValidateAdvance(a); err != nil {
+		return store.Run{}, err
+	}
+	cur, err := getRun(ctx, t.q, runID)
+	if err != nil {
+		return store.Run{}, err
+	}
+	if a.Empty() {
+		return cur, nil
+	}
+	if err := t.bumpOrMove(ctx, cur, expectedVersion, a, now); err != nil {
+		return store.Run{}, err
+	}
+	if a.CancelRun != "" {
+		n, err := t.q.RequestRunCancelInAdvance(ctx, gen.RequestRunCancelInAdvanceParams{Now: ts(now), Reason: a.CancelRun, ID: runID})
+		if err != nil {
+			return store.Run{}, fmt.Errorf("recording the cancel of run %q: %w", runID, err)
+		}
+		if n == 0 { // cannot happen after the version CAS: a cancel bumps the version
+			return store.Run{}, fmt.Errorf("run %q already has a cancel request despite the version check", runID)
+		}
+	}
+	if err := t.applySteps(ctx, runID, a, now); err != nil {
+		return store.Run{}, err
+	}
+	return getRun(ctx, t.q, runID)
+}
+
+// bumpOrMove is the one CAS of the advance: it checks runs.version and, in
+// the same statement, bumps it (and moves the status when Start or Finish ask).
+func (t *txn) bumpOrMove(ctx context.Context, cur store.Run, expectedVersion int64, a store.Advance, now time.Time) error {
+	status, started, finished, changed := store.AdvanceRunStatus(cur, a, now)
+	if !changed {
+		return bumpRun(ctx, t.q, cur.ID, expectedVersion)
+	}
+	n, err := t.q.UpdateRunStatusCAS(ctx, gen.UpdateRunStatusCASParams{
+		Status: string(status), StartedAt: tsOpt(started), FinishedAt: tsOpt(finished), ID: cur.ID, ExpectedVersion: expectedVersion,
+	})
+	if err != nil {
+		return fmt.Errorf("updating run %q: %w", cur.ID, err)
+	}
+	if n == 0 {
+		return staleRun(ctx, t.q, cur.ID, fmt.Sprintf("not at version %d", expectedVersion))
+	}
+	return nil
+}
+
+func (t *txn) applySteps(ctx context.Context, runID string, a store.Advance, now time.Time) error {
+	for _, st := range a.NewSteps {
+		if err := t.addStep(ctx, runID, st, now); err != nil {
+			return err
+		}
+	}
+	for _, se := range a.Settle {
+		if err := t.settle(ctx, runID, se, now); err != nil {
+			return err
+		}
+	}
+	for _, fg := range a.FinishGroups {
+		if err := t.finishGroup(ctx, runID, fg, now); err != nil {
+			return err
+		}
+	}
+	for _, at := range a.NewAttempts {
+		if err := t.addAttempt(ctx, runID, at, now); err != nil {
+			return err
+		}
+	}
+	for _, id := range a.Cancel {
+		if err := t.cancelQueued(ctx, runID, id, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// addStep inserts the instance pending and, for the finished statuses, moves
+// it to its final status in the same transaction.
+func (t *txn) addStep(ctx context.Context, runID string, st store.AdvanceStep, now time.Time) error {
+	ns := store.NewStepInstance{Path: st.Path, Kind: st.Kind, Plugin: st.Plugin, Input: st.Input, Execution: st.Execution}
+	nodes, err := insertSteps(ctx, t.q, runID, []store.NewStepInstance{ns}, now)
+	if err != nil {
+		return err
+	}
+	if st.Kind == store.KindGroup && st.StatusOrDefault() == store.StepPending {
+		return t.startGroup(ctx, nodes[0].ID, now)
+	}
+	if status := st.StatusOrDefault(); status != store.StepPending {
+		return t.finishStep(ctx, nodes[0].ID, status, st.Reason, now)
+	}
+	return nil
+}
+
+func (t *txn) finishStep(ctx context.Context, stepID string, status store.StepStatus, reason string, now time.Time) error {
+	return t.finishStepFrom(ctx, stepID, status, reason, now, store.StepPending)
+}
+
+// finishStepFrom moves a step instance to a terminal status if it is in any of
+// the expected statuses. A miss is a precondition failure (ErrConflict), not
+// a lost version race: ErrStale is reserved for the runs.version CAS, which is
+// the only thing a reload of the run can fix.
+func (t *txn) finishStepFrom(ctx context.Context, stepID string, status store.StepStatus, reason string, now time.Time, expected ...store.StepStatus) error {
+	return t.finishStepWith(ctx, stepID, status, "{}", reason, now, expected...)
+}
+
+// finishStepWith is finishStepFrom with the step's outputs (a JSON object).
+func (t *txn) finishStepWith(ctx context.Context, stepID string, status store.StepStatus, outputs, reason string, now time.Time, expected ...store.StepStatus) error {
+	_, finished := store.Stamps(nil, nil, false, true, now)
+	for _, from := range expected {
+		n, err := t.q.UpdateStepInstanceCAS(ctx, gen.UpdateStepInstanceCASParams{
+			Status: string(status), Outputs: outputs, Error: reason, FinishedAt: tsOpt(finished),
+			ID: stepID, ExpectedStatus: string(from),
+		})
+		if err != nil {
+			return fmt.Errorf("finishing step %q: %w", stepID, err)
+		}
+		if n > 0 {
+			return nil
+		}
+	}
+	return fmt.Errorf("step %q is not in a status that can move to %s: %w", stepID, status, store.ErrConflict)
+}
+
+func (t *txn) cancelQueued(ctx context.Context, runID, executionID string, now time.Time) error {
+	ex, err := getExecution(ctx, t.q, executionID)
+	if err != nil {
+		return err
+	}
+	if ex.RunID != runID {
+		return fmt.Errorf("execution %q is not in run %q: %w", executionID, runID, store.ErrNotFound)
+	}
+	_, finished := store.Stamps(nil, nil, false, true, now)
+	// The execution may be claimed, or requeued by the dispatcher, between
+	// the two statements (READ COMMITTED sees each commit), so each attempt
+	// re-reads its row: queued is cancelled outright, claimed is flagged, and
+	// a miss on both means it moved in between: look once more. A miss after
+	// that means it is finished.
+	for range 2 {
+		n, err := t.q.CancelQueuedExecutionCAS(ctx, gen.CancelQueuedExecutionCASParams{
+			FinishedAt: tsOpt(finished), Error: "run cancelled", ID: executionID, RunID: runID,
+		})
+		if err != nil {
+			return fmt.Errorf("canceling execution %q: %w", executionID, err)
+		}
+		if n > 0 {
+			return t.finishStepFrom(ctx, ex.StepInstanceID, store.StepCanceled, "run cancelled", now, store.StepPending, store.StepRunning)
+		}
+		n, err = t.q.RequestExecutionCancelCAS(ctx, gen.RequestExecutionCancelCASParams{Now: ts(now), ID: executionID, RunID: runID})
+		if err != nil {
+			return fmt.Errorf("flagging execution %q for cancellation: %w", executionID, err)
+		}
+		if n > 0 {
+			return nil
+		}
+	}
+	return nil
+}
+
+// ListActiveRunIDs implements store.RunStore.
+func (s *Store) ListActiveRunIDs(ctx context.Context, afterID string, limit int) ([]string, error) {
+	ids, err := s.q.ListActiveRunIDs(ctx, gen.ListActiveRunIDsParams{AfterID: afterID, RowLimit: int32(store.ClampLimit(limit))})
+	if err != nil {
+		return nil, fmt.Errorf("listing active runs: %w", err)
+	}
+	return ids, nil
+}
+
+// addAttempt schedules attempt at.Attempt of a step: the first, or the retry
+// that follows a finished attempt. The step must still be open and the latest
+// attempt must be the one before it and finished; the insert's unique
+// (step, attempt number) is the last guard against a duplicated decision.
+func (t *txn) addAttempt(ctx context.Context, runID string, at store.AdvanceAttempt, now time.Time) error {
+	step, err := t.q.GetStepInstanceByPath(ctx, gen.GetStepInstanceByPathParams{RunID: runID, Path: at.Path})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("step %q in run %q: %w", at.Path, runID, store.ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("getting step %q: %w", at.Path, err)
+	}
+	if step.Kind == store.KindGroup {
+		return fmt.Errorf("step %q is a group and takes no attempt: %w", at.Path, store.ErrConflict)
+	}
+	if st := store.StepStatus(step.Status); st != store.StepPending && st != store.StepRunning {
+		return fmt.Errorf("step %q is %s and takes no new attempt: %w", at.Path, st, store.ErrConflict)
+	}
+	latest, err := t.q.LatestAttempt(ctx, step.ID)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		if at.Attempt != 1 {
+			return fmt.Errorf("step %q has no attempt, so attempt %d cannot follow: %w", at.Path, at.Attempt, store.ErrConflict)
+		}
+	case err != nil:
+		return fmt.Errorf("reading latest attempt of step %q: %w", at.Path, err)
+	case int(latest.AttemptNo) != at.Attempt-1 || !store.ExecutionState(latest.State).Terminal():
+		return fmt.Errorf("step %q: attempt %d does not follow a finished attempt %d (latest is %d, %s): %w",
+			at.Path, at.Attempt, at.Attempt-1, latest.AttemptNo, latest.State, store.ErrConflict)
+	}
+	_, err = insertExecution(ctx, t.q, runID, step.ID, at.Attempt, at.NewExecution, now)
+	return err
+}
+
+// settle finishes a step from the outcome of its latest attempt. A miss is
+// ErrConflict, never swallowed: the decision was made on a state that no
+// longer holds.
+func (t *txn) settle(ctx context.Context, runID string, se store.AdvanceSettle, now time.Time) error {
+	step, err := t.q.GetStepInstanceByPath(ctx, gen.GetStepInstanceByPathParams{RunID: runID, Path: se.Path})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("step %q in run %q: %w", se.Path, runID, store.ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("getting step %q: %w", se.Path, err)
+	}
+	if step.Kind == store.KindGroup {
+		return fmt.Errorf("step %q is a group and has no attempt to settle: %w", se.Path, store.ErrConflict)
+	}
+	latest, err := t.q.LatestAttempt(ctx, step.ID)
+	if err != nil {
+		return fmt.Errorf("reading latest attempt of step %q: %w", se.Path, err)
+	}
+	if int(latest.AttemptNo) != se.Attempt || !store.ExecutionState(latest.State).Terminal() {
+		return fmt.Errorf("step %q: attempt %d is not the latest finished attempt (latest is %d, %s): %w",
+			se.Path, se.Attempt, latest.AttemptNo, latest.State, store.ErrConflict)
+	}
+	row, err := t.q.GetExecutionByStepAttempt(ctx, gen.GetExecutionByStepAttemptParams{StepInstanceID: step.ID, AttemptNo: latest.AttemptNo})
+	if err != nil {
+		return fmt.Errorf("getting attempt %d of step %q: %w", se.Attempt, se.Path, err)
+	}
+	return t.settleStepStrict(ctx, toExecution(row), now)
+}
+
+// startGroup moves a freshly created group to running and stamps started_at;
+// a group has nothing to wait for before its first step is created.
+func (t *txn) startGroup(ctx context.Context, stepID string, now time.Time) error {
+	n, err := t.q.UpdateStepInstanceCAS(ctx, gen.UpdateStepInstanceCASParams{
+		Status: string(store.StepRunning), Outputs: "{}", StartedAt: tsOpt(&now), ID: stepID, ExpectedStatus: string(store.StepPending),
+	})
+	if err != nil {
+		return fmt.Errorf("starting group %q: %w", stepID, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("group %q is not pending: %w", stepID, store.ErrConflict)
+	}
+	return nil
+}
+
+// finishGroup finishes a group from the engine's decision. A miss (the path is
+// not a group, or it is already finished) is ErrConflict, never swallowed.
+func (t *txn) finishGroup(ctx context.Context, runID string, fg store.AdvanceFinishGroup, now time.Time) error {
+	_, finished := store.Stamps(nil, nil, false, true, now)
+	n, err := t.q.FinishGroupCAS(ctx, gen.FinishGroupCASParams{
+		Status: string(fg.Status), Error: fg.Error, FinishedAt: tsOpt(finished), RunID: runID, Path: fg.Path,
+	})
+	if err != nil {
+		return fmt.Errorf("finishing group %q: %w", fg.Path, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("group %q is not an open group of run %q: %w", fg.Path, runID, store.ErrConflict)
+	}
+	return nil
+}

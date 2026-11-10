@@ -1,0 +1,4 @@
+# Two service users (systemd-sysusers). The agent runs job code, so it must not
+# be the controller's user: that code could read the controller's credentials.
+u damson - "Damson controller" /var/lib/damson /usr/sbin/nologin
+u damson-agent - "Damson agent" /var/lib/damson-agent /usr/sbin/nologin

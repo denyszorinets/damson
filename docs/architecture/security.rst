@@ -58,6 +58,14 @@ Authentication
    * - Bootstrap
      - Config CEL rule for admins plus a one-time recovery token.
 
+Until OIDC (M8), the secrets API is guarded by one admin bootstrap token
+(``dma_`` prefix), created with ``damson admin admin-token create``. Only its
+SHA-256 hash is stored, in ``instance_settings``, and the API checks it on every
+request. Pool tokens are not accepted there and the admin token cannot open an
+agent connection. It is a single shared credential with no per-user identity;
+rotate it by creating a new one, which kills the old one at once. M8 keeps it as
+the local recovery token.
+
 All tokens are random and stored hashed. See
 :doc:`decisions/0017-oidc-authentication-and-cel-authorization-on-a-project-tree`.
 
@@ -83,13 +91,31 @@ Secrets lifecycle
      C->>DB: resolve refs in step input and node credentials
      DB-->>C: values (decrypted DEK/KEK or OpenBao)
      C->>A: step.execute + secret bundle (TLS, not persisted)
-     Note over C: keeps only value hashes for re-masking
+     Note over C: bundle dropped after step.execute
      A->>P: ExecRequest.Secrets resolver
      P-->>A: logs and outputs
      A->>A: mask values (raw, base64, URL, per line)
      A->>C: masked logs and outputs
-     C->>C: re-mask defensively on ingest
      Note over A: bundle dropped when the execution ends
+
+Masking boundary
+~~~~~~~~~~~~~~~~
+
+Only the agent masks (:doc:`decisions/0047-agent-side-masking-only`). The
+controller does not re-mask and keeps no secret values, hashes or derived
+material once ``step.execute`` is sent; it stores and serves exactly what the
+agent sent. The agent masks every exit (log lines, progress, plugin logger,
+errors, outputs, host key reports), fails closed after the bundle is wiped and
+spools only masked lines. Known limits: values shorter than 4 bytes; lines of 4
+characters or fewer inside multi-line values; secrets split across ``Log``
+calls; values the job transforms (hex, reversed, re-encoded); a compromised
+agent, which holds the plaintext anyway. Masking is defense in depth, not a
+guarantee. After a leak the masker missed, an admin can purge one terminal
+execution's stored logs (:ref:`reference-log-purge-api`); the live tail and the
+agent's local spool are not affected. One exception by design: the ``endpoint``, ``region`` and
+``path_style`` fields of an S3 connection secret (one with ``access_key`` and
+``secret_key``) are not masked when strictly shaped; anything failing the shape
+check is masked (:doc:`decisions/0051-non-secret-s3-connection-fields`).
 
 Rules (``CLAUDE.md`` hard rule 5):
 
@@ -100,14 +126,57 @@ Rules (``CLAUDE.md`` hard rule 5):
 - **Losing the KEK means losing every secret in the db backend.** Back it up
   separately from the database.
 
+Authorization: with the ``db`` backend a job may use secrets whose scope equals
+its project path or is an ancestor of it (prefix on a ``/`` boundary). Siblings,
+children and other projects are denied. The scope ``_inventory`` is allowed only
+as the credential of the node a step targets, never as a literal in step input
+(that part waits for inventory, :issue:`113`). The dispatcher is authoritative
+and checks every ref before reading any secret; a denied ref fails the execution
+permanently as ``unknown secret``, naming only the ref, so existence is not
+revealed. A ``#field`` that the secret lacks fails permanently as unavailable.
+API spec validation applies the same rule to literal refs and reports the path
+only. ``--dev-nodes`` seeds real secrets and nodes at startup (ADR-0044), so its refs
+are authorized like any other.
+
 See :doc:`decisions/0015-secret-references-and-envelope-encryption`.
+
+.. danger::
+
+   The KEK of the ``db`` backend (``DAMSON_KEK`` or ``secrets.kek_file``) is
+   the only way to read stored secrets. If it is lost, every secret is lost
+   and there is no recovery. Back it up separately from the database, and
+   keep it out of the config file, the logs and database backups.
+
+For local development only, ``damson dev`` generates a 0600 key file next to
+the SQLite database when no KEK is configured
+(:ref:`reference-config-dev-kek`); ``damson controller`` never does.
+
+Memory handling: the DEK and plaintext byte slices are zeroed after use, but
+the Go strings in the decrypted field map cannot be wiped; they stay in the
+controller's memory until garbage collected. Bundle values are dropped from
+the dispatch request after the send, which shortens but does not eliminate
+that window.
+
+Each ciphertext is bound to its scope, name and version (and the wrap to the
+``kek_id``) through authenticated data, so copying it to another row fails to
+decrypt. A controller refuses to start with a KEK that does not match the
+stored canary. ``damson admin rotate-kek`` re-wraps the data keys under a new
+KEK without touching the ciphertext; it needs the old key in
+``DAMSON_KEK_PREVIOUS`` and is described in :ref:`cli-rotate-kek`. See :doc:`decisions/0042-db-secret-backend-keyring`.
+
+Every secret write (create, new version, delete) and every ``rotate-kek`` run
+writes an audit event in the same transaction, with the actor, the secret id,
+version and field names, never values. Read it with ``GET /api/v1/audit``
+(admin token). See :doc:`decisions/0053-audit-events`.
 
 Other controls
 --------------
 
-- TLS everywhere; plain ``ws://`` only with ``--insecure-dev``.
-- SSH host keys are ``strict`` by default; ``tofu`` stores observed keys
-  (fenced by ``attempt_id``); ``insecure`` must be enabled in controller config.
+- TLS everywhere; plain ``ws://`` only with ``--insecure-dev``. The controller
+  serves TLS itself (ADR-0071) or behind a terminating proxy.
+- SSH host keys are ``strict`` by default; ``tofu`` stores the first observed
+  key per node (fenced by ``attempt_id``, ADR-0046); ``insecure`` is refused by
+  the controller (the agent's ``allow_insecure_host_keys`` is a second gate).
 - CEL runs with cost and result-size limits and exposes no I/O.
 - Plugin inputs are validated against their schemas on the controller before
   dispatch; agents validate again.

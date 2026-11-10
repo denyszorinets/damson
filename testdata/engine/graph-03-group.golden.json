@@ -1,0 +1,86 @@
+{
+  "nodes": [
+    {
+      "id": "$start",
+      "kind": "start",
+      "label": "start"
+    },
+    {
+      "id": "fetch",
+      "kind": "step",
+      "label": "fetch",
+      "plugin": "ssh"
+    },
+    {
+      "id": "deploy",
+      "kind": "group",
+      "label": "deploy"
+    },
+    {
+      "id": "deploy/unpack",
+      "kind": "step",
+      "parent": "deploy",
+      "label": "unpack",
+      "plugin": "ssh"
+    },
+    {
+      "id": "deploy/build",
+      "kind": "step",
+      "parent": "deploy",
+      "label": "build",
+      "plugin": "ssh",
+      "retry_max_attempts": 3
+    },
+    {
+      "id": "deploy/verify",
+      "kind": "step",
+      "parent": "deploy",
+      "label": "verify",
+      "plugin": "ssh",
+      "when": "steps.unpack.status == 'succeeded'"
+    },
+    {
+      "id": "report",
+      "kind": "step",
+      "label": "report",
+      "plugin": "ssh"
+    },
+    {
+      "id": "$end",
+      "kind": "end",
+      "label": "end"
+    }
+  ],
+  "edges": [
+    {
+      "from": "$start",
+      "to": "fetch",
+      "kind": "sequence"
+    },
+    {
+      "from": "deploy/unpack",
+      "to": "deploy/build",
+      "kind": "sequence"
+    },
+    {
+      "from": "deploy/build",
+      "to": "deploy/verify",
+      "kind": "sequence"
+    },
+    {
+      "from": "fetch",
+      "to": "deploy",
+      "kind": "sequence"
+    },
+    {
+      "from": "deploy",
+      "to": "report",
+      "kind": "sequence"
+    },
+    {
+      "from": "report",
+      "to": "$end",
+      "kind": "sequence"
+    }
+  ]
+}

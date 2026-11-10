@@ -1,0 +1,56 @@
+{
+  "job_file": "job-pipeline.json",
+  "now": "2026-03-01T10:05:00Z",
+  "state": {
+    "id": "run-1",
+    "status": "running",
+    "trigger": "manual",
+    "triggered_by": "alice",
+    "job": {
+      "name": "pipeline",
+      "project": "infra/billing",
+      "version": "3"
+    },
+    "inputs": {
+      "env": "prod",
+      "retries": 3
+    },
+    "steps": [
+      {
+        "path": "build",
+        "step_id": "build",
+        "status": "succeeded",
+        "created_at": "2026-03-01T10:00:00Z",
+        "outputs": {
+          "artifact": "app-1.tgz",
+          "size": 42
+        },
+        "executions": [
+          {
+            "id": "ex-1",
+            "attempt_id": "at-1",
+            "state": "succeeded"
+          }
+        ],
+        "started_at": "2026-03-01T10:00:00Z",
+        "finished_at": "2026-03-01T10:00:00Z"
+      },
+      {
+        "path": "test",
+        "step_id": "test",
+        "status": "pending",
+        "created_at": "2026-03-01T10:01:00Z",
+        "executions": [
+          {
+            "id": "ex-2",
+            "attempt_id": "at-2",
+            "state": "running"
+          }
+        ],
+        "started_at": "2026-03-01T10:01:00Z"
+      }
+    ],
+    "started_at": "2026-03-01T10:00:00Z",
+    "cancel_requested_at": "2026-03-01T10:02:00Z"
+  }
+}

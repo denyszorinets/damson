@@ -1,0 +1,325 @@
+package dispatch_test
+
+import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/denyszorinets/damson/internal/agent"
+	"github.com/denyszorinets/damson/internal/controller"
+	"github.com/denyszorinets/damson/internal/controller/advance"
+	"github.com/denyszorinets/damson/internal/controller/dispatch"
+	"github.com/denyszorinets/damson/internal/controller/logs"
+	"github.com/denyszorinets/damson/internal/engine"
+	"github.com/denyszorinets/damson/internal/expr"
+	"github.com/denyszorinets/damson/internal/logblob"
+	"github.com/denyszorinets/damson/internal/pluginreg"
+	"github.com/denyszorinets/damson/internal/protocol"
+	"github.com/denyszorinets/damson/internal/store"
+	"github.com/denyszorinets/damson/internal/store/tokens"
+	"github.com/denyszorinets/damson/pkg/pluginsdk"
+)
+
+var t0 = time.Now().UTC()
+
+const twoStepSpec = `{"apiVersion":"damson.dev/v1","kind":"Job","metadata":{"project":"default","name":"lin"},
+"spec":{"steps":[{"id":"s1","plugin":"demo","with":{"word":"one"}},{"id":"s2","plugin":"demo","with":{"word":"two"}}]}}`
+
+// demoPlugin logs its "word" input and fails when it is "boom".
+type demoPlugin struct{}
+
+func (demoPlugin) Manifest() pluginsdk.Manifest {
+	return pluginsdk.Manifest{
+		Name: "demo", Version: "1.0.0", Title: "demo", TargetMode: pluginsdk.TargetNone,
+		InputSchema: pluginsdk.MustSchemaFor[struct{}](), OutputSchema: pluginsdk.MustSchemaFor[struct{}](),
+	}
+}
+
+func (demoPlugin) Validate(context.Context, json.RawMessage) error { return nil }
+
+func (demoPlugin) Execute(ctx context.Context, req pluginsdk.ExecRequest, emit pluginsdk.Emitter) (pluginsdk.Result, error) {
+	var in struct{ Word string }
+	_ = json.Unmarshal(req.Input, &in)
+	emit.Log(pluginsdk.Stdout, "said "+in.Word)
+	if in.Word == "slow" {
+		select {
+		case <-time.After(1200 * time.Millisecond):
+		case <-ctx.Done():
+		}
+	}
+	if in.Word == "hold" { // runs until cancelled, then fails the way a cancelled plugin does
+		<-ctx.Done()
+		return pluginsdk.Result{Error: &pluginsdk.StepError{Message: "stopped"}}, nil
+	}
+	if in.Word == "boom" {
+		return pluginsdk.Result{Error: &pluginsdk.StepError{Message: "boom"}}, nil
+	}
+	return pluginsdk.Result{Outputs: json.RawMessage(`{}`)}, nil
+}
+
+// cluster is a controller (gateway, advancer, ingest, dispatcher) with one real agent.
+type cluster struct {
+	t       *testing.T
+	st      store.Store
+	adv     *advance.Advancer
+	jv      store.JobVersion
+	targets []store.RunTarget // frozen into every run trigger creates
+	dsp     *dispatch.Dispatcher
+	// firstTimeout is the step timeout of the first execution trigger creates.
+	firstTimeout time.Duration
+	// execPool is the pool of the execution trigger creates; default advance.DefaultPool.
+	execPool string
+	wsURL    string
+	log      *slog.Logger
+	extra    []pluginsdk.Plugin
+}
+
+func startCluster(t *testing.T, st store.Store, spec string, opts ...func(*dispatch.Config)) *cluster {
+	return startClusterLog(t, st, spec, slog.New(slog.DiscardHandler), opts...)
+}
+
+func startClusterLog(t *testing.T, st store.Store, spec string, log *slog.Logger, opts ...func(*dispatch.Config)) *cluster {
+	return startClusterWith(t, st, spec, log, nil, nil, nil, opts...)
+}
+
+// startClusterPlugins is startCluster with extra plugins linked into the agent.
+func startClusterPlugins(t *testing.T, st store.Store, spec string, extra []pluginsdk.Plugin, opts ...func(*dispatch.Config)) *cluster {
+	return startClusterWith(t, st, spec, slog.New(slog.DiscardHandler), extra, nil, nil, opts...)
+}
+
+// startClusterTargets is startCluster with a source of `targets`.
+func startClusterTargets(t *testing.T, st store.Store, spec string, targets []store.RunTarget) *cluster {
+	return startClusterWith(t, st, spec, slog.New(slog.DiscardHandler), nil, nil, targets)
+}
+
+// startClusterGrace is startCluster with a finally grace of the given length.
+func startClusterGrace(t *testing.T, st store.Store, spec string, grace time.Duration) *cluster {
+	return startClusterWith(t, st, spec, slog.New(slog.DiscardHandler), nil, []engine.Option{engine.WithFinallyGrace(grace)}, nil)
+}
+
+func startClusterWith(t *testing.T, st store.Store, spec string, log *slog.Logger, extra []pluginsdk.Plugin, eopts []engine.Option, targets []store.RunTarget, opts ...func(*dispatch.Config)) *cluster {
+	t.Helper()
+	ctx := context.Background()
+	pool, err := st.CreatePool(ctx, "default", "", t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, hash, err := tokens.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreatePoolToken(ctx, pool.ID, "t", hash, t0); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := pluginreg.New(nil, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gw, err := controller.New(controller.Config{
+		Store: st, Plugins: reg, ControllerID: "ctl-1", InsecureDev: true, Logger: log,
+		HeartbeatInterval: 50 * time.Millisecond, FlushInterval: 50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := engine.New(expr.Limits{}, eopts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adv, err := advance.New(advance.Config{Store: st, Engine: eng, PollInterval: 20 * time.Millisecond, SweepInterval: -1, Logger: log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ing, err := logs.New(logs.Config{Store: st, Blobs: logblob.DBOnly(st), Logger: log, FlushInterval: time.Hour, CheckInterval: 20 * time.Millisecond,
+		Acks: func(ctx context.Context, id string, ack protocol.LogAck) error {
+			p, ok := gw.Peer(id)
+			if !ok {
+				return nil
+			}
+			return p.Notify(ctx, protocol.MethodLogAck, ack)
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dcfg := dispatch.Config{
+		Store: st, Agents: gw, Plugins: reg, Advance: adv, ControllerID: "ctl-1", Logger: log,
+		Finish: ing.Finish, DispatchInterval: 20 * time.Millisecond, RenewInterval: 50 * time.Millisecond, ReapInterval: 50 * time.Millisecond,
+	}
+	for _, o := range opts {
+		o(&dcfg)
+	}
+	dsp, err := dispatch.New(dcfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []controller.SessionHook{ing, dsp} {
+		if err := gw.AddHook(h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mux := http.NewServeMux()
+	mux.Handle(controller.ConnectPath, gw.Handler())
+	srv := httptest.NewServer(mux)
+	for _, start := range []func(context.Context) error{adv.Start, ing.Start, dsp.Start, gw.Start} {
+		if err := start(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = dsp.Stop(sctx)
+		_ = gw.Stop(sctx)
+		srv.Close()
+		_ = ing.Stop(sctx)
+		_ = adv.Stop(sctx)
+	})
+
+	ag, err := agent.New(agent.Config{
+		ControllerURL: "ws" + strings.TrimPrefix(srv.URL, "http"), Token: plain, AgentID: "agent-1",
+		Pool: "default", Slots: 2, Plugins: append([]pluginsdk.Plugin{demoPlugin{}, nodePlugin{}}, extra...), Logger: log, HeartbeatInterval: 50 * time.Millisecond,
+		ExecConfig: agent.ExecConfig{SpoolDir: t.TempDir(), WorkRoot: t.TempDir(), LogFlushInterval: 10 * time.Millisecond, CompleteRetry: 50 * time.Millisecond},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ag.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = ag.Stop(sctx)
+	})
+
+	_, jv, err := st.CreateJob(ctx, store.NewJob{ProjectID: store.DefaultProjectID, Name: "lin", Spec: json.RawMessage(spec), Checksum: "sum"}, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &cluster{t: t, st: st, adv: adv, jv: jv, dsp: dsp, targets: targets, log: log, extra: extra,
+		wsURL: "ws" + strings.TrimPrefix(srv.URL, "http")}
+}
+
+// trigger creates a run the way the API does: the first step queued.
+func (c *cluster) trigger(word string) string { return c.triggerPlugin("demo", word) }
+
+func (c *cluster) triggerPlugin(plugin, word string) string {
+	return c.triggerInput(plugin, `{"word":"`+word+`"}`)
+}
+
+func (c *cluster) triggerInput(plugin, input string) string {
+	c.t.Helper()
+	var id string
+	err := c.st.WithTx(context.Background(), func(tx store.Tx) error {
+		tree, err := tx.CreateRun(context.Background(), store.NewRun{
+			JobID: c.jv.JobID, JobVersionID: c.jv.ID, Trigger: json.RawMessage(`{"type":"manual"}`), Options: json.RawMessage(`{}`), Targets: c.targets,
+			Steps: []store.NewStepInstance{{Path: "s1", Plugin: plugin, Input: json.RawMessage(input),
+				Execution: &store.NewExecution{Pool: c.poolOrDefault(), ScheduledAt: time.Now(), Timeout: c.firstTimeout}}},
+		}, time.Now())
+		if err != nil {
+			return err
+		}
+		id = tree.ID
+		return c.adv.Enqueue(context.Background(), tx, id)
+	})
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	return id
+}
+
+func (c *cluster) waitRun(id string, want store.RunStatus) store.RunTree {
+	c.t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		tree, err := c.st.GetRunTree(context.Background(), id)
+		if err != nil {
+			c.t.Fatal(err)
+		}
+		if tree.Status.Terminal() || time.Now().After(deadline) {
+			if tree.Status != want {
+				c.t.Fatalf("run status = %s; want %s (steps %+v)", tree.Status, want, tree.Steps)
+			}
+			return tree
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// nodePlugin is a single-node plugin that logs what it received, so a test can
+// see the node and the resolved secrets arrive on the agent.
+type nodePlugin struct{}
+
+func (nodePlugin) Manifest() pluginsdk.Manifest {
+	return pluginsdk.Manifest{
+		Name: "nodedemo", Version: "1.0.0", Title: "nodedemo", TargetMode: pluginsdk.TargetSingleNode,
+		InputSchema: pluginsdk.MustSchemaFor[struct{}](), OutputSchema: pluginsdk.MustSchemaFor[struct{}](),
+	}
+}
+
+func (nodePlugin) Validate(context.Context, json.RawMessage) error { return nil }
+
+func (nodePlugin) Execute(_ context.Context, req pluginsdk.ExecRequest, emit pluginsdk.Emitter) (pluginsdk.Result, error) {
+	var in struct{ Node, Token string }
+	_ = json.Unmarshal(req.Input, &in)
+	node, ok := req.Nodes[in.Node]
+	if !ok {
+		return pluginsdk.Result{Error: &pluginsdk.StepError{Message: "node missing"}}, nil
+	}
+	cred, err := req.Secrets.ResolveFields(node.Credential)
+	if err != nil {
+		return pluginsdk.Result{Error: &pluginsdk.StepError{Message: "credential missing"}}, nil
+	}
+	tok, err := req.Secrets.Resolve(in.Token)
+	if err != nil {
+		return pluginsdk.Result{Error: &pluginsdk.StepError{Message: "token missing"}}, nil
+	}
+	emit.Log(pluginsdk.Stdout, "node "+node.Address+" user "+cred["username"]+" token-len "+strconv.Itoa(len(tok)))
+	return pluginsdk.Result{Outputs: json.RawMessage(`{}`)}, nil
+}
+
+func (c *cluster) poolOrDefault() string {
+	if c.execPool != "" {
+		return c.execPool
+	}
+	return advance.DefaultPool
+}
+
+// addAgent starts a second agent in a new pool.
+func (c *cluster) addAgent(id, pool string, plugins ...pluginsdk.Plugin) {
+	c.t.Helper()
+	ctx := context.Background()
+	p, err := c.st.CreatePool(ctx, pool, "", t0)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	plain, hash, err := tokens.New()
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	if _, err := c.st.CreatePoolToken(ctx, p.ID, "t-"+pool, hash, t0); err != nil {
+		c.t.Fatal(err)
+	}
+	ag, err := agent.New(agent.Config{
+		ControllerURL: c.wsURL, Token: plain, AgentID: id, Pool: pool, Slots: 2,
+		Plugins: append([]pluginsdk.Plugin{demoPlugin{}, nodePlugin{}}, append(c.extra, plugins...)...), Logger: c.log, HeartbeatInterval: 50 * time.Millisecond,
+		ExecConfig: agent.ExecConfig{SpoolDir: c.t.TempDir(), WorkRoot: c.t.TempDir(), LogFlushInterval: 10 * time.Millisecond, CompleteRetry: 50 * time.Millisecond},
+	})
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	if err := ag.Start(ctx); err != nil {
+		c.t.Fatal(err)
+	}
+	c.t.Cleanup(func() {
+		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = ag.Stop(sctx)
+	})
+}

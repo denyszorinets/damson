@@ -1,0 +1,439 @@
+Store and migrations
+====================
+
+The store is the persistence boundary (``internal/store``). The database is the
+only source of truth: controllers keep no durable state, and every state
+transition is a compare-and-swap (CAS) with a rows-affected check.
+
+Layout
+------
+
+.. code-block:: text
+
+   internal/store/
+     store.go             Store interface and sentinel errors
+     migrations/          embedded goose migrations: postgres/*.sql, sqlite/*.sql
+     queries/shared/      sqlc queries that are portable to both dialects
+     queries/postgres/    Postgres-only queries (only when unavoidable)
+     queries/sqlite/      SQLite-only queries (only when unavoidable)
+     postgres/            pgx v5 backend, generated code in postgres/gen
+     sqlite/              modernc.org/sqlite backend (pure Go), generated code in sqlite/gen
+     storefactory/        Open(config.Database) picks the backend
+     storetest/           the contract suite both backends run
+
+``storefactory`` is a separate package so the backends can import ``store``
+for its sentinel errors without an import cycle.
+
+Sentinel errors
+---------------
+
+``store.ErrNotFound``, ``store.ErrConflict`` and ``store.ErrStale``. Backends
+wrap them with ``%w``; callers use ``errors.Is``. A failed CAS returns
+``ErrStale`` when the row exists and ``ErrNotFound`` when it does not.
+
+Migrations
+----------
+
+Migrations are plain SQL files run by goose, tracked in the
+``schema_migrations`` table (a custom goose table name, chosen so the
+bookkeeping table is self-describing and not goose-specific). Postgres and SQLite have separate directories
+because DDL differs; keep the two in step. ``Store.Migrate`` applies pending
+migrations. On Postgres it holds a session advisory lock, so several
+controllers can call it at start without racing. ``Store.MigrationVersion``
+reports the applied version, for the readiness check; it never creates the
+table, so an unmigrated database reports version 0 and stays untouched.
+
+SQLite has no advisory lock, so ``Migrate`` is serialized in-process by a mutex
+keyed on the canonical database file path (absolute, symlinks resolved, ``file:`` URIs parsed and query stripped;
+case-insensitive filesystems are not normalized). This
+covers several ``Store`` values opened on one file in the same process; a later
+caller finds the schema up to date and does nothing. SQLite is
+single-controller (ARCHITECTURE section 8.1), so concurrent migration from
+several **processes** on one SQLite file is not supported; the
+single-controller lease row (``sqlite-controller`` in ``leader_leases``, see
+:doc:`/architecture/decisions/0039-leader-lease`) keeps a second controller off
+the database, but migrating from several processes is still not supported.
+
+``Store.Migrate`` also applies River's own migrations (``river_*`` tables,
+tracked in ``river_migration``) to the same database after goose, for the
+active dialect (ADR-0010). On Postgres they run under a second advisory lock;
+on SQLite under the same in-process mutex. Both steps are idempotent and the
+shared contract suite runs them concurrently. ``MigrationVersion`` reports the
+goose version only.
+
+Transactions
+------------
+
+``Store.WithTx(ctx, fn)`` (``store.TxRunner``) runs ``fn`` in one transaction:
+commit on nil, roll back on any error or panic. ``store.Tx`` offers the writes
+that must be atomic with a queue insert: ``CreateRun``, ``RequestCancel``,
+``ApplyAdvance`` (the one-CAS change set of a ``run.advance``), ``GetRun``,
+``TouchRun`` (bump ``runs.version`` as an event marker) and ``Native`` (the
+pgx or ``database/sql`` transaction River's ``InsertTx`` needs). Add a method
+to ``Tx`` only when a caller needs it in a transaction with an enqueue.
+
+On SQLite River gets its own one-connection pool (``QueueDB``) on the same
+file, because the River driver issues concurrent writes and SQLite has one
+writer; transactional enqueues still run on the caller's transaction.
+
+The ``instance_settings`` table is scaffolding that exercises the store
+contract; it will be replaced by the real tables. The single-controller lock
+row described in ARCHITECTURE section 8.1 is not implemented yet.
+
+Agent tables (migration 00002)
+------------------------------
+
+Migration ``00002_agents`` adds the agent-link tables (ARCHITECTURE sections 4,
+7.1 and 8.5). Ids are UUIDv7 strings generated in Go (``store.NewID``).
+Timestamps are ``timestamptz`` on Postgres and RFC3339 UTC text on SQLite; JSON
+columns are ``jsonb`` and text. JSON is encoded and decoded in Go only. Callers
+pass ``now`` explicitly, so the store never reads the clock.
+
+``agent_pools``
+   ``id``, ``name`` (unique), ``description``, ``created_at``.
+
+``pool_tokens``
+   ``id``, ``pool_id`` (FK), ``name``, ``token_hash`` (unique, hex SHA-256),
+   ``created_at``, ``last_used_at``, ``revoked_at``. Only the hash is stored;
+   the plaintext (``dmp_`` prefix, generated by ``internal/store/tokens``) is
+   shown once at creation. ``LookupPoolToken`` returns ``ErrNotFound`` for an
+   unknown or revoked token. ``RevokePoolToken`` is a CAS on
+   ``revoked_at IS NULL``: ``ErrStale`` if already revoked. Token values
+   returned to callers never include the hash.
+
+``agents``
+   ``id`` (the ``X-Damson-Agent-Id`` instance id), ``pool_id`` (FK),
+   ``version``, ``protocol``, ``labels`` and ``capabilities`` (JSON maps),
+   ``capacity``, ``telemetry`` (last snapshot, JSON), ``controller_id``
+   (nullable, no foreign key, because a controller row is deleted on shutdown
+   while its agents re-attach elsewhere), ``connected_at``, ``last_seen``,
+   ``disconnected_at``. ``UpsertAgentOnHello`` is last-writer-wins and takes
+   ownership. ``BatchTouchAgents`` writes ``last_seen`` and ``telemetry`` for
+   many agents in one transaction, only where ``controller_id`` still matches,
+   and returns the number applied. ``MarkAgentDisconnected`` is a CAS on
+   ``controller_id`` (``ErrStale`` for a controller that no longer owns the
+   agent) and clears ownership. ``ListAgents`` is keyset-paginated by id; the
+   returned ``NextCursor`` is empty on the last page.
+
+``controller_instances``
+   ``id``, ``internal_url``, ``started_at``, ``last_seen``. Register is an
+   upsert; heartbeat and delete return ``ErrNotFound`` for an unknown id.
+
+Run model tables (migration 00003)
+----------------------------------
+
+Migration ``00003_runs`` adds the M2 domain model (ARCHITECTURE sections 4,
+7.3, 8.3 and 10). Ids are UUIDv7 from Go; callers pass ``now``. The interfaces
+are ``JobStore``, ``RunStore``, ``ExecutionStore`` and ``LogStore``
+(``internal/store/{jobs,runs,executions,logs}.go``), all part of ``Store``.
+
+``projects``
+   ``id``, ``name`` (unique). One row is seeded: ``store.DefaultProjectID`` /
+   ``default``. The project tree arrives with access control.
+
+``jobs`` and ``job_versions``
+   A job has a unique ``(project_id, name)``, ``managed_by`` (``ui``,
+   ``files:<source>``, ``git:<source>``) and ``current_version``. A version is
+   immutable: ``spec`` is stored as text (also on Postgres) so the bytes match
+   ``checksum`` exactly. Every other JSON column of this model (``trigger``,
+   ``options``, ``input``, ``outputs``) is also ``TEXT`` on both backends, so
+   the stored bytes are identical across them. The Go layer validates and
+   compacts the value and rejects invalid JSON and the ``\u0000`` escape with
+   ``ErrInvalid``. ``CreateJob`` writes the job and version 1 in one
+   transaction; ``CreateJobVersion`` is a CAS on ``current_version``
+   (``ErrStale``).
+
+``runs``
+   ``job_version_id`` pins one version. ``trigger`` and ``options`` are JSON
+   (secret refs only), ``status`` is ``pending|running|succeeded|failed|canceled``,
+   ``version`` is the optimistic-concurrency counter, ``cancel_requested_at``
+   and ``concurrency_key`` serve cancel and the concurrency policy.
+
+``step_instances``
+   ``(run_id, path)`` is unique; ``path`` is stable (``main/step-id``).
+   ``kind`` is ``step`` or ``group``; ``input`` is the resolved plugin input
+   **without secret values**. The store cannot check this: the dispatch path
+   owns the guarantee (secrets are resolved only there, in memory), and the
+   M4 secrets work adds the test that proves it. ``UpdateStepInstance`` is a CAS on ``status``.
+
+``executions``
+   One attempt of a step: ``(step_instance_id, attempt_no)`` is unique and
+   ``attempt_id`` (the fencing token) is globally unique. ``state`` is
+   ``queued|dispatched|running|succeeded|failed|canceled|timed_out|lost``.
+   ``agent_id`` and ``controller_id`` have no foreign keys. A partial index on
+   queued rows serves the dispatch claim, and one on dispatched and running
+   rows serves the reaper.
+
+``log_chunks`` and ``log_chunks_data``
+   The manifest (``execution_id``, ``seq_from``/``seq_to``, ``backend``,
+   ``object_key``, ``bytes``, ``ts_first``/``ts_last``) and the bytes of the
+   default ``db`` LogStore (``object_key`` to blob).
+
+Secret tables (migration 00010)
+-------------------------------
+
+Migration ``00010_secrets`` adds ``secrets`` (``id``, ``scope_path``, ``name``,
+``type``, ``current_version``, timestamps; unique ``(scope_path, name)``) and
+``secret_versions`` (``secret_id``, ``version``, ``kek_id``, ``wrapped_dek``,
+``nonce``, ``ciphertext``, ``field_names`` JSON array, ``created_at``; primary
+key ``(secret_id, version)``; index on ``kek_id``). The store only holds
+opaque ``SecretBlob`` values; encryption is the caller's job
+(:doc:`/architecture/decisions/0042-db-secret-backend-keyring`). The
+interface is ``SecretStore`` (``internal/store/secrets.go``), part of
+``Store``:
+
+``CreateSecret``
+   Inserts version 1; ``ErrConflict`` if ``(scope, name)`` exists.
+``AddSecretVersion``
+   Compare-and-swap on ``current_version``: adds ``expected+1``. Returns
+   ``ErrNotFound`` for an unknown secret and ``ErrStale`` if the counter moved.
+   Versions beyond the last ``SecretVersionsKept`` (10) are pruned in the same
+   transaction.
+``GetSecret``
+   Metadata plus the encrypted current version; ``ErrNotFound``.
+``GetSecretMeta``
+   Metadata only, including ``field_names``; ``ErrNotFound``.
+``ListSecrets``
+   Keyset pagination on ``(scope, name)`` with an ``afterScope``/``afterName``
+   cursor; an empty scope lists all. It never selects encrypted columns.
+``DeleteSecret``
+   Removes the secret and all its versions; ``ErrNotFound``.
+``ListSecretVersionsNotUnder``
+   Keyset pagination on ``(secret_id, version)`` over versions whose
+   ``kek_id`` differs from the given one; used by ``rotate-kek``.
+``RewrapSecretVersion``
+   Replaces ``wrapped_dek`` and ``kek_id`` of one version only if it still has
+   the old ``kek_id``; returns whether a row changed.
+
+Nodes (migration 00011)
+-----------------------
+
+Migration ``00011_nodes`` adds ``nodes`` (``id``, ``name``, ``address``,
+``port``, ``transport``, ``os``, ``pool``, ``tags`` JSON text, ``attributes``
+JSON text, ``credential`` secret ref, ``host_key``, ``host_key_policy``,
+``host_key_observed``, ``host_key_observed_at``, ``source``, ``external_id``,
+``enabled``, ``version``, ``created_at``, ``updated_at``).
+
+- ``name`` is unique bytewise, and a second unique index on ``lower(name)``
+  makes names that differ only in case conflict. Postgres declares ``name``
+  with ``COLLATE "C"`` so keyset order equals SQLite's bytewise order.
+- A partial unique index on ``(source, external_id)`` where
+  ``external_id <> ''`` identifies synced nodes; manual nodes have an empty
+  ``external_id``.
+- ``transport`` and ``host_key_policy`` are validated in Go
+  (``inventory.Validate``), not by ``CHECK``, because SQLite cannot alter a
+  ``CHECK`` later.
+- ``host_key_observed`` and ``host_key_observed_at`` are written by the
+  trust-on-first-use flow and do not bump ``version``.
+  ``ObserveNodeHostKey(id, key, now)`` is one ``UPDATE ... WHERE
+  host_key_policy = 'tofu' AND host_key = '' AND host_key_observed = ''``: the
+  first key wins, it never overwrites, and a replay is a no-op.
+  ``ClearNodeHostKeyObserved(id)`` forgets it (ADR-0046).
+- ``version`` is the compare-and-swap counter for updates.
+
+The interface is ``NodeStore`` (``internal/store/nodes.go``), part of
+``Store``:
+
+``CreateNode``
+   Inserts the node. ``ErrConflict`` if the name exists, if it differs from an
+   existing name only in case, or if ``(source, external_id)`` exists.
+``GetNode``
+   One node; ``ErrNotFound``.
+``GetNodesByIDs``, ``GetNodesByNames``
+   Batch reads for dispatch (#187). They return a map of the nodes that exist,
+   keyed by id or by exact name (case matters); a missing key is simply absent.
+   Input is split into chunks of ``store.MaxBatch`` (500) and Postgres binds
+   ``= ANY($1::text[])`` while SQLite uses ``sqlc.slice``.
+``FindNodeByName``
+   ``GetNode`` ignoring case, as the unique index does; ``ErrNotFound``.
+``ListNodes``
+   Keyset pagination by ``name``, with optional ``source`` and ``enabled``
+   filters.
+``UpdateNode``
+   Compare-and-swap by ``id`` and ``version``. It never writes ``name``,
+   ``source``, ``external_id`` or the observed host key. ``ErrNotFound`` for an
+   unknown id, ``ErrStale`` if the version moved.
+``DeleteNode``
+   Compare-and-swap by ``id``; ``ErrNotFound`` for an unknown id, ``ErrStale``
+   if the version moved.
+
+``ApplyNodeDiff``
+   Applies a whole sync diff in one transaction: deletes first, then updates,
+   then creates, so a name freed by a delete can be reused by an update or a
+   create. Every update and delete is a compare-and-swap on ``id`` and
+   ``version``. ``ErrStale`` if a node moved or vanished, ``ErrConflict`` on a
+   name or ``(source, external_id)`` clash; either rolls back the whole diff.
+   An update writes everything a source owns, including ``name`` and
+   ``external_id`` (a rename), but never ``source``, ``created_at`` or the
+   observed host key.
+
+Update and delete go by ``id``, not name, so a node that was deleted and
+recreated under the same name is never mistaken for the old one.
+
+Advance primitives
+~~~~~~~~~~~~~~~~~~
+
+``UpdateRunStatus``, ``AddStepInstances``, ``ScheduleExecution`` and
+``RequestCancel`` each compare ``runs.version`` and bump it, so an advance
+built on a stale read returns ``ErrStale`` and must reload. All of them reject
+a terminal run with ``ErrStale``. ``ScheduleExecution`` also requires, in the
+same transaction, that the step's latest attempt is terminal or ``lost``;
+otherwise it returns ``ErrConflict`` and nothing changes. ``CreateRun`` checks
+that the job exists (``ErrNotFound``) and that the version belongs to it
+(``ErrConflict``). It inserts the run, its step instances and the first
+executions in one transaction. Applying a whole batch of engine actions in one
+transaction is future work on top of these.
+
+Inside a transaction every read goes through the transaction's queries
+(``getRun``, ``getJob``, ``getExecution`` take the querier). Calling a pool
+method such as ``s.GetRun`` while a transaction is open acquires a second
+connection and deadlocks a small pool under concurrency (the Postgres pool
+defaults to ``max(4, CPUs)`` connections).
+
+Foreign keys carry no ``ON DELETE`` action. Retention must delete children
+before parents: ``log_chunks`` (and their ``log_chunks_data``), then
+``executions``, ``step_instances``, ``runs``.
+
+Dispatch, leases and fencing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``ClaimExecutions`` selects queued, due executions of the agent's **pools** in
+one global ``priority, scheduled_at`` order (at most ``Limit``, clamped) and
+moves them to ``dispatched`` with the agent, controller, a **new**
+``attempt_id`` and a lease, in one transaction. This deviates from the single
+``UPDATE ... WHERE id IN (...)`` of ARCHITECTURE section 8.3 only in form: the
+attempt ids are generated in Go, so rows are updated one by one with
+``RETURNING``. Label and capability matching is not part of the claim; the
+dispatcher (M3) filters further. Postgres selects with ``pool = ANY(...)`` and
+``FOR UPDATE SKIP LOCKED`` (``queries/postgres``); SQLite uses an ``IN`` list
+and relies on its immediate write transactions (``queries/sqlite``). Every
+later transition (``MarkExecutionRunning``, ``CompleteExecution``,
+``RequeueExecution``, ``InsertLogChunk``) carries the ``attempt_id`` and the
+expected state in its ``WHERE``. A mismatch changes nothing and returns
+``ErrStale``; an unknown execution returns ``ErrNotFound``.
+
+Log chunks are fenced by ``attempt_id`` only: the check does not look at the
+execution state, so the final flush after completion (ARCHITECTURE section 10)
+is accepted, and only an attempt that differs from the current one is
+rejected. ``InsertLogChunk`` takes a lock on the execution row first
+(``SELECT ... FOR SHARE`` on Postgres, a no-op update on SQLite), so the
+attempt cannot be rotated between the check and the insert.
+
+``RenewLeases`` is one batched ``UPDATE ... RETURNING`` (chunked below the
+variable limit on SQLite). It touches only attempts owned by the calling
+controller, never shortens a lease (an older expiry is ignored), and returns
+the ids of every live attempt it matched, so the caller can answer continue or
+cancel for the rest. ``ExpireLeases`` (the reaper) marks overdue dispatched or
+running executions ``lost`` and returns them; a lost attempt can no longer
+complete or renew.
+
+``LeaderStore.AcquireLeader`` / ``ReleaseLeader`` and ``Tx.CheckLeader`` manage
+the ``leader_leases`` table (migration 00009, ADR-0039). ``AcquireLeader`` is
+one upsert that succeeds for the holder or over an expired lease and bumps
+``term`` on a change of holder; ``CheckLeader`` returns ``ErrStale`` unless the
+lease is held at that term and unexpired.
+
+``DeleteLogDataPrefix`` matches with ``substr`` (not ``LIKE``, which is
+case-insensitive on SQLite) and rejects an empty prefix.
+
+Add a migration by creating the next ``NNNNN_name.sql`` in **both** directories
+with ``-- +goose Up`` and ``-- +goose Down`` sections, then run ``make gen``.
+
+Run targets (migration 00012)
+-----------------------------
+
+``run_targets`` freezes the nodes a run targets at trigger time. Columns:
+``run_id`` (foreign key to ``runs``, ``ON DELETE CASCADE``), ``position``
+(1-based order of the list), ``name`` (``COLLATE "C"`` on Postgres),
+``node_id`` and ``node``. The primary key is ``(run_id, position)``, with
+``UNIQUE (run_id, name)`` and ``UNIQUE (run_id, node_id)``.
+
+``node_id`` is the id of the inventory row at trigger time. It has no foreign
+key, because the node may be deleted while the run is still going. ``node`` is
+the selector map as a JSON object, encoded in Go.
+
+``CreateRun`` writes the rows in its own transaction from ``NewRun.Targets``.
+A run freezes at most ``store.MaxRunTargets`` (1000) rows. More rows, an empty
+or duplicate name or node id, or a ``node`` that is not a JSON object is
+``ErrInvalid``, and the whole run rolls back. The rows are immutable
+afterwards.
+
+Runs created before the migration have no rows, which reads as no targets.
+There is no backfill.
+
+Reads:
+
+* ``ListRunTargets`` returns every target of a run in order.
+* ``ListRunTargetsPage`` pages by keyset on ``position``.
+* ``RunTargetNodeID`` returns the frozen id of a name, or ``ErrNotFound`` if
+  the name is not in the snapshot. The match is case-sensitive.
+* ``RunTargetNodeIDs`` is the batch form: it maps each name found in the
+  snapshot to its node id, in chunks of ``store.MaxBatch``; names outside the
+  snapshot are absent.
+* ``NodeStore.GetNodeByID`` returns an inventory node by id
+  (``ErrNotFound`` if absent).
+
+sqlc
+----
+
+``sqlc.yaml`` generates one package per dialect from the migrations (as the
+schema) and ``queries/shared`` plus the dialect directory. Write shared queries
+with ``sqlc.arg(name)`` so they parse on both engines. Keep JSON handling in Go.
+``make gen`` regenerates the code; never edit files under ``*/gen`` by hand.
+sqlc is pinned by the ``tool`` directive in ``go.mod`` and runs as
+``go tool sqlc``, so no separate install is needed.
+
+Configuration
+-------------
+
+``database.driver`` is ``sqlite`` or ``postgres``; ``database.dsn`` is a file
+path (SQLite, opened in WAL mode with foreign keys on) or a ``postgres://`` URL.
+Open errors never include the DSN. Open errors are wrapped as
+``opening <driver> store``. In-memory SQLite DSNs are rejected, because each
+pooled connection would get its own empty database. If ``SQLITE_BUSY`` persists
+past the 5 second busy timeout it surfaces as a wrapped driver error, not as a
+store sentinel.
+
+Idle transactions (Postgres)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Every pool connection is opened with ``idle_in_transaction_session_timeout``
+of 30 seconds (``postgres.IdleInTransactionTimeout``). If a controller host
+dies or is partitioned without closing its sockets in the middle of a
+transaction, its backend would otherwise keep the row locks (the ``runs`` row
+of an advance) until the server's TCP keepalive notices, about two hours by
+default, and every advance of that run would wait on the lock. No Damson
+transaction waits on anything but the database (enqueue joins the caller's
+transaction, nothing calls an agent or a plugin inside one), so a connection
+idle in a transaction for 30 seconds is dead and the server ends it.
+
+Put ``idle_in_transaction_session_timeout=<value>`` in the DSN to change it
+(``0`` disables it). Servers behind a pooler in transaction mode must allow the
+parameter as a startup parameter (PgBouncer: ``ignore_startup_parameters``).
+Setting ``tcp_keepalives_idle``, ``tcp_keepalives_interval`` and
+``tcp_keepalives_count`` on the server is still advised for other kinds of
+dead peers.
+
+Testing
+-------
+
+``storetest.Run`` is one suite invoked per backend, so every store method is
+tested on both. SQLite runs in ``make test``. Postgres tests carry the
+``integration`` build tag and run with ``make test-pg`` (which also covers the integration-tagged api,
+controller and cmd tests; list new packages in ``PGPKGS`` in the Makefile), which starts
+``postgres:17-alpine`` with testcontainers. To reuse a server instead, set
+``DAMSON_TEST_POSTGRES_DSN``; each test gets its own database, dropped on
+cleanup. Without a container runtime or that variable the Postgres tests
+**fail**; set ``DAMSON_SKIP_POSTGRES=1`` to skip them explicitly (the run is
+then not a Postgres verification). ``make check`` does not run ``test-pg`` (nor ``make test-integration`` for the non-Postgres integration packages); CI
+does, with Docker.
+
+Log chunks and attempt rotation
+-------------------------------
+
+Sequence numbers of an execution's logs restart at 1 for every attempt.
+``ClaimExecutions`` therefore deletes the claimed execution's previous log
+chunk rows and objects (everything under ``store.LogDataPrefix``) in the same
+transaction that rotates the attempt id. After the claim, the superseded
+attempt's ``InsertLogChunk`` fails with ``ErrStale``, so attempts never mix in
+one execution's log.

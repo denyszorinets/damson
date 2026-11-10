@@ -1,0 +1,159 @@
+{{- $root := . -}}
+{{- $names := list }}
+{{- range $pool := .Values.agents.pools }}
+{{- if has $pool.name $names }}{{ fail (printf "agents.pools: the name %q is used twice" $pool.name) }}{{ end }}
+{{- $names = append $names $pool.name }}
+{{- end }}
+{{- range $pool := .Values.agents.pools }}
+{{- $name := printf "%s-agent-%s" (include "damson.fullname" $root) $pool.name }}
+{{- $sel := dict "root" $root "pool" $pool }}
+{{- $img := default dict $pool.image }}
+{{- if and $pool.autoscaling $pool.autoscaling.enabled }}
+{{- if not (dig "requests" "cpu" "" (default dict $pool.resources)) }}
+{{- fail (printf "agents.pools[%s]: autoscaling on CPU needs resources.requests.cpu" $pool.name) }}
+{{- end }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "damson.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: agent
+    damson.dev/pool: {{ $pool.name | quote }}
+spec:
+  {{- if not (and $pool.autoscaling $pool.autoscaling.enabled) }}
+  replicas: {{ ternary $pool.replicas 2 (hasKey $pool "replicas") }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "damson.agentSelector" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "damson.labels" $root | nindent 8 }}
+        {{- include "damson.agentLabels" $sel | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "damson.agentServiceAccountName" $root }}
+      automountServiceAccountToken: false
+      {{- with $root.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ default 30 $pool.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- if $pool.podSecurityContext }}
+        {{- toYaml $pool.podSecurityContext | nindent 8 }}
+        {{- else }}
+        {{- include "damson.agentPodSecurityContext" $root | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: agent
+          image: {{ include "damson.image" (dict "repository" (default $root.Values.agents.image.repository $img.repository) "tag" (default $root.Values.agents.image.tag $img.tag) "defaultTag" $root.Chart.AppVersion) }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          args: [agent]
+          env:
+            - name: DAMSON_AGENT__CONTROLLER_URL
+              value: {{ include "damson.controllerUrl" $root | quote }}
+            - name: DAMSON_AGENT__POOL
+              value: {{ $pool.name | quote }}
+            - name: DAMSON_AGENT__SLOTS
+              value: {{ $pool.slots | default 0 | quote }}
+            - name: DAMSON_AGENT__SPOOL_DIR
+              value: /var/spool/damson
+            - name: DAMSON_LOG__LEVEL
+              value: {{ $root.Values.logLevel | quote }}
+            - name: HOME
+              value: /tmp
+            {{- if $root.Values.agents.caSecret }}
+            - name: DAMSON_AGENT__TLS_CA_FILE
+              value: /etc/damson/ca/{{ $root.Values.agents.caKey }}
+            - name: DAMSON_AGENT__CONTROLLER_CA_FILE
+              value: /etc/damson/ca/{{ $root.Values.agents.caKey }}
+            {{- end }}
+            {{- include "damson.secretEnv" (dict "name" "DAMSON_AGENT__TOKEN" "secret" (required (printf "agents.pools[%s].tokenSecret is required: a Secret holding the pool token" $pool.name) $pool.tokenSecret) "key" ($pool.tokenKey | default "token")) | nindent 12 }}
+            {{- with $pool.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml (default dict $pool.resources) | nindent 12 }}
+          securityContext:
+            {{- if $pool.securityContext }}
+            {{- toYaml $pool.securityContext | nindent 12 }}
+            {{- else }}
+            {{- include "damson.containerSecurityContext" $root | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - {name: spool, mountPath: /var/spool/damson}
+            - {name: tmp, mountPath: /tmp}
+            {{- if $root.Values.agents.caSecret }}
+            - {name: ca, mountPath: /etc/damson/ca, readOnly: true}
+            {{- end }}
+            {{- with $pool.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: spool
+          emptyDir:
+            sizeLimit: {{ $root.Values.agents.spoolSizeLimit }}
+        - name: tmp
+          emptyDir: {}
+        {{- if $root.Values.agents.caSecret }}
+        - name: ca
+          secret:
+            secretName: {{ $root.Values.agents.caSecret }}
+        {{- end }}
+        {{- with $pool.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $pool.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pool.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pool.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- if and $pool.autoscaling $pool.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "damson.labels" $root | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $name }}
+  minReplicas: {{ $pool.autoscaling.minReplicas }}
+  maxReplicas: {{ $pool.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $pool.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- if and $pool.podDisruptionBudget $pool.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "damson.labels" $root | nindent 4 }}
+spec:
+  maxUnavailable: {{ $pool.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "damson.agentSelector" $sel | nindent 6 }}
+{{- end }}
+{{- end }}

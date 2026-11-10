@@ -1,0 +1,161 @@
+.. _reference-agent:
+
+Agent connection
+================
+
+``internal/agent`` keeps one connection from an agent to its controller
+(``ARCHITECTURE.md`` sections 7.1 to 7.3). ``damson agent`` and ``damson dev``
+run it; configuration keys are on :doc:`configuration`.
+
+Connecting
+----------
+
+The agent dials ``<agent.controller_url>/agent/v1/connect`` with
+``Authorization: Bearer <pool token>`` and ``X-Damson-Agent-Id``. The id is the
+hostname plus a random boot nonce, new on every process start. Plain ``ws://``
+works only against a controller started with ``--insecure-dev`` (``dev``
+always is). The token appears only in that header: it is never logged, and
+errors are built from the HTTP status.
+
+Right after the upgrade the agent sends ``agent.hello`` with:
+
+* the protocol version and ``session_seq`` (1 on the first attempt of the
+  process, then one more per connection attempt);
+* the pool, the labels (``os`` and ``arch`` by default) and ``max_concurrent``
+  (``agent.slots``, default CPU count times four);
+* capabilities: ``bin:<name>`` for each of ``git``, ``ssh``, ``ansible``,
+  ``ansible-playbook``, ``buildah`` and ``helm`` found on ``PATH``;
+* the manifests of every built-in plugin (``plugins/all``).
+
+The startup log line shows the configured ``agent.slots`` (``0`` means auto),
+while the agent's own log lines show the resolved count.
+
+Running steps
+-------------
+
+The controller sends ``step.execute``; the agent runs the named plugin (built
+in, exact name and version) in its own goroutine, at most ``agent.slots`` at a
+time. The plugin gets its input, the nodes of the step, a per-execution work
+directory (removed afterwards) and a logger. Secret values arrive only in
+``step.execute``, live only in the agent's memory, and are dropped when the
+step ends; every log line, progress message, error message and string output
+is masked before it leaves (plain, base64 and URL-encoded forms).
+
+* ``step.cancel`` cancels the plugin's context. The plugin has the requested
+  grace period to return; after that the agent reports the step ``canceled``
+  anyway, and the plugin keeps its slot until it does return.
+* A step with a timeout is reported ``timed_out`` when it expires.
+* A step whose outputs exceed 1 MiB fails with an ``internal`` error.
+* Secrets shorter than 4 bytes are not masked in text; the step log says so
+  once. Plugins must log whole lines: a secret split across two log calls is
+  not masked.
+* A plugin panic is reported as an ``internal`` failure; nothing of the panic
+  value is sent.
+* Logs are batched (200 ms or 64 KiB) and kept until the controller
+  acknowledges them: first in memory (32 MiB), then in a spool file
+  (``agent.spool_max_bytes``, 256 MiB by default, in ``agent.spool_dir``).
+  When the spool is full the oldest unacknowledged logs are dropped and a
+  ``system`` line records the gap (the dropped sequence numbers are declared
+  with ``gap_to``). The spool holds masked job output in plaintext (mode 0600)
+  and is unlinked at creation. An agent crash loses unacknowledged logs.
+* ``step.complete`` is retried until the controller acknowledges it, across
+  reconnects. A result that is not acknowledged is listed in the next
+  ``agent.hello`` so the controller can decide.
+* ``agent.allow_insecure_host_keys`` lets the ``ssh``, ``transfer`` and ``ansible``
+  plugins connect to nodes whose host key policy is ``insecure``, and the
+  ``ansible``, ``buildah`` and ``helm`` plugins clone ssh repositories without a
+  known_hosts entry. Off by default.
+* ``agent.allow_insecure_winrm`` (``DAMSON_AGENT__ALLOW_INSECURE_WINRM``) lets the
+  ``winrm`` plugin use ``transport: http`` and ``insecure_skip_verify``
+  (:doc:`/reference/plugin-winrm`). Off by default. It is separate from
+  ``allow_insecure_host_keys``.
+* ``agent.allow_plain_ftp`` (``DAMSON_AGENT__ALLOW_PLAIN_FTP``) lets the ``transfer``
+  plugin use ``protocol: ftp``, which sends the password and the data in clear
+  text. Off by default; use ``ftps``. It is separate from the other two switches.
+* ``agent.allow_insecure_git`` (``DAMSON_AGENT__ALLOW_INSECURE_GIT``) lets the
+  ``ansible``, ``buildah`` and ``helm`` plugins clone from ``http://``, ``git://`` and ``file://`` URLs.
+  Off by default; use ``https`` or ``ssh``. Separate from the other switches.
+* ``agent.allow_helm_in_cluster`` (``DAMSON_AGENT__ALLOW_HELM_IN_CLUSTER``) lets
+  the ``helm`` plugin deploy with the agent's own Kubernetes service account.
+  Off by default: that account is the pool's authority, not a credential the job
+  brought. Separate from the other switches.
+* ``agent.allow_insecure_registry`` (``DAMSON_AGENT__ALLOW_INSECURE_REGISTRY``)
+  lets the ``buildah`` plugin run with ``tls_verify: false``. Off by default;
+  trust a private CA through the system roots instead. Separate from the other
+  switches.
+* ``agent.allow_plain_s3`` (``DAMSON_AGENT__ALLOW_PLAIN_S3``) lets the ``transfer``
+  plugin use an ``s3`` endpoint over plain ``http://``; the keys and the data
+  travel in clear text. Off by default; use ``https``. Separate from the other
+  switches.
+* ``agent.tls_ca_file`` is a PEM file of extra CA certificates for ``ftps`` and
+  ``https`` S3 endpoints (and ``winrm`` over https)
+  transfers (:doc:`/reference/plugin-transfer`). A bad file fails agent start. The file is read when the agent starts, so a change needs a restart.
+
+* ``agent.controller_ca_file`` (``DAMSON_AGENT__CONTROLLER_CA_FILE``) is a PEM file
+  of extra CA certificates trusted, in addition to the system roots, for the
+  ``wss://`` connection to the controller (private CA or self-signed controller
+  certificate). Read at start only; a change needs a restart. Verification cannot be turned off. It is separate from
+  ``agent.tls_ca_file``.
+
+Internals are described in :doc:`/development/agent`.
+
+Heartbeats
+----------
+
+The agent sends ``agent.heartbeat`` once straight after hello and then every
+``heartbeat_interval_ms`` from the hello response (10 s by default), with free
+slots, running attempts and host telemetry:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Field
+     - Meaning
+   * - ``cpu_percent``
+     - Busy share of all cores since the previous heartbeat (0 on the first).
+   * - ``memory_bytes``
+     - ``MemTotal`` minus ``MemAvailable``.
+   * - ``load1``
+     - One-minute load average.
+
+On Linux the values come from ``/proc/stat``, ``/proc/meminfo`` and
+``/proc/loadavg``. Elsewhere, or when a file cannot be read, the affected
+fields are zero; the agent still connects.
+
+Reconnecting
+------------
+
+When the socket drops, the agent waits and dials again. The wait is drawn
+uniformly from ``[0, min(30 s, 1 s * 2^n)]`` (exponential backoff with full
+jitter, ``n`` counting failures since the last stable session). A session
+that stayed up for one heartbeat interval after hello restarts the sequence;
+a connection that is accepted and dropped at once keeps the backoff growing.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Event
+     - Agent behavior
+   * - HTTP 400, 401 or 403 on upgrade
+     - Fatal: the agent stops and ``damson agent`` exits with status 1.
+   * - Other HTTP status or network error
+     - Retry with backoff.
+   * - Hello error ``-32001`` (stale session)
+     - Retry with backoff; the next attempt carries a higher ``session_seq``.
+   * - Hello error ``-32002`` (pool conflict), ``-32003`` (unsupported
+       protocol) or ``-32602`` (invalid params)
+     - Fatal, as for authentication failures.
+   * - ``agent.reconnect``
+     - Close the socket, wait a random delay in ``[0, jitter_ms]``, reconnect
+       (the backoff restarts).
+   * - ``agent.drain``
+     - Stop taking new work: heartbeats report zero free slots until the next
+       session.
+
+Embedding
+---------
+
+``agent.New(Config)`` validates the settings; ``Start(ctx)`` and ``Stop(ctx)``
+own the goroutines. ``Done()`` closes when the loop ends and ``Err()`` holds
+the fatal error. The clock, random source, host sampler and ``PATH`` lookup are
+injectable, so the backoff and the loop are tested without sleeping.

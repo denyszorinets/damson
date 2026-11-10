@@ -1,0 +1,26 @@
+[
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "input": {
+      "artifact": "app-1.tgz",
+      "command": "test app-1.tgz x3",
+      "node": "builder",
+      "retries": 3,
+      "run": "run-1-pipeline"
+    },
+    "path": "test",
+    "plugin": "ssh",
+    "runs_on": {
+      "pool": "dc1"
+    },
+    "step_id": "test",
+    "type": "create_step_instance"
+  },
+  {
+    "attempt": 1,
+    "path": "test",
+    "scheduled_at": "2026-03-01T10:05:00Z",
+    "timeout": "5m0s",
+    "type": "schedule_execution"
+  }
+]

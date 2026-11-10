@@ -1,0 +1,8 @@
+# /etc/damson/agent.toml
+[agent]
+controller_url = "wss://damson.example.com"
+pool = "default"
+slots = 0
+# Private CA for the controller certificate (wss://):
+# controller_ca_file = "/etc/damson/controller-ca.crt"
+# tls_ca_file = "/etc/damson/ca.crt"

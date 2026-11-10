@@ -1,0 +1,38 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": { "project": "infra/billing", "name": "deploy-report-tool", "description": "Linear example" },
+  "spec": {
+    "options": {
+      "type": "object",
+      "required": ["version", "env"],
+      "properties": {
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "env": { "type": "string", "enum": ["staging", "prod"] }
+      }
+    },
+    "targets": { "selector": "'report' in node.tags && node.attributes.env == inputs.env" },
+    "timeout": "30m",
+    "steps": [
+      {
+        "id": "fetch",
+        "plugin": "transfer@1",
+        "timeout": "10m",
+        "runs_on": { "pool": "dc1", "labels": { "arch": "amd64" } },
+        "with": { "mode": "copy", "key": "report-tool/${{ inputs.version }}/report-tool.tar.gz", "verify": true }
+      },
+      {
+        "id": "install",
+        "plugin": "ssh",
+        "with": { "node": "ops-bastion", "command": "tar -xzf ${{ steps.fetch.outputs.path }}" }
+      },
+      {
+        "id": "report",
+        "plugin": "ssh",
+        "when": "always()",
+        "continue_on_error": true,
+        "with": { "node": "ops-bastion", "command": "echo 'run ${{ run.id }} finished: ${{ run.status }}'" }
+      }
+    ]
+  }
+}

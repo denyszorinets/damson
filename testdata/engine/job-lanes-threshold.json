@@ -1,0 +1,37 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "lanes-threshold"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "per-node",
+        "type": "group",
+        "steps": [
+          {
+            "id": "install",
+            "plugin": "ssh",
+            "with": {
+              "node": "${{ item }}",
+              "command": "install ${{ item }}"
+            }
+          }
+        ],
+        "for_each": "inputs.hosts",
+        "max_parallel": 2,
+        "fail_threshold": 1
+      },
+      {
+        "id": "after",
+        "plugin": "ssh",
+        "with": {
+          "node": "n",
+          "command": "after"
+        }
+      }
+    ]
+  }
+}

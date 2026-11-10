@@ -1,0 +1,54 @@
+{
+  "job_file": "job-groups-nested.json",
+  "now": "2026-03-01T10:05:00Z",
+  "state": {
+    "id": "run-1",
+    "status": "running",
+    "trigger": "manual",
+    "job": {
+      "name": "groups",
+      "project": "default",
+      "version": "1"
+    },
+    "started_at": "2026-03-01T10:00:00Z",
+    "steps": [
+      {
+        "path": "o",
+        "step_id": "o",
+        "status": "pending",
+        "created_at": "2026-03-01T10:00:00Z",
+        "kind": "group"
+      },
+      {
+        "path": "o/i",
+        "step_id": "i",
+        "status": "pending",
+        "created_at": "2026-03-01T10:00:00Z",
+        "kind": "group"
+      },
+      {
+        "path": "o/i/x",
+        "step_id": "x",
+        "status": "failed",
+        "created_at": "2026-03-01T10:00:00Z",
+        "error": {
+          "kind": "exit_code",
+          "message": "boom"
+        },
+        "executions": [
+          {
+            "id": "ex-x",
+            "attempt_id": "at-x",
+            "attempt": 1,
+            "state": "failed",
+            "error": {
+              "kind": "exit_code",
+              "message": "boom"
+            },
+            "finished_at": "2026-03-01T10:00:10Z"
+          }
+        ]
+      }
+    ]
+  }
+}

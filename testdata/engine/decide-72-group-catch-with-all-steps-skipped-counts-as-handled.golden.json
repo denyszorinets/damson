@@ -1,0 +1,25 @@
+[
+  {
+    "path": "deploy/catch/x",
+    "reason": "when condition is false",
+    "status": "skipped",
+    "step_id": "x",
+    "type": "skip_step"
+  },
+  {
+    "error": {
+      "kind": "exit_code",
+      "message": "boom",
+      "path": "deploy/a"
+    },
+    "handled": true,
+    "path": "deploy",
+    "status": "succeeded",
+    "type": "complete_group"
+  },
+  {
+    "finished_at": "2026-03-01T10:05:00Z",
+    "status": "succeeded",
+    "type": "complete_run"
+  }
+]

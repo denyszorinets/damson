@@ -1,0 +1,92 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "team/app",
+    "name": "build-and-deploy",
+    "description": "Build an image from git, deploy it with Helm, smoke test it, and roll back if the smoke test fails."
+  },
+  "spec": {
+    "options": {
+      "type": "object",
+      "required": ["ref", "version"],
+      "properties": {
+        "ref": { "type": "string", "description": "Branch, tag or commit to build" },
+        "version": { "type": "string", "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*$", "description": "Image tag" }
+      }
+    },
+    "timeout": "1h",
+    "steps": [
+      {
+        "id": "build",
+        "plugin": "buildah",
+        "runs_on": { "pool": "build" },
+        "timeout": "30m",
+        "with": {
+          "repo": {
+            "url": "https://git.internal/team/app.git",
+            "ref": "${{ inputs.ref }}",
+            "credential": "secret://team/git-ro"
+          },
+          "image": "registry.internal/team/app",
+          "tags": ["${{ inputs.version }}"],
+          "registry_credentials": [
+            { "registry": "registry.internal", "credential": "secret://team/registry-push" }
+          ]
+        }
+      },
+      {
+        "id": "deploy",
+        "type": "group",
+        "steps": [
+          {
+            "id": "upgrade",
+            "plugin": "helm",
+            "runs_on": { "pool": "build" },
+            "timeout": "15m",
+            "with": {
+              "release": "app",
+              "namespace": "team-app",
+              "chart": { "oci": "oci://registry.internal/charts/app", "version": "2.3.0" },
+              "values": {
+                "image": {
+                  "repository": "registry.internal/team/app",
+                  "digest": "${{ steps.build.outputs.digest }}"
+                }
+              },
+              "registry_credentials": [
+                { "registry": "registry.internal", "credential": "secret://team/registry-pull" }
+              ],
+              "cluster": { "kubeconfig": "secret://team/kube-prod#kubeconfig" },
+              "timeout": "10m"
+            }
+          },
+          {
+            "id": "smoke",
+            "plugin": "ssh",
+            "retry": { "max_attempts": 3, "backoff": { "initial": "5s" } },
+            "with": {
+              "node": "ops-bastion",
+              "command": "curl -fsS https://app.internal/healthz"
+            }
+          }
+        ],
+        "catch": [
+          {
+            "id": "rollback",
+            "plugin": "helm",
+            "runs_on": { "pool": "build" },
+            "timeout": "15m",
+            "with": {
+              "action": "rollback",
+              "release": "app",
+              "namespace": "team-app",
+              "cluster": { "kubeconfig": "secret://team/kube-prod#kubeconfig" }
+            }
+          }
+        ],
+        "rethrow": true
+      }
+    ]
+  }
+}

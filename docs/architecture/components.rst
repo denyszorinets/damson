@@ -87,8 +87,8 @@ Package responsibilities
      - Wiring, HTTP server, dispatch loop, singleton duties (scheduler, reaper,
        retention), internal endpoints, controller registry.
    * - ``internal/agent``
-     - Connection management and reconnect, executor, log batcher, spool,
-       masker.
+     - Connection management and reconnect (:doc:`/reference/agent`), executor,
+       log batcher, spool, masker.
    * - ``internal/protocol``
      - JSON-RPC 2.0 over MessagePack framing, message types, versioning
        (N and N-1).
@@ -110,7 +110,7 @@ Package responsibilities
    * - ``internal/api``
      - Huma handlers; the single error → problem+json mapping.
    * - ``internal/telemetry``
-     - OpenTelemetry traces and metrics, ``slog`` setup.
+     - ``slog`` setup; planned home of OpenTelemetry traces (metrics: ADR-0070).
    * - ``pkg/pluginsdk``, ``plugintest``
      - Public plugin SDK and its test harness and contract suite.
    * - ``plugins/*``, ``plugins/all``

@@ -1,0 +1,8 @@
+[
+  {
+    "attempt_id": "at-r",
+    "execution_id": "ex-r",
+    "path": "deploy/catch/rollback",
+    "type": "cancel_execution"
+  }
+]

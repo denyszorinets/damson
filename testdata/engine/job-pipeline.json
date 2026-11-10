@@ -1,0 +1,74 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "infra/billing",
+    "name": "pipeline"
+  },
+  "spec": {
+    "options": {
+      "type": "object",
+      "properties": {
+        "env": {
+          "type": "string"
+        },
+        "retries": {
+          "type": "integer"
+        }
+      }
+    },
+    "steps": [
+      {
+        "id": "build",
+        "plugin": "ssh",
+        "with": {
+          "node": "builder",
+          "command": "make ${{ inputs.env }}",
+          "secret_ref": "secret://infra/token"
+        }
+      },
+      {
+        "id": "test",
+        "plugin": "ssh",
+        "timeout": "5m",
+        "runs_on": {
+          "pool": "dc1"
+        },
+        "with": {
+          "node": "builder",
+          "retries": "${{ inputs.retries }}",
+          "artifact": "${{ steps.build.outputs.artifact }}",
+          "command": "test ${{ steps.build.outputs.artifact }} x${{ inputs.retries }}",
+          "run": "${{ run.id }}-${{ job.name }}"
+        }
+      },
+      {
+        "id": "notify",
+        "plugin": "ssh",
+        "when": "failure()",
+        "with": {
+          "node": "ops",
+          "command": "echo failed in ${{ run.id }}"
+        }
+      },
+      {
+        "id": "cleanup",
+        "plugin": "ssh",
+        "when": "always()",
+        "with": {
+          "node": "builder",
+          "command": "rm -rf build"
+        }
+      },
+      {
+        "id": "publish",
+        "plugin": "ssh",
+        "when": "inputs.env == 'prod'",
+        "with": {
+          "node": "ops",
+          "command": "publish"
+        }
+      }
+    ]
+  }
+}

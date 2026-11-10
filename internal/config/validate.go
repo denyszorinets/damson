@@ -1,0 +1,118 @@
+package config
+
+import (
+	"errors"
+	"fmt"
+	"net"
+	"net/url"
+	"strings"
+	"time"
+)
+
+// Validate checks the configuration for role and returns every problem found,
+// joined, each naming the config key and its environment variable.
+func (c Config) Validate(role Role) error {
+	var errs []error
+	add := func(key, format string, args ...any) {
+		errs = append(errs, fmt.Errorf("%s (%s): %s", key, envName(key), fmt.Sprintf(format, args...)))
+	}
+
+	switch role {
+	case RoleController, RoleAgent, RoleDev:
+	default:
+		return fmt.Errorf("unknown role %q (want controller, agent or dev)", role)
+	}
+
+	var lvl = c.Log.Level
+	if lvl != "debug" && lvl != "info" && lvl != "warn" && lvl != "error" {
+		add("log.level", "must be one of debug, info, warn, error; got %q", lvl)
+	}
+
+	if role == RoleController || role == RoleDev {
+		c.validateDatabase(role, add)
+		if _, port, err := net.SplitHostPort(c.Controller.Listen); err != nil || port == "" {
+			add("controller.listen", "must be host:port such as \":8080\"; got %q", c.Controller.Listen)
+		}
+		c.validateCluster(role, add)
+		if role == RoleDev && (c.Controller.TLSCertFile != "" || c.Controller.TLSKeyFile != "") {
+			add("controller.tls_cert_file", "is not supported by the dev role (its agent connects over ws://); use the controller role")
+		}
+		if (c.Controller.TLSCertFile == "") != (c.Controller.TLSKeyFile == "") {
+			add("controller.tls_cert_file", "and controller.tls_key_file must be set together")
+		}
+		if d, err := time.ParseDuration(c.Engine.FinallyGrace); err != nil || d <= 0 || d > MaxFinallyGrace {
+			add("engine.finally_grace", "must be a duration such as \"2m\", positive and at most %s; got %q", MaxFinallyGrace, c.Engine.FinallyGrace)
+		}
+		if d := c.Audit.RetentionDays; d < 0 || d > MaxAuditRetentionDays {
+			add("audit.retention_days", "must be 0 (keep forever) or at most %d days; got %d", MaxAuditRetentionDays, d)
+		}
+		if d := c.Runs.RetentionDays; d < 0 || d > MaxAuditRetentionDays {
+			add("runs.retention_days", "must be 0 (keep forever) or at most %d days; got %d", MaxAuditRetentionDays, d)
+		}
+		c.validateOIDC(add)
+		c.validateLogs(add)
+		c.validateSecretsBackend(role, add)
+	}
+	if role == RoleAgent {
+		c.validateAgent(add)
+	}
+
+	if len(errs) == 0 {
+		return nil
+	}
+	return joinLines(errs)
+}
+
+func (c Config) validateDatabase(role Role, add func(key, format string, args ...any)) {
+	switch c.Database.Driver {
+	case DriverSQLite:
+	case DriverPostgres:
+		if role == RoleDev {
+			add("database.driver", "dev mode uses sqlite; got %q", c.Database.Driver)
+		}
+	default:
+		add("database.driver", "must be sqlite or postgres; got %q", c.Database.Driver)
+	}
+	if c.Database.DSN == "" {
+		add("database.dsn", "is required (for example \"file:damson.db\" or a postgres:// URL)")
+	}
+}
+
+func (c Config) validateAgent(add func(key, format string, args ...any)) {
+	u, err := url.Parse(c.Agent.ControllerURL)
+	switch {
+	case c.Agent.ControllerURL == "":
+		add("agent.controller_url", "is required, for example wss://damson.example.com")
+	case err != nil || (u.Scheme != "ws" && u.Scheme != "wss") || u.Host == "":
+		add("agent.controller_url", "must be a ws:// or wss:// URL with a host")
+	}
+	if c.Agent.Token == "" {
+		add("agent.token", "is required (the pool token issued by the controller)")
+	}
+	if c.Agent.Pool == "" {
+		add("agent.pool", "must not be empty")
+	}
+	if c.Agent.Slots < 0 {
+		add("agent.slots", "must be 0 (CPU count x 4) or more; got %d", c.Agent.Slots)
+	}
+	if d, err := time.ParseDuration(c.Agent.DrainGrace); err != nil || d < 0 || d > MaxDrainGrace {
+		add("agent.drain_grace", "must be a duration such as \"20s\", zero or positive and at most %s; got %q", MaxDrainGrace, c.Agent.DrainGrace)
+	}
+	if c.Agent.SpoolMaxBytes < 0 {
+		add("agent.spool_max_bytes", "must be 0 (256 MiB) or more; got %d", c.Agent.SpoolMaxBytes)
+	}
+}
+
+// envName maps a dotted key to its environment variable.
+func envName(key string) string {
+	return EnvPrefix + strings.ToUpper(strings.ReplaceAll(key, ".", "__"))
+}
+
+// joinLines joins errors so each prints on its own indented line.
+func joinLines(errs []error) error {
+	msgs := make([]string, len(errs))
+	for i, e := range errs {
+		msgs[i] = e.Error()
+	}
+	return errors.New("invalid configuration:\n  - " + strings.Join(msgs, "\n  - "))
+}

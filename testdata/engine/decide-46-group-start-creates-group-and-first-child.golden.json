@@ -1,0 +1,26 @@
+[
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "kind": "group",
+    "path": "deploy",
+    "step_id": "deploy",
+    "type": "create_step_instance"
+  },
+  {
+    "created_at": "2026-03-01T10:05:00Z",
+    "input": {
+      "command": "unpack succeeded",
+      "node": "n"
+    },
+    "path": "deploy/unpack",
+    "plugin": "ssh",
+    "step_id": "unpack",
+    "type": "create_step_instance"
+  },
+  {
+    "attempt": 1,
+    "path": "deploy/unpack",
+    "scheduled_at": "2026-03-01T10:05:00Z",
+    "type": "schedule_execution"
+  }
+]

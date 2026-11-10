@@ -1,0 +1,12 @@
+database: {existingSecret: damson-db}
+secrets:
+  clusterSecret: {existingSecret: damson-cluster}
+  backend: openbao
+  openbao:
+    address: https://bao.example.com:8200
+    auth: {method: kubernetes, role: damson}
+serviceAccount: {annotations: {eks.amazonaws.com/role-arn: arn:aws:iam::1:role/damson-logs}}
+agents:
+  controllerUrl: wss://damson.example.com
+  pools:
+    - {name: default, tokenSecret: pool-default}

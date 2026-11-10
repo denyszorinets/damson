@@ -1,0 +1,257 @@
+package dispatch
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"slices"
+	"time"
+
+	"github.com/denyszorinets/damson/internal/controller"
+	"github.com/denyszorinets/damson/internal/pluginreg"
+	"github.com/denyszorinets/damson/internal/protocol"
+	"github.com/denyszorinets/damson/internal/store"
+)
+
+// dispatchOnce starts a dispatch round for every connected agent with free
+// slots and does not wait for it: a half-open socket must not delay the other
+// agents. At most one round per agent is in flight; Stop waits for them.
+func (d *Dispatcher) dispatchOnce(ctx context.Context) {
+	for _, a := range d.cfg.Agents.Agents() {
+		if a.Free <= 0 || a.Peer == nil || !d.begin(a.ID) {
+			continue
+		}
+		d.wg.Add(1)
+		go func() {
+			defer d.wg.Done()
+			defer d.end(a.ID)
+			d.dispatchAgent(ctx, a)
+		}()
+	}
+}
+
+func (d *Dispatcher) begin(agentID string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.busy[agentID] {
+		return false
+	}
+	d.busy[agentID] = true
+	return true
+}
+
+func (d *Dispatcher) end(agentID string) {
+	d.mu.Lock()
+	delete(d.busy, agentID)
+	d.mu.Unlock()
+}
+
+func (d *Dispatcher) dispatchAgent(ctx context.Context, a controller.AgentView) {
+	n := d.cfg.Agents.Reserve(a.ID, a.Free)
+	if n == 0 {
+		return
+	}
+	cctx, cancel := context.WithTimeout(ctx, d.cfg.CallTimeout)
+	execs, err := d.cfg.Store.ClaimExecutions(cctx, store.ClaimParams{
+		AgentID: a.ID, ControllerID: d.cfg.ControllerID, Pools: []string{a.Pool, store.PoolByNode}, Limit: n, LeaseTTL: d.cfg.LeaseTTL,
+	}, d.cfg.Now())
+	cancel()
+	if err != nil {
+		d.cfg.Agents.Release(a.ID, n)
+		if ctx.Err() == nil {
+			d.log.Error("claiming executions", "agent_id", a.ID, "error", err)
+		}
+		return
+	}
+	d.cfg.Agents.Release(a.ID, n-len(execs))
+	for i, ex := range execs {
+		if !d.send(ctx, a, ex) {
+			// The socket is not usable: the rest of the batch was never sent,
+			// so put it back now rather than let its leases run out.
+			for _, rest := range execs[i+1:] {
+				d.requeue(ctx, a, rest, d.cfg.Now(), d.log)
+			}
+			return
+		}
+	}
+}
+
+// send delivers one claimed execution and reports whether the socket is still
+// usable for the rest of the batch.
+//
+// Delivery semantics (at most once): a failure that leaves it unknown whether
+// the agent started the step (timeout, closed socket) does not requeue the
+// execution, because a second agent could then run it too. The execution is
+// cancelled on the agent first; it is requeued only if that is answered (the
+// agent also tombstones the attempt, so a late step.execute is rejected).
+// Otherwise it stays dispatched and the lease reaper settles it.
+func (d *Dispatcher) send(ctx context.Context, a controller.AgentView, ex store.Execution) bool {
+	log := d.log.With("run_id", ex.RunID, "execution_id", ex.ID, "attempt_id", ex.AttemptID, "agent_id", a.ID)
+	if ex.Pool == store.PoolByNode && d.routeByNode(ctx, a, ex, log) {
+		return true
+	}
+	req, err := d.buildRequest(ctx, a, ex)
+	defer wipe(req.Secrets)
+	var perm *permanent
+	if errors.As(err, &perm) {
+		log.Warn("execution cannot be sent: failing it", "error", err)
+		d.failDispatched(ctx, a, ex, err)
+		return true
+	}
+	if err != nil {
+		log.Warn("execution cannot be sent to this agent", "error", err)
+		d.requeue(ctx, a, ex, d.cfg.Now().Add(d.cfg.IncapableRetry), log)
+		return true
+	}
+	if len(req.Secrets) > 0 {
+		if err := d.auditSecretRead(ctx, ex, req.Secrets); err != nil {
+			// Not recorded, not sent: the secrets stay on the controller.
+			log.Warn("execution cannot be sent: the secret read was not recorded", "error", err)
+			d.requeue(ctx, a, ex, d.cfg.Now().Add(d.cfg.IncapableRetry), log)
+			return true
+		}
+	}
+	cctx, cancel := context.WithTimeout(ctx, d.cfg.CallTimeout)
+	defer cancel()
+	var res protocol.StepExecuteResult
+	if err := a.Peer.Call(cctx, protocol.MethodStepExecute, req, &res); err != nil {
+		log.Warn("step.execute outcome unknown", "error", err)
+		d.cancelAndRequeue(ctx, a, ex, log)
+		return false
+	}
+	if !res.Accepted {
+		log.Info("agent rejected step.execute", "reason", res.Reason)
+		d.requeue(ctx, a, ex, d.cfg.Now().Add(time.Second), log)
+		return true
+	}
+	sctx, scancel := context.WithTimeout(context.WithoutCancel(ctx), d.cfg.CallTimeout)
+	defer scancel()
+	err = d.cfg.Store.MarkExecutionRunning(sctx, ex.ID, ex.AttemptID, d.cfg.Now())
+	if err != nil && !errors.Is(err, store.ErrStale) {
+		log.Error("marking execution running", "error", err) // the lease reaper settles it if this sticks
+	}
+	return true
+}
+
+func (d *Dispatcher) cancelAndRequeue(ctx context.Context, a controller.AgentView, ex store.Execution, log *slog.Logger) {
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), d.cfg.CallTimeout)
+	defer cancel()
+	var res protocol.StepCancelResult
+	err := a.Peer.Call(cctx, protocol.MethodStepCancel, protocol.StepCancel{AttemptID: ex.AttemptID}, &res)
+	if err != nil {
+		log.Warn("could not cancel the attempt; leaving it to the lease reaper", "error", err)
+		return
+	}
+	d.requeue(ctx, a, ex, d.cfg.Now(), log)
+}
+
+func (d *Dispatcher) buildRequest(ctx context.Context, a controller.AgentView, ex store.Execution) (protocol.StepExecute, error) {
+	step, err := d.cfg.Store.GetStepInstance(ctx, ex.StepInstanceID)
+	if err != nil {
+		return protocol.StepExecute{}, fmt.Errorf("loading step instance: %w", err)
+	}
+	res, err := d.cfg.Plugins.Resolve(step.Plugin, pluginreg.Filter{Pool: a.Pool})
+	if err != nil {
+		return protocol.StepExecute{}, fmt.Errorf("resolving plugin %q: %w", step.Plugin, err)
+	}
+	if !slices.ContainsFunc(res.Agents, func(p pluginreg.Provider) bool { return p.AgentID == a.ID }) {
+		return protocol.StepExecute{}, fmt.Errorf("agent cannot run plugin %q", step.Plugin)
+	}
+	var input map[string]any
+	if len(step.Input) > 0 {
+		if err := json.Unmarshal(step.Input, &input); err != nil {
+			return protocol.StepExecute{}, fmt.Errorf("decoding step input: %w", err)
+		}
+	}
+	nodes, bundle, err := d.resolveTargets(ctx, ex.RunID, res.Manifest, input)
+	if err != nil {
+		return protocol.StepExecute{}, err
+	}
+	req := protocol.StepExecute{
+		AttemptID: ex.AttemptID, ExecutionID: ex.ID, StepPath: step.Path,
+		PluginName: res.Manifest.Name, PluginVersion: res.Manifest.Version, Input: input,
+		Nodes: nodes, Secrets: bundle, TimeoutMS: ex.Timeout.Milliseconds(),
+	}
+	// A request that cannot fit one frame can never be sent; fail it for good
+	// instead of sending into the ambiguous-outcome path (ADR-0055).
+	b, err := protocol.Encode(req)
+	size := len(b)
+	clear(b) // the encoding holds every secret value in plaintext
+	if err != nil {
+		wipe(bundle)
+		return protocol.StepExecute{}, &permanent{errors.New("the step request cannot be encoded")}
+	}
+	if size > maxRequestBytes {
+		wipe(bundle)
+		return protocol.StepExecute{}, &permanent{fmt.Errorf("the step request is %d bytes; at most %d (too many nodes or secrets)", size, maxRequestBytes)}
+	}
+	return req, nil
+}
+
+// maxRequestBytes leaves room for the JSON-RPC envelope in a frame.
+const maxRequestBytes = protocol.MaxFrameSize - 64<<10
+
+// failDispatched ends a claimed execution that can never be sent (an unknown
+// node or secret): it fails under its attempt_id and wakes the run. The
+// message names the node or ref, never a value.
+func (d *Dispatcher) failDispatched(ctx context.Context, a controller.AgentView, ex store.Execution, cause error) {
+	d.cfg.Agents.Release(a.ID, 1)
+	if d.cfg.Invalidate != nil {
+		d.cfg.Invalidate(ex.AttemptID)
+	}
+	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), d.cfg.CallTimeout)
+	defer cancel()
+	err := d.cfg.Store.WithTx(fctx, func(tx store.Tx) error {
+		_, err := tx.CompleteExecution(fctx, store.Completion{
+			ExecutionID: ex.ID, AttemptID: ex.AttemptID, State: store.ExecFailed, Error: cause.Error(),
+		}, d.cfg.Now())
+		if err != nil {
+			return err
+		}
+		return d.cfg.Advance.Enqueue(fctx, tx, ex.RunID)
+	})
+	if err != nil && !errors.Is(err, store.ErrStale) {
+		d.log.Error("failing an unsendable execution", "execution_id", ex.ID, "error", err)
+	}
+}
+
+// requeue puts a dispatched execution back in the queue (fenced) and returns
+// its slot.
+func (d *Dispatcher) requeue(ctx context.Context, a controller.AgentView, ex store.Execution, at time.Time, log *slog.Logger) {
+	d.cfg.Agents.Release(a.ID, 1)
+	if d.cfg.Invalidate != nil {
+		d.cfg.Invalidate(ex.AttemptID)
+	}
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), d.cfg.CallTimeout)
+	defer cancel()
+	err := d.cfg.Store.RequeueExecution(rctx, ex.ID, ex.AttemptID, at)
+	if errors.Is(err, store.ErrStale) {
+		// Not requeueable: either another writer moved it, or run.advance
+		// flagged it for cancellation while it was in flight. A flagged,
+		// undelivered attempt must end canceled, never run again.
+		d.cancelUndelivered(rctx, ex, log)
+		return
+	}
+	if err != nil {
+		log.Error("requeueing execution", "error", err)
+	}
+}
+
+// cancelUndelivered ends a flagged attempt that never ran. It is a no-op for
+// an attempt that is not flagged or no longer dispatched.
+func (d *Dispatcher) cancelUndelivered(ctx context.Context, ex store.Execution, log *slog.Logger) {
+	// Its own deadline: the requeue may have spent its own waiting for a lock.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), d.cfg.CallTimeout)
+	defer cancel()
+	err := d.cfg.Store.WithTx(ctx, func(tx store.Tx) error {
+		if _, err := tx.CancelUndelivered(ctx, ex.ID, ex.AttemptID, d.cfg.Now()); err != nil {
+			return err
+		}
+		return d.cfg.Advance.Enqueue(ctx, tx, ex.RunID)
+	})
+	if err != nil && !errors.Is(err, store.ErrStale) {
+		log.Error("canceling an undelivered execution", "error", err)
+	}
+}

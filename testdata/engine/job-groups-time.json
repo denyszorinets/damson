@@ -1,0 +1,34 @@
+{
+  "apiVersion": "damson.dev/v1",
+  "kind": "Job",
+  "metadata": {
+    "project": "default",
+    "name": "groups-time"
+  },
+  "spec": {
+    "steps": [
+      {
+        "id": "g",
+        "type": "group",
+        "steps": [
+          {
+            "id": "a",
+            "plugin": "ssh",
+            "with": {
+              "node": "n",
+              "command": "a"
+            }
+          }
+        ]
+      },
+      {
+        "id": "after",
+        "plugin": "ssh",
+        "with": {
+          "node": "n",
+          "command": "${{ steps.g.finished_at }}"
+        }
+      }
+    ]
+  }
+}

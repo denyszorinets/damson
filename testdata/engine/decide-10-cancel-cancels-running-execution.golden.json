@@ -1,0 +1,8 @@
+[
+  {
+    "attempt_id": "at-2",
+    "execution_id": "ex-2",
+    "path": "test",
+    "type": "cancel_execution"
+  }
+]

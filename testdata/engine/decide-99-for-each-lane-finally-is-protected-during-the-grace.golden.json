@@ -1,0 +1,22 @@
+[
+  {
+    "at": "2026-03-01T10:06:00Z",
+    "type": "schedule_wake"
+  },
+  {
+    "kind": "group",
+    "path": "per-node/for_each[b]",
+    "reason": "run cancelled",
+    "status": "cancelled",
+    "step_id": "per-node",
+    "type": "skip_step"
+  },
+  {
+    "kind": "group",
+    "path": "per-node/for_each[c]",
+    "reason": "run cancelled",
+    "status": "cancelled",
+    "step_id": "per-node",
+    "type": "skip_step"
+  }
+]

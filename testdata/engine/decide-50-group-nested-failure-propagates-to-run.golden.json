@@ -1,0 +1,27 @@
+[
+  {
+    "error": {
+      "kind": "exit_code",
+      "message": "boom",
+      "path": "o/i/x"
+    },
+    "path": "o/i",
+    "status": "failed",
+    "type": "complete_group"
+  },
+  {
+    "error": {
+      "kind": "exit_code",
+      "message": "boom",
+      "path": "o/i/x"
+    },
+    "path": "o",
+    "status": "failed",
+    "type": "complete_group"
+  },
+  {
+    "finished_at": "2026-03-01T10:05:00Z",
+    "status": "failed",
+    "type": "complete_run"
+  }
+]

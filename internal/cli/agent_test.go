@@ -1,0 +1,305 @@
+package cli
+
+import (
+	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"io"
+	"math/big"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/denyszorinets/damson/internal/config"
+	"github.com/denyszorinets/damson/internal/store"
+	"github.com/denyszorinets/damson/internal/testutil/selfsigned"
+)
+
+func TestPluginConfig(t *testing.T) {
+	if got, err := pluginConfig(config.Agent{}); err != nil || got != nil {
+		t.Errorf("default plugin config = %v, %v; want none (safe default)", got, err)
+	}
+	got, err := pluginConfig(config.Agent{AllowInsecureHostKeys: true})
+	if err != nil || got["ssh"]["allow_insecure_host_keys"] != "true" || got["transfer"]["allow_insecure_host_keys"] != "true" || got["winrm"] != nil {
+		t.Errorf("plugin config = %v, %v", got, err)
+	}
+	got, err = pluginConfig(config.Agent{AllowPlainFTP: true})
+	if err != nil || got["transfer"]["allow_plain_ftp"] != "true" || got["ssh"] != nil || got["winrm"] != nil {
+		t.Errorf("plugin config = %v, %v", got, err)
+	}
+	got, err = pluginConfig(config.Agent{AllowPlainS3: true})
+	if err != nil || got["transfer"]["allow_plain_s3"] != "true" || got["transfer"]["allow_plain_ftp"] != "" || got["ssh"] != nil {
+		t.Errorf("plugin config = %v, %v", got, err)
+	}
+	got, err = pluginConfig(config.Agent{AllowInsecureGit: true})
+	if err != nil || got["ansible"]["allow_insecure_git"] != "true" || got["ansible"]["allow_insecure_host_keys"] != "" || got["transfer"] != nil {
+		t.Errorf("plugin config = %v, %v", got, err)
+	}
+	got, err = pluginConfig(config.Agent{AllowInsecureHostKeys: true})
+	if err != nil || got["ansible"]["allow_insecure_host_keys"] != "true" || got["ansible"]["allow_insecure_git"] != "" {
+		t.Errorf("plugin config = %v, %v", got, err)
+	}
+	got, err = pluginConfig(config.Agent{AllowInsecureRegistry: true})
+	if err != nil || got["buildah"]["allow_insecure_registry"] != "true" || got["buildah"]["allow_insecure_git"] != "" || got["ansible"] != nil {
+		t.Errorf("plugin config = %v, %v", got, err)
+	}
+	got, err = pluginConfig(config.Agent{AllowHelmInCluster: true})
+	if err != nil || got["helm"]["allow_in_cluster"] != "true" || got["helm"]["allow_insecure_git"] != "" || got["buildah"] != nil {
+		t.Errorf("plugin config = %v, %v", got, err)
+	}
+	// The winrm gate is its own setting; allow_insecure_host_keys does not open it.
+	got, err = pluginConfig(config.Agent{AllowInsecureWinRM: true})
+	if err != nil || got["winrm"]["allow_insecure_winrm"] != "true" || got["ssh"] != nil || got["transfer"] != nil {
+		t.Errorf("plugin config = %v, %v", got, err)
+	}
+}
+
+func TestPluginConfigTLSCA(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "ca.pem")
+	testCAPEM := selfSignedPEM(t)
+	if err := os.WriteFile(good, []byte(testCAPEM), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := pluginConfig(config.Agent{TLSCAFile: good})
+	if err != nil || got["transfer"]["tls_ca_pem"] != testCAPEM || got["winrm"]["tls_ca_pem"] != testCAPEM || got["ssh"] != nil {
+		t.Fatalf("plugin config = %v, %v", got, err)
+	}
+	bad := filepath.Join(dir, "bad.pem")
+	if err := os.WriteFile(bad, []byte("not a certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, path := range map[string]string{"missing": filepath.Join(dir, "none.pem"), "not pem": bad} {
+		if _, err := pluginConfig(config.Agent{TLSCAFile: path}); err == nil {
+			t.Errorf("%s: want an error", name)
+		}
+	}
+}
+
+// selfSignedPEM makes a throwaway self-signed certificate.
+func selfSignedPEM(t *testing.T) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "damson test"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+}
+
+// waitAgents polls the store until pred holds for the listed agents.
+func waitAgents(t *testing.T, st store.Store, what string, pred func([]store.Agent) bool) []store.Agent {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		page, err := st.ListAgents(context.Background(), "", 100)
+		if err == nil && pred(page.Agents) {
+			return page.Agents
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
+	return nil
+}
+
+func stopRole(t *testing.T, cancel context.CancelFunc, done <-chan int, errb *syncBuf) {
+	t.Helper()
+	cancel()
+	select {
+	case code := <-done:
+		if code != exitOK {
+			t.Errorf("exit = %d; log: %s", code, errb.String())
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("did not shut down")
+	}
+}
+
+// TestDevRunsConnectedAgent checks that `damson dev` starts the controller
+// and an agent in one process and that the agent registers itself.
+func TestDevRunsConnectedAgent(t *testing.T) {
+	be := adminBackends()[0] // dev is SQLite-only
+	env := append(adminEnv(t, be, false), "DAMSON_CONTROLLER__LISTEN=127.0.0.1:0")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var errb syncBuf
+	done := make(chan int, 1)
+	go func() { done <- run(ctx, []string{"dev"}, io.Discard, &errb, env) }()
+	listenAddr(t, &errb)
+
+	st := openStore(t, be, env)
+	agents := waitAgents(t, st, "dev agent to connect", func(as []store.Agent) bool {
+		return len(as) == 1 && as[0].ControllerID != "" && as[0].DisconnectedAt == nil
+	})
+	if agents[0].Capacity < 1 || agents[0].Labels["os"] == "" {
+		t.Errorf("agent row = %+v", agents[0])
+	}
+	pool, err := st.GetPoolByName(context.Background(), "default")
+	if err != nil || agents[0].PoolID != pool.ID {
+		t.Errorf("agent is not in the default pool: %v", err)
+	}
+	stopRole(t, cancel, done, &errb)
+	if strings.Contains(errb.String(), "dmp_") {
+		t.Errorf("a pool token reached the log: %s", errb.String())
+	}
+	if !strings.Contains(errb.String(), `"agent_id"`) {
+		t.Errorf("agent logs lack agent_id: %s", errb.String())
+	}
+}
+
+// TestDevRestartRevokesOldToken checks that restarting dev reuses the
+// database without piling up active dev tokens.
+func TestDevRestartRevokesOldToken(t *testing.T) {
+	be := adminBackends()[0]
+	env := append(adminEnv(t, be, false), "DAMSON_CONTROLLER__LISTEN=127.0.0.1:0")
+	for range 2 {
+		ctx, cancel := context.WithCancel(context.Background())
+		var errb syncBuf
+		done := make(chan int, 1)
+		go func() { done <- run(ctx, []string{"dev"}, io.Discard, &errb, env) }()
+		listenAddr(t, &errb)
+		st := openStore(t, be, env)
+		waitAgents(t, st, "dev agent to connect", func(as []store.Agent) bool {
+			for _, a := range as {
+				if a.ControllerID != "" && a.DisconnectedAt == nil {
+					return true
+				}
+			}
+			return false
+		})
+		stopRole(t, cancel, done, &errb)
+	}
+	st := openStore(t, be, env)
+	pool, err := st.GetPoolByName(context.Background(), "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts, err := st.ListPoolTokens(context.Background(), pool.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := 0
+	for _, tok := range ts {
+		if tok.RevokedAt == nil {
+			active++
+		}
+	}
+	if len(ts) != 2 || active != 1 {
+		t.Errorf("tokens = %d total, %d active; want 2 and 1", len(ts), active)
+	}
+}
+
+// TestAgentRoleConnects runs a controller and a separate `damson agent`.
+func TestAgentRoleConnects(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, be adminBackend) {
+		env := append(adminEnv(t, be, true), "DAMSON_CONTROLLER__LISTEN=127.0.0.1:0")
+		mustAdmin(t, env, "pool", "create", "default")
+		token := strings.TrimSpace(mustAdmin(t, env, "token", "create", "--pool", "default", "--name", "t"))
+
+		cctx, ccancel := context.WithCancel(context.Background())
+		defer ccancel()
+		var cerr syncBuf
+		cdone := make(chan int, 1)
+		go func() { cdone <- run(cctx, []string{"controller", "-insecure-dev"}, io.Discard, &cerr, env) }()
+		addr := listenAddr(t, &cerr)
+
+		actx, acancel := context.WithCancel(context.Background())
+		defer acancel()
+		var aerr syncBuf
+		adone := make(chan int, 1)
+		aenv := append(append([]string(nil), env...),
+			"DAMSON_AGENT__CONTROLLER_URL=ws://"+addr, "DAMSON_AGENT__TOKEN="+token, "DAMSON_AGENT__SLOTS=2")
+		go func() { adone <- run(actx, []string{"agent"}, io.Discard, &aerr, aenv) }()
+
+		st := openStore(t, be, env)
+		agents := waitAgents(t, st, "agent to connect", func(as []store.Agent) bool {
+			return len(as) == 1 && as[0].ControllerID != ""
+		})
+		if agents[0].Capacity != 2 {
+			t.Errorf("capacity = %d, want 2", agents[0].Capacity)
+		}
+		stopRole(t, acancel, adone, &aerr)
+		stopRole(t, ccancel, cdone, &cerr)
+		if strings.Contains(aerr.String(), token) || strings.Contains(cerr.String(), token) {
+			t.Errorf("pool token leaked into logs")
+		}
+	})
+}
+
+// TestAgentRoleFatalOnBadToken checks the agent exits instead of retrying
+// forever when the controller rejects its token.
+func TestAgentRoleFatalOnBadToken(t *testing.T) {
+	be := adminBackends()[0]
+	env := append(adminEnv(t, be, true), "DAMSON_CONTROLLER__LISTEN=127.0.0.1:0")
+	cctx, ccancel := context.WithCancel(context.Background())
+	defer ccancel()
+	var cerr syncBuf
+	cdone := make(chan int, 1)
+	go func() { cdone <- run(cctx, []string{"controller", "-insecure-dev"}, io.Discard, &cerr, env) }()
+	addr := listenAddr(t, &cerr)
+
+	var aerr, aout strings.Builder
+	aenv := []string{"DAMSON_AGENT__CONTROLLER_URL=ws://" + addr, "DAMSON_AGENT__TOKEN=dmp_not-a-real-token"}
+	code := run(context.Background(), []string{"agent"}, &aout, &aerr, aenv)
+	if code != exitError {
+		t.Errorf("exit = %d, want %d; stderr: %s", code, exitError, aerr.String())
+	}
+	if !strings.Contains(aerr.String(), "401") || strings.Contains(aerr.String(), "dmp_not-a-real-token") {
+		t.Errorf("stderr = %q", aerr.String())
+	}
+	stopRole(t, ccancel, cdone, &cerr)
+}
+
+func TestControllerHTTPClientTrustsOnlyTheConfiguredCA(t *testing.T) {
+	pair := selfsigned.New(t, "controller")
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	cert, err := tls.X509KeyPair(pair.CertPEM, pair.KeyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
+	srv.StartTLS()
+	defer srv.Close()
+
+	if c, err := controllerHTTPClient(config.Agent{}); c != nil || err != nil {
+		t.Fatalf("no CA configured = %v, %v; want the default client", c, err)
+	}
+	if _, err := (&http.Client{}).Get(srv.URL); err == nil {
+		t.Fatal("the system roots trust a private certificate")
+	}
+	caFile, _ := pair.Write(t, t.TempDir())
+	c, err := controllerHTTPClient(config.Agent{ControllerCAFile: caFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("a client with the CA: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	bad := t.TempDir() + "/ca.pem"
+	if err := os.WriteFile(bad, []byte("nope"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controllerHTTPClient(config.Agent{ControllerCAFile: bad}); err == nil {
+		t.Fatal("a file without a certificate was accepted")
+	}
+}

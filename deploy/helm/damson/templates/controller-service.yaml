@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "damson.fullname" . }}-controller
+  labels:
+    {{- include "damson.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+spec:
+  type: {{ .Values.controller.service.type }}
+  ports:
+    - name: http
+      {{- if .Values.controller.tls.secretName }}
+      appProtocol: https
+      {{- end }}
+      port: {{ .Values.controller.service.port }}
+      targetPort: http
+  selector:
+    {{- include "damson.controllerSelector" . | nindent 4 }}
