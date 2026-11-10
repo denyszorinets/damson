@@ -229,6 +229,63 @@ func (q *Queries) ListSchedules(ctx context.Context, arg ListSchedulesParams) ([
 	return items, nil
 }
 
+const listSchedulesByProject = `-- name: ListSchedulesByProject :many
+SELECT s.id, s.job_id, s.name, s.cron, s.timezone, s.options, s.enabled, s.misfire, s.next_fire_at, s.last_fire_at, s.last_run_id, s.last_error, s.version, s.created_at, s.updated_at
+FROM schedules s
+  JOIN jobs j ON j.id = s.job_id
+  JOIN projects p ON p.id = j.project_id
+WHERE (p.path = CAST($1 AS TEXT)
+       OR substr(p.path, 1, length(CAST($1 AS TEXT)) + 1) = CAST($1 AS TEXT) || '/')
+  AND s.id > $2
+ORDER BY s.id
+LIMIT $3
+`
+
+type ListSchedulesByProjectParams struct {
+	ProjectPath string
+	AfterID     string
+	RowLimit    int32
+}
+
+// The schedules of the jobs of a project and of the projects below it. The
+// subtree test is an exact match or a "path/" prefix, never LIKE, so a path
+// holding % or _ matches only itself. The keyset is the id of the last row.
+func (q *Queries) ListSchedulesByProject(ctx context.Context, arg ListSchedulesByProjectParams) ([]Schedule, error) {
+	rows, err := q.db.Query(ctx, listSchedulesByProject, arg.ProjectPath, arg.AfterID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Schedule
+	for rows.Next() {
+		var i Schedule
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.Name,
+			&i.Cron,
+			&i.Timezone,
+			&i.Options,
+			&i.Enabled,
+			&i.Misfire,
+			&i.NextFireAt,
+			&i.LastFireAt,
+			&i.LastRunID,
+			&i.LastError,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateScheduleCAS = `-- name: UpdateScheduleCAS :execrows
 UPDATE schedules SET name = $1, cron = $2, timezone = $3, options = $4,
     enabled = $5, misfire = $6, next_fire_at = $7,

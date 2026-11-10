@@ -230,3 +230,112 @@ func testScheduleFireRace(t *testing.T, s store.Store) {
 		t.Fatalf("%d fires won; want exactly 1", wins)
 	}
 }
+
+// testTriggersByProject: schedules and webhooks are listed by project and the
+// projects below it, never by a mere name prefix, and their audit events carry
+// the project of their job.
+func testTriggersByProject(t *testing.T, s store.Store) {
+	ctx := actorCtx()
+	migrated(t, s)
+	mustProject(t, s, "pa", "pa")
+	mustProject(t, s, "pab", "pa/b")
+	mustProject(t, s, "pax", "pa-x") // shares the prefix "pa", is not below it
+	job := func(project, name string) store.Job {
+		t.Helper()
+		j, _, err := s.CreateJob(ctx, store.NewJob{ProjectID: project, Name: name, Spec: json.RawMessage(specJSON), Checksum: "sum-" + name}, t0)
+		if err != nil {
+			t.Fatalf("CreateJob %s: %v", name, err)
+		}
+		return j
+	}
+	ja, jb, jx := job("pa", "ja"), job("pab", "jb"), job("pax", "jx")
+	next := t0.Add(time.Minute)
+	for _, c := range []struct{ id, job string }{{"tsa", ja.ID}, {"tsb", jb.ID}, {"tsx", jx.ID}} {
+		if _, err := s.CreateSchedule(ctx, newSchedule(c.id, c.job, "n", next), t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct{ id, job, hex string }{{"twa", ja.ID, "d"}, {"twb", jb.ID, "e"}, {"twx", jx.ID, "f"}} {
+		if _, err := s.CreateWebhook(ctx, newWebhook(c.id, c.job, "hook", hashOf(c.hex)), t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids := func(rows []store.Schedule) (out []string) {
+		for _, r := range rows {
+			out = append(out, r.ID)
+		}
+		return out
+	}
+	wids := func(rows []store.Webhook) (out []string) {
+		for _, r := range rows {
+			out = append(out, r.ID)
+		}
+		return out
+	}
+	for _, c := range []struct {
+		project string
+		want    []string
+	}{{"pa", []string{"a", "b"}}, {"pa/b", []string{"b"}}, {"pa-x", []string{"x"}}, {"p", nil}, {"nope", nil}, {"", nil}} {
+		gs, err := s.ListSchedulesByProject(ctx, c.project, "", 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gw, err := s.ListWebhooksByProject(ctx, c.project, "", 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ws, ww []string
+		for _, w := range c.want {
+			ws, ww = append(ws, "ts"+w), append(ww, "tw"+w)
+		}
+		if got := ids(gs); !equalStrings(got, ws) {
+			t.Errorf("schedules of %q = %v; want %v", c.project, got, ws)
+		}
+		if got := wids(gw); !equalStrings(got, ww) {
+			t.Errorf("webhooks of %q = %v; want %v", c.project, got, ww)
+		}
+	}
+	// Keyset paging inside a project.
+	if rest, err := s.ListSchedulesByProject(ctx, "pa", "tsa", 10); err != nil || !equalStrings(ids(rest), []string{"tsb"}) {
+		t.Errorf("after tsa = %v, %v", ids(rest), err)
+	}
+
+	// The audit events of these writes name the project of their job.
+	if err := s.DeleteSchedule(ctx, "tsb", t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RevokeWebhook(ctx, "twb", t0); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{store.AuditTargetSchedule, store.AuditTargetWebhook} {
+		evs, err := s.ListAuditEvents(ctx, store.AuditFilter{TargetType: target}, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]string{"tsa": "pa", "tsb": "pa/b", "tsx": "pa-x", "twa": "pa", "twb": "pa/b", "twx": "pa-x"}
+		seen := 0
+		for _, e := range evs {
+			if w, ok := want[e.Target]; ok {
+				seen++
+				if e.ProjectPath != w {
+					t.Errorf("%s event of %s has project %q; want %q", e.Action, e.Target, e.ProjectPath, w)
+				}
+			}
+		}
+		if seen < 3 {
+			t.Errorf("%s: saw %d events of the test's rows; want at least 3", target, seen)
+		}
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

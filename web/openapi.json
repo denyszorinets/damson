@@ -7656,6 +7656,17 @@
             }
           },
           {
+            "description": "Only the schedules of the jobs of this project and the projects below it. A user needs job_id or project; a project the caller holds no role on answers 404.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Only the schedules of the jobs of this project and the projects below it. A user needs job_id or project; a project the caller holds no role on answers 404.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
             "description": "Opaque cursor from a previous page's next_cursor.",
             "explode": false,
             "in": "query",
@@ -9430,6 +9441,17 @@
             "schema": {
               "description": "Only the webhooks of this job.",
               "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the webhooks of the jobs of this project and the projects below it. A user needs job_id or project; a project the caller holds no role on answers 404.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Only the webhooks of the jobs of this project and the projects below it. A user needs job_id or project; a project the caller holds no role on answers 404.",
+              "maxLength": 256,
               "type": "string"
             }
           },

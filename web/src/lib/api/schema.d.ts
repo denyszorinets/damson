@@ -5187,6 +5187,8 @@ export interface operations {
             query?: {
                 /** @description Only the schedules of this job. */
                 job_id?: string;
+                /** @description Only the schedules of the jobs of this project and the projects below it. A user needs job_id or project; a project the caller holds no role on answers 404. */
+                project?: string;
                 /** @description Opaque cursor from a previous page's next_cursor. */
                 cursor?: string;
                 /** @description Page size. */
@@ -6502,6 +6504,8 @@ export interface operations {
             query?: {
                 /** @description Only the webhooks of this job. */
                 job_id?: string;
+                /** @description Only the webhooks of the jobs of this project and the projects below it. A user needs job_id or project; a project the caller holds no role on answers 404. */
+                project?: string;
                 /** @description Opaque cursor from a previous page's next_cursor. */
                 cursor?: string;
                 /** @description Page size. */

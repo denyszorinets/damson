@@ -51,6 +51,9 @@ const (
 	subjListRuns                   // query "job" if set, else every project
 	subjProjectPath                // path {path} is a project path
 	subjHandler                    // the handler checks: the body names the target
+	subjSchedule                   // path {id} is a schedule id; the target is its job
+	subjWebhook                    // path {id} is a webhook id; the target is its job
+	subjTriggerList                // query "job_id", else "project" (and below), else every project
 )
 
 // routePolicy says what a route needs. strict routes never run anonymously, even
@@ -101,6 +104,18 @@ var routePolicies = map[string]routePolicy{
 	"export":                 {store.RoleAdmin, subjHandler, true},
 	"get-job-access":         {store.RoleAdmin, subjJob, true},
 	"set-job-access":         {store.RoleAdmin, subjJob, true},
+
+	// Schedules and webhooks belong to a job, so its project's roles govern them
+	// (ADR-0076). A webhook token starts runs from outside, hence admin.
+	"list-schedules":  {store.RoleViewer, subjTriggerList, true},
+	"get-schedule":    {store.RoleViewer, subjSchedule, true},
+	"create-schedule": {store.RoleEditor, subjHandler, true},
+	"patch-schedule":  {store.RoleEditor, subjSchedule, true},
+	"delete-schedule": {store.RoleEditor, subjSchedule, true},
+	"list-webhooks":   {store.RoleViewer, subjTriggerList, true},
+	"get-webhook":     {store.RoleViewer, subjWebhook, true},
+	"create-webhook":  {store.RoleAdmin, subjHandler, true},
+	"revoke-webhook":  {store.RoleAdmin, subjWebhook, true},
 }
 
 // covers reports whether a token scoped to scope may act in project: "" covers

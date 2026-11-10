@@ -124,6 +124,9 @@ type ScheduleStore interface {
 	// ListSchedules lists the schedules of a job (all when jobID is empty) in
 	// id order, after afterID, at most limit.
 	ListSchedules(ctx context.Context, jobID, afterID string, limit int) ([]Schedule, error)
+	// ListSchedulesByProject lists the schedules of the jobs of a project and of the
+	// projects below it, in id order after afterID.
+	ListSchedulesByProject(ctx context.Context, projectPath, afterID string, limit int) ([]Schedule, error)
 	// UpdateSchedule replaces name, cron, timezone, options, enabled, misfire
 	// and next fire time, as a CAS on the version. ErrNotFound if absent,
 	// ErrStale if the version moved, ErrConflict if the name is taken.

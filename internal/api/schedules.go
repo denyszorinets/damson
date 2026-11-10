@@ -50,9 +50,10 @@ type scheduleIDInput struct {
 }
 
 type listSchedulesInput struct {
-	JobID  string `query:"job_id" maxLength:"64" doc:"Only the schedules of this job."`
-	Cursor string `query:"cursor" doc:"Opaque cursor from a previous page's next_cursor."`
-	Limit  int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Page size."`
+	JobID   string `query:"job_id" maxLength:"64" doc:"Only the schedules of this job."`
+	Project string `query:"project" maxLength:"256" doc:"Only the schedules of the jobs of this project and the projects below it. A user needs job_id or project; a project the caller holds no role on answers 404."`
+	Cursor  string `query:"cursor" doc:"Opaque cursor from a previous page's next_cursor."`
+	Limit   int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Page size."`
 }
 
 type listSchedulesOutput struct {
@@ -89,11 +90,10 @@ type patchScheduleInput struct {
 }
 
 func registerSchedules(api huma.API, d deps) {
-	guard := huma.Middlewares{requireAdmin(api, d)}
 	op := func(id, method, path, summary string, status int, errs ...int) huma.Operation {
 		return huma.Operation{
 			OperationID: id, Method: method, Path: path, Summary: summary, Tags: []string{"schedules"},
-			Security: adminSecurity, Middlewares: guard, DefaultStatus: status,
+			Security: adminSecurity, DefaultStatus: status,
 			Errors: append([]int{http.StatusUnauthorized, http.StatusServiceUnavailable}, errs...),
 		}
 	}
@@ -105,7 +105,15 @@ func registerSchedules(api huma.API, d deps) {
 		if err != nil {
 			return nil, err
 		}
-		rows, err := d.ds.ListSchedules(ctx, in.JobID, after, in.Limit+1)
+		if err := d.checkTriggerList(ctx, in.JobID, in.Project); err != nil {
+			return nil, err
+		}
+		var rows []store.Schedule
+		if in.Project != "" {
+			rows, err = d.ds.ListSchedulesByProject(ctx, in.Project, after, in.Limit+1)
+		} else {
+			rows, err = d.ds.ListSchedules(ctx, in.JobID, after, in.Limit+1)
+		}
 		if err != nil {
 			return nil, apiError(ctx, err)
 		}
@@ -192,6 +200,9 @@ func createSchedule(ctx context.Context, d deps, in *createScheduleInput) (*sche
 		return nil, apiError(ctx, err)
 	}
 	b := in.Body
+	if err := d.requireOnJob(ctx, b.JobID, store.RoleEditor); err != nil {
+		return nil, apiError(ctx, err)
+	}
 	id, err := store.NewID()
 	if err != nil {
 		return nil, apiError(ctx, err)

@@ -56,9 +56,10 @@ type webhookBody struct{ Body Webhook }
 type createdWebhookBody struct{ Body CreatedWebhook }
 
 type listWebhooksInput struct {
-	JobID  string `query:"job_id" maxLength:"64" doc:"Only the webhooks of this job."`
-	Cursor string `query:"cursor" doc:"Opaque cursor from a previous page's next_cursor."`
-	Limit  int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Page size."`
+	JobID   string `query:"job_id" maxLength:"64" doc:"Only the webhooks of this job."`
+	Project string `query:"project" maxLength:"256" doc:"Only the webhooks of the jobs of this project and the projects below it. A user needs job_id or project; a project the caller holds no role on answers 404."`
+	Cursor  string `query:"cursor" doc:"Opaque cursor from a previous page's next_cursor."`
+	Limit   int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Page size."`
 }
 
 type listWebhooksOutput struct {
@@ -78,11 +79,10 @@ type createWebhookInput struct {
 }
 
 func registerWebhooks(api huma.API, d deps, env *expr.Env) {
-	guard := huma.Middlewares{requireAdmin(api, d)}
 	op := func(id, method, path, summary string, status int, errs ...int) huma.Operation {
 		return huma.Operation{
 			OperationID: id, Method: method, Path: path, Summary: summary, Tags: []string{"webhooks"},
-			Security: adminSecurity, Middlewares: guard, DefaultStatus: status,
+			Security: adminSecurity, DefaultStatus: status,
 			Errors: append([]int{http.StatusUnauthorized, http.StatusServiceUnavailable}, errs...),
 		}
 	}
@@ -94,7 +94,15 @@ func registerWebhooks(api huma.API, d deps, env *expr.Env) {
 		if err != nil {
 			return nil, err
 		}
-		rows, err := d.ds.ListWebhooks(ctx, in.JobID, after, in.Limit+1)
+		if err := d.checkTriggerList(ctx, in.JobID, in.Project); err != nil {
+			return nil, err
+		}
+		var rows []store.Webhook
+		if in.Project != "" {
+			rows, err = d.ds.ListWebhooksByProject(ctx, in.Project, after, in.Limit+1)
+		} else {
+			rows, err = d.ds.ListWebhooks(ctx, in.JobID, after, in.Limit+1)
+		}
 		if err != nil {
 			return nil, apiError(ctx, err)
 		}
@@ -139,6 +147,9 @@ func createWebhook(ctx context.Context, d deps, env *expr.Env, in *createWebhook
 		return nil, apiError(ctx, err)
 	}
 	b := in.Body
+	if err := d.requireOnJob(ctx, b.JobID, store.RoleAdmin); err != nil {
+		return nil, apiError(ctx, err)
+	}
 	if b.OptionsMapping != "" {
 		if _, err := env.Compile(b.OptionsMapping); err != nil {
 			return nil, apiError(ctx, invalid("the options mapping does not compile", ProblemDetail{Message: err.Error(), Location: "body.options_mapping"}))

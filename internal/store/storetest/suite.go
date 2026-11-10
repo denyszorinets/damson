@@ -59,6 +59,7 @@ func Run(t *testing.T, f Factory) {
 		{"AuditFilters", testAuditFilters},
 		{"AuditPrune", testAuditPrune},
 		{"Schedules", testSchedules},
+		{"TriggersByProject", testTriggersByProject},
 		{"ScheduleFire", testScheduleFire},
 		{"ScheduleFireRace", testScheduleFireRace},
 		{"ServiceAccounts", testServiceAccounts},

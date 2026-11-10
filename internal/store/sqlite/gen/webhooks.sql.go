@@ -140,6 +140,61 @@ func (q *Queries) ListWebhooks(ctx context.Context, arg ListWebhooksParams) ([]W
 	return items, nil
 }
 
+const listWebhooksByProject = `-- name: ListWebhooksByProject :many
+SELECT w.id, w.job_id, w.name, w.token_hash, w.options, w.options_mapping, w.revoked_at, w.last_used_at, w.version, w.created_at, w.updated_at
+FROM webhooks w
+  JOIN jobs j ON j.id = w.job_id
+  JOIN projects p ON p.id = j.project_id
+WHERE (p.path = CAST(?1 AS TEXT)
+       OR substr(p.path, 1, length(CAST(?1 AS TEXT)) + 1) = CAST(?1 AS TEXT) || '/')
+  AND w.id > ?2
+ORDER BY w.id
+LIMIT ?3
+`
+
+type ListWebhooksByProjectParams struct {
+	ProjectPath string
+	AfterID     string
+	RowLimit    int64
+}
+
+// The webhooks of the jobs of a project and of the projects below it; see
+// ListSchedulesByProject for the subtree test. The keyset is the id of the last row.
+func (q *Queries) ListWebhooksByProject(ctx context.Context, arg ListWebhooksByProjectParams) ([]Webhook, error) {
+	rows, err := q.db.QueryContext(ctx, listWebhooksByProject, arg.ProjectPath, arg.AfterID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Webhook
+	for rows.Next() {
+		var i Webhook
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.Name,
+			&i.TokenHash,
+			&i.Options,
+			&i.OptionsMapping,
+			&i.RevokedAt,
+			&i.LastUsedAt,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const revokeWebhook = `-- name: RevokeWebhook :execrows
 UPDATE webhooks SET revoked_at = ?1, version = version + 1, updated_at = ?1
 WHERE id = ?2 AND revoked_at IS NULL

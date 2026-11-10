@@ -30,3 +30,16 @@ WHERE id = sqlc.arg(id) AND revoked_at IS NULL;
 UPDATE webhooks
 SET last_used_at = CASE WHEN last_used_at IS NULL OR last_used_at < sqlc.arg(older_than) THEN sqlc.arg(now) ELSE last_used_at END
 WHERE id = sqlc.arg(id) AND revoked_at IS NULL;
+
+-- name: ListWebhooksByProject :many
+-- The webhooks of the jobs of a project and of the projects below it; see
+-- ListSchedulesByProject for the subtree test. The keyset is the id of the last row.
+SELECT w.*
+FROM webhooks w
+  JOIN jobs j ON j.id = w.job_id
+  JOIN projects p ON p.id = j.project_id
+WHERE (p.path = CAST(sqlc.arg(project_path) AS TEXT)
+       OR substr(p.path, 1, length(CAST(sqlc.arg(project_path) AS TEXT)) + 1) = CAST(sqlc.arg(project_path) AS TEXT) || '/')
+  AND w.id > sqlc.arg(after_id)
+ORDER BY w.id
+LIMIT sqlc.arg(row_limit);

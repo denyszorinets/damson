@@ -41,3 +41,17 @@ UPDATE schedules SET next_fire_at = sqlc.arg(next_fire_at), last_fire_at = COALE
     last_run_id = CASE WHEN sqlc.arg(last_run_id) = '' THEN last_run_id ELSE sqlc.arg(last_run_id) END,
     last_error = sqlc.arg(last_error), version = version + 1
 WHERE id = sqlc.arg(id) AND enabled = sqlc.arg(enabled) AND next_fire_at = sqlc.arg(expected_fire_at) AND version = sqlc.arg(expected_version);
+
+-- name: ListSchedulesByProject :many
+-- The schedules of the jobs of a project and of the projects below it. The
+-- subtree test is an exact match or a "path/" prefix, never LIKE, so a path
+-- holding % or _ matches only itself. The keyset is the id of the last row.
+SELECT s.*
+FROM schedules s
+  JOIN jobs j ON j.id = s.job_id
+  JOIN projects p ON p.id = j.project_id
+WHERE (p.path = CAST(sqlc.arg(project_path) AS TEXT)
+       OR substr(p.path, 1, length(CAST(sqlc.arg(project_path) AS TEXT)) + 1) = CAST(sqlc.arg(project_path) AS TEXT) || '/')
+  AND s.id > sqlc.arg(after_id)
+ORDER BY s.id
+LIMIT sqlc.arg(row_limit);

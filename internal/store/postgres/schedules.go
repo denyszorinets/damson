@@ -57,6 +57,9 @@ func (s *Store) CreateSchedule(ctx context.Context, sc store.Schedule, now time.
 		if err != nil {
 			return fmt.Errorf("creating schedule: %w", err)
 		}
+		if err := fillJobProject(ctx, tx.(*txn).q, &ev, sc.JobID); err != nil {
+			return err
+		}
 		return tx.AppendAuditEvent(ctx, ev)
 	})
 	if err != nil {
@@ -124,6 +127,9 @@ func (s *Store) UpdateSchedule(ctx context.Context, sc store.Schedule, expected 
 		if err != nil {
 			return err
 		}
+		if err := fillJobProject(ctx, tx.(*txn).q, &ev, out.JobID); err != nil {
+			return err
+		}
 		return tx.AppendAuditEvent(ctx, ev)
 	})
 	return out, err
@@ -148,6 +154,9 @@ func (s *Store) DeleteSchedule(ctx context.Context, id string, now time.Time) er
 		}
 		ev, err := store.NewScheduleEvent(ctx, store.ActionScheduleDelete, toSchedule(cur), now)
 		if err != nil {
+			return err
+		}
+		if err := fillJobProject(ctx, tx.(*txn).q, &ev, cur.JobID); err != nil {
 			return err
 		}
 		return tx.AppendAuditEvent(ctx, ev)
@@ -187,4 +196,33 @@ func optTime(t time.Time) *time.Time {
 		return nil
 	}
 	return &t
+}
+
+// fillJobProject sets the project path of an audit event about a job's schedule
+// or webhook, read in the transaction that records it, so a project admin finds
+// the event under the project.
+func fillJobProject(ctx context.Context, q *gen.Queries, ev *store.AuditEvent, jobID string) error {
+	job, err := q.GetJob(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("reading the job for the audit event: %w", err)
+	}
+	p, err := q.GetProject(ctx, job.ProjectID)
+	if err != nil {
+		return fmt.Errorf("reading the project for the audit event: %w", err)
+	}
+	ev.ProjectPath = p.Path
+	return nil
+}
+
+// ListSchedulesByProject implements store.ScheduleStore.
+func (s *Store) ListSchedulesByProject(ctx context.Context, projectPath, afterID string, limit int) ([]store.Schedule, error) {
+	rows, err := s.q.ListSchedulesByProject(ctx, gen.ListSchedulesByProjectParams{ProjectPath: projectPath, AfterID: afterID, RowLimit: int32(store.ClampLimit(limit))})
+	if err != nil {
+		return nil, fmt.Errorf("listing schedules of project %s: %w", projectPath, err)
+	}
+	out := make([]store.Schedule, len(rows))
+	for i, r := range rows {
+		out[i] = toSchedule(r)
+	}
+	return out, nil
 }

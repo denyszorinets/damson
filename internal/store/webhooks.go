@@ -91,6 +91,9 @@ type WebhookStore interface {
 	// ListWebhooks lists the webhooks of a job (all when jobID is empty), revoked
 	// ones included, in id order after afterID.
 	ListWebhooks(ctx context.Context, jobID, afterID string, limit int) ([]Webhook, error)
+	// ListWebhooksByProject lists the webhooks of the jobs of a project and of the
+	// projects below it, revoked ones too, in id order after afterID.
+	ListWebhooksByProject(ctx context.Context, projectPath, afterID string, limit int) ([]Webhook, error)
 	// FindWebhook returns the active webhook whose token hashes to tokenHash, or
 	// ErrNotFound for an unknown or revoked token.
 	FindWebhook(ctx context.Context, tokenHash string) (Webhook, error)

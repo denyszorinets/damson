@@ -48,6 +48,9 @@ func (s *Store) CreateWebhook(ctx context.Context, n store.NewWebhook, now time.
 		if err != nil {
 			return fmt.Errorf("creating webhook: %w", err)
 		}
+		if err := fillJobProject(ctx, tx.(*txn).q, &ev, n.JobID); err != nil {
+			return err
+		}
 		return tx.AppendAuditEvent(ctx, ev)
 	})
 	if err != nil {
@@ -119,6 +122,9 @@ func (s *Store) RevokeWebhook(ctx context.Context, id string, now time.Time) err
 		if err != nil {
 			return err
 		}
+		if err := fillJobProject(ctx, tx.(*txn).q, &ev, cur.JobID); err != nil {
+			return err
+		}
 		return tx.AppendAuditEvent(ctx, ev)
 	})
 }
@@ -133,4 +139,17 @@ func (t *txn) TouchWebhook(ctx context.Context, id string, now time.Time) error 
 		return fmt.Errorf("webhook %q is revoked or gone: %w", id, store.ErrNotFound)
 	}
 	return nil
+}
+
+// ListWebhooksByProject implements store.WebhookStore.
+func (s *Store) ListWebhooksByProject(ctx context.Context, projectPath, afterID string, limit int) ([]store.Webhook, error) {
+	rows, err := s.q.ListWebhooksByProject(ctx, gen.ListWebhooksByProjectParams{ProjectPath: projectPath, AfterID: afterID, RowLimit: int32(store.ClampLimit(limit))})
+	if err != nil {
+		return nil, fmt.Errorf("listing webhooks of project %s: %w", projectPath, err)
+	}
+	out := make([]store.Webhook, len(rows))
+	for i, r := range rows {
+		out[i] = toWebhook(r)
+	}
+	return out, nil
 }

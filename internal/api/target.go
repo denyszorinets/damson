@@ -77,6 +77,36 @@ func (d deps) target(ctx huma.Context, on subject) (target, error) {
 	case subjJob:
 		jobID = ctx.Param("id")
 		project, err = d.projectOfJob(ctx.Context(), jobID)
+	case subjSchedule:
+		var sc store.Schedule
+		if sc, err = d.ds.GetSchedule(ctx.Context(), ctx.Param("id")); err == nil {
+			jobID = sc.JobID
+			project, err = d.projectOfJobRow(ctx.Context(), jobID)
+		}
+	case subjWebhook:
+		var w store.Webhook
+		if w, err = d.ds.GetWebhook(ctx.Context(), ctx.Param("id")); err == nil {
+			jobID = w.JobID
+			project, err = d.projectOfJobRow(ctx.Context(), jobID)
+		}
+	case subjTriggerList:
+		switch {
+		case ctx.Query("job_id") != "":
+			jobID = ctx.Query("job_id")
+			project, err = d.projectOfJob(ctx.Context(), jobID)
+		case ctx.Query("project") != "":
+			project = ctx.Query("project")
+			if store.ValidateProjectPath(project) != nil {
+				return target{kind: tgtMissing}, nil
+			}
+			if _, perr := d.ds.GetProjectByPath(ctx.Context(), project); errors.Is(perr, store.ErrNotFound) {
+				return target{kind: tgtMissing}, nil
+			} else if perr != nil {
+				return target{}, perr
+			}
+		default:
+			return target{kind: tgtAll}, nil
+		}
 	case subjRun:
 		project, jobID, err = d.projectOfRun(ctx.Context(), ctx.Param("id"))
 	case subjExec:
