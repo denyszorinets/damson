@@ -374,7 +374,7 @@ error saying so.
    * - ``damson admin admin-token create``
      - Create the admin token for the secrets API. Replaces any earlier one.
    * - ``damson admin admin-token revoke``
-     - Remove the admin token; the secrets API then refuses every request.
+     - Remove the admin token; an instance-admin session or a project role is then the only way into the secrets API.
        An error if there is none.
    * - ``damson admin metrics-token create [--json]``
      - Create the read-only token (``dmm_``) that scrapes ``/metrics``. Replaces any earlier one.

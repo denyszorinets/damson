@@ -216,11 +216,12 @@ returns a pool token or its hash, a secret value or an attempt id.
 Secrets API
 ~~~~~~~~~~~
 
-Secrets routes need ``Authorization: Bearer <admin token>``, the token made by
-``damson admin admin-token create`` (:ref:`cli-admin`), except ``GET
-/api/v1/secret-types``. A missing or wrong token (including a pool token) is a
-``401`` problem with ``WWW-Authenticate: Bearer realm="damson-admin"``, checked
-before the body is parsed. The OpenAPI document declares the security scheme
+Secrets routes follow the roles of their scope's project (ADR-0077): ``editor`` lists,
+project ``admin`` writes and deletes, and an instance admin (the admin token made by
+``damson admin admin-token create``, :ref:`cli-admin`, or an instance-admin session) may
+use any scope, ``_inventory`` included; a service token never holds ``admin``. ``GET
+/api/v1/secret-types`` is public. Without credentials the routes answer ``401`` with
+``WWW-Authenticate: Bearer``, before the body is parsed. The OpenAPI document declares the security scheme
 ``bearerAuth``. With no KEK configured (``db`` backend) every secrets route answers ``503`` after
 authentication. With the ``openbao`` backend (:doc:`secrets-openbao`) ``PUT``
 and ``DELETE`` answer ``409`` when ``secrets.openbao.read_only`` is set, and any

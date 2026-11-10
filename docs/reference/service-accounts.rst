@@ -70,8 +70,10 @@ An ``editor`` token can also ``POST /apply`` job files and unchanged
 ``project.json`` files for its scope (:doc:`jobs-as-code`); project changes
 need ``admin``.
 
-A service token is never an admin: secrets, nodes, audit, inventory sync,
-service accounts and log purge need the admin token, schedules need a token role of
+A service token is never an admin: nodes, audit, inventory sync,
+service accounts and log purge need the admin token, secrets need a token role of
+``editor`` to list (names only, for scopes the token covers) and cannot be written
+or deleted by a token, schedules need a token role of
 ``editor`` (``viewer`` to read), webhooks need ``viewer`` to read and cannot be
 created or revoked by a token, and
 so do creating, updating and deleting projects and all access-rule routes
