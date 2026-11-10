@@ -9,6 +9,8 @@ behavior; read the notes before upgrading.
 
 ### Added
 
+- A project's Access tab lists its access rules read-only and, for an instance admin, checks why an identity has or lacks a role on it; its Settings tab edits the description and deletes an empty project. Both tabs show only to the project's admins, and anyone else who opens their URL gets the not-found page.
+
 - Secrets are managed by project roles instead of instance admins only (ADR-0077): the scope of a secret is its project, `editor` lists its names (and, with the new `project` filter, those of its ancestors that its jobs may use), project `admin` creates, versions and deletes, and a scope the caller holds no role on reads as not found. `_inventory` and scopes with no project stay instance-admin only. Values are never returned, audited or logged.
 
 - Schedules and webhooks are managed by project roles instead of instance admins only (ADR-0076): `viewer` reads them, `editor` creates, changes and deletes schedules, and project `admin` creates and revokes webhooks. A caller with no role on the job's project gets 404. `GET /api/v1/schedules` and `GET /api/v1/webhooks` take a `project` filter (the project and those below it), their audit events carry the project path, and service tokens can use these routes by role and scope.
