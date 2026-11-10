@@ -153,6 +153,7 @@ func newHuma(mux *http.ServeMux, d deps, env *expr.Env) huma.API {
 	registerWebhooks(api, d, env)
 	registerServiceAccounts(api, d)
 	registerProjects(api, d)
+	registerTree(api, d)
 	registerAccess(api, d)
 	registerApply(api, d)
 	registerNodeScope(api, d)

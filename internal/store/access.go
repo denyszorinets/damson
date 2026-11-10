@@ -66,6 +66,15 @@ type JobAccess struct {
 	Version int
 }
 
+// JobRules is the rules of one job with its name and project, for finding the
+// jobs a user reaches only through job-level rules.
+type JobRules struct {
+	JobID     string
+	Name      string
+	ProjectID string
+	Rules     []AccessRule
+}
+
 // AccessAuditDetails is the content of access rule events: how many rules and
 // which roles, never the expressions (they name groups and users).
 type AccessAuditDetails struct {
@@ -111,6 +120,9 @@ type AccessStore interface {
 	SetProjectAccessRules(ctx context.Context, id string, rules []AccessRule, expectedVersion int, now time.Time) (Project, error)
 	// GetJobAccess returns the rules of a job; none is version 0 and no error.
 	GetJobAccess(ctx context.Context, jobID string) (JobAccess, error)
+	// ListJobRules returns up to limit live jobs that have rules of their own,
+	// ordered by job id. Jobs with an empty rule list are not returned.
+	ListJobRules(ctx context.Context, limit int) ([]JobRules, error)
 	// SetJobAccessRules replaces a job's rules (roles up to editor) as a CAS on
 	// the rules version: expectedVersion 0 creates them. ErrNotFound if the job
 	// is absent, ErrStale if the version moved.

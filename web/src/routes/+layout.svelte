@@ -3,12 +3,19 @@
 	import { resolve } from '$app/paths';
 	import { Button } from '$lib/components/ui/button';
 	import { logout } from '$lib/session';
+	import { page } from '$app/state';
+	import ProjectTree from '$lib/components/ProjectTree.svelte';
 	import type { LayoutProps } from './$types';
 
 	let { data, children }: LayoutProps = $props();
 	const me = $derived(data.me);
 	// A logged-in user who is not an instance admin has no use for the admin pages.
 	const admin = $derived(!me || me.kind !== 'user' || me.instance_admin);
+	// The tree is the signed-in user's own view; a bearer token has no session to ask with.
+	const treeSub = $derived(me?.kind === 'user' ? me.sub : '');
+	const currentJob = $derived(
+		page.params.id && page.url.pathname.startsWith('/jobs/') ? page.params.id : ''
+	);
 </script>
 
 <nav class="border-b" aria-label="Main">
@@ -39,5 +46,16 @@
 		<p class="text-destructive" role="alert" data-testid="login-error">{data.loginError}</p>
 	</main>
 {:else}
-	{@render children()}
+	{#if treeSub}
+		<div class="mx-auto flex max-w-6xl gap-6 px-4">
+			<aside class="hidden w-60 shrink-0 py-6 md:block" aria-label="Navigation">
+				{#key treeSub}
+					<ProjectTree sub={treeSub} {currentJob} />
+				{/key}
+			</aside>
+			<div class="min-w-0 flex-1">{@render children()}</div>
+		</div>
+	{:else}
+		{@render children()}
+	{/if}
 {/if}

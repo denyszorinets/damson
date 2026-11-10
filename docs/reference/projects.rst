@@ -112,6 +112,37 @@ reach a controller.
 The nodes API (list, get, create) stays instance-admin only and shows every
 node: node scope limits what jobs can use, not what the inventory shows.
 
+The navigation tree
+-------------------
+
+``GET /api/v1/tree`` lists one level of the caller's tree: the visible projects
+directly below ``parent`` (the roots of the caller's tree without it) and, with
+a ``parent``, that project's jobs. Each project carries ``path``, ``label`` (the
+full path for a root, the last segment below one), ``my_role`` and
+``has_children``. ``limit`` (default 100, at most 500) pages projects and jobs;
+``cursor`` and ``jobs_cursor`` continue them. The web UI loads a level when the
+user opens a project and remembers what is open per browser and user.
+
+Only what the caller may see appears:
+
+* A role on a project reaches everything below it, so what a user sees is
+  closed downward. A user with a role only on ``acme/payments`` gets a root
+  labelled ``acme/payments``, never an ``acme`` placeholder, and ``has_children``
+  counts only visible children.
+* A ``parent`` the caller has no role on is ``404``, the same as one that does
+  not exist.
+* ``GET /api/v1/tree/shared`` lists jobs whose own access rules grant a role but
+  whose project the caller cannot see. They carry the job name and role only, never
+  the project, and are shown under "Shared with me" outside the tree. At most
+  1000 jobs with rules are searched; ``truncated`` says when there are more.
+  Instance admins and service tokens get none: their project roles already cover
+  the jobs.
+
+A job's ``my_role`` in the tree is the caller's role on its project; a rule of the
+job itself that grants more shows on the job's own page.
+
+The tree and its totals can differ between users. See :doc:`/architecture/decisions/0075-ui-project-tree-api`.
+
 Managed projects
 ----------------
 

@@ -140,6 +140,31 @@ func testJobAccessRules(t *testing.T, s store.Store) {
 	if len(evs) != 2 || evs[0].ProjectPath != "default" {
 		t.Errorf("events = %+v", evs)
 	}
+	testListJobRules(t, s, job)
+}
+
+// testListJobRules: only jobs with a non-empty rule list are returned, in job
+// id order, bounded by the limit, with their name and project.
+func testListJobRules(t *testing.T, s store.Store, job store.Job) {
+	ctx := actorCtx()
+	other, _ := mustJob(t, s, "ja-empty") // has no rules: not listed
+	rows, err := s.ListJobRules(ctx, 10)
+	if err != nil || len(rows) != 1 || rows[0].JobID != job.ID || rows[0].Name != job.Name ||
+		rows[0].ProjectID != job.ProjectID || len(rows[0].Rules) != 2 {
+		t.Fatalf("ListJobRules = %+v, %v; want only %s with 2 rules", rows, err, job.ID)
+	}
+	if _, err := s.SetJobAccessRules(ctx, other.ID, []store.AccessRule{{Role: "viewer", Rule: "true"}}, 0, t0); err != nil {
+		t.Fatal(err)
+	}
+	if rows, _ = s.ListJobRules(ctx, 1); len(rows) != 1 {
+		t.Errorf("limit 1 returned %d rows", len(rows))
+	}
+	if _, err := s.SetJobAccessRules(ctx, other.ID, nil, 1, t0); err != nil {
+		t.Fatal(err)
+	}
+	if rows, _ = s.ListJobRules(ctx, 10); len(rows) != 1 {
+		t.Errorf("emptied rule list still listed: %+v", rows)
+	}
 }
 
 func testAccessRaces(t *testing.T, s store.Store) {

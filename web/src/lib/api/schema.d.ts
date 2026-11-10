@@ -796,6 +796,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tree": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One level of the caller's project tree
+         * @description Lists the visible projects directly below parent (the roots of the caller's tree without one) and, below a parent, its jobs. Only what the caller may see appears; a parent the caller cannot see is 404, like one that does not exist.
+         */
+        get: operations["get-tree"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tree/shared": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Jobs the caller reaches only through a rule of the job itself
+         * @description Jobs whose project the caller cannot see but whose own access rules grant a role. No project is named.
+         */
+        get: operations["get-shared-jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/webhooks": {
         parameters: {
             query?: never;
@@ -1661,6 +1701,17 @@ export interface components {
             role: string;
             service_account_id: string;
         };
+        SharedJob: {
+            id: string;
+            my_role: string;
+            name: string;
+        };
+        SharedOutputBody: {
+            /** @description Ordered by job id. */
+            items: components["schemas"]["SharedJob"][] | null;
+            /** @description More jobs carry rules than were searched; some may be missing. */
+            truncated?: boolean;
+        };
         SpecIssue: {
             message: string;
             path: string;
@@ -1782,6 +1833,45 @@ export interface components {
              * @description Bytes of unsent output spooled on the agent.
              */
             spool_bytes?: number;
+        };
+        TreeJob: {
+            id: string;
+            /** @description The caller's role on the job. */
+            my_role: string;
+            name: string;
+        };
+        TreeOutputBody: {
+            /** @description The parent's own jobs; empty for the roots. */
+            jobs: components["schemas"]["TreeJob"][] | null;
+            jobs_next_cursor?: string;
+            next_cursor?: string;
+            /** @description Ordered by path. */
+            projects: components["schemas"]["TreeProject"][] | null;
+        };
+        TreeProject: {
+            /**
+             * Format: int64
+             * @description Runs that failed in the last 24 hours below this project.
+             */
+            failed_24h?: number;
+            /** @description Whether the project has child projects the caller can see. */
+            has_children: boolean;
+            /**
+             * Format: int64
+             * @description Jobs in the project and the projects below it.
+             */
+            jobs?: number;
+            /** @description The full path for a root of the caller's tree, else the last segment. */
+            label: string;
+            /** @description The caller's role: viewer, runner, editor or admin. */
+            my_role: string;
+            /** @description The full path. */
+            path: string;
+            /**
+             * Format: int64
+             * @description Runs now running below this project.
+             */
+            running?: number;
         };
         TriggerBody: {
             /**
@@ -5879,6 +5969,145 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "get-tree": {
+        parameters: {
+            query?: {
+                /** @description A project path to list the children and jobs of; absent lists the roots of the caller's tree. */
+                parent?: string;
+                /** @description Opaque cursor from a previous page's next_cursor (projects). */
+                cursor?: string;
+                /** @description Opaque cursor from a previous page's jobs_next_cursor. */
+                jobs_cursor?: string;
+                /** @description Page size, for projects and for jobs. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TreeOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "get-shared-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

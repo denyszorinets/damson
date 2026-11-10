@@ -175,3 +175,20 @@ func (s *Store) SetJobAccessRules(ctx context.Context, jobID string, rules []sto
 	}
 	return store.JobAccess{JobID: jobID, Rules: rules, Version: expectedVersion + 1}, nil
 }
+
+// ListJobRules implements store.AccessStore.
+func (s *Store) ListJobRules(ctx context.Context, limit int) ([]store.JobRules, error) {
+	rows, err := s.q.ListJobRuleRows(ctx, int32(limit))
+	if err != nil {
+		return nil, fmt.Errorf("listing job rules: %w", err)
+	}
+	out := make([]store.JobRules, 0, len(rows))
+	for _, r := range rows {
+		rules, err := store.DecodeAccessRules([]byte(r.Rules))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, store.JobRules{JobID: r.JobID, Name: r.Name, ProjectID: r.ProjectID, Rules: rules})
+	}
+	return out, nil
+}

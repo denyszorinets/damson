@@ -43,6 +43,48 @@ func (q *Queries) InsertJobAccess(ctx context.Context, arg InsertJobAccessParams
 	return err
 }
 
+const listJobRuleRows = `-- name: ListJobRuleRows :many
+SELECT ja.job_id, j.name, j.project_id, ja.rules
+FROM job_access ja JOIN jobs j ON j.id = ja.job_id
+WHERE ja.rules <> '[]' AND j.archived_at IS NULL
+ORDER BY ja.job_id
+LIMIT $1
+`
+
+type ListJobRuleRowsRow struct {
+	JobID     string
+	Name      string
+	ProjectID string
+	Rules     string
+}
+
+// Jobs that carry rules of their own, with the project they sit in. Empty lists
+// and archived jobs are skipped; ordered so a bounded read is stable.
+func (q *Queries) ListJobRuleRows(ctx context.Context, rowLimit int32) ([]ListJobRuleRowsRow, error) {
+	rows, err := q.db.Query(ctx, listJobRuleRows, rowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListJobRuleRowsRow
+	for rows.Next() {
+		var i ListJobRuleRowsRow
+		if err := rows.Scan(
+			&i.JobID,
+			&i.Name,
+			&i.ProjectID,
+			&i.Rules,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateJobAccessCAS = `-- name: UpdateJobAccessCAS :execrows
 UPDATE job_access SET rules = $1, version = version + 1, updated_at = $2
 WHERE job_id = $3 AND version = $4
