@@ -232,8 +232,13 @@ credentials. Values are write-only: no response contains one.
 
    * - Endpoint
      - Behaviour
-   * - ``GET /api/v1/secrets?scope=&cursor=&limit=``
-     - ``items`` plus ``next_cursor``. Each item is metadata: ``ref``,
+   * - ``GET /api/v1/secrets?scope=&project=&cursor=&limit=``
+     - Needs ``editor`` on the scope's project (ADR-0077). ``scope`` lists that
+       scope; ``project`` lists the scopes a job of that project may use, the
+       project and its ancestors; both is ``400``. A user, or a token, must give
+       one of them; only an instance admin may list every scope. A scope the
+       caller holds no role on reads as ``404``. ``items`` plus ``next_cursor``.
+       Each item is metadata: ``ref``,
        ``scope``, ``name``, ``type``, ``fields`` (field names only),
        ``current_version``, ``created_at`` and ``updated_at``.
    * - ``PUT /api/v1/secrets/{scope}/{name}``
@@ -248,7 +253,10 @@ credentials. Values are write-only: no response contains one.
        ``409`` (read-only OpenBao backend); ``422`` (bad scope, name or type; a missing, unknown or invalid field,
        with messages naming fields, never values); ``503``.
    * - ``DELETE /api/v1/secrets/{scope}/{name}``
-     - ``204``, or ``404`` if unknown.
+     - ``204``, or ``404`` if unknown. ``PUT`` and ``DELETE`` need project
+       ``admin`` on the scope (``403`` below that, ``404`` with no role or for a
+       scope that is no project, ``_inventory`` included, which only an instance
+       admin may use); a service token never holds ``admin``.
    * - ``GET /api/v1/secret-types`` (public)
      - ``items`` of ``{name, fields: [{name, required, multiline}]}``.
 

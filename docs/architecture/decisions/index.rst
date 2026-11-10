@@ -317,3 +317,4 @@ change nothing until accepted.
    0074-run-retention
    0075-ui-project-tree-api
    0076-project-scoped-schedules-and-webhooks
+   0077-project-scoped-secrets

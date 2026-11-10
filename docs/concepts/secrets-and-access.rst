@@ -27,7 +27,9 @@ secrets there (:doc:`/reference/secrets-openbao`,
 In the web UI, the ``/secrets`` page lists secret metadata (ref, type, field
 names, version; never values) and lets an admin create, version and delete
 secrets. It asks for the admin token, keeps it for the browser tab only and
-clears entered values after every submit.
+clears entered values after every submit. The API itself follows project roles
+(ADR-0077): ``editor`` lists a project's secrets, ``admin`` creates, versions
+and deletes them.
 
 Access control
 --------------

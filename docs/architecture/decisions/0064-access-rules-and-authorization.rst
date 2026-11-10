@@ -64,7 +64,8 @@ body. List-projects returns only projects the caller holds a role on, each with
 reads up to 20 pages of 200 and returns a cursor, so a page can be short.
 
 Still instance-admin only through ``requireAdmin``: secrets, nodes and inventory
-sync, pools, service accounts, audit and log purge. Schedules and webhooks moved to
+sync, pools, service accounts, audit and log purge (secrets amended by
+ADR-0077). Schedules and webhooks moved to
 project roles in :doc:`0076-project-scoped-schedules-and-webhooks`. Agent,
 pool and plugin metadata reads need any login. Scoping those per project is
 future work.
