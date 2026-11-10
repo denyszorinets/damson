@@ -28,9 +28,16 @@ export function isTyping(target: EventTarget | null): boolean {
  * An action for a navigation list: arrow keys, Home and End move focus between its
  * links. Tab still walks them all; this only adds the shortcuts.
  */
-export function arrowNav(node: HTMLElement): { destroy: () => void } {
+export function arrowNav(
+	node: HTMLElement,
+	opts: { onEscape?: () => void } = {}
+): { destroy: () => void } {
 	function onkeydown(e: KeyboardEvent) {
 		if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+		if (e.key === 'Escape') {
+			opts.onEscape?.();
+			return;
+		}
 		const links = Array.from(node.querySelectorAll<HTMLElement>('a[href]'));
 		const at = links.indexOf(document.activeElement as HTMLElement);
 		if (at < 0) return;

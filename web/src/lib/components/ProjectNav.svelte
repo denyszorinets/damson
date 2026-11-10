@@ -14,6 +14,14 @@
 	let { path, tab, role }: { path: string; tab: string; role?: string } = $props();
 
 	let open = $state(false);
+	let toggle = $state<HTMLButtonElement | null>(null);
+
+	// Escape closes the drawer and hands focus back to its button, so it is not lost.
+	function closeDrawer() {
+		if (!open) return;
+		open = false;
+		toggle?.focus();
+	}
 
 	const items = $derived(
 		[
@@ -38,7 +46,8 @@
 	<button
 		type="button"
 		class="flex w-full items-center justify-between rounded border px-3 py-1.5 text-sm sm:hidden"
-		aria-label="Project menu"
+		aria-label="Project menu: {label}"
+		bind:this={toggle}
 		aria-expanded={open}
 		aria-controls="project-nav-list"
 		onclick={() => (open = !open)}
@@ -52,7 +61,7 @@
 		class="flex-col gap-1 sm:flex"
 		class:hidden={!open}
 		class:flex={open}
-		use:arrowNav
+		use:arrowNav={{ onEscape: closeDrawer }}
 		data-testid="project-nav"
 	>
 		{#each items as item (item.id)}
@@ -62,7 +71,10 @@
 				class:font-medium={tab === item.id}
 				aria-current={tab === item.id ? 'page' : undefined}
 				href={resolve('/projects/[...path]', { path: projectRest(path, ...item.rest) })}
-				onclick={() => (open = false)}
+				onclick={() => {
+					open = false;
+					toggle?.focus();
+				}}
 				data-testid="nav-{item.id || 'jobs'}">{item.label}</a
 			>
 		{/each}
