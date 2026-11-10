@@ -103,7 +103,7 @@
 
 <main class="mx-auto max-w-6xl space-y-6 px-4 py-8">
 	<div class="flex items-baseline gap-3">
-		<a class="text-sm text-muted-foreground hover:text-foreground" href={resolve('/jobs')}>Jobs</a>
+		<a class="text-sm text-muted-foreground hover:text-foreground" href={resolve('/')}>Projects</a>
 		<h1 class="text-2xl font-semibold">Run</h1>
 		{#if status}<Badge data-testid="run-status">{status}</Badge>{/if}
 		{#if ran}

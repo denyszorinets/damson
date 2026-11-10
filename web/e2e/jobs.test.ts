@@ -40,8 +40,7 @@ test('job graph shows groups, catch, finally, for_each and edge kinds', async ({
 	expect(created.status()).toBe(201);
 	const { job } = await created.json();
 
-	await page.goto('/jobs');
-	await page.getByRole('link', { name: 'graph-e2e' }).click();
+	await page.goto(`/jobs/${job.id}`);
 	await expect(page).toHaveURL(new RegExp(`/jobs/${job.id}$`));
 	await expect(page.getByTestId('job-title')).toHaveText('graph-e2e');
 

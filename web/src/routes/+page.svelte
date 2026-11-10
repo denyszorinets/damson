@@ -2,47 +2,39 @@
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import * as Alert from '$lib/components/ui/alert';
+	import * as Table from '$lib/components/ui/table';
 	import { Badge } from '$lib/components/ui/badge';
+	import { Button } from '$lib/components/ui/button';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { poll } from '$lib/polling';
 	import { problemMessage } from '$lib/jobs';
-	import { fetchRecentRuns, jobsById, type RunSummary } from '$lib/runs';
+	import { projectRest } from '$lib/projectroute';
 	import { isUser } from '$lib/session';
 	import { fetchLevel, fetchShared, type SharedJob, type TreeProject } from '$lib/tree';
 
 	const REFRESH_MS = 10000;
 
-	let runs = $state<RunSummary[]>([]);
-	let names = $state(new Map<string, { name: string; project: string }>());
 	let roots = $state<TreeProject[]>([]);
+	let next = $state('');
+	let loadingMore = $state(false);
 	let shared = $state<SharedJob[]>([]);
-	let more = $state(false); // the server stopped scanning before it found 25 runs
 	let loaded = $state(false);
 	let error = $state<string | null>(null);
 
-	const failed = $derived(runs.filter((r) => r.status === 'failed'));
 	// Only a signed-in user can have "no role"; a token operator sees what the token allows.
-	const empty = $derived(
-		isUser() && loaded && !error && !runs.length && !more && !roots.length && !shared.length
-	);
+	const empty = $derived(isUser() && loaded && !error && !roots.length && !shared.length);
 
 	async function refresh(signal: AbortSignal) {
 		try {
-			// Entry points come from the caller's tree; without a login there is none to ask.
-			const [list, level, sh] = await Promise.all([
-				fetchRecentRuns(25, signal),
-				isUser() ? fetchLevel('') : Promise.resolve(null),
-				isUser() ? fetchShared() : Promise.resolve(null)
-			]);
+			if (!isUser()) {
+				// A bearer token has no session for the tree; the Projects page takes the token.
+				loaded = true;
+				return;
+			}
+			const [level, sh] = await Promise.all([fetchLevel(''), fetchShared()]);
 			if (signal.aborted) return;
-			names = await jobsById(
-				list.items.map((r) => r.job_id),
-				signal
-			);
-			if (signal.aborted) return;
-			runs = list.items;
-			more = list.more;
-			roots = level?.projects ?? [];
+			roots = level.projects;
+			next = level.next;
 			shared = sh?.items ?? [];
 			error = null;
 		} catch (e) {
@@ -52,13 +44,20 @@
 		}
 	}
 
-	onMount(() => poll(refresh, REFRESH_MS));
+	async function more() {
+		loadingMore = true;
+		try {
+			const level = await fetchLevel('', next);
+			roots = [...roots, ...level.projects];
+			next = level.next;
+		} catch (e) {
+			error = problemMessage(e);
+		} finally {
+			loadingMore = false;
+		}
+	}
 
-	const label = (r: RunSummary) => {
-		const j = names.get(r.job_id);
-		return j ? `${j.project} / ${j.name}` : r.job_id;
-	};
-	const when = (r: RunSummary) => new Date(r.created_at).toLocaleString();
+	onMount(() => poll(refresh, REFRESH_MS));
 </script>
 
 <svelte:head>
@@ -74,6 +73,12 @@
 		</Alert.Root>
 	{:else if !loaded}
 		<Skeleton class="h-32 w-full" />
+	{:else if !isUser()}
+		<p class="text-muted-foreground" data-testid="home-token">
+			Not signed in. <a class="underline underline-offset-4" href={resolve('/projects')}>Projects</a
+			>
+			takes an admin token.
+		</p>
 	{:else if empty}
 		<section data-testid="home-empty" class="space-y-2">
 			<h2 class="text-lg font-medium">Nothing here yet</h2>
@@ -82,75 +87,60 @@
 			</p>
 		</section>
 	{:else}
-		{#if failed.length}
-			<section class="space-y-2" aria-label="Failures" data-testid="home-failures">
-				<h2 class="text-lg font-medium text-destructive">{failed.length} recent failed</h2>
-				<ul class="space-y-1 text-sm">
-					{#each failed as r (r.id)}
+		{#if roots.length}
+			<section class="space-y-2" aria-label="Projects">
+				<h2 class="text-lg font-medium">Projects</h2>
+				<Table.Root data-testid="home-projects">
+					<Table.Header>
+						<Table.Row>
+							<Table.Head>Name</Table.Head>
+							<Table.Head>Role</Table.Head>
+							<Table.Head>Child projects</Table.Head>
+							<Table.Head>Jobs</Table.Head>
+							<Table.Head>Failed in 24 h</Table.Head>
+						</Table.Row>
+					</Table.Header>
+					<Table.Body>
+						{#each roots as p (p.path)}
+							<Table.Row data-testid="home-project-row">
+								<Table.Cell>
+									<a
+										class="font-medium underline-offset-4 hover:underline"
+										href={resolve('/projects/[...path]', { path: projectRest(p.path) })}
+										data-testid={`home-project-${p.path}`}>{p.label}</a
+									>
+								</Table.Cell>
+								<Table.Cell><Badge variant="outline">{p.my_role}</Badge></Table.Cell>
+								<Table.Cell>{p.has_children ? 'yes' : 'none'}</Table.Cell>
+								<Table.Cell data-testid={`home-jobs-${p.path}`}>{p.jobs ?? '-'}</Table.Cell>
+								<Table.Cell data-testid={`home-failed-${p.path}`}>{p.failed_24h ?? '-'}</Table.Cell>
+							</Table.Row>
+						{/each}
+					</Table.Body>
+				</Table.Root>
+				{#if next}
+					<Button variant="outline" onclick={more} disabled={loadingMore} data-testid="home-more"
+						>More…</Button
+					>
+				{/if}
+			</section>
+		{/if}
+
+		{#if shared.length}
+			<section class="space-y-2" aria-label="Shared with me">
+				<h2 class="text-lg font-medium">Shared with me</h2>
+				<ul class="flex flex-wrap gap-2 text-sm" data-testid="home-shared">
+					{#each shared as j (j.id)}
 						<li>
 							<a
-								class="underline underline-offset-4"
-								href={resolve('/runs/[id]', { id: r.id })}
-								data-testid="home-failure">{label(r)}</a
+								class="rounded-md border px-3 py-1 hover:bg-muted"
+								href={resolve('/jobs/[id]', { id: j.id })}
+								data-testid={`home-shared-${j.name}`}>{j.name}</a
 							>
-							<span class="text-muted-foreground">{when(r)}</span>
 						</li>
 					{/each}
 				</ul>
 			</section>
 		{/if}
-
-		<section class="space-y-2" aria-label="Recent runs">
-			<h2 class="text-lg font-medium">Recent runs</h2>
-			{#if runs.length}
-				<ul class="divide-y rounded-md border text-sm" data-testid="home-runs">
-					{#each runs as r (r.id)}
-						<li class="flex items-center gap-3 px-3 py-2" data-testid="home-run">
-							<Badge
-								variant={r.status === 'failed' ? 'destructive' : 'secondary'}
-								data-testid="home-run-status">{r.status}</Badge
-							>
-							<a class="flex-1 truncate hover:underline" href={resolve('/runs/[id]', { id: r.id })}
-								>{label(r)}</a
-							>
-							<span class="text-xs text-muted-foreground">{when(r)}</span>
-						</li>
-					{/each}
-				</ul>
-			{:else}
-				<p class="text-sm text-muted-foreground" data-testid="home-no-runs">
-					{more
-						? 'No recent runs found among the latest ones; open Jobs to look further.'
-						: 'No runs yet.'}
-				</p>
-			{/if}
-		</section>
-
-		<section class="space-y-2" aria-label="Your projects">
-			<h2 class="text-lg font-medium">Your projects</h2>
-			<ul class="flex flex-wrap gap-2 text-sm" data-testid="home-projects">
-				<li>
-					<a class="rounded-md border px-3 py-1 hover:bg-muted" href={resolve('/jobs')}>All jobs</a>
-				</li>
-				{#each roots as p (p.path)}
-					<li>
-						<a
-							class="rounded-md border px-3 py-1 hover:bg-muted"
-							href={resolve('/projects/[...path]', { path: p.path })}
-							data-testid={`home-project-${p.path}`}>{p.label}</a
-						>
-					</li>
-				{/each}
-				{#each shared as j (j.id)}
-					<li>
-						<a
-							class="rounded-md border px-3 py-1 hover:bg-muted"
-							href={resolve('/jobs/[id]', { id: j.id })}
-							data-testid={`home-shared-${j.name}`}>{j.name} (shared)</a
-						>
-					</li>
-				{/each}
-			</ul>
-		</section>
 	{/if}
 </main>

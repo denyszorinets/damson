@@ -48,7 +48,11 @@
 
 <main class="mx-auto max-w-6xl space-y-6 px-4 py-8">
 	<div class="flex items-baseline gap-3">
-		<a class="text-sm text-muted-foreground hover:text-foreground" href={resolve('/jobs')}>Jobs</a>
+		<a
+			class="text-sm text-muted-foreground hover:text-foreground"
+			href={job ? resolve('/projects/[...path]', { path: job.project }) : resolve('/')}
+			>{job ? job.project : 'Projects'}</a
+		>
 		<h1 class="text-2xl font-semibold" data-testid="job-title">{job?.name ?? ''}</h1>
 		{#if job}<span class="text-sm text-muted-foreground">version {job.current_version}</span>{/if}
 		{#if job && job.managed_by !== 'ui'}

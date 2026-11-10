@@ -5,12 +5,11 @@
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
-	import { crumbs, fetchScopedJobs, problemMessage, type Job } from '$lib/jobs';
+	import { fetchScopedJobs, problemMessage, type Job } from '$lib/jobs';
 	import { atLeast, fetchProject } from '$lib/projects';
 
-	/** The project whose jobs to list, with those below it; empty lists every project the caller can see. */
+	/** The project whose jobs to list, with those below it. */
 	let { scope = '' }: { scope?: string } = $props();
-	const trail = $derived(crumbs(scope));
 
 	let jobs = $state<Job[]>([]);
 	let next = $state('');
@@ -60,34 +59,7 @@
 
 <div class="space-y-6">
 	<div class="flex flex-wrap items-center gap-3">
-		<h1 class="text-2xl font-semibold">Jobs</h1>
-		<nav aria-label="Breadcrumb" class="text-sm text-muted-foreground" data-testid="breadcrumb">
-			<ol class="flex flex-wrap items-center gap-1">
-				<li><a class="hover:text-foreground" href={resolve('/jobs')}>All</a></li>
-				{#each trail as c (c.path)}
-					<li aria-hidden="true">/</li>
-					<li>
-						<a
-							class="hover:text-foreground"
-							href={resolve('/projects/[...path]', { path: c.path })}
-							data-testid="crumb-{c.path}">{c.label}</a
-						>
-					</li>
-				{/each}
-			</ol>
-		</nav>
-		<div class="ml-auto flex gap-2" role="group" aria-label="Scope" data-testid="scope-selector">
-			<Button
-				size="sm"
-				variant={scope ? 'outline' : 'default'}
-				aria-pressed={!scope}
-				href={resolve('/jobs')}
-				data-testid="scope-all">All my projects</Button
-			>
-			{#if scope}
-				<Button size="sm" aria-pressed="true" data-testid="scope-project">{scope} and below</Button>
-			{/if}
-		</div>
+		<h1 class="text-2xl font-semibold" data-testid="project-title">{scope}</h1>
 	</div>
 
 	{#if scope && atLeast(myRole, 'editor')}
@@ -101,10 +73,9 @@
 	{#if error}
 		<Alert.Root variant="destructive" data-testid="jobs-error">
 			<Alert.Description>
-				{#if scope}Not found, or you may not have access. <a
-						class="underline"
-						href={resolve('/jobs')}>Show all my projects</a
-					>.{:else}{error}{/if}
+				Not found, or you may not have access. <a class="underline" href={resolve('/')}
+					>Back to projects</a
+				>.
 			</Alert.Description>
 		</Alert.Root>
 	{/if}

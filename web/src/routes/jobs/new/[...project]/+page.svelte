@@ -20,7 +20,12 @@
 
 <main class="mx-auto max-w-6xl space-y-6 px-4 py-8">
 	<div class="flex items-baseline gap-3">
-		<a class="text-sm text-muted-foreground hover:text-foreground" href={resolve('/jobs')}>Jobs</a>
+		<a
+			class="text-sm text-muted-foreground hover:text-foreground"
+			href={page.params.project
+				? resolve('/projects/[...path]', { path: page.params.project })
+				: resolve('/')}>{page.params.project || 'Projects'}</a
+		>
 		<h1 class="text-2xl font-semibold" data-testid="editor-title">New job</h1>
 	</div>
 	<SpecEditor bind:text saveLabel="Create job" onsave={save} />

@@ -65,103 +65,100 @@ test.beforeAll(async ({ browser }) => {
 	}
 });
 
-const treeRoots = (page: Page) => page.locator('[data-testid^="tree-project-tree-"]');
+const homeRoots = (page: Page) => page.locator('[data-testid^="home-project-tree-"]');
+const homeRows = (page: Page) => page.getByTestId('home-project-row');
+const rows = (page: Page) => page.getByTestId('job-row');
 
-test('an instance admin sees every project and expands one level at a time', async ({
-	browser
-}) => {
+test('an instance admin sees every project on Home and no job', async ({ browser }) => {
 	const page = await as(browser, 'alice-sub');
-	await expect(page.getByTestId('tree-toggle-tree-acme')).toBeVisible();
-	await expect(page.getByTestId('tree-toggle-tree-ops')).toBeVisible();
-	await expect(page.getByTestId('tree-toggle-tree-acme/pay')).toHaveCount(0); // not loaded yet
-	await page.getByTestId('tree-toggle-tree-acme').click();
-	await expect(page.getByTestId('tree-toggle-tree-acme/pay')).toBeVisible();
-	await expect(page.getByTestId('tree-job-tree-acme/deploy')).toBeVisible();
-	await expect(page.getByTestId('tree-role-tree-acme')).toHaveText('admin');
-	// The open state survives a reload.
-	await page.reload();
-	await expect(page.getByTestId('tree-job-tree-acme/deploy')).toBeVisible();
-	await page.getByTestId('tree-job-tree-acme/deploy').click();
-	await expect(page).toHaveURL(/\/jobs\/[^/]+$/);
+	await expect(page.getByTestId('home-project-tree-acme')).toBeVisible();
+	await expect(page.getByTestId('home-project-tree-ops')).toBeVisible();
+	await expect(page.getByTestId('home-project-tree-acme/pay')).toHaveCount(0); // a child, not a root
+	await expect(page.getByTestId('jobs-table')).toHaveCount(0);
+	await expect(page.getByText('charge')).toHaveCount(0); // no job is named on Home
+	// The switcher reaches nested projects too.
+	await page.getByTestId('project-switcher').click();
+	await expect(page.getByTestId('switch-tree-acme/pay')).toBeVisible();
+	await page.getByTestId('switch-tree-acme/pay').click();
+	await expect(page).toHaveURL(/\/projects\/tree-acme\/pay$/);
+	await expect(page.getByTestId('crumb-tree-acme')).toBeVisible();
+	await expect(page.getByTestId('crumb-tree-acme/pay')).toBeVisible();
 });
 
-test('a runner sees the subtree they hold a role on, inherited downward', async ({ browser }) => {
+test('a runner sees the projects they hold a role on, and the switcher lists the same', async ({
+	browser
+}) => {
 	const page = await as(browser, 'bob-sub');
-	await expect(page.getByTestId('tree-toggle-tree-acme')).toBeVisible();
-	await expect(page.getByTestId('tree-role-tree-acme')).toHaveText('runner');
-	await expect(page.getByTestId('tree-toggle-tree-ops')).toHaveCount(0);
-	await page.getByTestId('tree-toggle-tree-acme').click();
-	await expect(page.getByTestId('tree-role-tree-acme/pay')).toHaveText('runner');
-	await page.getByTestId('tree-toggle-tree-acme/pay').click();
-	await expect(page.getByTestId('tree-job-tree-acme/pay/charge')).toBeVisible();
+	await expect(page.getByTestId('home-project-tree-acme')).toBeVisible();
+	await expect(homeRows(page).filter({ hasText: 'tree-acme' }).first()).toContainText('runner');
+	await expect(page.getByTestId('home-project-tree-ops')).toHaveCount(0);
+	await expect(page.getByTestId('jobs-table')).toHaveCount(0);
+	await expect(page.getByText('deploy')).toHaveCount(0);
+	await page.getByTestId('project-switcher').click();
+	await expect(page.getByTestId('switch-tree-acme')).toBeVisible();
+	await expect(page.getByTestId('switch-tree-acme/pay')).toBeVisible();
+	await expect(page.getByTestId('switch-tree-ops')).toHaveCount(0);
 });
 
 test('a role on a child alone gives a root labelled with its path, and no parent', async ({
 	browser
 }) => {
 	const page = await as(browser, 'dave-sub');
-	await expect(page.getByTestId('tree-link-tree-acme/pay')).toHaveText('tree-acme/pay');
-	await expect(page.getByTestId('tree-role-tree-acme/pay')).toHaveText('editor');
-	await expect(page.getByTestId('tree-toggle-tree-acme')).toHaveCount(0);
-	await expect(treeRoots(page)).toHaveCount(1);
+	await expect(page.getByTestId('home-project-tree-acme/pay')).toHaveText('tree-acme/pay');
+	await expect(homeRoots(page)).toHaveCount(1);
 	// The server says the same as the page: the parent is just not found.
 	expect((await page.request.get('/api/v1/tree?parent=tree-acme')).status()).toBe(404);
 	expect((await page.request.get('/api/v1/tree?parent=tree-nope')).status()).toBe(404);
+	await page.getByTestId('project-switcher').click();
+	await expect(page.getByTestId('switch-tree-acme/pay')).toBeVisible();
+	await expect(page.getByTestId('switch-tree-acme')).toHaveCount(0);
 });
 
-test('a job-rule-only user sees the job under Shared with me and no project node', async ({
+test('a job-rule-only user sees the job under Shared with me and no project', async ({
 	browser
 }) => {
 	const page = await as(browser, 'frank-sub');
-	await expect(page.getByTestId('tree-shared-nightly')).toBeVisible();
-	await expect(treeRoots(page)).toHaveCount(0);
-	await expect(page.getByTestId('tree-toggle-tree-ops')).toHaveCount(0);
+	await expect(page.getByTestId('home-shared-nightly')).toBeVisible();
+	await expect(homeRoots(page)).toHaveCount(0);
 	await expect(page.getByText('tree-ops')).toHaveCount(0); // the project is not named anywhere
-	await page.getByTestId('tree-shared-nightly').click();
+	await page.getByTestId('home-shared-nightly').click();
 	await expect(page).toHaveURL(/\/jobs\/[^/]+$/);
 });
 
-test('a user with no role sees nothing of the tree', async ({ browser }) => {
+test('a user with no role sees nothing', async ({ browser }) => {
 	const page = await as(browser, 'erin-sub');
-	await expect(page.getByTestId('project-tree')).toBeVisible();
-	await expect(treeRoots(page)).toHaveCount(0);
-	await expect(page.getByTestId('tree-shared')).toHaveCount(0);
+	await expect(page.getByTestId('home-empty')).toBeVisible();
+	await expect(homeRoots(page)).toHaveCount(0);
+	await expect(page.getByTestId('home-shared')).toHaveCount(0);
 });
 
-const rows = (page: Page) => page.getByTestId('job-row');
+test('/jobs has no list and lands on Home', async ({ browser }) => {
+	const alice = await as(browser, 'alice-sub');
+	await alice.goto('/jobs');
+	await expect(alice).toHaveURL(/\/$/);
+	await expect(alice.getByTestId('home-projects')).toBeVisible();
+});
 
-test('the jobs page lists every visible job and a project narrows it to its subtree', async ({
-	browser
-}) => {
+test('a project page lists its jobs and those below it, with a breadcrumb', async ({ browser }) => {
 	const page = await as(browser, 'alice-sub');
-	await page.goto('/jobs');
-	for (const name of ['deploy', 'charge', 'nightly'])
-		await expect(rows(page).filter({ hasText: name })).toHaveCount(1);
-	// Choosing a project in the tree lists its jobs and those below it, nothing else.
-	await page.getByTestId('tree-link-tree-acme').click();
+	await page.getByTestId('home-project-tree-acme').click();
 	await expect(page).toHaveURL(/\/projects\/tree-acme$/);
 	await expect(rows(page).filter({ hasText: 'deploy' })).toHaveCount(1);
 	await expect(rows(page).filter({ hasText: 'charge' })).toHaveCount(1);
 	await expect(rows(page).filter({ hasText: 'nightly' })).toHaveCount(0);
-	await expect(page.getByTestId('scope-project')).toHaveText('tree-acme and below');
-	// A breadcrumb shows where the project sits; going to a child narrows further.
 	await page.goto('/projects/tree-acme/pay');
 	await expect(page.getByTestId('crumb-tree-acme')).toBeVisible();
 	await expect(rows(page).filter({ hasText: 'charge' })).toHaveCount(1);
 	await expect(rows(page).filter({ hasText: 'deploy' })).toHaveCount(0);
-	await page.getByTestId('scope-all').click();
-	await expect(page).toHaveURL(/\/jobs$/);
-	await expect(rows(page).filter({ hasText: 'nightly' })).toHaveCount(1);
+	// A tab segment that does not exist is the not-found view.
+	await page.goto('/projects/tree-acme/-/nope');
+	await expect(page.getByTestId('not-found')).toBeVisible();
 });
 
-test('the jobs page shows only what the caller may see, and a hidden project reads as missing', async ({
-	browser
-}) => {
+test('a hidden project reads as missing on its URL', async ({ browser }) => {
 	const dave = await as(browser, 'dave-sub');
-	await dave.goto('/jobs');
+	await dave.goto('/projects/tree-acme/pay');
 	await expect(rows(dave).filter({ hasText: 'charge' })).toHaveCount(1);
-	await expect(rows(dave).filter({ hasText: 'deploy' })).toHaveCount(0);
-	await expect(rows(dave).filter({ hasText: 'nightly' })).toHaveCount(0);
 	await dave.goto('/projects/tree-acme');
 	await expect(dave.getByTestId('jobs-error')).toContainText(
 		'Not found, or you may not have access'
@@ -171,12 +168,6 @@ test('the jobs page shows only what the caller may see, and a hidden project rea
 	await expect(missing.getByTestId('jobs-error')).toContainText(
 		'Not found, or you may not have access'
 	);
-
-	// frank holds a role on the job only: not in the jobs list, only under "Shared with me".
-	const frank = await as(browser, 'frank-sub');
-	await frank.goto('/jobs');
-	await expect(rows(frank).filter({ hasText: 'nightly' })).toHaveCount(0);
-	await expect(frank.getByTestId('tree-shared-nightly')).toBeVisible();
 });
 
 async function jobId(browser: Browser, name: string): Promise<string> {
@@ -223,13 +214,13 @@ test('a user with no role gets a not-found page with a way back and no hint', as
 	const gone = await as(browser, 'erin-sub');
 	await gone.goto('/jobs/00000000-0000-7000-8000-00000000dead');
 	await expect(gone.getByTestId('not-found')).toBeVisible(); // the same page for a missing job
-	await erin.getByRole('link', { name: 'Jobs' }).first().click();
-	await expect(erin).toHaveURL(/\/jobs$/);
+	await erin.getByRole('link', { name: 'Home' }).first().click();
+	await expect(erin).toHaveURL(/\/$/);
 	await gone.goto('/runs/00000000-0000-7000-8000-00000000dead');
 	await expect(gone.getByTestId('not-found')).toBeVisible();
 });
 
-test("tree counts cover each caller's visible subtree once and differ between callers", async ({
+test("home counts cover each caller's visible subtree once and differ between callers", async ({
 	browser
 }) => {
 	const alice = await as(browser, 'alice-sub');
@@ -251,80 +242,24 @@ test("tree counts cover each caller's visible subtree once and differ between ca
 
 	// bob holds a role on tree-acme: both jobs, and the failure once (no double count).
 	const bob = await as(browser, 'bob-sub');
-	await expect(bob.getByTestId('tree-jobs-tree-acme')).toHaveText('2');
-	await expect(bob.getByTestId('tree-failed-tree-acme')).toHaveText(`${before + 1} failed`);
-	// dave holds a role on tree-acme/pay alone: one job, the same failures, a different tree.
+	await expect(bob.getByTestId('home-jobs-tree-acme')).toHaveText('2');
+	await expect(bob.getByTestId('home-failed-tree-acme')).toHaveText(`${before + 1}`);
+	// dave holds a role on tree-acme/pay alone: one job, the same failures, a different list.
 	const dave = await as(browser, 'dave-sub');
-	await expect(dave.getByTestId('tree-jobs-tree-acme/pay')).toHaveText('1');
-	await expect(dave.getByTestId('tree-failed-tree-acme/pay')).toHaveText(`${before + 1} failed`);
-	await expect(dave.getByTestId('tree-jobs-tree-acme')).toHaveCount(0);
+	await expect(dave.getByTestId('home-jobs-tree-acme/pay')).toHaveText('1');
+	await expect(dave.getByTestId('home-failed-tree-acme/pay')).toHaveText(`${before + 1}`);
+	await expect(dave.getByTestId('home-jobs-tree-acme')).toHaveCount(0);
 	// An admin sees the other project's jobs as well.
-	await expect(alice.getByTestId('tree-jobs-tree-ops')).toHaveText('1');
+	await expect(alice.getByTestId('home-jobs-tree-ops')).toHaveText('1');
 });
 
-test("the home page shows recent runs of the caller's projects only, failures first, and entry points", async ({
-	browser
-}) => {
-	// A failed run in each project (the dev agent has no inventory, so runs fail at once).
-	const alice = await as(browser, 'alice-sub');
-	const me = await (await alice.request.get('/api/v1/me')).json();
-	const jobs = (await (await alice.request.get('/api/v1/tree/jobs?limit=200')).json()).items;
-	for (const name of ['deploy', 'charge', 'nightly']) {
-		const j = jobs.find(
-			(x: { name: string; project: string }) => x.name === name && x.project.startsWith('tree-')
-		);
-		const r = await alice.request.post(`/api/v1/jobs/${j.id}/runs`, {
-			data: {},
-			headers: { 'X-CSRF-Token': me.csrf_token }
-		});
-		expect(r.status()).toBe(201);
-	}
-	// Wait until the three runs have failed, so the first page load already shows them.
-	await expect
-		.poll(
-			async () => {
-				const items = (await (await alice.request.get('/api/v1/runs?limit=25')).json()).items;
-				return items.filter((r: { status: string }) => r.status === 'failed').length >= 3;
-			},
-			{ timeout: 30_000 }
-		)
-		.toBe(true);
-	const texts = async (page: Page) =>
-		(await page.getByTestId('home-run').allTextContents()).join('\n');
-
-	await alice.goto('/');
-	await expect(alice.getByTestId('home-failures')).toBeVisible();
-	await expect(alice.getByTestId('home-runs')).toContainText('tree-ops / nightly');
-	await expect(alice.getByTestId('home-project-tree-acme')).toBeVisible();
-
-	const bob = await as(browser, 'bob-sub');
-	await bob.goto('/');
-	await expect(bob.getByTestId('home-runs')).toContainText('tree-acme / deploy');
-	await expect(bob.getByTestId('home-runs')).toContainText('tree-acme/pay / charge');
-	expect(await texts(bob)).not.toContain('tree-ops');
-	await expect(bob.getByTestId('home-project-tree-acme')).toBeVisible();
-	await expect(bob.getByTestId('home-project-tree-ops')).toHaveCount(0);
-
+test('Home never lists jobs or runs, and each project is an entry point', async ({ browser }) => {
 	const dave = await as(browser, 'dave-sub');
-	await dave.goto('/');
-	await expect(dave.getByTestId('home-runs')).toContainText('tree-acme/pay / charge');
-	expect(await texts(dave)).not.toContain('deploy');
-	expect(await texts(dave)).not.toContain('nightly');
+	await expect(dave.getByTestId('home-run')).toHaveCount(0);
+	await expect(dave.getByTestId('home-runs')).toHaveCount(0);
 	await dave.getByTestId('home-project-tree-acme/pay').click();
 	await expect(dave).toHaveURL(/\/projects\/tree-acme\/pay$/);
-
-	// A user with no role: an empty state, no runs, no project.
-	const erin = await as(browser, 'erin-sub');
-	await erin.goto('/');
-	await expect(erin.getByTestId('home-empty')).toBeVisible();
-	await expect(erin.getByTestId('home-run')).toHaveCount(0);
-
-	// A job-rule-only user has no runs here but a way in to the shared job.
-	const frank = await as(browser, 'frank-sub');
-	await frank.goto('/');
-	await expect(frank.getByTestId('home-empty')).toHaveCount(0);
-	await expect(frank.getByTestId('home-shared-nightly')).toBeVisible();
-	await expect(frank.getByTestId('home-run')).toHaveCount(0);
+	await expect(dave.getByTestId('project-title')).toHaveText('tree-acme/pay');
 });
 
 const spec = (project: string, name: string, command: string, steps?: unknown[]) =>
