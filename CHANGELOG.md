@@ -5,7 +5,7 @@ All notable changes to Damson are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Before 1.0, minor versions may change
 behavior; read the notes before upgrading.
 
-## [0.1.0] - 2026-11-09
+## [0.1.0] - 2026-11-10
 
 First public release. Everything below was built across milestones M0 to M9
 (see `ARCHITECTURE.md` section 21). This is young software: expect changes before 1.0.
