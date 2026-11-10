@@ -2,8 +2,10 @@ package api_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -93,5 +95,49 @@ func TestPurgeExecutionLogs(t *testing.T) {
 		assert.Equal(t, "log.purge", page.Items[0].Action)
 		assert.Regexp(t, `^admin-token:`, page.Items[0].Actor)
 		assert.NotContains(t, rec.Body.String(), "leaked-line")
+	})
+}
+
+func TestAuditFilters(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		f := newSecretsFixture(t, st, false)
+		base := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+		for i, e := range []struct{ actor, name, action string }{
+			{"user:u1", "u1@example.org", "job.create"},
+			{"user:u2", "u2@example.org", "job.create"},
+			{"system:dispatch", "", "secret.read"},
+			{"user:u1", "u1@example.org", "run.trigger"},
+		} {
+			require.NoError(t, st.AppendAuditEvent(t.Context(), store.AuditEvent{
+				ID: fmt.Sprintf("flt-%d", i), At: base.Add(time.Duration(i) * time.Hour), Actor: e.actor, ActorName: e.name,
+				Action: e.action, TargetType: "job", Target: fmt.Sprintf("flt-%d", i),
+			}))
+		}
+		list := func(query string) []api.AuditEvent {
+			rec := f.do("GET", "/api/v1/audit?target_type=job&"+query, "", f.admin)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			var page struct {
+				Items []api.AuditEvent `json:"items"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page))
+			return page.Items
+		}
+		targets := func(query string) []string {
+			var out []string
+			for _, e := range list(query) {
+				out = append(out, e.Target)
+			}
+			return out
+		}
+		assert.Equal(t, []string{"flt-3", "flt-0"}, targets("actor=user:u1"))
+		assert.Equal(t, "u1@example.org", list("actor=user:u1")[0].ActorName)
+		assert.Equal(t, []string{"flt-1", "flt-0"}, targets("action=job.create"))
+		assert.Equal(t, []string{"flt-3", "flt-2", "flt-1", "flt-0"}, targets(""), "system rows are listed unless hidden")
+		assert.Equal(t, []string{"flt-3", "flt-1", "flt-0"}, targets("hide_system=true"))
+		assert.Equal(t, []string{"flt-2", "flt-1"}, targets("from=2026-03-01T11:00:00Z&to=2026-03-01T13:00:00Z"))
+		assert.Equal(t, []string{"flt-1"}, targets("from=2026-03-01T11:00:00Z&to=2026-03-01T12:00:00Z"), "to is exclusive")
+		for _, bad := range []string{"from=yesterday", "to=2026-03-01"} {
+			assert.Equal(t, http.StatusBadRequest, f.do("GET", "/api/v1/audit?"+bad, "", f.admin).Code, bad)
+		}
 	})
 }

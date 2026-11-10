@@ -14,6 +14,9 @@
 		loadToken,
 		problemMessage,
 		saveToken,
+		actorLabel,
+		distinct,
+		emptyFilter,
 		type AuditEvent
 	} from '$lib/audit';
 
@@ -24,8 +27,11 @@
 	let loaded = $state(false);
 	let loadingMore = $state(false);
 	let error = $state<string | null>(null);
-	let targetType = $state('');
-	let target = $state('');
+	let filter = $state(emptyFilter());
+	// Choices offered for action and actor: every value seen so far, so a filter
+	// does not shrink its own list.
+	let actions = $state<string[]>([]);
+	let actors = $state<string[]>([]);
 
 	async function load(more = false) {
 		if (!token) {
@@ -34,9 +40,11 @@
 		}
 		if (more) loadingMore = true;
 		try {
-			const page = await fetchAudit(token, { targetType, target }, more ? next : '');
+			const page = await fetchAudit(token, filter, more ? next : '');
 			events = more ? [...events, ...page.items] : page.items;
 			next = page.next;
+			actions = [...new Set([...actions, ...distinct(page.items, 'action')])].sort();
+			actors = [...new Set([...actors, ...distinct(page.items, 'actor')])].sort();
 			error = null;
 		} catch (e) {
 			fail(e);
@@ -75,6 +83,18 @@
 
 	function applyFilter(e: Event) {
 		e.preventDefault();
+		loaded = false;
+		void load();
+	}
+
+	function clearFilter() {
+		filter = emptyFilter();
+		loaded = false;
+		void load();
+	}
+
+	function toggleSystem() {
+		filter.hideSystem = !filter.hideSystem;
 		loaded = false;
 		void load();
 	}
@@ -128,18 +148,69 @@
 	{:else}
 		<form class="flex flex-wrap items-end gap-3" data-testid="audit-filter" onsubmit={applyFilter}>
 			<div class="grid gap-2">
+				<Label for="audit-action">Action</Label>
+				<Input
+					id="audit-action"
+					list="audit-actions"
+					bind:value={filter.action}
+					placeholder="job.create"
+				/>
+				<datalist id="audit-actions">
+					{#each actions as a (a)}<option value={a}></option>{/each}
+				</datalist>
+			</div>
+			<div class="grid gap-2">
+				<Label for="audit-actor">Actor</Label>
+				<Input
+					id="audit-actor"
+					list="audit-actors"
+					bind:value={filter.actor}
+					placeholder="user:..."
+				/>
+				<datalist id="audit-actors">
+					{#each actors as a (a)}<option value={a}></option>{/each}
+				</datalist>
+			</div>
+			<div class="grid gap-2">
+				<Label for="audit-project">Project</Label>
+				<Input id="audit-project" bind:value={filter.project} placeholder="acme/payments" />
+			</div>
+			<div class="grid gap-2">
+				<Label for="audit-from">From (UTC)</Label>
+				<Input id="audit-from" type="datetime-local" bind:value={filter.from} />
+			</div>
+			<div class="grid gap-2">
+				<Label for="audit-to">To (UTC)</Label>
+				<Input id="audit-to" type="datetime-local" bind:value={filter.to} />
+			</div>
+			<div class="grid gap-2">
 				<Label for="audit-target-type">Target type</Label>
 				<Input
 					id="audit-target-type"
-					bind:value={targetType}
+					bind:value={filter.targetType}
 					placeholder="secret, execution or instance"
 				/>
 			</div>
 			<div class="grid gap-2">
 				<Label for="audit-target">Target</Label>
-				<Input id="audit-target" bind:value={target} placeholder="scope/name or execution id" />
+				<Input
+					id="audit-target"
+					bind:value={filter.target}
+					placeholder="scope/name or execution id"
+				/>
 			</div>
 			<Button type="submit">Filter</Button>
+			<Button type="button" variant="outline" data-testid="audit-clear" onclick={clearFilter}
+				>Clear</Button
+			>
+			<Button
+				type="button"
+				variant={filter.hideSystem ? 'outline' : 'default'}
+				aria-pressed={!filter.hideSystem}
+				data-testid="audit-system-toggle"
+				onclick={toggleSystem}
+				>{filter.hideSystem ? 'Show system events' : 'Hide system events'}</Button
+			>
 		</form>
 
 		{#if !loaded}
@@ -161,7 +232,7 @@
 							<Table.Cell class="font-mono text-xs whitespace-nowrap">
 								{ev.at.replace('T', ' ').replace(/\.\d+Z$|Z$/, '')}
 							</Table.Cell>
-							<Table.Cell class="font-mono text-sm">{ev.actor}</Table.Cell>
+							<Table.Cell class="text-sm" title={ev.actor}>{actorLabel(ev)}</Table.Cell>
 							<Table.Cell>{ev.action}</Table.Cell>
 							<Table.Cell class="font-mono text-sm">{ev.target_type}: {ev.target}</Table.Cell>
 							<Table.Cell

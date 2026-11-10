@@ -124,7 +124,11 @@ Who can read
 ------------
 
 ``GET /api/v1/audit`` filters: ``project``, ``target_type``, ``target``,
-``cursor``, ``limit`` (1 to 200, default 50). Newest first.
+``action`` and ``actor`` (exact), ``from`` (inclusive) and ``to`` (exclusive)
+as RFC 3339 times, ``hide_system`` (``true`` leaves out ``system:*`` actors),
+``cursor``, ``limit`` (1 to 200, default 50). Newest first. The Audit page
+shows ``actor_name`` (the id as a tooltip), offers the actions and actors it
+has seen, and hides system events until you turn them on.
 
 - An instance admin (admin token or ``admin_rule`` user) sees all events.
 - With ``project=<path>``, an admin of that project sees events whose

@@ -2365,6 +2365,16 @@ export interface operations {
                 target_type?: string;
                 /** @description Only this target. */
                 target?: string;
+                /** @description Only this action, for example job.create. */
+                action?: string;
+                /** @description Only this actor id, for example user:<sub>. */
+                actor?: string;
+                /** @description Only events at or after this RFC 3339 time. */
+                from?: string;
+                /** @description Only events before this RFC 3339 time. */
+                to?: string;
+                /** @description Leave out events of system:* actors (dispatch and other duties). Default false. */
+                hide_system?: boolean;
                 /** @description Opaque cursor from a previous page's next_cursor. */
                 cursor?: string;
                 /** @description Page size. */

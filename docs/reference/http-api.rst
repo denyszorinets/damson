@@ -259,12 +259,15 @@ succeeded (see :ref:`reference-audit-api`).
 Audit API
 ~~~~~~~~~
 
-``GET /api/v1/audit?project=&target_type=&target=&cursor=&limit=`` returns
+``GET /api/v1/audit?project=&target_type=&target=&action=&actor=&from=&to=&hide_system=&cursor=&limit=`` returns
 ``items`` (newest first; ``id``, ``at``, ``actor``, ``actor_name``, ``action``,
 ``target_type``, ``target``, ``project_path``, ``details``, ``request_id``) and
 ``next_cursor``; ``limit`` is 1 to 200, default 50. Instance admins see all
 events; a project admin passes ``project`` and sees that project and its
-descendants. Actions, actors and visibility are in :doc:`audit`. Design:
+descendants. ``action`` and ``actor`` match exactly; ``from`` (inclusive) and
+``to`` (exclusive) are RFC 3339 times, and a malformed one is ``400``;
+``hide_system=true`` leaves out events of ``system:*`` actors (default false).
+Actions, actors and visibility are in :doc:`audit`. Design:
 :doc:`/architecture/decisions/0053-audit-events` and
 :doc:`/architecture/decisions/0065-audit-actors-and-coverage`.
 

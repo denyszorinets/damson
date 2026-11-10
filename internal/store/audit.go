@@ -57,8 +57,16 @@ type AuditFilter struct {
 	// HideSecrets leaves out the secret.* events (names, field names and refs),
 	// which only instance admins may read.
 	HideSecrets bool
-	BeforeAt    time.Time
-	BeforeID    string
+	// Action and Actor select one action or one actor id exactly; empty is any.
+	Action string
+	Actor  string
+	// HideSystem leaves out the events of system:* actors (dispatch reads and
+	// other duties no person did).
+	HideSystem bool
+	// From (inclusive) and To (exclusive) bound the event time; a zero value is open.
+	From, To time.Time
+	BeforeAt time.Time
+	BeforeID string
 }
 
 // AuditStore reads the audit trail and appends standalone events. Events about

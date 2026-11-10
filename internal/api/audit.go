@@ -31,6 +31,11 @@ type listAuditInput struct {
 	Project    string `query:"project" maxLength:"600" doc:"Only events of this project and its descendants. Required for a caller who is not an instance admin, who must be admin of the project."`
 	TargetType string `query:"target_type" maxLength:"32" doc:"Only this target type."`
 	Target     string `query:"target" maxLength:"800" doc:"Only this target."`
+	Action     string `query:"action" maxLength:"64" doc:"Only this action, for example job.create."`
+	Actor      string `query:"actor" maxLength:"256" doc:"Only this actor id, for example user:<sub>."`
+	From       string `query:"from" doc:"Only events at or after this RFC 3339 time."`
+	To         string `query:"to" doc:"Only events before this RFC 3339 time."`
+	HideSystem bool   `query:"hide_system" doc:"Leave out events of system:* actors (dispatch and other duties). Default false."`
 	Cursor     string `query:"cursor" doc:"Opaque cursor from a previous page's next_cursor."`
 	Limit      int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Page size."`
 }
@@ -77,7 +82,15 @@ func registerAudit(api huma.API, d deps) {
 		}
 		p, _ := PrincipalFrom(ctx)
 		// Secret names, fields and refs (including node credentials) are for instance admins.
-		f := store.AuditFilter{TargetType: in.TargetType, Target: in.Target, Project: in.Project, HideSecrets: !p.InstanceAdmin}
+		f := store.AuditFilter{TargetType: in.TargetType, Target: in.Target, Project: in.Project, HideSecrets: !p.InstanceAdmin,
+			Action: in.Action, Actor: in.Actor, HideSystem: in.HideSystem}
+		var err error
+		if f.From, err = parseAuditTime("from", in.From); err != nil {
+			return nil, err
+		}
+		if f.To, err = parseAuditTime("to", in.To); err != nil {
+			return nil, err
+		}
 		cur, err := decodeCursor(ctx, in.Cursor)
 		if err != nil {
 			return nil, err
@@ -113,6 +126,18 @@ func registerAudit(api huma.API, d deps) {
 		}
 		return out, nil
 	})
+}
+
+// parseAuditTime reads an optional RFC 3339 filter bound; empty is open.
+func parseAuditTime(name, v string) (time.Time, error) {
+	if v == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, v)
+	if err != nil {
+		return time.Time{}, newHumaError(http.StatusBadRequest, name+" must be an RFC 3339 time")
+	}
+	return t, nil
 }
 
 // requireToReadAudit lets an instance admin read every event, and an admin of a

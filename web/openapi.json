@@ -3792,6 +3792,58 @@
             }
           },
           {
+            "description": "Only this action, for example job.create.",
+            "explode": false,
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "description": "Only this action, for example job.create.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only this actor id, for example user:\u003csub\u003e.",
+            "explode": false,
+            "in": "query",
+            "name": "actor",
+            "schema": {
+              "description": "Only this actor id, for example user:\u003csub\u003e.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events at or after this RFC 3339 time.",
+            "explode": false,
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "Only events at or after this RFC 3339 time.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events before this RFC 3339 time.",
+            "explode": false,
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "Only events before this RFC 3339 time.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Leave out events of system:* actors (dispatch and other duties). Default false.",
+            "explode": false,
+            "in": "query",
+            "name": "hide_system",
+            "schema": {
+              "description": "Leave out events of system:* actors (dispatch and other duties). Default false.",
+              "type": "boolean"
+            }
+          },
+          {
             "description": "Opaque cursor from a previous page's next_cursor.",
             "explode": false,
             "in": "query",

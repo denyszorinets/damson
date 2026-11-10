@@ -56,6 +56,7 @@ func Run(t *testing.T, f Factory) {
 		{"PurgeDBOnlyQueuesNothing", testPurgeDBOnlyQueuesNothing},
 		{"SecretWritesNeedAnActor", testSecretWritesNeedAnActor},
 		{"AuditList", testAuditList},
+		{"AuditFilters", testAuditFilters},
 		{"AuditPrune", testAuditPrune},
 		{"Schedules", testSchedules},
 		{"ScheduleFire", testScheduleFire},

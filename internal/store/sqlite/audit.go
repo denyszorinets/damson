@@ -48,7 +48,15 @@ func (s *Store) ListAuditEvents(ctx context.Context, f store.AuditFilter, limit 
 	if before.IsZero() {
 		before = farFuture
 	}
+	from, to := f.From, f.To
+	if from.IsZero() {
+		from = time.Time{}.UTC()
+	}
+	if to.IsZero() {
+		to = farFuture
+	}
 	rows, err := s.q.ListAuditEvents(ctx, gen.ListAuditEventsParams{
+		Action: f.Action, Actor: f.Actor, HideSystem: hideFlag(f.HideSystem), FromAt: fmtTime(from), ToAt: fmtTime(to),
 		HideSecrets: hideFlag(f.HideSecrets), Project: f.Project, ProjectSlash: f.Project + "/", ProjectNext: f.Project + "0", TargetType: f.TargetType, Target: f.Target, BeforeAt: fmtTime(before), BeforeID: f.BeforeID, RowLimit: int64(store.ClampLimit(limit)),
 	})
 	if err != nil {

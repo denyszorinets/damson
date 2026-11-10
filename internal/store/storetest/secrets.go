@@ -411,6 +411,56 @@ func testAuditList(t *testing.T, s store.Store) {
 	}
 }
 
+func testAuditFilters(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	migrated(t, s)
+	rows := []struct {
+		id, actor, action string
+		at                time.Duration
+	}{
+		{"f1", "user:u1", "job.create", 0},
+		{"f2", "user:u2", "job.create", time.Hour},
+		{"f3", "system:dispatch", "secret.read", 2 * time.Hour},
+		{"f4", "user:u1", "run.trigger", 3 * time.Hour},
+		{"f5", "systemic:x", "run.cancel", 4 * time.Hour},
+	}
+	for _, r := range rows {
+		ev := store.AuditEvent{ID: r.id, At: t0.Add(r.at), Actor: r.actor, Action: r.action, TargetType: "job", Target: r.id}
+		if err := s.AppendAuditEvent(ctx, ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids := func(f store.AuditFilter) string {
+		evs, err := s.ListAuditEvents(ctx, f, 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, e := range evs {
+			out = append(out, e.ID)
+		}
+		return strings.Join(out, ",")
+	}
+	for name, tc := range map[string]struct {
+		f    store.AuditFilter
+		want string
+	}{
+		"actor":          {store.AuditFilter{Actor: "user:u1"}, "f4,f1"},
+		"action":         {store.AuditFilter{Action: "job.create"}, "f2,f1"},
+		"actor+action":   {store.AuditFilter{Actor: "user:u1", Action: "job.create"}, "f1"},
+		"hide system":    {store.AuditFilter{HideSystem: true}, "f5,f4,f2,f1"},
+		"from inclusive": {store.AuditFilter{From: t0.Add(time.Hour)}, "f5,f4,f3,f2"},
+		"to exclusive":   {store.AuditFilter{To: t0.Add(2 * time.Hour)}, "f2,f1"},
+		"range":          {store.AuditFilter{From: t0.Add(time.Hour), To: t0.Add(3 * time.Hour)}, "f3,f2"},
+		"range + page":   {store.AuditFilter{From: t0, To: t0.Add(4 * time.Hour), BeforeAt: t0.Add(3 * time.Hour), BeforeID: "f4"}, "f3,f2,f1"},
+		"no match":       {store.AuditFilter{Actor: "user:nobody"}, ""},
+	} {
+		if got := ids(tc.f); got != tc.want {
+			t.Errorf("%s: got %q, want %q", name, got, tc.want)
+		}
+	}
+}
+
 func testAuditPrune(t *testing.T, s store.Store) {
 	ctx := actorCtx()
 	migrated(t, s)

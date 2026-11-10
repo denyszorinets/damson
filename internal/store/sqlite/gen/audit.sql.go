@@ -52,9 +52,13 @@ WHERE (CAST(?1 AS TEXT) = '' OR project_path = ?1
   AND (CAST(?4 AS TEXT) = '' OR action NOT LIKE 'secret.%')
   AND (CAST(?5 AS TEXT) = '' OR target_type = ?5)
   AND (CAST(?6 AS TEXT) = '' OR target = ?6)
-  AND (at < ?7 OR (at = ?7 AND id < ?8))
+  AND (CAST(?7 AS TEXT) = '' OR action = ?7)
+  AND (CAST(?8 AS TEXT) = '' OR actor = ?8)
+  AND (CAST(?9 AS TEXT) = '' OR actor NOT LIKE 'system:%')
+  AND at >= ?10 AND at < ?11
+  AND (at < ?12 OR (at = ?12 AND id < ?13))
 ORDER BY at DESC, id DESC
-LIMIT ?9
+LIMIT ?14
 `
 
 type ListAuditEventsParams struct {
@@ -64,13 +68,20 @@ type ListAuditEventsParams struct {
 	HideSecrets  string
 	TargetType   string
 	Target       string
+	Action       string
+	Actor        string
+	HideSystem   string
+	FromAt       string
+	ToAt         string
 	BeforeAt     string
 	BeforeID     string
 	RowLimit     int64
 }
 
 // Newest first. The keyset is (at, id) of the last row of the previous page;
-// before_id = ” with a far-future before_at starts at the top. A project selects
+// before_id = ” with a far-future before_at starts at the top. from_at (inclusive)
+// and to_at (exclusive) bound the time range; a zero from_at and a far-future to_at
+// leave it open. A project selects
 // the events of that project and its descendants ("<project>/" up to "<project>0").
 func (q *Queries) ListAuditEvents(ctx context.Context, arg ListAuditEventsParams) ([]AuditEvent, error) {
 	rows, err := q.db.QueryContext(ctx, listAuditEvents,
@@ -80,6 +91,11 @@ func (q *Queries) ListAuditEvents(ctx context.Context, arg ListAuditEventsParams
 		arg.HideSecrets,
 		arg.TargetType,
 		arg.Target,
+		arg.Action,
+		arg.Actor,
+		arg.HideSystem,
+		arg.FromAt,
+		arg.ToAt,
 		arg.BeforeAt,
 		arg.BeforeID,
 		arg.RowLimit,
