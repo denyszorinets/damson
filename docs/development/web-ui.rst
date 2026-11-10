@@ -106,8 +106,12 @@ Pages
    the runs filtered by status and job, with "More" paging. Runs come from
    ``GET /runs?project=``, which covers the project and those below it and
    answers 404 for a project the caller has no role on, so a hidden project
-   reads as missing on every tab. ``-/access`` and ``-/settings`` are for the
-   project's admins: the tabs show only with ``admin`` (``my_role`` of
+   reads as missing on every tab. ``-/secrets`` lists the secrets a job of the project may use, its own and its
+   ancestors' (``GET /secrets?project=``), each labelled with its origin; it
+   needs ``editor``, project admins create, version and delete the project's own
+   secrets, ancestors' rows are read-only, and the page holds no value beyond the
+   password fields of the form, cleared after every submit. ``-/access`` and
+   ``-/settings`` are for the project's admins: the tabs show only with ``admin`` (``my_role`` of
    ``GET /projects/{path}``), and anyone else who types the URL gets the
    not-found view; the server checks every call again. Access lists the
    project's rules read-only (``GET /projects/{path}/access-rules``) and, for

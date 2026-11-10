@@ -9,6 +9,8 @@ behavior; read the notes before upgrading.
 
 ### Added
 
+- A project's Secrets tab shows the secrets its jobs may use, its own and those inherited from the projects above it, each labelled with where it comes from; editors see the names, project admins create, version and delete the project's own secrets. Values are never shown.
+
 - A job and a run open under their project: `/projects/<path>/-/jobs/<id>` with Run, Runs, Definition, Schedule and Webhooks tabs, and `/projects/<path>/-/runs/<id>`. The old `/jobs/<id>` and `/runs/<id>` URLs move to them, and the project table, run lists and run dialog link there.
 
 - A project's Access tab lists its access rules read-only and, for an instance admin, checks why an identity has or lacks a role on it; its Settings tab edits the description and deletes an empty project. Both tabs show only to the project's admins, and anyone else who opens their URL gets the not-found page.
