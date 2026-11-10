@@ -130,3 +130,66 @@ func TestTreeServiceTokenAndAnonymous(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, rec.Code)
 	})
 }
+
+func (w *authzWorld) scoped(user, query string) (int, []api.Job, string) {
+	w.t.Helper()
+	rec := w.do(0, "GET", "/api/v1/tree/jobs"+query, "", withCookies(cookieHeader(w.sess[user])))
+	var b struct {
+		Items      []api.Job `json:"items"`
+		NextCursor string    `json:"next_cursor"`
+	}
+	if rec.Code == http.StatusOK {
+		require.NoError(w.t, json.Unmarshal(rec.Body.Bytes(), &b))
+	}
+	return rec.Code, b.Items, b.NextCursor
+}
+
+func jobNames(js []api.Job) []string {
+	out := []string{}
+	for _, j := range js {
+		out = append(out, j.Project+"/"+j.Name)
+	}
+	return out
+}
+
+func TestScopedJobsFollowVisibilityAndScope(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		w := newAuthzWorld(t, st, 1)
+		_, got, _ := w.scoped("alice", "")
+		assert.Equal(t, []string{"ops/opsjob", "team/web/webjob"}, jobNames(got), "an admin sees every project's jobs")
+		_, got, _ = w.scoped("alice", "?scope=team")
+		assert.Equal(t, []string{"team/web/webjob"}, jobNames(got), "a scope includes the projects below it")
+		_, got, _ = w.scoped("bob", "")
+		assert.Equal(t, []string{"team/web/webjob"}, jobNames(got))
+		_, got, _ = w.scoped("dave", "")
+		assert.Equal(t, []string{"team/web/webjob"}, jobNames(got))
+		code, _, _ := w.scoped("dave", "?scope=team")
+		assert.Equal(t, http.StatusNotFound, code, "a project the caller has no role on")
+		for _, user := range []string{"erin", "frank"} {
+			_, got, _ = w.scoped(user, "")
+			assert.Empty(t, got, user+": a job rule alone does not list the job here")
+			c1, _, _ := w.scoped(user, "?scope=ops")
+			c2, _, _ := w.scoped(user, "?scope=nope")
+			assert.Equal(t, http.StatusNotFound, c1, user)
+			assert.Equal(t, c1, c2, user)
+		}
+		// "team" must not match "teamx": a scope is a path, not a prefix of text.
+		w.mustAdmin("POST", "/api/v1/projects", `{"path":"teamx"}`, 201)
+		_, got, _ = w.scoped("alice", "?scope=team")
+		assert.Equal(t, []string{"team/web/webjob"}, jobNames(got))
+	})
+}
+
+func TestScopedJobsPageAcrossProjects(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		w := newAuthzWorld(t, st, 1)
+		_, page, next := w.scoped("alice", "?limit=1")
+		assert.Equal(t, []string{"ops/opsjob"}, jobNames(page))
+		require.NotEmpty(t, next)
+		_, page, next = w.scoped("alice", "?limit=1&cursor="+next)
+		assert.Equal(t, []string{"team/web/webjob"}, jobNames(page))
+		assert.Empty(t, next, "no page after the last job")
+		code, _, _ := w.scoped("alice", "?cursor=!!")
+		assert.Equal(t, http.StatusBadRequest, code)
+	})
+}

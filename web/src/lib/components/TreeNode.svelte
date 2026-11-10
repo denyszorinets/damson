@@ -65,14 +65,20 @@
 	<div class="flex items-center gap-1">
 		<button
 			type="button"
-			class="flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-left text-sm hover:bg-muted"
+			class="w-4 shrink-0 rounded text-muted-foreground hover:bg-muted"
 			aria-expanded={isOpen}
+			aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${project.path}`}
 			onclick={() => ontoggle(project.path)}
 			data-testid={`tree-toggle-${project.path}`}
 		>
-			<span aria-hidden="true" class="w-3 text-muted-foreground">{isOpen ? '▾' : '▸'}</span>
-			<span class="truncate" title={project.path}>{project.label}</span>
+			<span aria-hidden="true">{isOpen ? '▾' : '▸'}</span>
 		</button>
+		<a
+			class="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-sm hover:bg-muted"
+			title={project.path}
+			href={resolve('/projects/[...path]', { path: project.path })}
+			data-testid={`tree-link-${project.path}`}>{project.label}</a
+		>
 		<Badge variant="outline" data-testid={`tree-role-${project.path}`}>{project.my_role}</Badge>
 	</div>
 	{#if isOpen}

@@ -816,6 +816,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tree/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Jobs of the projects the caller can see, optionally of one project and below
+         * @description Only jobs in projects the caller holds a role on are listed. A scope the caller cannot see is 404, like one that does not exist. Jobs reached only through a rule of the job itself are listed by /tree/shared.
+         */
+        get: operations["list-scoped-jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tree/shared": {
         parameters: {
             query?: never;
@@ -1839,6 +1859,11 @@ export interface components {
             /** @description The caller's role on the job. */
             my_role: string;
             name: string;
+        };
+        TreeJobsOutputBody: {
+            /** @description Ordered by project path, then job id. */
+            items: components["schemas"]["Job"][] | null;
+            next_cursor?: string;
         };
         TreeOutputBody: {
             /** @description The parent's own jobs; empty for the roots. */
@@ -6021,6 +6046,87 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TreeOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "list-scoped-jobs": {
+        parameters: {
+            query?: {
+                /** @description A project path: list the jobs of that project and the projects below it. Absent lists every project the caller can see. */
+                scope?: string;
+                /** @description Opaque cursor from a previous page's next_cursor. */
+                cursor?: string;
+                /** @description Page size. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TreeJobsOutputBody"];
                 };
             };
             /** @description Unauthorized */

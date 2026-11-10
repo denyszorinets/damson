@@ -87,6 +87,7 @@ var routePolicies = map[string]routePolicy{
 	"list-projects":          {store.RoleViewer, subjHandler, true},
 	"get-tree":               {store.RoleViewer, subjHandler, true},
 	"get-shared-jobs":        {store.RoleViewer, subjHandler, true},
+	"list-scoped-jobs":       {store.RoleViewer, subjHandler, false},
 	"create-project":         {store.RoleAdmin, subjHandler, true},
 	"get-project":            {store.RoleViewer, subjProjectPath, true},
 	"update-project":         {store.RoleAdmin, subjProjectPath, true},

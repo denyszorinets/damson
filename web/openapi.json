@@ -2942,6 +2942,28 @@
         ],
         "type": "object"
       },
+      "TreeJobsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "description": "Ordered by project path, then job id.",
+            "items": {
+              "$ref": "#/components/schemas/Job"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "next_cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
       "TreeOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -8806,6 +8828,130 @@
         "summary": "One level of the caller's project tree",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/tree/jobs": {
+      "get": {
+        "description": "Only jobs in projects the caller holds a role on are listed. A scope the caller cannot see is 404, like one that does not exist. Jobs reached only through a rule of the job itself are listed by /tree/shared.",
+        "operationId": "list-scoped-jobs",
+        "parameters": [
+          {
+            "description": "A project path: list the jobs of that project and the projects below it. Absent lists every project the caller can see.",
+            "explode": false,
+            "in": "query",
+            "name": "scope",
+            "schema": {
+              "description": "A project path: list the jobs of that project and the projects below it. Absent lists every project the caller can see.",
+              "maxLength": 600,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque cursor from a previous page's next_cursor.",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Opaque cursor from a previous page's next_cursor.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size.",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Page size.",
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TreeJobsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Jobs of the projects the caller can see, optionally of one project and below",
+        "tags": [
+          "jobs"
         ]
       }
     },

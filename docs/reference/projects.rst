@@ -138,6 +138,13 @@ Only what the caller may see appears:
   Instance admins and service tokens get none: their project roles already cover
   the jobs.
 
+``GET /api/v1/tree/jobs`` lists the jobs of every project the caller can see,
+ordered by project path then job id, or only those of ``scope`` and the projects
+below it (``scope=acme`` includes ``acme/payments`` but not ``acme-labs``). A
+scope the caller has no role on is ``404``. The web UI shows it at ``/jobs`` (all)
+and ``/projects/<path>`` (a project and below), with a breadcrumb and a scope
+selector; the project URL is stable and can be shared.
+
 A job's ``my_role`` in the tree is the caller's role on its project; a rule of the
 job itself that grants more shows on the job's own page.
 

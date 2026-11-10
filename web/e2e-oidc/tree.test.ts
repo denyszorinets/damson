@@ -100,7 +100,7 @@ test('a role on a child alone gives a root labelled with its path, and no parent
 	browser
 }) => {
 	const page = await as(browser, 'dave-sub');
-	await expect(page.getByTestId('tree-toggle-tree-acme/pay')).toHaveText(/tree-acme\/pay/);
+	await expect(page.getByTestId('tree-link-tree-acme/pay')).toHaveText('tree-acme/pay');
 	await expect(page.getByTestId('tree-role-tree-acme/pay')).toHaveText('editor');
 	await expect(page.getByTestId('tree-toggle-tree-acme')).toHaveCount(0);
 	await expect(treeRoots(page)).toHaveCount(1);
@@ -126,4 +126,55 @@ test('a user with no role sees nothing of the tree', async ({ browser }) => {
 	await expect(page.getByTestId('project-tree')).toBeVisible();
 	await expect(treeRoots(page)).toHaveCount(0);
 	await expect(page.getByTestId('tree-shared')).toHaveCount(0);
+});
+
+const rows = (page: Page) => page.getByTestId('job-row');
+
+test('the jobs page lists every visible job and a project narrows it to its subtree', async ({
+	browser
+}) => {
+	const page = await as(browser, 'alice-sub');
+	await page.goto('/jobs');
+	for (const name of ['deploy', 'charge', 'nightly'])
+		await expect(rows(page).filter({ hasText: name })).toHaveCount(1);
+	// Choosing a project in the tree lists its jobs and those below it, nothing else.
+	await page.getByTestId('tree-link-tree-acme').click();
+	await expect(page).toHaveURL(/\/projects\/tree-acme$/);
+	await expect(rows(page).filter({ hasText: 'deploy' })).toHaveCount(1);
+	await expect(rows(page).filter({ hasText: 'charge' })).toHaveCount(1);
+	await expect(rows(page).filter({ hasText: 'nightly' })).toHaveCount(0);
+	await expect(page.getByTestId('scope-project')).toHaveText('tree-acme and below');
+	// A breadcrumb shows where the project sits; going to a child narrows further.
+	await page.goto('/projects/tree-acme/pay');
+	await expect(page.getByTestId('crumb-tree-acme')).toBeVisible();
+	await expect(rows(page).filter({ hasText: 'charge' })).toHaveCount(1);
+	await expect(rows(page).filter({ hasText: 'deploy' })).toHaveCount(0);
+	await page.getByTestId('scope-all').click();
+	await expect(page).toHaveURL(/\/jobs$/);
+	await expect(rows(page).filter({ hasText: 'nightly' })).toHaveCount(1);
+});
+
+test('the jobs page shows only what the caller may see, and a hidden project reads as missing', async ({
+	browser
+}) => {
+	const dave = await as(browser, 'dave-sub');
+	await dave.goto('/jobs');
+	await expect(rows(dave).filter({ hasText: 'charge' })).toHaveCount(1);
+	await expect(rows(dave).filter({ hasText: 'deploy' })).toHaveCount(0);
+	await expect(rows(dave).filter({ hasText: 'nightly' })).toHaveCount(0);
+	await dave.goto('/projects/tree-acme');
+	await expect(dave.getByTestId('jobs-error')).toContainText(
+		'Not found, or you may not have access'
+	);
+	const missing = await as(browser, 'dave-sub');
+	await missing.goto('/projects/tree-does-not-exist');
+	await expect(missing.getByTestId('jobs-error')).toContainText(
+		'Not found, or you may not have access'
+	);
+
+	// frank holds a role on the job only: not in the jobs list, only under "Shared with me".
+	const frank = await as(browser, 'frank-sub');
+	await frank.goto('/jobs');
+	await expect(rows(frank).filter({ hasText: 'nightly' })).toHaveCount(0);
+	await expect(frank.getByTestId('tree-shared-nightly')).toBeVisible();
 });
