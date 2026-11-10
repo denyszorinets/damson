@@ -9,6 +9,8 @@ behavior; read the notes before upgrading.
 
 ### Added
 
+- The shell is usable by keyboard and on a phone: `/` opens the project switcher, arrow keys move through the project sidebar, job tabs and Admin navigation, and below 640 px the project sidebar becomes a drawer behind a Menu button with no sideways page scroll.
+
 - Home has a project search box over the projects you can see, by name or `/regex/`; jobs reached only through a job's own rules are listed under "Shared with me" without their project.
 
 - The instance-wide pages (agents, audit, nodes, all secrets, service accounts, access check) are in one Admin area, opened from a gear in the top bar that only instance admins see, with a new Log purge page; the old top-level URLs redirect into it, and anyone else who opens an Admin URL gets the not-found page.

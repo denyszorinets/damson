@@ -108,6 +108,16 @@ Pages
    ``GET /projects``) and, inside a project, a breadcrumb of its path. Without
    a login (a bearer token) Home makes no request and points to ``/projects``.
 
+**Keyboard and phone width.** The shell works without a mouse: ``/`` opens the project
+switcher from anywhere the user is not typing in a field (it presses the trigger's own
+opening key, so the list takes focus; typing the start of a name picks it, Enter
+chooses), the arrow keys, Home and End move between the links of the project sidebar,
+the job tabs and the Admin navigation (``lib/keys.ts``), and Tab walks them all with
+a visible focus ring. Below 640 px the project sidebar is a drawer behind a Menu
+button that names the current tab and closes after a choice, the Admin navigation
+wraps, the top bar wraps and hides the user's email, and tables scroll inside their
+own container, so a page never scrolls sideways.
+
 ``/projects/<path>/-/<tab>``
    A project. One catch-all route reads the path up to a ``-`` segment and the
    tab after it (``lib/projectroute.ts``), because SvelteKit allows a rest
