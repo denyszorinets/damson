@@ -9,6 +9,8 @@ behavior; read the notes before upgrading.
 
 ### Added
 
+- Home has a project search box over the projects you can see, by name or `/regex/`; jobs reached only through a job's own rules are listed under "Shared with me" without their project.
+
 - The instance-wide pages (agents, audit, nodes, all secrets, service accounts, access check) are in one Admin area, opened from a gear in the top bar that only instance admins see, with a new Log purge page; the old top-level URLs redirect into it, and anyone else who opens an Admin URL gets the not-found page.
 
 - Projects have Schedules and Webhooks tabs listing those of their jobs and the projects below, with next run, state and last use; the job page's Schedule and Webhooks tabs show the same controls by role (editors manage schedules, project admins webhooks, viewers read) instead of for instance admins only.

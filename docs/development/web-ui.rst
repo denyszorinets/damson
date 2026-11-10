@@ -103,7 +103,7 @@ Pages
    Home: a table of the projects the caller holds a role on (name, role,
    whether it has child projects, jobs below it, runs failed in the last 24
    hours), from ``GET /tree``; jobs reached only through a job rule are listed
-   under "Shared with me". Home lists no job otherwise and no run. The top bar
+   under "Shared with me" (the job only, no project). Home lists no job otherwise and no run. A search box filters every project the caller can see, nested ones included, by a plain name or a ``/regex/`` (``lib/projectsearch.ts``); an invalid expression is reported and matches nothing, and a project the caller cannot see is never in the set. The top bar
    holds a project switcher (every project the caller can see, from
    ``GET /projects``) and, inside a project, a breadcrumb of its path. Without
    a login (a bearer token) Home makes no request and points to ``/projects``.
