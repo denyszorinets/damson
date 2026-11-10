@@ -87,8 +87,24 @@ Pages
    Telemetry and free slots come from the agent's last heartbeat snapshot and
    show ``-`` until the first one is stored.
 
+``/``
+   Home: a table of the projects the caller holds a role on (name, role,
+   whether it has child projects, jobs below it, runs failed in the last 24
+   hours), from ``GET /tree``; jobs reached only through a job rule are listed
+   under "Shared with me". Home lists no job otherwise and no run. The top bar
+   holds a project switcher (every project the caller can see, from
+   ``GET /projects``) and, inside a project, a breadcrumb of its path. Without
+   a login (a bearer token) Home makes no request and points to ``/projects``.
+
+``/projects/<path>/-/<tab>``
+   A project. One catch-all route reads the path up to a ``-`` segment and the
+   tab after it (``lib/projectroute.ts``), because SvelteKit allows a rest
+   parameter only last. With no tab it lists the jobs of the project and those
+   below it; an unknown tab is the not-found view. A project the caller has no
+   role on reads as missing.
+
 ``/jobs``
-   Lists the default project's jobs (``GET /jobs``, at most 200).
+   Redirects to Home: no screen lists jobs across projects.
 
 ``/jobs/[id]``
    Shows the graph of the job's current version, fetched from
@@ -100,7 +116,7 @@ Pages
    instances below it (see :ref:`web-ui-run-view`).
 
 ``/projects``
-   The project tree (see :ref:`web-ui-login`).
+   Project administration: the tree indented by depth (see :ref:`web-ui-login`).
 
 ``/secrets``
    Secret metadata and management (see :ref:`web-ui-secrets`).

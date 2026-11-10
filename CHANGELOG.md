@@ -9,6 +9,8 @@ behavior; read the notes before upgrading.
 
 ### Added
 
+- The web UI is project-first: Home is a table of the projects you hold a role on (role, child projects, jobs, runs failed in 24 hours) with "Shared with me" for jobs reached only through a job's own rules; a project switcher and a path breadcrumb sit in the top bar; the sidebar tree and the cross-project Jobs list are gone (`/jobs` redirects to Home), and a project's page is at `/projects/<path>`, with tabs to come at `/projects/<path>/-/<tab>`.
+
 - The Audit page filters by action, actor, project and time range, shows the actor's name or email with the id as a tooltip, and hides `system:*` events (such as the dispatch `secret.read` rows) until you turn them on; `GET /api/v1/audit` takes `action`, `actor`, `from`, `to` and `hide_system`.
 - A project tree in the web UI sidebar: the projects a signed-in user holds a role on, nested by path, with their jobs, loaded one level at a time, a role badge per project and a "Shared with me" section for jobs reached only through a job's own rules. Nothing the user may not see is listed or hinted at. New `GET /api/v1/tree` and `GET /api/v1/tree/shared` (ADR-0075).
 - The Jobs page lists the jobs of every project the user can see; choosing a project in the sidebar shows that project and the ones below it at `/projects/<path>`, with a breadcrumb and an All / project selector. New `GET /api/v1/tree/jobs`. A project the user has no role on reads as not found.
