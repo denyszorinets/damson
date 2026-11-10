@@ -10,6 +10,7 @@
 	import type { Graph } from '$lib/graph/layout';
 	import { isNotFound, problemMessage } from '$lib/jobs';
 	import NotFound from '$lib/components/NotFound.svelte';
+	import LogViewer from '$lib/components/LogViewer.svelte';
 	import {
 		fetchRunGraph,
 		fromEvents,
@@ -33,6 +34,7 @@
 	let conn = $state<StreamState>('connecting');
 	let error = $state<string | null>(null);
 	let missing = $state(false);
+	let logOf = $state<string | null>(null); // the execution whose log is open
 
 	const all = $derived(Object.values(instances));
 	const nodeStates = $derived(overlay(all));
@@ -118,6 +120,7 @@
 					<Table.Head>Status</Table.Head>
 					<Table.Head>Attempt</Table.Head>
 					<Table.Head>Execution</Table.Head>
+					<Table.Head>Log</Table.Head>
 				</Table.Row>
 			</Table.Header>
 			<Table.Body>
@@ -128,10 +131,23 @@
 						<Table.Cell>{i.status}</Table.Cell>
 						<Table.Cell>{i.attempt || ''}</Table.Cell>
 						<Table.Cell>{i.state ?? ''}</Table.Cell>
+						<Table.Cell>
+							{#if i.execution_id}
+								<button
+									type="button"
+									class="underline underline-offset-4"
+									data-testid="open-log"
+									onclick={() => (logOf = i.execution_id ?? null)}>Log</button
+								>
+							{/if}
+						</Table.Cell>
 					</Table.Row>
 				{/each}
 			</Table.Body>
 		</Table.Root>
+		{#if logOf}
+			{#key logOf}<LogViewer executionId={logOf} />{/key}
+		{/if}
 		{#if more}
 			<p class="text-sm text-muted-foreground" data-testid="instances-more">
 				{more} more instances not shown.

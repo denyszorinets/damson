@@ -18,8 +18,11 @@ export interface StreamOptions {
 	maxDelay?: number;
 }
 
-/** Opens the stream and returns a function that closes it for good. */
-export function openStream(url: string, opts: StreamOptions): () => void {
+/**
+ * Opens the stream and returns a function that closes it for good. A url
+ * function is asked again on every reopen, so a stream can resume from where it was.
+ */
+export function openStream(url: string | (() => string), opts: StreamOptions): () => void {
 	const min = opts.minDelay ?? 1000;
 	const max = opts.maxDelay ?? 30000;
 	let source: EventSource | undefined;
@@ -31,7 +34,7 @@ export function openStream(url: string, opts: StreamOptions): () => void {
 
 	const connect = () => {
 		if (stopped) return;
-		const es = new EventSource(url);
+		const es = new EventSource(typeof url === 'function' ? url() : url);
 		source = es;
 		es.onopen = () => {
 			delay = min;

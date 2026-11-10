@@ -217,3 +217,114 @@ test('a run with when, retry and status badges lays out without overlapping boxe
 	);
 	expect(clipped).toBe(0);
 });
+
+// The log viewer is driven through a stand-in for EventSource on the logs URL, so
+// a test decides what arrives and when; every other stream stays real.
+async function fakeLogStream(page: Page) {
+	await page.addInitScript(() => {
+		const w = window as unknown as Record<string, unknown>;
+		const Real = window.EventSource;
+		const urls: string[] = [];
+		let current: (EventTarget & { readyState: number; onerror?: () => void }) | undefined;
+		function Patched(this: unknown, url: string) {
+			if (!/\/executions\/[^/]+\/logs/.test(url)) return new Real(url);
+			urls.push(url);
+			const es = new EventTarget() as EventTarget & {
+				readyState: number;
+				onopen?: () => void;
+				onerror?: () => void;
+				close(): void;
+			};
+			es.readyState = 1;
+			es.close = () => (es.readyState = 2);
+			current = es;
+			setTimeout(() => es.onopen?.(), 0);
+			return es;
+		}
+		Object.assign(Patched, { CLOSED: 2, OPEN: 1, CONNECTING: 0 });
+		(window as unknown as { EventSource: unknown }).EventSource = Patched;
+		w.__logUrls = urls;
+		w.__emit = (name: string, data: unknown) =>
+			current?.dispatchEvent(new MessageEvent(name, { data: JSON.stringify(data) }));
+		w.__emitLines = (from: number, to: number) => {
+			for (let seq = from; seq <= to; seq++)
+				current?.dispatchEvent(
+					new MessageEvent('log', {
+						data: JSON.stringify({ seq, ts: '', stream: 'stdout', line: `line ${seq}` })
+					})
+				);
+		};
+		w.__fail = () => {
+			if (current) {
+				current.readyState = 2;
+				current.onerror?.();
+			}
+		};
+	});
+}
+
+test('the log viewer shows live lines, colours, stays bounded, de-duplicates and resumes', async ({
+	page
+}) => {
+	await fakeLogStream(page);
+	const id = await trigger(page, 'log-e2e', [step('only')]);
+	await page.goto(`/runs/${id}`);
+	await expect(page.getByTestId('run-status')).toHaveText('failed');
+	await page.getByTestId('open-log').first().click();
+	await expect(page.getByTestId('log-viewer')).toBeVisible();
+
+	// Live: lines appear as they arrive, with ANSI colours.
+	await page.evaluate(() =>
+		(window as unknown as { __emit: (n: string, d: unknown) => void }).__emit('log', {
+			seq: 1,
+			ts: '',
+			stream: 'stdout',
+			line: 'start \u001b[31mred part\u001b[0m done'
+		})
+	);
+	await expect(page.getByTestId('log-row')).toHaveCount(1);
+	await expect(page.getByTestId('log-row').locator('span.text-red-600')).toHaveText('red part');
+	await page.evaluate(() =>
+		(window as unknown as { __emitLines: (a: number, b: number) => void }).__emitLines(2, 3)
+	);
+	await expect(page.getByTestId('log-count')).toHaveText('3 lines');
+
+	// A 100 000 line log: the DOM holds only the rows in view, memory only the cap.
+	await page.evaluate(() =>
+		(window as unknown as { __emitLines: (a: number, b: number) => void }).__emitLines(4, 100000)
+	);
+	await expect(page.getByTestId('log-count')).toHaveText('100000 lines');
+	await expect(page.getByTestId('log-dropped')).toContainText('earlier not kept');
+	const rendered = await page.getByTestId('log-row').count();
+	expect(rendered).toBeGreaterThan(0);
+	expect(rendered).toBeLessThan(60);
+	await expect(page.getByTestId('log-row').last()).toHaveAttribute('data-seq', '100000'); // following
+
+	// A replayed range is applied once.
+	await page.evaluate(() =>
+		(window as unknown as { __emitLines: (a: number, b: number) => void }).__emitLines(
+			99990,
+			100000
+		)
+	);
+	await expect(page.getByTestId('log-count')).toHaveText('100000 lines');
+
+	// A refused connection reopens from the last sequence seen.
+	await page.evaluate(() => (window as unknown as { __fail: () => void }).__fail());
+	await expect
+		.poll(() =>
+			page.evaluate(() => (window as unknown as { __logUrls: string[] }).__logUrls.length)
+		)
+		.toBe(2);
+	const urls = await page.evaluate(() => (window as unknown as { __logUrls: string[] }).__logUrls);
+	expect(urls[0]).toContain('after_seq=0');
+	expect(urls[1]).toContain('after_seq=100000');
+
+	await page.evaluate(() =>
+		(window as unknown as { __emit: (n: string, d: unknown) => void }).__emit('end', {
+			state: 'failed',
+			last_seq: 100000
+		})
+	);
+	await expect(page.getByTestId('log-connection')).toHaveText('ended: failed');
+});

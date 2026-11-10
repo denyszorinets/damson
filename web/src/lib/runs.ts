@@ -18,6 +18,8 @@ export interface Instance {
 	status: string;
 	attempt: number;
 	state?: string;
+	/** The latest attempt's execution, whose log can be opened. */
+	execution_id?: string;
 }
 
 /** What the graph shows on a node: the node's own instance and its lanes. */
@@ -41,7 +43,8 @@ export function fromSnapshot(run: RunDetail): Instance[] {
 			lane: s.lane ?? '',
 			status: s.status,
 			attempt: last?.attempt ?? 0,
-			state: last?.state
+			state: last?.state,
+			execution_id: last?.id
 		};
 	});
 }
@@ -54,7 +57,8 @@ export function fromEvents(steps: StepEvent[] | null): Instance[] {
 		lane: s.lane,
 		status: s.status,
 		attempt: s.attempt,
-		state: s.state
+		state: s.state,
+		execution_id: s.execution_id
 	}));
 }
 
