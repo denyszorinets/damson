@@ -9,6 +9,8 @@ behavior; read the notes before upgrading.
 
 ### Added
 
+- Projects have Schedules and Webhooks tabs listing those of their jobs and the projects below, with next run, state and last use; the job page's Schedule and Webhooks tabs show the same controls by role (editors manage schedules, project admins webhooks, viewers read) instead of for instance admins only.
+
 - A project's Secrets tab shows the secrets its jobs may use, its own and those inherited from the projects above it, each labelled with where it comes from; editors see the names, project admins create, version and delete the project's own secrets. Values are never shown.
 
 - A job and a run open under their project: `/projects/<path>/-/jobs/<id>` with Run, Runs, Definition, Schedule and Webhooks tabs, and `/projects/<path>/-/runs/<id>`. The old `/jobs/<id>` and `/runs/<id>` URLs move to them, and the project table, run lists and run dialog link there.

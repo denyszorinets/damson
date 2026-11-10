@@ -106,7 +106,13 @@ Pages
    the runs filtered by status and job, with "More" paging. Runs come from
    ``GET /runs?project=``, which covers the project and those below it and
    answers 404 for a project the caller has no role on, so a hidden project
-   reads as missing on every tab. ``-/secrets`` lists the secrets a job of the project may use, its own and its
+   reads as missing on every tab. ``-/schedules`` and ``-/webhooks`` list every schedule, or every webhook, of the
+   jobs of the project and those below it (``GET /schedules?project=``,
+   ``GET /webhooks?project=``), with the job, state and next run or last use;
+   everyone with a role reads them, editors pause, resume and delete schedules,
+   project admins revoke webhooks, and adding either is on the job's own Schedule
+   and Webhooks tabs, which show the same controls by the caller's role on the job.
+   ``-/secrets`` lists the secrets a job of the project may use, its own and its
    ancestors' (``GET /secrets?project=``), each labelled with its origin; it
    needs ``editor``, project admins create, version and delete the project's own
    secrets, ancestors' rows are read-only, and the page holds no value beyond the
