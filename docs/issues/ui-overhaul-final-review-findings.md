@@ -32,6 +32,14 @@ R12 audit round (after the cap was raised), not fixed in the run:
 - `identityFor` sorts the groups slice after the claim list is built, so the two orders can differ.
 - The check's English `note` is rendered verbatim by the UI.
 
+R13 audit round, not fixed in the run:
+- The audit page's Load more and system toggle read the live filter fields, not the last applied filter; keep an applied copy so page 2 matches page 1.
+- `hide_system` uses `actor NOT LIKE 'system:%'`, case-insensitive on SQLite and case-sensitive on Postgres; compare on a lowercased or prefix-range form so both agree.
+- `storetest/secrets.go` is over 500 lines; move the audit tests to `storetest/audit.go`.
+- The action and actor choices come only from loaded pages, ids only, and never include system actors while they are hidden; offer names and a distinct-values source.
+- `from` and `to` are hand-parsed strings; a `format:"date-time"` tag would put the format in the OpenAPI schema.
+- No e2e of Load more combined with a filter.
+
 ## Acceptance
 
 - Each point fixed or dropped with a reason.
