@@ -21,6 +21,8 @@ behavior; read the notes before upgrading.
 
 - Sidebar tree nodes show the jobs below them, the runs that failed in the last 24 hours and the runs running now, over the projects the user can see only, each counted once.
 
+- The home page lists the newest runs of the projects the user can see (failures highlighted first), with entry points to their projects, to all jobs and to jobs shared only through a job's rules, and an empty state for a user with no role. It refreshes every 10 seconds.
+
 ### Fixed
 
 - The run graph no longer lets a step box overlap the next one or the end node when badges (when, retry, status, attempt, lanes) wrap: a step is as tall as its badges need.

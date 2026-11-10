@@ -102,3 +102,32 @@ export async function fetchRunDetail(id: string, signal?: AbortSignal): Promise<
 	if (error !== undefined || !data) throw error ?? new Error('Empty response');
 	return data;
 }
+
+export type RunSummary = components['schemas']['Run'];
+
+/** The newest runs the caller may see, role-filtered by the server. */
+export async function fetchRecentRuns(
+	limit = 25,
+	signal?: AbortSignal
+): Promise<{ items: RunSummary[]; more: boolean }> {
+	const { data, error } = await api.GET('/runs', { params: { query: { limit } }, signal });
+	if (error !== undefined || !data) throw error ?? new Error('Empty response');
+	// A cursor with fewer runs than asked means the server stopped scanning, not that the list ended.
+	return { items: data.items ?? [], more: !!data.next_cursor };
+}
+
+/** A job's name and project by id, for runs; the visible jobs first, then one read each. */
+export async function jobsById(
+	ids: string[],
+	signal?: AbortSignal
+): Promise<Map<string, { name: string; project: string }>> {
+	const out = new Map<string, { name: string; project: string }>();
+	const first = await api.GET('/tree/jobs', { params: { query: { limit: 200 } }, signal });
+	for (const j of first.data?.items ?? []) out.set(j.id, { name: j.name, project: j.project });
+	for (const id of new Set(ids)) {
+		if (out.has(id)) continue;
+		const one = await api.GET('/jobs/{id}', { params: { path: { id } }, signal });
+		if (one.data) out.set(id, { name: one.data.job.name, project: one.data.job.project });
+	}
+	return out;
+}

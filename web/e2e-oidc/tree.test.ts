@@ -261,3 +261,68 @@ test("tree counts cover each caller's visible subtree once and differ between ca
 	// An admin sees the other project's jobs as well.
 	await expect(alice.getByTestId('tree-jobs-tree-ops')).toHaveText('1');
 });
+
+test("the home page shows recent runs of the caller's projects only, failures first, and entry points", async ({
+	browser
+}) => {
+	// A failed run in each project (the dev agent has no inventory, so runs fail at once).
+	const alice = await as(browser, 'alice-sub');
+	const me = await (await alice.request.get('/api/v1/me')).json();
+	const jobs = (await (await alice.request.get('/api/v1/tree/jobs?limit=200')).json()).items;
+	for (const name of ['deploy', 'charge', 'nightly']) {
+		const j = jobs.find(
+			(x: { name: string; project: string }) => x.name === name && x.project.startsWith('tree-')
+		);
+		const r = await alice.request.post(`/api/v1/jobs/${j.id}/runs`, {
+			data: {},
+			headers: { 'X-CSRF-Token': me.csrf_token }
+		});
+		expect(r.status()).toBe(201);
+	}
+	// Wait until the three runs have failed, so the first page load already shows them.
+	await expect
+		.poll(
+			async () => {
+				const items = (await (await alice.request.get('/api/v1/runs?limit=25')).json()).items;
+				return items.filter((r: { status: string }) => r.status === 'failed').length >= 3;
+			},
+			{ timeout: 30_000 }
+		)
+		.toBe(true);
+	const texts = async (page: Page) =>
+		(await page.getByTestId('home-run').allTextContents()).join('\n');
+
+	await alice.goto('/');
+	await expect(alice.getByTestId('home-failures')).toBeVisible();
+	await expect(alice.getByTestId('home-runs')).toContainText('tree-ops / nightly');
+	await expect(alice.getByTestId('home-project-tree-acme')).toBeVisible();
+
+	const bob = await as(browser, 'bob-sub');
+	await bob.goto('/');
+	await expect(bob.getByTestId('home-runs')).toContainText('tree-acme / deploy');
+	await expect(bob.getByTestId('home-runs')).toContainText('tree-acme/pay / charge');
+	expect(await texts(bob)).not.toContain('tree-ops');
+	await expect(bob.getByTestId('home-project-tree-acme')).toBeVisible();
+	await expect(bob.getByTestId('home-project-tree-ops')).toHaveCount(0);
+
+	const dave = await as(browser, 'dave-sub');
+	await dave.goto('/');
+	await expect(dave.getByTestId('home-runs')).toContainText('tree-acme/pay / charge');
+	expect(await texts(dave)).not.toContain('deploy');
+	expect(await texts(dave)).not.toContain('nightly');
+	await dave.getByTestId('home-project-tree-acme/pay').click();
+	await expect(dave).toHaveURL(/\/projects\/tree-acme\/pay$/);
+
+	// A user with no role: an empty state, no runs, no project.
+	const erin = await as(browser, 'erin-sub');
+	await erin.goto('/');
+	await expect(erin.getByTestId('home-empty')).toBeVisible();
+	await expect(erin.getByTestId('home-run')).toHaveCount(0);
+
+	// A job-rule-only user has no runs here but a way in to the shared job.
+	const frank = await as(browser, 'frank-sub');
+	await frank.goto('/');
+	await expect(frank.getByTestId('home-empty')).toHaveCount(0);
+	await expect(frank.getByTestId('home-shared-nightly')).toBeVisible();
+	await expect(frank.getByTestId('home-run')).toHaveCount(0);
+});
