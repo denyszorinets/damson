@@ -13,6 +13,7 @@
 	import LogViewer from '$lib/components/LogViewer.svelte';
 	import StepPanel from '$lib/components/StepPanel.svelte';
 	import {
+		fetchRunDetail,
 		fetchRunGraph,
 		fromEvents,
 		fromSnapshot,
@@ -35,6 +36,7 @@
 	let conn = $state<StreamState>('connecting');
 	let error = $state<string | null>(null);
 	let missing = $state(false);
+	let ran = $state<{ jobId: string; version: number } | null>(null); // the job version this run pinned
 	let selected = $state<string | null>(null); // the step path whose panel is open
 	let logOf = $state<string | null>(null); // the execution whose log is open
 
@@ -53,6 +55,12 @@
 		instances = {};
 		status = '';
 
+		ran = null;
+		fetchRunDetail(id, ctrl.signal)
+			.then((r) => {
+				if (!ctrl.signal.aborted) ran = { jobId: r.job_id, version: r.job_version };
+			})
+			.catch(() => {}); // the graph request reports a missing run; the version is a nicety
 		fetchRunGraph(id, ctrl.signal)
 			.then((r) => {
 				if (ctrl.signal.aborted) return;
@@ -98,6 +106,13 @@
 		<a class="text-sm text-muted-foreground hover:text-foreground" href={resolve('/jobs')}>Jobs</a>
 		<h1 class="text-2xl font-semibold">Run</h1>
 		{#if status}<Badge data-testid="run-status">{status}</Badge>{/if}
+		{#if ran}
+			<a
+				class="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+				href={resolve('/jobs/[id]', { id: ran.jobId })}
+				data-testid="run-version">job version {ran.version}</a
+			>
+		{/if}
 		<span class="text-xs text-muted-foreground" data-testid="run-connection">{conn}</span>
 	</div>
 

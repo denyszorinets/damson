@@ -25,6 +25,8 @@ behavior; read the notes before upgrading.
 
 - Jobs can be created and versioned in the web UI by users with the editor role: **New job** on a project page and **Edit** on a job open a JSON editor; **Validate** asks the server, which reports errors by spec path and returns the job graph it builds, drawn beside the editor. Saving a new version is based on the version being edited and fails if another landed meanwhile. A job managed by a file source, or archived, opens read-only with the reason; a user without the editor role sees no New job or Edit control.
 
+- A job page lists the job's versions (current one marked, with checksum and time) and compares any two as a line diff of their specs; a run page names the job version it ran and links to the job.
+
 ### Fixed
 
 - The run graph no longer lets a step box overlap the next one or the end node when badges (when, retry, status, attempt, lanes) wrap: a step is as tall as its badges need.

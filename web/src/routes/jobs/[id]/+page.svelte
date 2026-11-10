@@ -11,6 +11,7 @@
 	import { atLeast, isInstanceAdmin } from '$lib/projects';
 	import RunDialog from '$lib/components/RunDialog.svelte';
 	import JobTriggers from '$lib/components/JobTriggers.svelte';
+	import VersionHistory from '$lib/components/VersionHistory.svelte';
 	import { optionsSchema } from '$lib/triggers';
 
 	let job = $state<Job | null>(null);
@@ -76,6 +77,7 @@
 	{:else}
 		<RunDialog jobId={job?.id ?? ''} {schema} role={job?.my_role} />
 		<GraphView {graph} />
+		{#if job}<VersionHistory jobId={job.id} current={job.current_version} />{/if}
 		<!-- Schedules and webhooks are instance-admin only: absent for everyone else. -->
 		{#if isInstanceAdmin()}
 			<JobTriggers jobId={job?.id ?? ''} />

@@ -45,3 +45,28 @@ export async function fetchJobGraph(id: string, signal?: AbortSignal) {
 	if (g.error !== undefined || !g.data) throw g.error ?? new Error('Empty response');
 	return { job, graph: g.data, spec: detail.data.version.spec as unknown };
 }
+
+export type JobVersionInfo = components['schemas']['JobVersion'];
+
+/** Every version of a job, ascending, without specs (bounded at 200). */
+export async function fetchVersions(
+	jobId: string,
+	signal?: AbortSignal
+): Promise<JobVersionInfo[]> {
+	const { data, error } = await api.GET('/jobs/{id}/versions', {
+		params: { path: { id: jobId }, query: { limit: 200 } },
+		signal
+	});
+	if (error !== undefined || !data) throw error ?? new Error('Empty response');
+	return data.items ?? [];
+}
+
+/** One version's spec. */
+export async function fetchVersionSpec(jobId: string, version: number, signal?: AbortSignal) {
+	const { data, error } = await api.GET('/jobs/{id}/versions/{v}', {
+		params: { path: { id: jobId, v: version } },
+		signal
+	});
+	if (error !== undefined || !data) throw error ?? new Error('Empty response');
+	return data.spec;
+}
