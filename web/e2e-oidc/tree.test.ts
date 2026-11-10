@@ -493,6 +493,31 @@ test("a project's Secrets tab lists its own and inherited secrets, writes by rol
 	);
 });
 
+test('a failed secret save keeps no value in the form or the URL', async ({ browser }) => {
+	const value = 'canary-fail-VALUE-31';
+	const alice = await as(browser, 'alice-sub');
+	const logs: string[] = [];
+	alice.on('console', (m) => logs.push(m.text()));
+	await alice.route('**/api/v1/secrets/*/boom', (route) =>
+		route.fulfill({
+			status: 409,
+			json: { title: 'Conflict', status: 409, detail: 'version conflict' }
+		})
+	);
+	await alice.goto('/projects/tree-acme/pay/-/secrets');
+	await alice.getByTestId('new-secret').click();
+	await alice.locator('#secret-name').fill('boom');
+	await alice.getByLabel('Field name').fill('token');
+	await alice.locator('#field-0').fill(value);
+	await alice.getByTestId('save-secret').click();
+	await expect(alice.getByTestId('secrets-error')).toBeVisible();
+	await expect(alice.getByTestId('secrets-table')).toBeVisible(); // the list stays beside the error
+	await expect(alice.locator('#field-0')).toHaveValue(''); // the value left the form
+	expect(alice.url()).not.toContain(value);
+	expect(logs.join('\n')).not.toContain(value);
+	expect(await alice.locator('body').innerText()).not.toContain(value);
+});
+
 test('an instance admin deletes an empty project from its Settings', async ({ browser }) => {
 	const alice = await as(browser, 'alice-sub');
 	const me = await (await alice.request.get('/api/v1/me')).json();

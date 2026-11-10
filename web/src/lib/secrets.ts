@@ -38,9 +38,10 @@ export async function fetchProjectSecrets(
 		check(res);
 		out.push(...(res.data?.items ?? []));
 		cursor = res.data?.next_cursor || undefined;
-		if (!cursor) break;
+		if (!cursor) return out;
 	}
-	return out;
+	// shortcut: 10 pages of 200 names, then stop; a project with more is not expected, raise the cap when it is.
+	throw new Error('This project has more secrets than the page can list.');
 }
 
 export async function fetchSecretTypes(signal?: AbortSignal): Promise<SecretType[]> {

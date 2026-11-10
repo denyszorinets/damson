@@ -64,7 +64,6 @@
 	async function load() {
 		try {
 			secrets = await fetchProjectSecrets(token, path);
-			error = null;
 		} catch (e) {
 			error = problemMessage(e);
 		} finally {
@@ -221,7 +220,7 @@
 
 	{#if !loaded}
 		<Skeleton class="h-24 w-full" />
-	{:else if !error}
+	{:else}
 		<Table.Root data-testid="secrets-table">
 			<Table.Header>
 				<Table.Row>
