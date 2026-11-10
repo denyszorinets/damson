@@ -47,7 +47,7 @@ Exit: an editor creates a job and a second version from the UI and compares them
 
 | Slice | Kind | Delivers | Covers | Blocked by | Verify | Risk | Status |
 |-------|------|----------|--------|------------|--------|------|--------|
-| R10 | build | Create a job and add a version in the UI with on-demand server validation and the server-built graph beside the editor | G5 | R1 (role-aware controls), R5 (tree context) | e2e: erin creates a job in `acme/payments`; a spec error points at its path; a files-managed job is read-only with the reason | med | |
+| R10 | build | Create a job and add a version in the UI with on-demand server validation and the server-built graph beside the editor | G5 | R1 (role-aware controls), R5 (tree context) | e2e: erin creates a job in `acme/payments`; a spec error points at its path; a files-managed job is read-only with the reason | med | shipped 2026-11-10 ui-r10-job-editor |
 | R11 | build | Version history with a diff between two versions; a run shows the version it ran | G5 | R10 (editor) | e2e: two versions listed, diff shows the changed step, run page names its version | low | |
 
 ### M4: Explain and operate
@@ -99,3 +99,4 @@ None open. Project-scoped secrets, nodes and schedules are a separate effort (se
 - 2026-11-10 R15 shipped (ui-r15-step-panel); Verify reinterpreted: there is no run-wide log, so "filter by step" is choosing a step, which opens that execution's log and panel; "level" is the stdout/stderr stream. Follow-ups: docs/issues/step-panel-follow-ups.md.
 - 2026-11-10 R9 shipped (ui-r9-tree-counts): `StatsStore.ProjectCounts` (two grouped queries, both dialects), roll-ups over the visible set, sidebar badges. Follow-ups: docs/issues/tree-counts-follow-ups.md.
 - 2026-11-10 R8 shipped (ui-r8-home): home page with recent runs, failures, entry points and an empty state. Follow-ups: docs/issues/home-page-follow-ups.md.
+- 2026-11-10 R10 shipped (ui-r10-job-editor): JSON editor with on-demand server validation and graph, create and new-version, read-only for managed jobs. The e2e uses dave (editor on tree-acme/pay) for the roadmap's erin. Follow-ups: docs/issues/job-editor-follow-ups.md.
