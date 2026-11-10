@@ -29,7 +29,7 @@ Exit: signed in as each of the seven dev test users, the tree shows exactly the 
 | R2 | build | Run graph lays out without nodes overlapping | G4 | none | layout test: no overlapping node boxes for graphs of 1 to 20 steps with retry, `when` and status badges | low | |
 | R3 | spike | Project tree response shape, visible-only counts and one grouped query for failures, and a bounded lookup of jobs a user reaches only through job-level rules, measured on SQLite and Postgres | G1, G2 | none | ADR recorded; both queries run under 100 ms on 10 000 runs and 1 000 job-rule rows in both databases; throwaway code removed | high | shipped 2026-11-10 ui-r3-tree-spike |
 | R4 | build | Server-pruned project tree API and a sidebar tree with jobs under each project, lazy per level, role badge per project, and a "Shared with me" section for jobs reached only through job rules | G1, G2 | R3 (shape and cost) | e2e as four users: exact expected tree, no ancestor stub for a user with a role only on `acme/payments`, a job-rule-only user sees the job under "Shared with me" and no project node, `make gen` clean | high | shipped 2026-11-10 ui-r4-tree |
-| R5 | build | Jobs and Projects pages open from the tree with a breadcrumb and a scope selector ("All", "this project and below"); replaces the flat jobs list | G1 | R4 (tree) | e2e: an admin sees all five seeded jobs; selecting `acme` lists `acme` and `acme/payments` jobs only | med | |
+| R5 | build | Jobs and Projects pages open from the tree with a breadcrumb and a scope selector ("All", "this project and below"); replaces the flat jobs list | G1 | R4 (tree) | e2e: an admin sees all five seeded jobs; selecting `acme` lists `acme` and `acme/payments` jobs only | med | shipped 2026-11-10 ui-r5-jobs-scope |
 
 ### M2: Run and follow
 Exit: a runner starts `deploy-web` from a validated form and watches it finish with logs and per-step status.
@@ -91,3 +91,4 @@ None open. Project-scoped secrets, nodes and schedules are a separate effort (se
 ## Changes
 - 2026-11-10 R3 shipped (ui-r3-tree-spike): ADR-0075 (Proposed) fixes the tree shape and visibility rule; both queries measured at 50 ms or less on SQLite and Postgres. Open points: docs/issues/adr-0075-tree-api-open-points.md.
 - 2026-11-10 R4 shipped (ui-r4-tree): `GET /api/v1/tree` and `/tree/shared`, sidebar tree, OIDC e2e as five users; ADR-0075 accepted. Follow-ups: docs/issues/tree-ui-and-api-follow-ups.md.
+- 2026-11-10 R5 shipped (ui-r5-jobs-scope): `GET /api/v1/tree/jobs`, `/jobs` and `/projects/<path>` with breadcrumb and scope selector. Follow-ups: docs/issues/jobs-view-follow-ups.md.
