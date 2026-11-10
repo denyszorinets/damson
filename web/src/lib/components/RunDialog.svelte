@@ -7,8 +7,14 @@
 	import { Button } from '$lib/components/ui/button';
 	import SchemaForm from '$lib/components/SchemaForm.svelte';
 	import { hasFields, problemMessage, triggerRun } from '$lib/triggers';
+	import { atLeast } from '$lib/projects';
 
-	let { jobId, schema }: { jobId: string; schema: Record<string, unknown> | null } = $props();
+	let {
+		jobId,
+		schema,
+		role
+	}: { jobId: string; schema: Record<string, unknown> | null; role?: string } = $props();
+	const canRun = $derived(atLeast(role, 'runner'));
 
 	let open = $state(false);
 	let busy = $state(false);
@@ -28,8 +34,18 @@
 </script>
 
 <div class="space-y-3">
-	<Button data-testid="run-job" onclick={() => (open = !open)}>Run…</Button>
-	{#if open}
+	<div class="flex items-center gap-3">
+		<Button
+			data-testid="run-job"
+			disabled={!canRun}
+			title={canRun ? undefined : 'Running a job needs the runner role'}
+			onclick={() => (open = !open)}>Run…</Button
+		>
+		{#if !canRun}
+			<span class="text-sm text-muted-foreground" data-testid="run-needs">needs runner</span>
+		{/if}
+	</div>
+	{#if open && canRun}
 		<section class="space-y-3 rounded-md border p-4" data-testid="run-dialog" aria-label="Run job">
 			<h2 class="text-lg font-medium">Run this job</h2>
 			{#if error}

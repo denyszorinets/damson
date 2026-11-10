@@ -22,6 +22,7 @@ type Job struct {
 	Name           string    `json:"name"`
 	ManagedBy      string    `json:"managed_by" doc:"ui, or files:<source> when apply manages the job; a managed job refuses new versions here."`
 	CurrentVersion int       `json:"current_version"`
+	MyRole         string    `json:"my_role,omitempty" doc:"The caller's role on this job (project rules and the job's own): viewer, runner, editor or admin. Set on single reads only."`
 	Archived       bool      `json:"archived,omitempty" doc:"Set when apply --prune removed the job; it cannot run."`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
@@ -285,7 +286,21 @@ func getJob(ctx context.Context, d deps, id string) (*jobDetailOutput, error) {
 	if err != nil {
 		return nil, apiError(ctx, err)
 	}
-	return &jobDetailOutput{Body: JobDetail{Job: toJob(job, names), Version: toJobVersion(ver, true)}}, nil
+	out := toJob(job, names)
+	out.MyRole = d.myJobRole(ctx, names[job.ProjectID], job.ID)
+	return &jobDetailOutput{Body: JobDetail{Job: out, Version: toJobVersion(ver, true)}}, nil
+}
+
+// myJobRole is the caller's role on a job. A request that passed authorization
+// without a principal (login off, no token required) acts as admin, like every
+// other open route.
+func (d deps) myJobRole(ctx context.Context, project, jobID string) string {
+	p, ok := PrincipalFrom(ctx)
+	if !ok {
+		return store.RoleAdmin
+	}
+	role, _ := d.roleOn(ctx, p, project, jobID)
+	return role
 }
 
 func listJobs(ctx context.Context, d deps, in *listJobsInput) (*listJobsOutput, error) {

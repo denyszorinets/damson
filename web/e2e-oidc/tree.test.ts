@@ -178,3 +178,53 @@ test('the jobs page shows only what the caller may see, and a hidden project rea
 	await expect(rows(frank).filter({ hasText: 'nightly' })).toHaveCount(0);
 	await expect(frank.getByTestId('tree-shared-nightly')).toBeVisible();
 });
+
+async function jobId(browser: Browser, name: string): Promise<string> {
+	const alice = await as(browser, 'alice-sub');
+	const list = await (await alice.request.get('/api/v1/tree/jobs?limit=200')).json();
+	return list.items.find((j: { name: string }) => j.name === name).id;
+}
+
+test('a viewer sees Run disabled with the missing role and no trigger forms', async ({
+	browser
+}) => {
+	const id = await jobId(browser, 'deploy');
+	const carol = await as(browser, 'carol-sub');
+	await carol.goto(`/jobs/${id}`);
+	await expect(carol.getByTestId('job-title')).toHaveText('deploy');
+	await expect(carol.getByTestId('run-job')).toBeDisabled();
+	await expect(carol.getByTestId('run-needs')).toHaveText('needs runner');
+	await expect(carol.getByTestId('job-triggers')).toHaveCount(0); // admin-only: absent
+	await expect(carol.getByTestId('schedule-form')).toHaveCount(0);
+	await expect(carol.getByTestId('webhook-form')).toHaveCount(0);
+
+	const bob = await as(browser, 'bob-sub');
+	await bob.goto(`/jobs/${id}`);
+	await expect(bob.getByTestId('run-job')).toBeEnabled();
+	await expect(bob.getByTestId('run-needs')).toHaveCount(0);
+	await expect(bob.getByTestId('job-triggers')).toHaveCount(0);
+
+	const alice = await as(browser, 'alice-sub');
+	await alice.goto(`/jobs/${id}`);
+	await expect(alice.getByTestId('run-job')).toBeEnabled();
+	await expect(alice.getByTestId('job-triggers')).toBeVisible();
+});
+
+test('a user with no role gets a not-found page with a way back and no hint', async ({
+	browser
+}) => {
+	const id = await jobId(browser, 'deploy');
+	const erin = await as(browser, 'erin-sub');
+	await erin.goto(`/jobs/${id}`);
+	await expect(erin.getByTestId('not-found')).toBeVisible();
+	await expect(erin.getByTestId('not-found')).toContainText('may not exist, or you may not have');
+	await expect(erin.getByTestId('job-title')).toHaveText('');
+	await expect(erin.getByTestId('job-error')).toHaveCount(0);
+	const gone = await as(browser, 'erin-sub');
+	await gone.goto('/jobs/00000000-0000-7000-8000-00000000dead');
+	await expect(gone.getByTestId('not-found')).toBeVisible(); // the same page for a missing job
+	await erin.getByRole('link', { name: 'Jobs' }).first().click();
+	await expect(erin).toHaveURL(/\/jobs$/);
+	await gone.goto('/runs/00000000-0000-7000-8000-00000000dead');
+	await expect(gone.getByTestId('not-found')).toBeVisible();
+});

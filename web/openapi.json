@@ -1043,6 +1043,10 @@
             "description": "ui, or files:\u003csource\u003e when apply manages the job; a managed job refuses new versions here.",
             "type": "string"
           },
+          "my_role": {
+            "description": "The caller's role on this job (project rules and the job's own): viewer, runner, editor or admin. Set on single reads only.",
+            "type": "string"
+          },
           "name": {
             "type": "string"
           },

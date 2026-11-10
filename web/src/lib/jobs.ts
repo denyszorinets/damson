@@ -1,7 +1,7 @@
 import { api, type components } from '$lib/api/client';
-import { problemMessage } from '$lib/agents';
+import { isNotFound, problemMessage } from '$lib/agents';
 
-export { problemMessage };
+export { isNotFound, problemMessage };
 
 export type Job = components['schemas']['Job'];
 

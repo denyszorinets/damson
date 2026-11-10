@@ -193,3 +193,25 @@ func TestScopedJobsPageAcrossProjects(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, code)
 	})
 }
+
+func TestGetJobReportsTheCallersRole(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		w := newAuthzWorld(t, st, 1)
+		role := func(user, id string) string {
+			rec := w.do(0, "GET", "/api/v1/jobs/"+id, "", withCookies(cookieHeader(w.sess[user])))
+			if rec.Code != http.StatusOK {
+				return http.StatusText(rec.Code)
+			}
+			var b struct{ Job api.Job }
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &b))
+			return b.Job.MyRole
+		}
+		assert.Equal(t, "admin", role("alice", w.webJob))
+		assert.Equal(t, "runner", role("bob", w.webJob))
+		assert.Equal(t, "viewer", role("carol", w.webJob))
+		assert.Equal(t, "editor", role("dave", w.webJob))
+		assert.Equal(t, "runner", role("frank", w.opsJob), "a job rule alone")
+		assert.Equal(t, "Not Found", role("erin", w.webJob), "no role reads as missing")
+		assert.Equal(t, "Not Found", role("frank", w.webJob))
+	})
+}

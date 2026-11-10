@@ -145,6 +145,13 @@ scope the caller has no role on is ``404``. The web UI shows it at ``/jobs`` (al
 and ``/projects/<path>`` (a project and below), with a breadcrumb and a scope
 selector; the project URL is stable and can be shared.
 
+``GET /api/v1/jobs/{id}`` returns ``job.my_role``: the caller's role on the job,
+from the project's rules and the job's own. The web UI uses it to disable what
+the role does not allow (Run needs ``runner``, shown as "needs runner") and hides
+schedules and webhooks from everyone but instance admins. A job or run the caller
+has no role on shows the same "not found, or you may not have access" page as one
+that does not exist.
+
 A job's ``my_role`` in the tree is the caller's role on its project; a rule of the
 job itself that grants more shows on the job's own page.
 

@@ -67,9 +67,9 @@ test('a retried step shows its attempt', async ({ page }) => {
 	await expect(node(page, 'flaky')).toContainText('attempt 2');
 });
 
-test('a run that does not exist shows a problem+json error', async ({ page }) => {
+test('a run that does not exist shows the not-found page', async ({ page }) => {
 	await page.goto('/runs/does-not-exist');
-	await expect(page.getByTestId('run-error')).toContainText('Not Found');
+	await expect(page.getByTestId('not-found')).toContainText('This run was not found');
 });
 
 // A mocked server: a for_each with many lanes is summarized on its nodes and

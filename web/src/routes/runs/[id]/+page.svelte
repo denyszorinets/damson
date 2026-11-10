@@ -8,7 +8,8 @@
 	import RunTargets from '$lib/components/RunTargets.svelte';
 	import GraphView from '$lib/graph/GraphView.svelte';
 	import type { Graph } from '$lib/graph/layout';
-	import { problemMessage } from '$lib/jobs';
+	import { isNotFound, problemMessage } from '$lib/jobs';
+	import NotFound from '$lib/components/NotFound.svelte';
 	import {
 		fetchRunGraph,
 		fromEvents,
@@ -31,6 +32,7 @@
 	let status = $state('');
 	let conn = $state<StreamState>('connecting');
 	let error = $state<string | null>(null);
+	let missing = $state(false);
 
 	const all = $derived(Object.values(instances));
 	const nodeStates = $derived(overlay(all));
@@ -43,6 +45,7 @@
 		let closeStream: (() => void) | undefined;
 		graph = null;
 		error = null;
+		missing = false;
 		instances = {};
 		status = '';
 
@@ -71,7 +74,9 @@
 				});
 			})
 			.catch((e) => {
-				if (!ctrl.signal.aborted) error = problemMessage(e);
+				if (ctrl.signal.aborted) return;
+				if (isNotFound(e)) missing = true;
+				else error = problemMessage(e);
 			});
 		return () => {
 			ctrl.abort();
@@ -92,7 +97,9 @@
 		<span class="text-xs text-muted-foreground" data-testid="run-connection">{conn}</span>
 	</div>
 
-	{#if error}
+	{#if missing}
+		<NotFound what="This run" />
+	{:else if error}
 		<Alert.Root variant="destructive" data-testid="run-error">
 			<Alert.Description>{error}</Alert.Description>
 		</Alert.Root>

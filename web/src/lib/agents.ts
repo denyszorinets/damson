@@ -20,6 +20,11 @@ export function problemMessage(err: unknown): string {
 	return err instanceof Error ? err.message : 'Request failed';
 }
 
+/** True for a problem+json answer with status 404: missing, or no role (the server says the same for both). */
+export function isNotFound(err: unknown): boolean {
+	return typeof err === 'object' && err !== null && (err as { status?: number }).status === 404;
+}
+
 export interface Listing<T> {
 	items: T[];
 	/** True when the server has more items than were fetched. */

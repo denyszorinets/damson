@@ -1246,6 +1246,8 @@ export interface components {
             id: string;
             /** @description ui, or files:<source> when apply manages the job; a managed job refuses new versions here. */
             managed_by: string;
+            /** @description The caller's role on this job (project rules and the job's own): viewer, runner, editor or admin. Set on single reads only. */
+            my_role?: string;
             name: string;
             /** @description Project name. */
             project: string;

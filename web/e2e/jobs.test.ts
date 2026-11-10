@@ -65,7 +65,7 @@ test('job graph shows groups, catch, finally, for_each and edge kinds', async ({
 	expect(errors).toEqual([]);
 });
 
-test('job graph shows a problem+json error', async ({ page }) => {
+test('a job that does not exist shows the not-found page', async ({ page }) => {
 	await page.goto('/jobs/does-not-exist');
-	await expect(page.getByTestId('job-error')).toContainText('Not Found');
+	await expect(page.getByTestId('not-found')).toContainText('This job was not found');
 });

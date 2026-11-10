@@ -11,6 +11,7 @@ behavior; read the notes before upgrading.
 
 - A project tree in the web UI sidebar: the projects a signed-in user holds a role on, nested by path, with their jobs, loaded one level at a time, a role badge per project and a "Shared with me" section for jobs reached only through a job's own rules. Nothing the user may not see is listed or hinted at. New `GET /api/v1/tree` and `GET /api/v1/tree/shared` (ADR-0075).
 - The Jobs page lists the jobs of every project the user can see; choosing a project in the sidebar shows that project and the ones below it at `/projects/<path>`, with a breadcrumb and an All / project selector. New `GET /api/v1/tree/jobs`. A project the user has no role on reads as not found.
+- The job page matches the user's role: Run is disabled with "needs runner" for a viewer, schedules and webhooks show only for instance admins, and a job or run the user cannot see shows a not-found page with links back, the same as one that does not exist. `GET /api/v1/jobs/{id}` returns the caller's role as `job.my_role`.
 
 ## [0.1.0] - 2026-11-10
 
