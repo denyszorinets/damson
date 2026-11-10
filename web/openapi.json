@@ -8176,12 +8176,12 @@
             }
           },
           {
-            "description": "The scopes a job of this project may use: the project and its ancestors (needs editor on the project). A scope the caller holds no role on is not listed.",
+            "description": "The scopes a job of this project may use: the project and its ancestors, whose names an editor on the project may see (needs editor on the project).",
             "explode": false,
             "in": "query",
             "name": "project",
             "schema": {
-              "description": "The scopes a job of this project may use: the project and its ancestors (needs editor on the project). A scope the caller holds no role on is not listed.",
+              "description": "The scopes a job of this project may use: the project and its ancestors, whose names an editor on the project may see (needs editor on the project).",
               "maxLength": 256,
               "type": "string"
             }
@@ -8222,6 +8222,16 @@
             },
             "description": "OK"
           },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
           "401": {
             "content": {
               "application/problem+json": {
@@ -8231,6 +8241,26 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
           },
           "422": {
             "content": {
@@ -8312,6 +8342,16 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
           },
           "404": {
             "content": {
@@ -8429,6 +8469,16 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
           },
           "404": {
             "content": {

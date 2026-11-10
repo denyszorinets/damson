@@ -14,7 +14,7 @@ const inventoryScope = "_inventory"
 
 // maxSecretScopes bounds the exact-scope reads one project listing makes: a
 // project and its ancestors.
-const maxSecretScopes = 8
+const maxSecretScopes = store.MaxProjectDepth
 
 // requireScope authorizes a secrets route on its decoded scope (ADR-0077). An
 // instance admin may use any scope, orphans and _inventory included. Anyone

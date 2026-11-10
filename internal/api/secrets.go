@@ -50,7 +50,7 @@ type secretPath struct {
 
 type listSecretsInput struct {
 	Scope   string `query:"scope" maxLength:"600" doc:"Only this scope (needs editor on it). A user needs scope or project; an instance admin may give neither to list every scope."`
-	Project string `query:"project" maxLength:"256" doc:"The scopes a job of this project may use: the project and its ancestors (needs editor on the project). A scope the caller holds no role on is not listed."`
+	Project string `query:"project" maxLength:"256" doc:"The scopes a job of this project may use: the project and its ancestors, whose names an editor on the project may see (needs editor on the project)."`
 	Cursor  string `query:"cursor" doc:"Opaque cursor from a previous page's next_cursor."`
 	Limit   int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Page size."`
 }
@@ -88,7 +88,7 @@ func registerSecrets(api huma.API, d deps) {
 		OperationID: "list-secrets", Method: http.MethodGet, Path: "/secrets",
 		Summary: "List secret metadata", Tags: []string{"secrets"}, Security: adminSecurity,
 		Description: "Names, types, field names and versions. Values are never returned.",
-		Errors:      []int{http.StatusUnauthorized, http.StatusServiceUnavailable},
+		Errors:      []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusServiceUnavailable},
 	}, func(ctx context.Context, in *listSecretsInput) (*listSecretsOutput, error) {
 		if err := d.authorizeSecretList(ctx, in); err != nil {
 			return nil, err
@@ -121,7 +121,7 @@ func registerSecrets(api huma.API, d deps) {
 		OperationID: "put-secret", Method: http.MethodPut, Path: "/secrets/{scope}/{name}",
 		Summary: "Create a secret or add a version", Tags: []string{"secrets"}, Security: adminSecurity,
 		Description: "201 when the secret is created, 200 when a version is added. The response never contains values.",
-		Errors:      []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound, http.StatusConflict, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity, http.StatusServiceUnavailable},
+		Errors:      []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity, http.StatusServiceUnavailable},
 	}, func(ctx context.Context, in *putSecretInput) (*putSecretOutput, error) {
 		defer clear(in.Body.Fields) // values leave memory on every path, denied ones included
 		if err := d.requireScope(ctx, in.Scope, store.RoleAdmin); err != nil {
@@ -144,7 +144,7 @@ func registerSecrets(api huma.API, d deps) {
 		OperationID: "delete-secret", Method: http.MethodDelete, Path: "/secrets/{scope}/{name}",
 		Summary: "Delete a secret and all its versions", Tags: []string{"secrets"}, Security: adminSecurity,
 		DefaultStatus: http.StatusNoContent,
-		Errors:        []int{http.StatusUnauthorized, http.StatusNotFound, http.StatusServiceUnavailable},
+		Errors:        []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusServiceUnavailable},
 	}, func(ctx context.Context, in *secretPath) (*struct{}, error) {
 		if err := d.requireScope(ctx, in.Scope, store.RoleAdmin); err != nil {
 			return nil, apiError(ctx, err)

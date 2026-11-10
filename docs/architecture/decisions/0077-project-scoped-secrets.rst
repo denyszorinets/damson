@@ -70,8 +70,10 @@ editor sees ``acme`` names through ``project=child`` but gets 404 on
 
 **Audit.** Unchanged: ``project_path`` is already the scope. ``_inventory`` rows
 carry ``project_path=_inventory``, so only an instance admin sees them. Project
-admins read their events through ``GET /audit?project=``. Details never hold
-values.
+admins read their events through ``GET /audit?project=`` once secret events are
+shown to them: today ``GET /audit`` hides ``secret.*`` rows from everyone but an
+instance admin, and that stays until the maintainer decides otherwise. Details
+never hold values.
 
 **Non-project scopes.** ``_inventory``, orphans left by delete-project when only
 DB secrets are counted, and a future site-wide scope stay instance-admin only. A

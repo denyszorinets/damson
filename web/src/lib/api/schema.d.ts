@@ -5580,7 +5580,7 @@ export interface operations {
             query?: {
                 /** @description Only this scope (needs editor on it). A user needs scope or project; an instance admin may give neither to list every scope. */
                 scope?: string;
-                /** @description The scopes a job of this project may use: the project and its ancestors (needs editor on the project). A scope the caller holds no role on is not listed. */
+                /** @description The scopes a job of this project may use: the project and its ancestors, whose names an editor on the project may see (needs editor on the project). */
                 project?: string;
                 /** @description Opaque cursor from a previous page's next_cursor. */
                 cursor?: string;
@@ -5602,8 +5602,35 @@ export interface operations {
                     "application/json": components["schemas"]["ListSecretsOutputBody"];
                 };
             };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5677,6 +5704,15 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5762,6 +5798,15 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

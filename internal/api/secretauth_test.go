@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -197,5 +198,60 @@ func TestSecretValueNeverAppearsInResponsesAuditOrLogs(t *testing.T) {
 		for _, s := range append(bodies, details, w.logs.String()) {
 			assert.NotContains(t, s, canary)
 		}
+	})
+}
+
+func TestSecretProjectListPagesAcrossScopesAndIgnoresTamperedCursors(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		w := newAuthzWorld(t, st, 1)
+		for _, c := range []struct{ scope, name string }{{"team", "db"}, {"team", "tls"}, {"team/web", "api"}, {"ops", "x"}} {
+			w.mustAdmin("PUT", "/api/v1/secrets/"+url.PathEscape(c.scope)+"/"+c.name, putBody("token"), 201)
+		}
+		page := func(query string) ([]string, string) {
+			rec := w.do(0, "GET", "/api/v1/secrets"+query, "", withCookies(cookieHeader(w.sess["gina"])))
+			require.Equal(t, 200, rec.Code, rec.Body.String())
+			var l struct {
+				Items []struct {
+					Ref string `json:"ref"`
+				} `json:"items"`
+				Next string `json:"next_cursor"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &l))
+			var refs []string
+			for _, it := range l.Items {
+				refs = append(refs, it.Ref)
+			}
+			return refs, l.Next
+		}
+		// One row at a time, following the cursor across the project's scopes.
+		var all []string
+		cursor := ""
+		for range 6 {
+			q := "?project=team%2Fweb&limit=1"
+			if cursor != "" {
+				q += "&cursor=" + url.QueryEscape(cursor)
+			}
+			refs, next := page(q)
+			all = append(all, refs...)
+			if next == "" {
+				break
+			}
+			cursor = next
+		}
+		assert.Equal(t, []string{"secret://team/db", "secret://team/tls", "secret://team/web/api"}, all)
+
+		// A cursor that names another scope can only skip rows, never widen the listing.
+		forged := base64.RawURLEncoding.EncodeToString([]byte("ops\x00"))
+		for _, q := range []string{"?project=team%2Fweb", "?scope=team"} {
+			refs, _ := page(q + "&cursor=" + forged)
+			for _, r := range refs {
+				assert.NotContains(t, r, "ops", q)
+			}
+		}
+		// A project the caller cannot see, and a role too low for the project, answer as before.
+		code, _ := w.listSecretsAs("gina", "?project=nope")
+		assert.Equal(t, 404, code)
+		code, _ = w.listSecretsAs("carol", "?project=team%2Fweb")
+		assert.Equal(t, 403, code, "a viewer may not list")
 	})
 }
