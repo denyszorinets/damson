@@ -9,6 +9,8 @@ behavior; read the notes before upgrading.
 
 ### Added
 
+- A project page is a folder: its child projects and its own jobs in one table, with each job's last status, last success, last failure and the duration of its newest finished run. `GET /api/v1/tree?parent=` returns these as `last_status`, `last_run_at`, `last_success_at`, `last_failure_at` and `last_duration_ms` on each job, computed over the visible set.
+
 - A project has its own sidebar with Overview (success rate over its newest runs and the latest runs), Jobs and Activity (runs filtered by status and job), all scoped to the project and the projects below it. `GET /api/v1/runs` takes a `project` filter; a project the caller holds no role on answers 404, as a missing one does.
 
 - The web UI is project-first: Home is a table of the projects you hold a role on (role, child projects, jobs, runs failed in 24 hours) with "Shared with me" for jobs reached only through a job's own rules; a project switcher and a path breadcrumb sit in the top bar; the sidebar tree and the cross-project Jobs list are gone (`/jobs` redirects to Home), and a project's page is at `/projects/<path>`, with tabs to come at `/projects/<path>/-/<tab>`.

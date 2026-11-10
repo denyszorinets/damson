@@ -100,7 +100,7 @@ Pages
    A project. One catch-all route reads the path up to a ``-`` segment and the
    tab after it (``lib/projectroute.ts``), because SvelteKit allows a rest
    parameter only last. The project has its own sidebar (``ProjectNav``):
-   **Jobs** (no tab) lists the jobs of the project and those below it;
+   **Jobs** (no tab) is the project as a folder: its child projects (jobs below and runs failed in 24 hours) and its own jobs in one table, each job with its status, last success, last failure and the duration of its newest finished run, from ``GET /tree?parent=`` (a bearer token, which has no session for the tree, gets the flat job list of the project and below instead);
    ``-/overview`` shows the success rate over the newest 50 runs (succeeded
    over succeeded plus failed) and the 10 newest runs; ``-/activity`` lists
    the runs filtered by status and job, with "More" paging. Runs come from

@@ -128,7 +128,7 @@ Go test fails when ``web/openapi.json`` differs from the live document.
    * - ``GET /api/v1/projects``, ``POST /api/v1/projects``, ``GET``/``PATCH``/``DELETE /api/v1/projects/{path}``
      - Project tree, authorized by role (:doc:`projects`).
    * - ``GET /api/v1/tree``, ``GET /api/v1/tree/shared``, ``GET /api/v1/tree/jobs``
-     - One level of the caller's project tree, the jobs shared only through job rules, and the jobs of a project and below (:doc:`projects`).
+     - One level of the caller's project tree, the jobs shared only through job rules, and the jobs of a project and below (:doc:`projects`). Under a ``parent``, each job also carries how it last ran: ``last_status``, ``last_run_at``, ``last_success_at``, ``last_failure_at`` and ``last_duration_ms`` (absent for a job that never ran), read with one grouped query per project.
    * - ``GET /api/v1/access/me``, ``POST /api/v1/access/check``
      - The caller's own roles and their sources; why an identity has a role (instance admin) (:doc:`access-rules`).
    * - ``GET``/``PUT /api/v1/projects/{path}/access-rules``, ``GET``/``PUT /api/v1/jobs/{id}/access-rules``
