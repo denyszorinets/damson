@@ -1950,6 +1950,31 @@ export interface components {
         };
         TreeJob: {
             id: string;
+            /**
+             * Format: int64
+             * @description How long the job's newest finished run took, from its start.
+             */
+            last_duration_ms?: number;
+            /**
+             * Format: date-time
+             * @description When the job's newest failed run finished.
+             */
+            last_failure_at?: string;
+            /**
+             * Format: date-time
+             * @description When that run finished, else started, else was created.
+             */
+            last_run_at?: string;
+            /**
+             * @description Status of the job's newest run; absent when it never ran.
+             * @enum {string}
+             */
+            last_status?: "pending" | "running" | "succeeded" | "failed" | "canceled";
+            /**
+             * Format: date-time
+             * @description When the job's newest succeeded run finished.
+             */
+            last_success_at?: string;
             /** @description The caller's role on the job. */
             my_role: string;
             name: string;

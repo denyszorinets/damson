@@ -139,14 +139,18 @@ test('/jobs has no list and lands on Home', async ({ browser }) => {
 	await expect(alice.getByTestId('home-projects')).toBeVisible();
 });
 
-test('a project page lists its jobs and those below it, with a breadcrumb', async ({ browser }) => {
+test('a project page is a folder: child projects and its own jobs in one table', async ({
+	browser
+}) => {
 	const page = await as(browser, 'alice-sub');
 	await page.getByTestId('home-project-tree-acme').click();
 	await expect(page).toHaveURL(/\/projects\/tree-acme$/);
 	await expect(rows(page).filter({ hasText: 'deploy' })).toHaveCount(1);
-	await expect(rows(page).filter({ hasText: 'charge' })).toHaveCount(1);
+	await expect(page.getByTestId('project-link-tree-acme/pay')).toBeVisible();
+	await expect(rows(page).filter({ hasText: 'charge' })).toHaveCount(0); // below the child, not here
 	await expect(rows(page).filter({ hasText: 'nightly' })).toHaveCount(0);
-	await page.goto('/projects/tree-acme/pay');
+	await page.getByTestId('project-link-tree-acme/pay').click();
+	await expect(page).toHaveURL(/\/projects\/tree-acme\/pay$/);
 	await expect(page.getByTestId('crumb-tree-acme')).toBeVisible();
 	await expect(rows(page).filter({ hasText: 'charge' })).toHaveCount(1);
 	await expect(rows(page).filter({ hasText: 'deploy' })).toHaveCount(0);
@@ -159,6 +163,9 @@ test('a hidden project reads as missing on its URL', async ({ browser }) => {
 	const dave = await as(browser, 'dave-sub');
 	await dave.goto('/projects/tree-acme/pay');
 	await expect(rows(dave).filter({ hasText: 'charge' })).toHaveCount(1);
+	const frank = await as(browser, 'frank-sub');
+	await frank.goto('/projects/tree-ops');
+	await expect(frank.getByTestId('jobs-error')).toBeVisible(); // a job rule alone is no project role
 	await dave.goto('/projects/tree-acme');
 	await expect(dave.getByTestId('jobs-error')).toContainText(
 		'Not found, or you may not have access'
@@ -296,6 +303,14 @@ test("a project's Activity and Overview list only the runs of its jobs", async (
 	await alice.goto('/projects/tree-acme/pay/-/overview');
 	await expect(alice.getByTestId('success-rate')).toContainText('0%');
 	await expect(alice.getByTestId('run-row').first()).toContainText('charge');
+
+	// The project table shows how each job last ran.
+	await alice.goto('/projects/tree-acme/pay');
+	await expect(alice.getByTestId('job-status-charge')).toHaveText('failed');
+	await expect(alice.getByTestId('job-failure-charge')).not.toHaveText('-');
+	await expect(alice.getByTestId('job-success-charge')).toHaveText('-');
+	await alice.goto('/projects/tree-ops');
+	await expect(alice.getByTestId('job-status-nightly')).toHaveText('failed');
 
 	// dave holds a role on tree-acme/pay alone and sees its runs there.
 	const dave = await as(browser, 'dave-sub');

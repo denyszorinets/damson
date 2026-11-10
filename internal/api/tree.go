@@ -32,6 +32,12 @@ type TreeJob struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	MyRole string `json:"my_role" doc:"The caller's role on the job."`
+
+	LastStatus     string     `json:"last_status,omitempty" enum:"pending,running,succeeded,failed,canceled" doc:"Status of the job's newest run; absent when it never ran."`
+	LastRunAt      *time.Time `json:"last_run_at,omitempty" doc:"When that run finished, else started, else was created."`
+	LastSuccessAt  *time.Time `json:"last_success_at,omitempty" doc:"When the job's newest succeeded run finished."`
+	LastFailureAt  *time.Time `json:"last_failure_at,omitempty" doc:"When the job's newest failed run finished."`
+	LastDurationMS *int64     `json:"last_duration_ms,omitempty" doc:"How long the job's newest finished run took, from its start."`
 }
 
 // SharedJob is a job the caller reaches only through a rule of the job itself.
@@ -219,8 +225,21 @@ func getTree(ctx context.Context, d deps, in *treeInput) (*treeOutput, error) {
 	if err != nil {
 		return nil, apiError(ctx, err)
 	}
+	stats, err := d.ds.JobRunStats(ctx, parent.ID) // one grouped query for the project, not one per job
+	if err != nil {
+		return nil, apiError(ctx, err)
+	}
 	for _, j := range page.Jobs {
-		out.Body.Jobs = append(out.Body.Jobs, TreeJob{ID: j.ID, Name: j.Name, MyRole: v.roles[parent.Path]})
+		tj := TreeJob{ID: j.ID, Name: j.Name, MyRole: v.roles[parent.Path]}
+		if st, ok := stats[j.ID]; ok {
+			tj.LastStatus, tj.LastRunAt = string(st.LastStatus), &st.LastRunAt
+			tj.LastSuccessAt, tj.LastFailureAt = st.LastSuccessAt, st.LastFailureAt
+			if st.LastDuration != nil {
+				ms := st.LastDuration.Milliseconds()
+				tj.LastDurationMS = &ms
+			}
+		}
+		out.Body.Jobs = append(out.Body.Jobs, tj)
 	}
 	out.Body.JobsNextCursor = encodeCursor(page.NextCursor)
 	return out, nil

@@ -92,6 +92,7 @@ func Run(t *testing.T, f Factory) {
 		{"ProjectAccessRules", testProjectAccessRules},
 		{"JobAccessRules", testJobAccessRules},
 		{"ProjectCounts", testProjectCounts},
+		{"JobRunStats", testJobRunStats},
 		{"AccessRaces", testAccessRaces},
 		{"AuditSubtreeAndNames", testAuditSubtreeAndNames},
 		{"JobAudit", testJobAudit},

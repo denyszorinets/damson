@@ -3075,6 +3075,37 @@
           "id": {
             "type": "string"
           },
+          "last_duration_ms": {
+            "description": "How long the job's newest finished run took, from its start.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "last_failure_at": {
+            "description": "When the job's newest failed run finished.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "last_run_at": {
+            "description": "When that run finished, else started, else was created.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "last_status": {
+            "description": "Status of the job's newest run; absent when it never ran.",
+            "enum": [
+              "pending",
+              "running",
+              "succeeded",
+              "failed",
+              "canceled"
+            ],
+            "type": "string"
+          },
+          "last_success_at": {
+            "description": "When the job's newest succeeded run finished.",
+            "format": "date-time",
+            "type": "string"
+          },
           "my_role": {
             "description": "The caller's role on the job.",
             "type": "string"

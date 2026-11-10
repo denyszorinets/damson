@@ -254,6 +254,46 @@ func TestTreeRollupsCountTheVisibleSubtreeOnce(t *testing.T) {
 	})
 }
 
+func TestTreeJobsCarryTheirLastRuns(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		w := newAuthzWorld(t, st, 1)
+		ctx := context.Background()
+		now := time.Now().UTC().Truncate(time.Second)
+		finish := func(jobID string, status store.RunStatus, start time.Time, took time.Duration) {
+			var run struct{ ID string }
+			require.NoError(t, json.Unmarshal(w.mustAdmin("POST", "/api/v1/jobs/"+jobID+"/runs", `{"options":{}}`, 201), &run))
+			cur, err := st.GetRun(ctx, run.ID)
+			require.NoError(t, err)
+			cur, err = st.UpdateRunStatus(ctx, cur.ID, cur.Version, store.RunRunning, start)
+			require.NoError(t, err)
+			_, err = st.UpdateRunStatus(ctx, cur.ID, cur.Version, status, start.Add(took))
+			require.NoError(t, err)
+		}
+		finish(w.webJob, store.RunSucceeded, now.Add(-3*time.Hour), time.Minute)
+		finish(w.webJob, store.RunFailed, now.Add(-time.Hour), 20*time.Second)
+
+		for _, user := range []string{"alice", "bob", "dave"} {
+			_, b := w.tree(user, "?parent=team%2Fweb")
+			require.Len(t, b.Jobs, 1, user)
+			j := b.Jobs[0]
+			assert.Equal(t, "failed", j.LastStatus, user)
+			require.NotNil(t, j.LastSuccessAt, user)
+			require.NotNil(t, j.LastFailureAt, user)
+			assert.True(t, j.LastSuccessAt.Equal(now.Add(-3*time.Hour+time.Minute)), user)
+			assert.True(t, j.LastFailureAt.Equal(now.Add(-time.Hour+20*time.Second)), user)
+			require.NotNil(t, j.LastDurationMS, user)
+			assert.EqualValues(t, 20000, *j.LastDurationMS, user)
+		}
+		// A job that never ran carries none of the fields, and a project the caller cannot see answers 404.
+		_, b := w.tree("alice", "?parent=ops")
+		require.Len(t, b.Jobs, 1)
+		assert.Empty(t, b.Jobs[0].LastStatus)
+		assert.Nil(t, b.Jobs[0].LastSuccessAt)
+		code, _ := w.tree("bob", "?parent=ops")
+		assert.Equal(t, 404, code)
+	})
+}
+
 type accessCheckBody struct {
 	Project string `json:"project"`
 	JobID   string `json:"job_id"`

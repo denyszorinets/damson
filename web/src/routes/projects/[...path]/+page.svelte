@@ -5,6 +5,8 @@
 	import ProjectActivity from '$lib/components/ProjectActivity.svelte';
 	import ProjectNav from '$lib/components/ProjectNav.svelte';
 	import ProjectOverview from '$lib/components/ProjectOverview.svelte';
+	import ProjectTable from '$lib/components/ProjectTable.svelte';
+	import { isUser } from '$lib/session';
 	import { parseProjectRoute } from '$lib/projectroute';
 
 	// The URL is the project's path, then "/-/" and a tab; a view is stable and shareable.
@@ -29,7 +31,10 @@
 					<ProjectOverview path={route.path} />
 				{:else if tab === 'activity'}
 					<ProjectActivity path={route.path} />
+				{:else if isUser()}
+					<ProjectTable path={route.path} />
 				{:else}
+					<!-- A bearer token has no session for the tree: the flat list of the project and below. -->
 					<JobsView scope={route.path} />
 				{/if}
 			{/key}
