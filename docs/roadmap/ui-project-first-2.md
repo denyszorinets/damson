@@ -26,7 +26,7 @@ Exit: from `/projects` a user opens a project, whose Overview lists running and 
 | Slice | Kind | Delivers | Covers | Blocked by | Verify | Risk | Status |
 |-------|------|----------|--------|------------|--------|------|--------|
 | R1 | build | `/projects` redesigned as project management: a table whose rows open the project (name, description, child projects, jobs, your role), search, and a New project button that opens a modal (shadcn dialog added to `ui/`) with the same fields and server errors shown in it; delete stays per row for admins; the token entry and node scope controls are kept; no route removed | G1 | none | e2e: from `/projects` click `acme` and land on its page; New project opens a modal, creates `acme/new`, closes and lists it; a bad path shows the error in the modal; delete still works | low | |
-| R2 | build | Overview tab: Running now and Waiting blocks (project runs filtered by `running` and `pending`, refreshed by polling), recent runs, per-job health (last result and success rate); only jobs and runs the caller may see | G2 | none | e2e: start a run in `acme/payments`, Overview of `acme` shows it under Running now with a link; carol (viewer) sees the same; erin sees nothing of `acme` | med | |
+| R2 | build | Overview tab: Running now and Waiting blocks (project runs filtered by `running` and `pending`, refreshed by polling), recent runs, per-job health (last result and success rate); only jobs and runs the caller may see | G2 | none | e2e: start a run in `acme/payments`, Overview of `acme` shows it under Running now with a link; carol (viewer) sees the same; erin sees nothing of `acme` | med  shipped 2026-11-10 ui-pf2-r2-overview |
 
 ### M2: Nodes governed by access rules
 Exit: a member of `acme-ops` sees only the nodes of their set on the `acme` Nodes tab and can target only those, a member of no set sees none, and an instance admin sees all.
@@ -52,6 +52,9 @@ Exit: a member of `acme-ops` sees only the nodes of their set on the `acme` Node
 - New roles, or changing role meanings.
 - Removing the `/projects` page, the `/jobs` route or any REST API route.
 - Service-account nodes; agent pools.
+
+## Changes
+- 2026-11-10 R2 shipped: Overview has Running now, Waiting, job health and recent runs; verified on the OIDC stack with bob (runner) and erin, carol not exercised.
 
 ## Decisions so far
 - 2026-11-10 Decision: node access follows the access rules (maintainer): a group "owns" a filtered node set; the project `node_scope` stays as the hard ceiling and sets can only narrow it.
