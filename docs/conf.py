@@ -16,7 +16,7 @@ extensions = [
 
 source_suffix = {".rst": "restructuredtext"}
 root_doc = "index"
-exclude_patterns = ["_build", ".venv", "README.md", "superpowers", "SCAFFOLDING.md"]
+exclude_patterns = ["_build", ".venv", "README.md", "superpowers", "research/local", "issues", "roadmap", "planning", "TODO.md", "SCAFFOLDING.md"]
 
 extlinks = {
     "repo": (f"{repo_url}/blob/main/%s", "%s"),

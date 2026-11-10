@@ -228,6 +228,12 @@ change nothing until accepted.
    * - 0073
      - :doc:`0073-bundle-signing-and-backup-scripts`
      - Accepted
+   * - 0074
+     - :doc:`0074-run-retention`
+     - Accepted
+   * - 0075
+     - :doc:`0075-ui-project-tree-api`
+     - Proposed
 
 .. toctree::
    :hidden:
@@ -306,3 +312,4 @@ change nothing until accepted.
    0072-forward-only-migrations
    0073-bundle-signing-and-backup-scripts
    0074-run-retention
+   0075-ui-project-tree-api
