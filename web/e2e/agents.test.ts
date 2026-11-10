@@ -6,8 +6,8 @@ test('agents page shows the dev agent connected', async ({ page }) => {
 	const errors: string[] = [];
 	page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
 	await page.goto('/');
-	await page.getByRole('link', { name: 'Agents' }).click();
-	await expect(page).toHaveURL(/\/agents$/);
+	await page.getByTestId('admin-gear').click();
+	await expect(page).toHaveURL(/\/admin\/agents$/);
 	await expect(page.getByRole('heading', { name: 'Agents', level: 1 })).toBeVisible();
 
 	const row = page.getByTestId('agent-row');

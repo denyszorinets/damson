@@ -114,7 +114,7 @@
 		busy = true;
 		try {
 			await deleteNode(token, node.name, node.version, force);
-			await goto(resolve('/nodes'));
+			await goto(resolve('/admin/nodes'));
 		} catch (err) {
 			fail(err);
 			confirmDelete = false;
@@ -135,7 +135,7 @@
 
 <main class="mx-auto max-w-4xl space-y-6 px-4 py-8">
 	<p class="text-sm">
-		<a class="underline-offset-4 hover:underline" href={resolve('/nodes')}>Nodes</a> / {name}
+		<a class="underline-offset-4 hover:underline" href={resolve('/admin/nodes')}>Nodes</a> / {name}
 	</p>
 
 	{#if error}

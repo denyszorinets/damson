@@ -18,7 +18,7 @@ test('anonymous visitors are sent to log in and come back', async ({ browser }) 
 	await page.goto('/projects');
 	await expect(page.getByTestId('user-name')).toHaveText('alice@example.org');
 	await expect(page).toHaveURL(/\/projects$/); // returned to where they were headed
-	await expect(page.getByRole('link', { name: 'Secrets' })).toBeVisible(); // alice is an instance admin
+	await expect(page.getByTestId('admin-gear')).toBeVisible(); // alice is an instance admin
 });
 
 test('an instance admin builds the tree and writes access rules', async ({ browser }) => {
@@ -82,7 +82,7 @@ test('a runner sees only their projects and cannot manage them', async ({ browse
 	await expect(page.getByTestId('create-project')).toHaveCount(0);
 	await expect(page.getByTestId('delete-team')).toHaveCount(0);
 	await expect(page.getByTestId('edit-team')).toHaveCount(0);
-	await expect(page.getByRole('link', { name: 'Secrets' })).toHaveCount(0);
+	await expect(page.getByTestId('admin-gear')).toHaveCount(0);
 
 	// The server agrees: out-of-tree is not found, writes are refused.
 	const me = await (await page.request.get('/api/v1/me')).json();

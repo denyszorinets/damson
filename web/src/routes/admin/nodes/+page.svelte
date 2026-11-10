@@ -305,7 +305,7 @@
 							<Table.Cell>
 								<a
 									class="font-medium underline-offset-4 hover:underline"
-									href={resolve('/nodes/[name]', { name: n.name })}>{n.name}</a
+									href={resolve('/admin/nodes/[name]', { name: n.name })}>{n.name}</a
 								>
 							</Table.Cell>
 							<Table.Cell>{n.address}:{n.port}</Table.Cell>

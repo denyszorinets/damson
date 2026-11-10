@@ -2,6 +2,7 @@
 	import './layout.css';
 	import { resolve } from '$app/paths';
 	import { Button } from '$lib/components/ui/button';
+	import Settings from '@lucide/svelte/icons/settings';
 	import { logout } from '$lib/session';
 	import { page } from '$app/state';
 	import ProjectSwitcher from '$lib/components/ProjectSwitcher.svelte';
@@ -26,24 +27,24 @@
 			<ProjectSwitcher current={project} />
 		{/if}
 		<a href={resolve('/projects')} class="text-muted-foreground hover:text-foreground">Projects</a>
-		<a href={resolve('/agents')} class="text-muted-foreground hover:text-foreground">Agents</a>
 		{#if me?.kind === 'user'}
-			<a href={resolve('/access')} class="text-muted-foreground hover:text-foreground">Access</a>
+			<a href={resolve('/access')} class="text-muted-foreground hover:text-foreground">My access</a>
 		{/if}
-		{#if admin}
-			<a href={resolve('/nodes')} class="text-muted-foreground hover:text-foreground">Nodes</a>
-			<a href={resolve('/secrets')} class="text-muted-foreground hover:text-foreground">Secrets</a>
-			<a href={resolve('/service-accounts')} class="text-muted-foreground hover:text-foreground"
-				>Accounts</a
-			>
-			<a href={resolve('/audit')} class="text-muted-foreground hover:text-foreground">Audit</a>
-		{/if}
-		{#if me?.kind === 'user'}
-			<span class="ml-auto flex items-center gap-3" data-testid="user-menu">
+		<span class="ml-auto flex items-center gap-3" data-testid="user-menu">
+			{#if admin}
+				<a
+					href={resolve('/admin')}
+					class="text-muted-foreground hover:text-foreground"
+					aria-label="Admin"
+					title="Admin"
+					data-testid="admin-gear"><Settings class="size-4" /></a
+				>
+			{/if}
+			{#if me?.kind === 'user'}
 				<span class="text-muted-foreground" data-testid="user-name">{me.email || me.sub}</span>
 				<Button variant="outline" size="sm" onclick={logout} data-testid="logout">Log out</Button>
-			</span>
-		{/if}
+			{/if}
+		</span>
 	</div>
 </nav>
 {#if crumbs.length}

@@ -599,6 +599,55 @@ test("a project's Schedules and Webhooks tabs list its jobs' triggers, controls 
 	await expect(hrow.getByTestId('webhook-state')).toHaveText('revoked');
 });
 
+test('the Admin area is for instance admins, and old top-level routes redirect into it', async ({
+	browser
+}) => {
+	const alice = await as(browser, 'alice-sub');
+	await expect(alice.getByTestId('admin-gear')).toBeVisible();
+	await alice.getByTestId('admin-gear').click();
+	await expect(alice).toHaveURL(/\/admin\/agents$/);
+	for (const id of [
+		'agents',
+		'audit',
+		'nodes',
+		'secrets',
+		'service-accounts',
+		'access-check',
+		'log-purge'
+	])
+		await expect(alice.getByTestId(`admin-nav-${id}`)).toBeVisible();
+	await alice.getByTestId('admin-nav-audit').click();
+	await expect(alice).toHaveURL(/\/admin\/audit$/);
+	await alice.getByTestId('admin-nav-log-purge').click();
+	await expect(alice.getByTestId('purge-form')).toBeVisible();
+	// A purge asks to confirm, and an execution that does not exist is refused.
+	await alice.getByTestId('purge-id').fill('00000000-0000-7000-8000-00000000dead');
+	await alice.getByTestId('purge-start').click();
+	await alice.getByTestId('purge-confirm').click();
+	await expect(alice.getByTestId('purge-error')).toBeVisible();
+
+	for (const [old, now] of [
+		['/agents', '/admin/agents'],
+		['/audit', '/admin/audit'],
+		['/nodes', '/admin/nodes'],
+		['/secrets', '/admin/secrets'],
+		['/service-accounts', '/admin/service-accounts']
+	]) {
+		await alice.goto(old);
+		await expect(alice).toHaveURL(new RegExp(`${now}$`));
+	}
+
+	// bob has no gear and the Admin pages read as not found; the server agrees.
+	const bob = await as(browser, 'bob-sub');
+	await expect(bob.getByTestId('admin-gear')).toHaveCount(0);
+	for (const path of ['/admin/audit', '/admin/secrets', '/admin']) {
+		await bob.goto(path);
+		await expect(bob.getByTestId('not-found')).toBeVisible();
+		await expect(bob.getByTestId('admin-nav')).toHaveCount(0);
+	}
+	expect((await bob.request.get('/api/v1/audit')).status()).toBe(403);
+});
+
 test('an instance admin deletes an empty project from its Settings', async ({ browser }) => {
 	const alice = await as(browser, 'alice-sub');
 	const me = await (await alice.request.get('/api/v1/me')).json();

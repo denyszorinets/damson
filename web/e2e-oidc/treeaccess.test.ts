@@ -49,10 +49,14 @@ test('my access shows each role and the rule that gave it, to any signed-in user
 
 test('an admin asks why a group holds a role, and the check is audited', async ({ browser }) => {
 	const alice = await as(browser, 'alice-sub');
-	await expect(alice.getByTestId('access-check')).toBeVisible();
 	await expect(where(alice, 'tree-acme').getByTestId('my-access-source')).toContainText(
 		'instance admin'
 	);
+	// The check lives in the Admin area.
+	await alice.getByTestId('admin-gear').click();
+	await alice.getByTestId('admin-nav-access-check').click();
+	await expect(alice).toHaveURL(/\/admin\/access-check$/);
+	await expect(alice.getByTestId('access-check')).toBeVisible();
 
 	// bob's group on the child: the rule of the ancestor, named with its text.
 	await alice.getByTestId('check-groups').fill('team-ops');
