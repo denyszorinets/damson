@@ -32,9 +32,12 @@ lower ones.
    * - Read or set project or job access rules
      - ``admin``
 
-Secrets, nodes and inventory sync, pools, service accounts, schedules,
-webhooks, audit and log purge are for instance admins only. Any login may read
-agent, pool and plugin metadata. Scoping those per project is future work.
+Secrets, nodes and inventory sync, pools, service accounts, audit and log purge
+are for instance admins only. Schedules and webhooks follow the roles of their
+job's project (ADR-0076): ``viewer`` reads both, ``editor`` creates, changes and
+deletes schedules, and ``admin`` creates and revokes webhooks; a job's own rules
+count, up to ``editor``. Any login may read agent, pool and plugin metadata.
+Scoping the rest per project is future work.
 
 Rules
 -----

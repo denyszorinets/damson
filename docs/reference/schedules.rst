@@ -9,8 +9,13 @@ seconds, so a run starts within about 10 seconds of its fire time. Each fire
 time starts at most one run, even with several controllers. Design:
 :doc:`/architecture/decisions/0058-schedules-and-the-scheduler-duty`.
 
-Schedule routes need ``Authorization: Bearer <admin token>`` until M8.
-Schedules are controller-wide, not per project.
+A schedule belongs to a job and follows its project's roles (ADR-0076):
+``viewer`` lists and reads, ``editor`` creates, changes (pause included) and
+deletes; the job's own rules count, and a caller with no role on the job gets
+``404``. The admin token and instance admins may do everything. ``GET
+/api/v1/schedules`` needs ``job_id`` or ``project`` (the project and those below
+it) unless the caller is an instance admin or holds a token covering every
+project. Fires run as ``system:scheduler``, whoever created the schedule.
 
 Create a schedule
 -----------------

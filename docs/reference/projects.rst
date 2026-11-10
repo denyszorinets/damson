@@ -150,7 +150,7 @@ selector; the project URL is stable and can be shared.
 ``GET /api/v1/jobs/{id}`` returns ``job.my_role``: the caller's role on the job,
 from the project's rules and the job's own. The web UI uses it to disable what
 the role does not allow (Run needs ``runner``, shown as "needs runner") and hides
-schedules and webhooks from everyone but instance admins. A job or run the caller
+the schedule and webhook controls by role (editor for schedules, admin for webhooks). A job or run the caller
 has no role on shows the same "not found, or you may not have access" page as one
 that does not exist.
 

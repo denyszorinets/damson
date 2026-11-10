@@ -71,7 +71,9 @@ An ``editor`` token can also ``POST /apply`` job files and unchanged
 need ``admin``.
 
 A service token is never an admin: secrets, nodes, audit, inventory sync,
-service accounts, webhooks, schedules and log purge need the admin token, and
+service accounts and log purge need the admin token, schedules need a token role of
+``editor`` (``viewer`` to read), webhooks need ``viewer`` to read and cannot be
+created or revoked by a token, and
 so do creating, updating and deleting projects and all access-rule routes
 (they need ``admin``). A token with a role too low for a route gets ``403``;
 one whose scope does not cover the target gets ``404``. See :doc:`access-rules`.

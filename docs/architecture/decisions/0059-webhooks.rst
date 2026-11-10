@@ -80,7 +80,7 @@ visible to the mapping.
 actor ``admin-token:<12 hex>``. Details are ``job_id``, ``name`` and
 ``has_mapping``; never the token, its hash or the options.
 
-**API.** Admin token until M8. ``GET`` and ``POST /webhooks``; ``GET`` and
+**API.** Admin token until M8 (amended by ADR-0076: project roles). ``GET`` and ``POST /webhooks``; ``GET`` and
 ``DELETE /webhooks/{id}``; list filter ``job_id``; cursor paging.
 
 Deviation from ARCHITECTURE

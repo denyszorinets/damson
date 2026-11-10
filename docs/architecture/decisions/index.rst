@@ -234,6 +234,9 @@ change nothing until accepted.
    * - 0075
      - :doc:`0075-ui-project-tree-api`
      - Accepted
+   * - 0076
+     - :doc:`0076-project-scoped-schedules-and-webhooks`
+     - Accepted
 
 .. toctree::
    :hidden:
@@ -313,3 +316,4 @@ change nothing until accepted.
    0073-bundle-signing-and-backup-scripts
    0074-run-retention
    0075-ui-project-tree-api
+   0076-project-scoped-schedules-and-webhooks

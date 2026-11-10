@@ -68,7 +68,7 @@ clocks go back (the first occurrence) and is skipped for the day when its time
 does not exist (spring forward). An expression with a wildcard hour (``*``,
 ``*/n``, ``@hourly``) runs through the change normally.
 
-**API.** Admin token until M8. ``GET`` and ``POST /schedules``; ``GET``,
+**API.** Admin token until M8 (amended by ADR-0076: project roles). ``GET`` and ``POST /schedules``; ``GET``,
 ``PATCH`` and ``DELETE /schedules/{id}``; list filter ``job_id``; cursor
 paging. ``PATCH`` takes an optional ``if_version`` (409 on mismatch). Options
 are validated against the job's current ``spec.options`` on create and patch.

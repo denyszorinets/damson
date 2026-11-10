@@ -7,8 +7,12 @@ A webhook starts a run of one job when an external system calls
 ``POST /hooks/<token>``. A job can have several named webhooks, and each one can
 be revoked on its own. Design: :doc:`/architecture/decisions/0059-webhooks`.
 
-Webhook management routes need ``Authorization: Bearer <admin token>`` until
-M8. The ``/hooks/<token>`` call needs no other credential: the token in the URL
+A webhook belongs to a job and follows its project's roles (ADR-0076):
+``viewer`` lists and reads (never the token or its hash), project ``admin``
+creates and revokes, because the token starts runs from outside; the token is
+returned once, at creation. A caller with no role on the job gets ``404``, and a
+service token cannot create or revoke. ``GET /api/v1/webhooks`` takes ``job_id``
+or ``project`` as ``GET /api/v1/schedules`` does. The ``/hooks/<token>`` call needs no other credential: the token in the URL
 is the credential.
 
 Create a webhook
