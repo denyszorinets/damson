@@ -1,5 +1,15 @@
-import { describe, expect, it } from 'vitest';
-import { emptyForm, formOf, parseForm, type Node } from './nodes';
+import { beforeEach, describe, expect, it } from 'vitest';
+import {
+	addClause,
+	clause,
+	deleteSelector,
+	emptyForm,
+	formOf,
+	loadSaved,
+	parseForm,
+	saveSelector,
+	type Node
+} from './nodes';
 
 describe('parseForm', () => {
 	it('splits tags and parses attributes and port', () => {
@@ -57,5 +67,57 @@ describe('formOf', () => {
 		} as unknown as Node);
 		expect(f.tags).toBe('');
 		expect(f.attributes).toBe('');
+	});
+});
+
+describe('selector builder', () => {
+	it('builds a clause per field', () => {
+		expect(clause('os', 'linux')).toBe("node.os == 'linux'");
+		expect(clause('tag', 'prod')).toBe("'prod' in node.tags");
+		expect(clause('attribute', 'eu', 'region')).toBe("node.attributes.region == 'eu'");
+		expect(clause('pool', 'default')).toBe("node.pool == 'default'");
+	});
+
+	it('refuses what cannot make a clause and escapes values', () => {
+		expect(clause('os', '')).toBeNull();
+		expect(clause('attribute', 'x', 'bad key')).toBeNull();
+		expect(clause('attribute', 'x', "a'b")).toBeNull();
+		expect(clause('name', "it's")).toBe("node.name == 'it\\'s'");
+		// A value cannot end the quote and add to the expression.
+		expect(clause('os', "x' || true || '")).toBe("node.os == 'x\\' || true || \\''");
+	});
+
+	it('joins clauses with &&', () => {
+		expect(addClause('', "node.os == 'linux'")).toBe("node.os == 'linux'");
+		expect(addClause("node.os == 'linux'", "'prod' in node.tags")).toBe(
+			"node.os == 'linux' && 'prod' in node.tags"
+		);
+	});
+});
+
+describe('saved selectors', () => {
+	beforeEach(() => {
+		const data = new Map<string, string>();
+		globalThis.localStorage = {
+			getItem: (k: string) => data.get(k) ?? null,
+			setItem: (k: string, v: string) => void data.set(k, v)
+		} as Storage;
+	});
+
+	it('saves, replaces by name, and deletes', () => {
+		saveSelector('linux prod', "node.os == 'linux'");
+		saveSelector('eu', "node.attributes.region == 'eu'");
+		saveSelector('linux prod', "node.os == 'linux' && 'prod' in node.tags");
+		expect(loadSaved().map((s) => s.name)).toEqual(['eu', 'linux prod']);
+		expect(loadSaved()[1].selector).toContain('prod');
+		expect(deleteSelector('eu').map((s) => s.name)).toEqual(['linux prod']);
+	});
+
+	it('ignores an empty name or selector and survives garbage', () => {
+		saveSelector('', 'x');
+		saveSelector('n', '  ');
+		expect(loadSaved()).toEqual([]);
+		localStorage.setItem('damson.nodes.selectors', '[1,{"name":"a"},{"name":"b","selector":"c"}]');
+		expect(loadSaved()).toEqual([{ name: 'b', selector: 'c' }]);
 	});
 });

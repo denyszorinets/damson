@@ -39,6 +39,19 @@
 	let name = $state('');
 	let typeName = $state('generic');
 	let rows = $state<FieldRow[]>([]);
+	let copied = $state<string | null>(null); // the reference just copied
+
+	/** Copies the secret:// reference (never a value: the page never holds one). */
+	async function copyRef(ref: string) {
+		try {
+			await navigator.clipboard.writeText(ref);
+			copied = ref;
+			setTimeout(() => copied === ref && (copied = null), 2000);
+		} catch {
+			error = 'The browser did not allow copying; select the reference and copy it.';
+		}
+	}
+
 	let confirmRef = $state<string | null>(null);
 
 	const currentType = $derived(types.find((t) => t.name === typeName));
@@ -321,6 +334,14 @@
 							<Table.Cell>{(s.fields ?? []).join(', ')}</Table.Cell>
 							<Table.Cell>{s.current_version}</Table.Cell>
 							<Table.Cell class="space-x-2 text-right">
+								<Button
+									size="sm"
+									variant="outline"
+									onclick={() => copyRef(s.ref)}
+									data-testid="copy-ref"
+									aria-label={`Copy reference ${s.ref}`}
+									>{copied === s.ref ? 'Copied' : 'Copy reference'}</Button
+								>
 								<Button size="sm" variant="outline" onclick={() => openVersion(s)}
 									>New version</Button
 								>

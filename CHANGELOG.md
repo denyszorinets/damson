@@ -27,6 +27,8 @@ behavior; read the notes before upgrading.
 
 - A job page lists the job's versions (current one marked, with checksum and time) and compares any two as a line diff of their specs; a run page names the job version it ran and links to the job.
 
+- Nodes page: a selector builder turns a field and a value into a quoted clause (os, transport, pool, name, tag, or an attribute with an identifier key) and adds it to the selector; selectors can be saved under a name, reused and deleted (kept in this browser). Agents page: a Health column tells a healthy agent from one that is connected but has not been heard from for 30 seconds, and from one that is offline. Secrets page: **Copy reference** copies the `secret://` reference (never a value).
+
 ### Fixed
 
 - The run graph no longer lets a step box overlap the next one or the end node when badges (when, retry, status, attempt, lanes) wrap: a step is as tall as its badges need.

@@ -12,14 +12,21 @@
 	import TokenGate from '$lib/components/TokenGate.svelte';
 	import {
 		Unauthorized,
+		addClause,
+		clause,
 		createNode,
+		deleteSelector,
 		emptyForm,
 		fetchNodes,
+		loadSaved,
 		loadToken,
 		problemMessage,
+		saveSelector,
 		saveToken,
+		type ClauseField,
 		type Node,
-		type NodeForm
+		type NodeForm,
+		type SavedSelector
 	} from '$lib/nodes';
 
 	let token = $state('');
@@ -32,6 +39,25 @@
 	let enabled = $state('');
 	let selector = $state('');
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	let builderField = $state<ClauseField>('os');
+	let builderValue = $state('');
+	let builderKey = $state('');
+	let saved = $state<SavedSelector[]>(loadSaved());
+	let saveName = $state('');
+
+	/** Adds the clause the builder describes to the selector and reloads. */
+	function addFromBuilder() {
+		const c = clause(builderField, builderValue, builderKey);
+		if (!c) return;
+		selector = addClause(selector, c);
+		builderValue = '';
+		void load();
+	}
+
+	function useSaved(s: SavedSelector) {
+		selector = s.selector;
+		void load();
+	}
 	let creating = $state(false);
 	let form = $state<NodeForm>(emptyForm());
 
@@ -183,6 +209,78 @@
 			/>
 			<Button type="submit" variant="outline">Filter</Button>
 		</form>
+
+		<div class="space-y-2 text-sm" data-testid="selector-builder">
+			<div class="flex flex-wrap items-end gap-2">
+				<select
+					class="rounded-md border bg-background px-2 py-2"
+					aria-label="Field"
+					bind:value={builderField}
+					data-testid="builder-field"
+				>
+					{#each ['os', 'transport', 'pool', 'name', 'tag', 'attribute'] as f (f)}
+						<option value={f}>{f}</option>
+					{/each}
+				</select>
+				{#if builderField === 'attribute'}
+					<Input
+						class="w-32"
+						placeholder="key"
+						aria-label="Attribute key"
+						bind:value={builderKey}
+						data-testid="builder-key"
+					/>
+				{/if}
+				<Input
+					class="w-44"
+					placeholder="value"
+					aria-label="Value"
+					bind:value={builderValue}
+					data-testid="builder-value"
+				/>
+				<Button type="button" variant="outline" onclick={addFromBuilder} data-testid="builder-add"
+					>Add to selector</Button
+				>
+				<Input
+					class="w-40"
+					placeholder="save as"
+					aria-label="Save selector as"
+					bind:value={saveName}
+					data-testid="save-name"
+				/>
+				<Button
+					type="button"
+					variant="outline"
+					disabled={!saveName.trim() || !selector.trim()}
+					onclick={() => {
+						saved = saveSelector(saveName, selector);
+						saveName = '';
+					}}
+					data-testid="save-selector">Save</Button
+				>
+			</div>
+			{#if saved.length}
+				<ul class="flex flex-wrap gap-2" aria-label="Saved selectors" data-testid="saved-selectors">
+					{#each saved as s (s.name)}
+						<li class="flex items-center gap-1 rounded-md border px-2 py-1">
+							<button
+								type="button"
+								class="underline underline-offset-4"
+								title={s.selector}
+								onclick={() => useSaved(s)}
+								data-testid={`use-saved-${s.name}`}>{s.name}</button
+							>
+							<button
+								type="button"
+								class="text-muted-foreground hover:text-foreground"
+								aria-label={`Delete saved selector ${s.name}`}
+								onclick={() => (saved = deleteSelector(s.name))}>×</button
+							>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
 
 		{#if !loaded}
 			<Skeleton class="h-24 w-full" />

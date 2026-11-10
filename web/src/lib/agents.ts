@@ -70,3 +70,16 @@ export function formatBytes(n: number | undefined): string {
 	}
 	return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
+
+/** An agent is stale when it claims to be connected but has not been heard from lately. */
+export const STALE_AFTER_MS = 30_000;
+
+export function agentHealth(
+	status: string,
+	lastSeen: string | undefined,
+	now = Date.now()
+): 'healthy' | 'stale' | 'offline' {
+	if (status !== 'connected') return 'offline';
+	const seen = lastSeen ? Date.parse(lastSeen) : NaN;
+	return Number.isNaN(seen) || now - seen > STALE_AFTER_MS ? 'stale' : 'healthy';
+}

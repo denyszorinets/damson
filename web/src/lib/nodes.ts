@@ -204,3 +204,73 @@ export async function fetchRunTargets(
 	check(res);
 	return { items: res.data?.items ?? [], next: res.data?.next_cursor || undefined };
 }
+
+/** Fields a selector clause can test: one string field of a node, a tag, or an attribute. */
+export type ClauseField = 'name' | 'os' | 'transport' | 'pool' | 'tag' | 'attribute';
+
+const quote = (v: string) => `'${v.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * One clause of a node selector, or null when the input cannot make one (an empty
+ * value, or an attribute key that is not an identifier). The value is quoted and
+ * escaped, so it cannot add to the expression.
+ */
+export function clause(field: ClauseField, value: string, key = ''): string | null {
+	if (value === '') return null;
+	switch (field) {
+		case 'tag':
+			return `${quote(value)} in node.tags`;
+		case 'attribute':
+			return IDENT.test(key) ? `node.attributes.${key} == ${quote(value)}` : null;
+		default:
+			return `node.${field} == ${quote(value)}`;
+	}
+}
+
+/** Adds a clause to a selector with &&. */
+export function addClause(selector: string, c: string): string {
+	return selector.trim() ? `${selector.trim()} && ${c}` : c;
+}
+
+export interface SavedSelector {
+	name: string;
+	selector: string;
+}
+
+const SAVED_KEY = 'damson.nodes.selectors';
+
+/** Selectors saved in this browser. Storage may be blocked or hold garbage. */
+export function loadSaved(): SavedSelector[] {
+	try {
+		const list: unknown = JSON.parse(localStorage.getItem(SAVED_KEY) ?? '[]');
+		return (Array.isArray(list) ? list : []).filter(
+			(x): x is SavedSelector => !!x && typeof x.name === 'string' && typeof x.selector === 'string'
+		);
+	} catch {
+		return [];
+	}
+}
+
+/** Saves under a name (replacing one of the same name); returns the new list. */
+export function saveSelector(name: string, selector: string): SavedSelector[] {
+	const n = name.trim();
+	const list = loadSaved().filter((s) => s.name !== n);
+	if (n && selector.trim()) list.push({ name: n, selector: selector.trim() });
+	persist(list);
+	return list;
+}
+
+export function deleteSelector(name: string): SavedSelector[] {
+	const list = loadSaved().filter((s) => s.name !== name);
+	persist(list);
+	return list;
+}
+
+function persist(list: SavedSelector[]) {
+	try {
+		localStorage.setItem(SAVED_KEY, JSON.stringify(list));
+	} catch {
+		// storage blocked: saved selectors then last only until reload
+	}
+}

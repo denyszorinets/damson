@@ -7,6 +7,7 @@
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { poll } from '$lib/polling';
 	import {
+		agentHealth,
 		fetchAgents,
 		fetchPools,
 		MAX_ROWS,
@@ -22,6 +23,7 @@
 	let agents = $state<Agent[]>([]);
 	let moreAgents = $state(false);
 	let morePools = $state(false);
+	let now = $state(Date.now()); // the time health is judged at, moved by each refresh
 	let loaded = $state(false);
 	let error = $state<string | null>(null);
 
@@ -43,6 +45,7 @@
 			pools = p.items;
 			morePools = p.more;
 			agents = a.items;
+			now = Date.now();
 			moreAgents = a.more;
 			error = null;
 		} catch (e) {
@@ -134,6 +137,7 @@
 								<Table.Row>
 									<Table.Head>Agent</Table.Head>
 									<Table.Head>Status</Table.Head>
+									<Table.Head>Health</Table.Head>
 									<Table.Head>Pool</Table.Head>
 									<Table.Head>Free / capacity</Table.Head>
 									<Table.Head>CPU</Table.Head>
@@ -152,6 +156,20 @@
 											<Badge variant={a.status === 'connected' ? 'default' : 'secondary'}>
 												{a.status}
 											</Badge>
+										</Table.Cell>
+										<Table.Cell>
+											{@const h = agentHealth(a.status, a.last_seen, now)}
+											<Badge
+												variant={h === 'healthy'
+													? 'secondary'
+													: h === 'stale'
+														? 'destructive'
+														: 'outline'}
+												title={h === 'stale'
+													? 'Connected, but not heard from in over 30 seconds'
+													: undefined}
+												data-testid="agent-health">{h}</Badge
+											>
 										</Table.Cell>
 										<Table.Cell>{poolName(a.pool_id)}</Table.Cell>
 										<Table.Cell>{t?.free_slots ?? '-'} / {a.capacity}</Table.Cell>
