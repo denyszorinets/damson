@@ -15,6 +15,8 @@ behavior; read the notes before upgrading.
 
 - The run page has a log viewer: choose a step's Log to follow its execution's output live, with ANSI colours. It renders only the rows in view, keeps at most the newest 5000 lines in memory (saying how many earlier ones it dropped), applies each line once by sequence number, and reopens a dropped connection from the last sequence it saw.
 
+- The run dialog shows what the server finds wrong with an option beside that field (a 422 with a located error such as `options.env`) instead of a banner, and no run is created. Errors about the options as a whole stay in a banner.
+
 ### Fixed
 
 - The run graph no longer lets a step box overlap the next one or the end node when badges (when, retry, status, attempt, lanes) wrap: a step is as tall as its badges need.

@@ -17,8 +17,48 @@ export async function triggerRun(jobId: string, options: Record<string, unknown>
 		params: { path: { id: jobId } },
 		body: { options }
 	});
-	if (error !== undefined || !data) throw error ?? new Error('Empty response');
+	if (error !== undefined || !data) {
+		const rejected = optionErrors(error);
+		if (rejected) throw rejected;
+		throw error ?? new Error('Empty response');
+	}
 	return data.id;
+}
+
+/** A 422 on the options: what the server found wrong, by option and in general. */
+export class OptionsRejected extends Error {
+	constructor(
+		/** Messages by option name (the first segment after "options."). */
+		readonly fields: Record<string, string[]>,
+		/** Messages about the options as a whole, such as a missing required one. */
+		readonly general: string[]
+	) {
+		super(
+			[...general, ...Object.entries(fields).map(([k, v]) => `${k}: ${v.join(', ')}`)].join('; ')
+		);
+	}
+}
+
+/**
+ * Reads a problem+json answer's located errors ("options.env") into an
+ * OptionsRejected; null when it holds none about the options.
+ */
+export function optionErrors(problem: unknown): OptionsRejected | null {
+	const list = (
+		problem as { errors?: { message?: string; location?: string }[] | null } | undefined
+	)?.errors;
+	if (!Array.isArray(list)) return null;
+	const fields: Record<string, string[]> = {};
+	const general: string[] = [];
+	for (const e of list) {
+		const loc = e.location ?? '';
+		if (!(loc === 'options' || loc === 'body.options' || loc.startsWith('options.'))) continue;
+		const message = e.message ?? 'invalid';
+		const name = loc.startsWith('options.') ? loc.slice('options.'.length).split('.')[0] : '';
+		if (name) (fields[name] ??= []).push(message);
+		else general.push(message);
+	}
+	return Object.keys(fields).length || general.length ? new OptionsRejected(fields, general) : null;
 }
 
 /** The options schema of a job spec, or null when it declares none. */

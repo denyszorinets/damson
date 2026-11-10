@@ -6,7 +6,7 @@
 	import * as Alert from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import SchemaForm from '$lib/components/SchemaForm.svelte';
-	import { hasFields, problemMessage, triggerRun } from '$lib/triggers';
+	import { OptionsRejected, hasFields, problemMessage, triggerRun } from '$lib/triggers';
 	import { atLeast } from '$lib/projects';
 
 	let {
@@ -19,15 +19,20 @@
 	let open = $state(false);
 	let busy = $state(false);
 	let error = $state<string | null>(null);
+	let fieldErrors = $state<Record<string, string[]>>({});
 
 	async function start(options: Record<string, unknown>) {
 		busy = true;
 		error = null;
+		fieldErrors = {};
 		try {
 			const id = await triggerRun(jobId, options);
 			await goto(resolve('/runs/[id]', { id }));
 		} catch (e) {
-			error = problemMessage(e);
+			if (e instanceof OptionsRejected) {
+				fieldErrors = e.fields;
+				error = e.general.length ? e.general.join('; ') : null;
+			} else error = problemMessage(e);
 			busy = false;
 		}
 	}
@@ -54,7 +59,7 @@
 				</Alert.Root>
 			{/if}
 			{#if schema && hasFields(schema)}
-				<SchemaForm {schema} onsubmit={start} />
+				<SchemaForm {schema} errors={fieldErrors} onsubmit={start} />
 			{:else}
 				<p class="text-sm text-muted-foreground">This job takes no options.</p>
 				<Button data-testid="run-confirm" disabled={busy} onclick={() => start({})}
