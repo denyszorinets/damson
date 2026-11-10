@@ -5,10 +5,13 @@
 	import * as Table from '$lib/components/ui/table';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import { Input } from '$lib/components/ui/input';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { poll } from '$lib/polling';
 	import { problemMessage } from '$lib/jobs';
 	import { projectRest } from '$lib/projectroute';
+	import { fetchProjects, type Project } from '$lib/projects';
+	import { projectMatcher } from '$lib/projectsearch';
 	import { isUser } from '$lib/session';
 	import { fetchLevel, fetchShared, type SharedJob, type TreeProject } from '$lib/tree';
 
@@ -18,6 +21,32 @@
 	let next = $state('');
 	let loadingMore = $state(false);
 	let shared = $state<SharedJob[]>([]);
+	// The search covers every project the caller can see, nested ones too.
+	let query = $state('');
+	let visible = $state<Project[] | null>(null);
+	let searchError = $state<string | null>(null);
+	const matcher = $derived(projectMatcher(query));
+	const found = $derived(
+		matcher.empty || !visible ? [] : visible.filter((p) => matcher.test(p.path))
+	);
+
+	let searching = false; // a request for the search set is in flight
+	$effect(() => {
+		if (matcher.empty || visible !== null || searching || !isUser()) return;
+		searching = true;
+		searchError = null;
+		fetchProjects().then(
+			(list) => {
+				visible = list;
+				searching = false;
+			},
+			(e) => {
+				searchError = problemMessage(e);
+				searching = false;
+			}
+		);
+	});
+
 	let loaded = $state(false);
 	let error = $state<string | null>(null);
 
@@ -87,41 +116,85 @@
 			</p>
 		</section>
 	{:else}
-		{#if roots.length}
+		{#if roots.length || visible}
 			<section class="space-y-2" aria-label="Projects">
-				<h2 class="text-lg font-medium">Projects</h2>
-				<Table.Root data-testid="home-projects">
-					<Table.Header>
-						<Table.Row>
-							<Table.Head>Name</Table.Head>
-							<Table.Head>Role</Table.Head>
-							<Table.Head>Child projects</Table.Head>
-							<Table.Head>Jobs</Table.Head>
-							<Table.Head>Failed in 24 h</Table.Head>
-						</Table.Row>
-					</Table.Header>
-					<Table.Body>
-						{#each roots as p (p.path)}
-							<Table.Row data-testid="home-project-row">
-								<Table.Cell>
-									<a
-										class="font-medium underline-offset-4 hover:underline"
-										href={resolve('/projects/[...path]', { path: projectRest(p.path) })}
-										data-testid={`home-project-${p.path}`}>{p.label}</a
-									>
-								</Table.Cell>
-								<Table.Cell><Badge variant="outline">{p.my_role}</Badge></Table.Cell>
-								<Table.Cell>{p.has_children ? 'yes' : 'none'}</Table.Cell>
-								<Table.Cell data-testid={`home-jobs-${p.path}`}>{p.jobs ?? '-'}</Table.Cell>
-								<Table.Cell data-testid={`home-failed-${p.path}`}>{p.failed_24h ?? '-'}</Table.Cell>
-							</Table.Row>
+				<div class="flex flex-wrap items-center justify-between gap-3">
+					<h2 class="text-lg font-medium">Projects</h2>
+					<Input
+						type="search"
+						bind:value={query}
+						placeholder="Find a project: name or /regex/"
+						aria-label="Find a project"
+						class="w-72"
+						data-testid="project-search"
+					/>
+				</div>
+				{#if matcher.error}
+					<p class="text-sm text-destructive" role="alert" data-testid="search-error">
+						{matcher.error}
+					</p>
+				{:else if searchError}
+					<p class="text-sm text-destructive" role="alert" data-testid="search-error">
+						{searchError}
+					</p>
+				{/if}
+				{#if !matcher.empty && !matcher.error}
+					<ul class="divide-y rounded-md border text-sm" data-testid="search-results">
+						{#each found as p (p.path)}
+							<li class="flex items-center gap-3 px-3 py-2" data-testid="search-result">
+								<a
+									class="flex-1 truncate hover:underline"
+									href={resolve('/projects/[...path]', { path: projectRest(p.path) })}
+									data-testid="search-link-{p.path}">{p.path}</a
+								>
+								<Badge variant="outline">{p.my_role}</Badge>
+							</li>
+						{:else}
+							<li class="px-3 py-2 text-muted-foreground" data-testid="search-none">
+								{visible
+									? 'No project matches.'
+									: searchError
+										? 'The projects could not be loaded.'
+										: 'Searching…'}
+							</li>
 						{/each}
-					</Table.Body>
-				</Table.Root>
-				{#if next}
-					<Button variant="outline" onclick={more} disabled={loadingMore} data-testid="home-more"
-						>More…</Button
-					>
+					</ul>
+				{:else}
+					<Table.Root data-testid="home-projects">
+						<Table.Header>
+							<Table.Row>
+								<Table.Head>Name</Table.Head>
+								<Table.Head>Role</Table.Head>
+								<Table.Head>Child projects</Table.Head>
+								<Table.Head>Jobs</Table.Head>
+								<Table.Head>Failed in 24 h</Table.Head>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{#each roots as p (p.path)}
+								<Table.Row data-testid="home-project-row">
+									<Table.Cell>
+										<a
+											class="font-medium underline-offset-4 hover:underline"
+											href={resolve('/projects/[...path]', { path: projectRest(p.path) })}
+											data-testid={`home-project-${p.path}`}>{p.label}</a
+										>
+									</Table.Cell>
+									<Table.Cell><Badge variant="outline">{p.my_role}</Badge></Table.Cell>
+									<Table.Cell>{p.has_children ? 'yes' : 'none'}</Table.Cell>
+									<Table.Cell data-testid={`home-jobs-${p.path}`}>{p.jobs ?? '-'}</Table.Cell>
+									<Table.Cell data-testid={`home-failed-${p.path}`}
+										>{p.failed_24h ?? '-'}</Table.Cell
+									>
+								</Table.Row>
+							{/each}
+						</Table.Body>
+					</Table.Root>
+					{#if next}
+						<Button variant="outline" onclick={more} disabled={loadingMore} data-testid="home-more"
+							>More…</Button
+						>
+					{/if}
 				{/if}
 			</section>
 		{/if}

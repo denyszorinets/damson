@@ -599,6 +599,41 @@ test("a project's Schedules and Webhooks tabs list its jobs' triggers, controls 
 	await expect(hrow.getByTestId('webhook-state')).toHaveText('revoked');
 });
 
+test('Home searches the visible projects by name or regex and shows nothing else', async ({
+	browser
+}) => {
+	const alice = await as(browser, 'alice-sub');
+	const search = alice.getByTestId('project-search');
+	await search.fill('pay');
+	await expect(alice.getByTestId('search-link-tree-acme/pay')).toBeVisible(); // a nested project
+	await expect(alice.getByTestId('search-result')).toHaveCount(1);
+	await search.fill('/^tree-ops$/');
+	await expect(alice.getByTestId('search-link-tree-ops')).toBeVisible();
+	await expect(alice.getByTestId('search-result')).toHaveCount(1);
+	await search.fill('/(/');
+	await expect(alice.getByTestId('search-error')).toBeVisible();
+	await search.fill('no-such-project-name');
+	await expect(alice.getByTestId('search-none')).toBeVisible();
+	await search.fill('');
+	await expect(alice.getByTestId('home-project-tree-acme')).toBeVisible(); // the table is back
+
+	// bob holds a role on tree-acme: he finds pay below it, and nothing of tree-ops.
+	const bob = await as(browser, 'bob-sub');
+	await bob.getByTestId('project-search').fill('pay');
+	await expect(bob.getByTestId('search-link-tree-acme/pay')).toBeVisible();
+	await bob.getByTestId('project-search').fill('ops');
+	await expect(bob.getByTestId('search-none')).toBeVisible();
+	await expect(bob.getByTestId('search-link-tree-ops')).toHaveCount(0);
+
+	// frank reaches one job through a job rule: that job is listed, no project, no search box.
+	const frank = await as(browser, 'frank-sub');
+	await expect(frank.getByTestId('home-shared-nightly')).toBeVisible();
+	await expect(frank.getByTestId('home-shared').getByRole('link')).toHaveCount(1);
+	await expect(frank.getByTestId('project-search')).toHaveCount(0);
+	await expect(frank.getByTestId('home-project-row')).toHaveCount(0);
+	await expect(frank.getByText('tree-ops')).toHaveCount(0);
+});
+
 test('the Admin area is for instance admins, and old top-level routes redirect into it', async ({
 	browser
 }) => {
