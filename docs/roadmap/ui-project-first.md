@@ -38,7 +38,7 @@ Exit: a user runs, inspects and edits a job from its project URL with a tabbed p
 
 | Slice | Kind | Delivers | Covers | Blocked by | Verify | Risk | Status |
 |-------|------|----------|--------|------------|--------|------|--------|
-| R4 | build | Job page and run page under the project URL with breadcrumb; job page tabs Run, Runs, Definition and versions, Schedule, Webhooks (existing components moved into tabs); old `/jobs/<id>` and `/runs/<id>` redirect | G4, G6 | R2 (project page links), R3 (project sidebar) | e2e: from the project table a job opens at `/projects/<path>/-/jobs/<id>` with tabs; old URL redirects; viewer sees the run form disabled with the missing role | med | |
+| R4 | build | Job page and run page under the project URL with breadcrumb; job page tabs Run, Runs, Definition and versions, Schedule, Webhooks (existing components moved into tabs); old `/jobs/<id>` and `/runs/<id>` redirect | G4, G6 | R2 (project page links), R3 (project sidebar) | e2e: from the project table a job opens at `/projects/<path>/-/jobs/<id>` with tabs; old URL redirects; viewer sees the run form disabled with the missing role | med | shipped 2026-11-10 pf-r4-job-run-pages |
 | R5 | build | Tabbed job editor: Details, Options, Steps, Triggers tabs editing their part of the spec, with the JSON view kept; server validation by path as today | G4 | R4 (job page route) | e2e: edit a step on the Steps tab, save, new version appears in Definition; invalid input is shown on its tab | high | refine |
 | R6 | build | Project Settings tab (name, description, delete or archive as the API allows) and Access tab (the project's rules read-only and the effective-access check with the project filled in) | G3 | R3 (project sidebar) | e2e: dave (admin of `acme`) sees Settings and Access; bob (viewer) sees neither tab | med | shipped 2026-11-10 pf-r6-settings-access |
 | R12 | build | Project-scoped authorization for schedules and webhooks (backend): a schedule is managed by the roles that may edit its job, a webhook by the roles the ADR names; a caller without a role gets the response for a missing resource; every change audited; role mapping decided in an ADR by `architect` first | G3, G4 | D1 (role mapping) | API tests on SQLite and Postgres: editor of `acme/payments` creates a schedule on its job and gets 404 on another project's; a viewer gets 403 on write and can read; instance admin unchanged | high | shipped 2026-11-10 pf-r12-trigger-authz |
@@ -92,3 +92,4 @@ None.
 - 2026-11-10 R12 shipped (pf-r12-trigger-authz; ADR-0076).
 - 2026-11-10 R14 shipped (pf-r14-secrets-authz; ADR-0077).
 - 2026-11-10 R6 shipped (pf-r6-settings-access).
+- 2026-11-10 R4 shipped (pf-r4-job-run-pages).

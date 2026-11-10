@@ -120,14 +120,24 @@ Pages
 ``/jobs``
    Redirects to Home: no screen lists jobs across projects.
 
-``/jobs/[id]``
-   Shows the graph of the job's current version, fetched from
-   ``GET /jobs/{id}/versions/{v}/graph`` (``lib/jobs.ts``). Errors
-   (problem+json) are shown in an alert.
+``/projects/<path>/-/jobs/<id>[/<tab>]``
+   A job under its project (``JobView``), with the tabs **Run** (the run form
+   or confirmation), **Runs** (the job's newest runs), **Definition** (the graph
+   of the current version, from ``GET /jobs/{id}/versions/{v}/graph``, and the
+   versions with their diff), **Schedule** and **Webhooks** (the triggers, shown
+   to instance admins until the project-level tabs of R13). A URL whose project is
+   not the job's own is replaced by the right one; an unknown tab is the not-found
+   view. Errors (problem+json) are shown in an alert.
 
-``/runs/[id]``
-   The run view: the run's graph with live status, and a table of step
-   instances below it (see :ref:`web-ui-run-view`).
+``/projects/<path>/-/runs/<id>``
+   The run view under its job's project (``RunView``): the run's graph with live
+   status, and a table of step instances below it (see :ref:`web-ui-run-view`).
+
+``/jobs/[id]``, ``/runs/[id]``
+   The old URLs. They carry no project, so each asks for the job's project (a run
+   through its job) and replaces itself with the project-first URL; a job the
+   caller cannot read shows the not-found view. A run whose project cannot be
+   found is shown in place, and says not found if the caller may not read it.
 
 ``/projects``
    Project administration: the tree indented by depth (see :ref:`web-ui-login`).

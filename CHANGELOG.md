@@ -9,6 +9,8 @@ behavior; read the notes before upgrading.
 
 ### Added
 
+- A job and a run open under their project: `/projects/<path>/-/jobs/<id>` with Run, Runs, Definition, Schedule and Webhooks tabs, and `/projects/<path>/-/runs/<id>`. The old `/jobs/<id>` and `/runs/<id>` URLs move to them, and the project table, run lists and run dialog link there.
+
 - A project's Access tab lists its access rules read-only and, for an instance admin, checks why an identity has or lacks a role on it; its Settings tab edits the description and deletes an empty project. Both tabs show only to the project's admins, and anyone else who opens their URL gets the not-found page.
 
 - Secrets are managed by project roles instead of instance admins only (ADR-0077): the scope of a secret is its project, `editor` lists its names (and, with the new `project` filter, those of its ancestors that its jobs may use), project `admin` creates, versions and deletes, and a scope the caller holds no role on reads as not found. `_inventory` and scopes with no project stay instance-admin only. Values are never returned, audited or logged.
