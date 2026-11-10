@@ -81,6 +81,13 @@
 				<Alert.Description>{reason} The spec is shown read-only.</Alert.Description>
 			</Alert.Root>
 		{/if}
-		<SpecEditor bind:text readonly={reason !== null} saveLabel="Save new version" onsave={save} />
+		<SpecEditor
+			bind:text
+			readonly={reason !== null}
+			saveLabel="Save new version"
+			onsave={save}
+			jobId={job.id}
+			role={job.my_role}
+		/>
 	{/if}
 </main>

@@ -38,7 +38,7 @@ export function arrowNav(
 			opts.onEscape?.();
 			return;
 		}
-		const links = Array.from(node.querySelectorAll<HTMLElement>('a[href]'));
+		const links = Array.from(node.querySelectorAll<HTMLElement>('a[href], button[data-arrow]'));
 		const at = links.indexOf(document.activeElement as HTMLElement);
 		if (at < 0) return;
 		const to = nextIndex(at, links.length, e.key);
