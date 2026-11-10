@@ -38,7 +38,7 @@ Exit: a runner starts `deploy-web` from a validated form and watches it finish w
 |-------|------|----------|--------|------------|--------|------|--------|
 | R6 | build | Run view log viewer: the logs endpoint streamed live, ANSI colours, virtualized, de-duplicated by sequence, bounded rendering (no log viewer exists today) | G4 | none | e2e: a running step's lines appear live; a 100 000 line log renders without exceeding the cap; a reload resumes from the last sequence | med | shipped 2026-11-10 ui-r6-log-viewer, Verify unmet: a reload resumes from the last sequence |
 | R15 | build | Log filters by level and step, and a per-step detail panel on the run page | G4 | R6 (log viewer) | e2e: filtering by step shows only that step's lines; the panel shows attempts and status | med | |
-| R7 | build | Typed run dialog with per-field server validation errors | G4 | R1 (role-aware controls) | e2e: an invalid option shows its error beside the field and no run is created | med | |
+| R7 | build | Typed run dialog with per-field server validation errors | G4 | R1 (role-aware controls) | e2e: an invalid option shows its error beside the field and no run is created | med | shipped 2026-11-10 ui-r7-run-dialog |
 | R8 | build | Home page: recent runs and failures across visible projects, with entry points into the tree | G1 | R4 (tree) | e2e: frank sees an empty state; bob sees runs only from `acme` and `acme/payments` | low | |
 | R9 | build | Counts and 24 hour failure roll-ups on tree nodes over visible descendants | G1, G2 | R4 (tree), R3 (query) | e2e: counts differ between bob and dave and match each one's visible set; no double counting | med | |
 
@@ -95,3 +95,4 @@ None open. Project-scoped secrets, nodes and schedules are a separate effort (se
 - 2026-11-10 R1 shipped (ui-r1-role-controls): `job.my_role`, role-gated Run, triggers hidden for non-admins, NotFound view on job and run pages. Follow-ups: docs/issues/role-controls-follow-ups.md.
 - 2026-11-10 R2 shipped (ui-r2-graph-layout): step boxes sized by their badges; unit and DOM e2e checks. Follow-ups: docs/issues/graph-layout-follow-ups.md.
 - 2026-11-10 R6 shipped (ui-r6-log-viewer), Verify unmet: a page reload replays the log from sequence 1 and keeps the newest 5000 rows; only a dropped connection resumes from the last sequence. Issue: docs/issues/log-viewer-follow-ups.md.
+- 2026-11-10 R7 shipped (ui-r7-run-dialog): server option errors shown beside their fields. Follow-ups: docs/issues/run-dialog-follow-ups.md.
