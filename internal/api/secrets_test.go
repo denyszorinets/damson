@@ -268,3 +268,14 @@ func TestAdminTokenSchemeAndMessages(t *testing.T) {
 		assert.Equal(t, a.Detail, b.Detail)
 	})
 }
+
+// newTestSecretBackend is a database secret backend with a throwaway key.
+func newTestSecretBackend(t *testing.T, st store.Store, now func() time.Time) api.SecretBackend {
+	t.Helper()
+	k := make([]byte, 32)
+	_, _ = rand.Read(k)
+	ring, err := secrets.NewKeyring(base64.StdEncoding.EncodeToString(k), "")
+	require.NoError(t, err)
+	var n atomic.Int64
+	return secretsdb.New(st, ring, rand.Reader, now, func() string { return fmt.Sprintf("s%d-%s", n.Add(1), uuid.NewString()) })
+}

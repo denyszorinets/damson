@@ -65,6 +65,7 @@ func newOIDCFixture(t *testing.T, st store.Store, controllers int) *oidcFixture 
 	for i := 0; i < controllers; i++ {
 		f.hs = append(f.hs, api.NewServer(api.Config{
 			Addr: "127.0.0.1:0", Store: st, Data: st, UI: ui(), OIDC: o, Now: f.clock, Logger: log, Plugins: reg,
+			Secrets: newTestSecretBackend(t, st, f.clock),
 		}).Handler())
 	}
 	return f

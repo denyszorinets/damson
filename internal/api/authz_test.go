@@ -119,7 +119,7 @@ func TestAuthzMatrix(t *testing.T) {
 			{"create child project needs admin on the parent", "POST", "/api/v1/projects", `{"path":"team/new"}`, map[string]int{"bob": fbd, "carol": fbd, "dave": nf, "erin": nf, "gina": 201}},
 			{"create root project needs instance admin", "POST", "/api/v1/projects", `{"path":"newroot"}`, map[string]int{"bob": fbd, "gina": fbd, "erin": fbd, "alice": 201}},
 			{"admin only routes", "GET", "/api/v1/audit", "", map[string]int{"bob": fbd, "gina": fbd, "dave": fbd}},
-			{"secrets are instance admin", "GET", "/api/v1/secrets", "", map[string]int{"bob": fbd, "gina": fbd}},
+			{"secrets list needs a scope or project for a user", "GET", "/api/v1/secrets", "", map[string]int{"bob": 400, "gina": 400}},
 			{"inventory metadata is open to any login", "GET", "/api/v1/agents", "", map[string]int{"erin": ok, "carol": ok}},
 		}
 		for _, tt := range tests {

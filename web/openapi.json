@@ -8165,13 +8165,24 @@
         "operationId": "list-secrets",
         "parameters": [
           {
-            "description": "Only this scope; empty lists every scope.",
+            "description": "Only this scope (needs editor on it). A user needs scope or project; an instance admin may give neither to list every scope.",
             "explode": false,
             "in": "query",
             "name": "scope",
             "schema": {
-              "description": "Only this scope; empty lists every scope.",
+              "description": "Only this scope (needs editor on it). A user needs scope or project; an instance admin may give neither to list every scope.",
               "maxLength": 600,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The scopes a job of this project may use: the project and its ancestors (needs editor on the project). A scope the caller holds no role on is not listed.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "The scopes a job of this project may use: the project and its ancestors (needs editor on the project). A scope the caller holds no role on is not listed.",
+              "maxLength": 256,
               "type": "string"
             }
           },

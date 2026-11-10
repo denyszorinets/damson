@@ -49,9 +49,10 @@ type secretPath struct {
 }
 
 type listSecretsInput struct {
-	Scope  string `query:"scope" maxLength:"600" doc:"Only this scope; empty lists every scope."`
-	Cursor string `query:"cursor" doc:"Opaque cursor from a previous page's next_cursor."`
-	Limit  int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Page size."`
+	Scope   string `query:"scope" maxLength:"600" doc:"Only this scope (needs editor on it). A user needs scope or project; an instance admin may give neither to list every scope."`
+	Project string `query:"project" maxLength:"256" doc:"The scopes a job of this project may use: the project and its ancestors (needs editor on the project). A scope the caller holds no role on is not listed."`
+	Cursor  string `query:"cursor" doc:"Opaque cursor from a previous page's next_cursor."`
+	Limit   int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Page size."`
 }
 
 type listSecretsOutput struct {
@@ -83,13 +84,15 @@ type secretTypesOutput struct {
 }
 
 func registerSecrets(api huma.API, d deps) {
-	guard := huma.Middlewares{requireAdmin(api, d)}
 	huma.Register(api, huma.Operation{
 		OperationID: "list-secrets", Method: http.MethodGet, Path: "/secrets",
-		Summary: "List secret metadata", Tags: []string{"secrets"}, Security: adminSecurity, Middlewares: guard,
+		Summary: "List secret metadata", Tags: []string{"secrets"}, Security: adminSecurity,
 		Description: "Names, types, field names and versions. Values are never returned.",
 		Errors:      []int{http.StatusUnauthorized, http.StatusServiceUnavailable},
 	}, func(ctx context.Context, in *listSecretsInput) (*listSecretsOutput, error) {
+		if err := d.authorizeSecretList(ctx, in); err != nil {
+			return nil, err
+		}
 		if err := d.secretsReady(); err != nil {
 			return nil, apiError(ctx, err)
 		}
@@ -98,9 +101,9 @@ func registerSecrets(api huma.API, d deps) {
 			return nil, err
 		}
 		afterScope, afterName, _ := strings.Cut(cur, "\x00")
-		rows, err := d.secrets.List(ctx, in.Scope, afterScope, afterName, in.Limit+1)
+		rows, err := d.listSecrets(ctx, in, afterScope, afterName)
 		if err != nil {
-			return nil, apiError(ctx, err)
+			return nil, err
 		}
 		out := &listSecretsOutput{}
 		out.Body.Items = []SecretMeta{}
@@ -116,15 +119,18 @@ func registerSecrets(api huma.API, d deps) {
 	})
 	huma.Register(api, huma.Operation{
 		OperationID: "put-secret", Method: http.MethodPut, Path: "/secrets/{scope}/{name}",
-		Summary: "Create a secret or add a version", Tags: []string{"secrets"}, Security: adminSecurity, Middlewares: guard,
+		Summary: "Create a secret or add a version", Tags: []string{"secrets"}, Security: adminSecurity,
 		Description: "201 when the secret is created, 200 when a version is added. The response never contains values.",
 		Errors:      []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound, http.StatusConflict, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity, http.StatusServiceUnavailable},
 	}, func(ctx context.Context, in *putSecretInput) (*putSecretOutput, error) {
+		defer clear(in.Body.Fields) // values leave memory on every path, denied ones included
+		if err := d.requireScope(ctx, in.Scope, store.RoleAdmin); err != nil {
+			return nil, apiError(ctx, err)
+		}
 		if err := d.secretsReady(); err != nil {
 			return nil, apiError(ctx, err)
 		}
 		m, created, err := d.secrets.Put(ctx, in.Scope, in.Name, in.Body.Type, in.Body.Fields, in.Body.IfVersion)
-		clear(in.Body.Fields)
 		if err != nil {
 			return nil, apiError(ctx, err)
 		}
@@ -136,10 +142,13 @@ func registerSecrets(api huma.API, d deps) {
 	})
 	huma.Register(api, huma.Operation{
 		OperationID: "delete-secret", Method: http.MethodDelete, Path: "/secrets/{scope}/{name}",
-		Summary: "Delete a secret and all its versions", Tags: []string{"secrets"}, Security: adminSecurity, Middlewares: guard,
+		Summary: "Delete a secret and all its versions", Tags: []string{"secrets"}, Security: adminSecurity,
 		DefaultStatus: http.StatusNoContent,
 		Errors:        []int{http.StatusUnauthorized, http.StatusNotFound, http.StatusServiceUnavailable},
 	}, func(ctx context.Context, in *secretPath) (*struct{}, error) {
+		if err := d.requireScope(ctx, in.Scope, store.RoleAdmin); err != nil {
+			return nil, apiError(ctx, err)
+		}
 		if err := d.secretsReady(); err != nil {
 			return nil, apiError(ctx, err)
 		}

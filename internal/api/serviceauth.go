@@ -116,6 +116,13 @@ var routePolicies = map[string]routePolicy{
 	"get-webhook":     {store.RoleViewer, subjWebhook, true},
 	"create-webhook":  {store.RoleAdmin, subjHandler, true},
 	"revoke-webhook":  {store.RoleAdmin, subjWebhook, true},
+
+	// Secrets follow the roles of their scope's project (ADR-0077). The handler
+	// authorizes the decoded scope, because the path parameter may still be
+	// percent-encoded here.
+	"list-secrets":  {store.RoleEditor, subjHandler, true},
+	"put-secret":    {store.RoleAdmin, subjHandler, true},
+	"delete-secret": {store.RoleAdmin, subjHandler, true},
 }
 
 // covers reports whether a token scoped to scope may act in project: "" covers

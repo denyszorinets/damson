@@ -5578,8 +5578,10 @@ export interface operations {
     "list-secrets": {
         parameters: {
             query?: {
-                /** @description Only this scope; empty lists every scope. */
+                /** @description Only this scope (needs editor on it). A user needs scope or project; an instance admin may give neither to list every scope. */
                 scope?: string;
+                /** @description The scopes a job of this project may use: the project and its ancestors (needs editor on the project). A scope the caller holds no role on is not listed. */
+                project?: string;
                 /** @description Opaque cursor from a previous page's next_cursor. */
                 cursor?: string;
                 /** @description Page size. */
