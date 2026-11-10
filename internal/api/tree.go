@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -114,6 +115,32 @@ func (v visibleScope) hasChildren(path string) bool {
 	return false
 }
 
+// rollups adds the counts of each project to itself and to every ancestor the
+// caller can see, so a node counts its visible subtree once. A hidden ancestor
+// gets nothing, and the visible set is closed downward, so no hidden project's
+// counts reach a visible node.
+func (d deps) rollups(ctx context.Context, v visibleScope) (map[string]store.ProjectCounts, error) {
+	counts, err := d.ds.ProjectCounts(ctx, d.now().Add(-24*time.Hour))
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]store.ProjectCounts, len(v.projects))
+	for _, pr := range v.projects {
+		c, ok := counts[pr.ID]
+		if !ok {
+			continue
+		}
+		for path := pr.Path; path != "" && v.sees(path); path = store.ParentPath(path) {
+			t := out[path]
+			t.Jobs += c.Jobs
+			t.Failed24h += c.Failed24h
+			t.Running += c.Running
+			out[path] = t
+		}
+	}
+	return out, nil
+}
+
 func registerTree(api huma.API, d deps) {
 	huma.Register(api, huma.Operation{
 		OperationID: "get-tree", Method: http.MethodGet, Path: "/tree", Tags: []string{"projects"}, Security: adminSecurity,
@@ -157,6 +184,10 @@ func getTree(ctx context.Context, d deps, in *treeInput) (*treeOutput, error) {
 	out := &treeOutput{}
 	out.Body.Projects = []TreeProject{}
 	out.Body.Jobs = []TreeJob{}
+	totals, err := d.rollups(ctx, v)
+	if err != nil {
+		return nil, apiError(ctx, err)
+	}
 	kids := v.children(in.Parent)
 	sort.Slice(kids, func(i, j int) bool { return kids[i].Path < kids[j].Path })
 	for _, k := range kids {
@@ -171,8 +202,10 @@ func getTree(ctx context.Context, d deps, in *treeInput) (*treeOutput, error) {
 		if in.Parent != "" {
 			label = k.Path[len(in.Parent)+1:]
 		}
+		c := totals[k.Path]
 		out.Body.Projects = append(out.Body.Projects, TreeProject{
 			Path: k.Path, Label: label, MyRole: v.roles[k.Path], HasChildren: v.hasChildren(k.Path),
+			Jobs: &c.Jobs, Failed24h: &c.Failed24h, Running: &c.Running,
 		})
 	}
 	if in.Parent == "" {

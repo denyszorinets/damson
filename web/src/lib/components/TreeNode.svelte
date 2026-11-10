@@ -79,6 +79,26 @@
 			href={resolve('/projects/[...path]', { path: project.path })}
 			data-testid={`tree-link-${project.path}`}>{project.label}</a
 		>
+		{#if project.running}
+			<Badge
+				variant="secondary"
+				data-testid={`tree-running-${project.path}`}
+				title="Runs running now below this project">{project.running} running</Badge
+			>
+		{/if}
+		{#if project.failed_24h}
+			<Badge
+				variant="destructive"
+				data-testid={`tree-failed-${project.path}`}
+				title="Runs that failed in the last 24 hours below this project"
+				>{project.failed_24h} failed</Badge
+			>
+		{/if}
+		<span
+			class="text-xs text-muted-foreground tabular-nums"
+			title="Jobs in this project and the projects below it"
+			data-testid={`tree-jobs-${project.path}`}>{project.jobs ?? 0}</span
+		>
 		<Badge variant="outline" data-testid={`tree-role-${project.path}`}>{project.my_role}</Badge>
 	</div>
 	{#if isOpen}

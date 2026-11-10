@@ -39,6 +39,7 @@ type DataStore interface {
 	store.ProjectStore
 	store.SessionStore
 	store.AccessStore
+	store.StatsStore
 	PurgeExecutionLogs(ctx context.Context, executionID string, now time.Time) (store.LogPurge, error)
 
 	ListAgents(ctx context.Context, cursor string, limit int) (store.AgentPage, error)

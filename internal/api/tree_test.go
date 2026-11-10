@@ -1,9 +1,11 @@
 package api_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -213,5 +215,41 @@ func TestGetJobReportsTheCallersRole(t *testing.T) {
 		assert.Equal(t, "runner", role("frank", w.opsJob), "a job rule alone")
 		assert.Equal(t, "Not Found", role("erin", w.webJob), "no role reads as missing")
 		assert.Equal(t, "Not Found", role("frank", w.webJob))
+	})
+}
+
+func TestTreeRollupsCountTheVisibleSubtreeOnce(t *testing.T) {
+	forEachBackend(t, func(t *testing.T, st store.Store) {
+		w := newAuthzWorld(t, st, 1)
+		ctx := context.Background()
+		now := time.Now().UTC()
+		finish := func(jobID string, status store.RunStatus, at time.Time) {
+			var run struct{ ID string }
+			require.NoError(t, json.Unmarshal(w.mustAdmin("POST", "/api/v1/jobs/"+jobID+"/runs", `{"options":{}}`, 201), &run))
+			cur, err := st.GetRun(ctx, run.ID)
+			require.NoError(t, err)
+			_, err = st.UpdateRunStatus(ctx, cur.ID, cur.Version, status, at)
+			require.NoError(t, err)
+		}
+		finish(w.webJob, store.RunFailed, now.Add(-time.Hour))
+		finish(w.webJob, store.RunFailed, now.Add(-48*time.Hour)) // too old
+		finish(w.webJob, store.RunRunning, now)
+		finish(w.opsJob, store.RunFailed, now.Add(-2*time.Hour))
+
+		counts := func(user, query string) map[string][3]int {
+			_, b := w.tree(user, query)
+			out := map[string][3]int{}
+			for _, p := range b.Projects {
+				require.NotNil(t, p.Jobs, p.Path)
+				out[p.Path] = [3]int{*p.Jobs, *p.Failed24h, *p.Running}
+			}
+			return out
+		}
+		assert.Equal(t, map[string][3]int{"default": {0, 0, 0}, "ops": {1, 1, 0}, "team": {1, 1, 1}}, counts("alice", ""))
+		assert.Equal(t, map[string][3]int{"team/web": {1, 1, 1}}, counts("alice", "?parent=team"), "the child's counts equal the parent's own: no double counting")
+		assert.Equal(t, map[string][3]int{"team": {1, 1, 1}}, counts("bob", ""))
+		assert.Equal(t, map[string][3]int{"team/web": {1, 1, 1}}, counts("dave", ""), "a root below a hidden parent counts only itself")
+		// ops has a failed run, but frank sees no project: nothing of it shows.
+		assert.Empty(t, counts("frank", ""))
 	})
 }

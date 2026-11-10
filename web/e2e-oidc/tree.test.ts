@@ -228,3 +228,36 @@ test('a user with no role gets a not-found page with a way back and no hint', as
 	await gone.goto('/runs/00000000-0000-7000-8000-00000000dead');
 	await expect(gone.getByTestId('not-found')).toBeVisible();
 });
+
+test("tree counts cover each caller's visible subtree once and differ between callers", async ({
+	browser
+}) => {
+	const alice = await as(browser, 'alice-sub');
+	const level = async (parent: string) =>
+		(await (await alice.request.get(`/api/v1/tree?parent=${parent}`)).json()).projects;
+	const failedOf = async () =>
+		(await level('tree-acme')).find((p: { path: string }) => p.path === 'tree-acme/pay').failed_24h;
+	const before = await failedOf();
+	const me = await (await alice.request.get('/api/v1/me')).json();
+	const jobs = (await (await alice.request.get('/api/v1/tree/jobs?scope=tree-acme/pay')).json())
+		.items;
+	const run = await alice.request.post(`/api/v1/jobs/${jobs[0].id}/runs`, {
+		data: {},
+		headers: { 'X-CSRF-Token': me.csrf_token }
+	});
+	expect(run.status()).toBe(201);
+	// The dev agent has no inventory, so the run fails at once.
+	await expect.poll(failedOf).toBe(before + 1);
+
+	// bob holds a role on tree-acme: both jobs, and the failure once (no double count).
+	const bob = await as(browser, 'bob-sub');
+	await expect(bob.getByTestId('tree-jobs-tree-acme')).toHaveText('2');
+	await expect(bob.getByTestId('tree-failed-tree-acme')).toHaveText(`${before + 1} failed`);
+	// dave holds a role on tree-acme/pay alone: one job, the same failures, a different tree.
+	const dave = await as(browser, 'dave-sub');
+	await expect(dave.getByTestId('tree-jobs-tree-acme/pay')).toHaveText('1');
+	await expect(dave.getByTestId('tree-failed-tree-acme/pay')).toHaveText(`${before + 1} failed`);
+	await expect(dave.getByTestId('tree-jobs-tree-acme')).toHaveCount(0);
+	// An admin sees the other project's jobs as well.
+	await expect(alice.getByTestId('tree-jobs-tree-ops')).toHaveText('1');
+});

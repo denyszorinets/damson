@@ -19,6 +19,8 @@ behavior; read the notes before upgrading.
 
 - Choosing a step's Log on the run page opens a step panel (status, error, and every attempt with its state, agent and times) and the log of its latest attempt; any attempt's log can be opened from the panel, and the log can be filtered to stdout or stderr.
 
+- Sidebar tree nodes show the jobs below them, the runs that failed in the last 24 hours and the runs running now, over the projects the user can see only, each counted once.
+
 ### Fixed
 
 - The run graph no longer lets a step box overlap the next one or the end node when badges (when, retry, status, attempt, lanes) wrap: a step is as tall as its badges need.
